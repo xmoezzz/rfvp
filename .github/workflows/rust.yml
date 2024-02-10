@@ -17,7 +17,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Install Prerequisites
-      run: sudo apt-get update && sudo apt-get install -y alsa-lib
+      run: sudo apt-get update && sudo apt-get install -y libasound2-dev
     - name: Build
       run: cargo build --release --verbose
     - name: Run tests
