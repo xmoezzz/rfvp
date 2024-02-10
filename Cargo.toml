@@ -11,7 +11,7 @@ readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = { version = "*", features = ["backtrace"] }
+anyhow = { version = "1.0.79", features = ["backtrace"] }
 encoding_rs = "0.8.33"
 log = { version = "0.4.20", features = ["serde"] }
 serde = { version = "1.0.196", features = ["derive"]}
