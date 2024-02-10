@@ -21,6 +21,8 @@ use hecs::{
 use crate::subsystem::resources::focus_manager::FocusManager;
 use crate::subsystem::resources::font_atlas::FontAtlas;
 
+use super::resources::vfs::Vfs;
+
 pub trait World {
     fn entities(&self) -> HashSet<Entity>;
     fn clear(&mut self);
@@ -44,6 +46,7 @@ pub trait World {
 pub struct GameData {
     pub(crate) subworld: SubWorld,
     pub(crate) resources: Resources,
+    pub(crate) vfs: Vfs,
 }
 
 impl GameData {
@@ -142,6 +145,8 @@ impl GameData {
         self.get_resource_mut::<FocusManager>()
             .expect("The engine is missing the mandatory focus manager resource")
     }
+
+    
 }
 
 impl World for GameData {

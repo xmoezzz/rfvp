@@ -61,6 +61,7 @@ fn main() -> Result<()> {
     App::app_with_config(app_config(&parser))
         .with_scene::<MainScene>()
         .with_script_engine(parser)
+        .with_vfs(Nls::ShiftJIS)?
         .run();
     Ok(())
 }

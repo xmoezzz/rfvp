@@ -229,6 +229,11 @@ impl AppBuilder {
         package.load(self)
     }
 
+    pub fn with_vfs(mut self, nls: Nls) -> anyhow::Result<Self> {
+        self.world.vfs = crate::subsystem::resources::vfs::Vfs::new(nls)?;
+        Ok(self)
+    }
+
     pub fn with_script_engine(mut self, parser: Parser) -> Self {
         self.parser = parser;
         self
