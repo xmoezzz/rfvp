@@ -5,7 +5,7 @@ edition = "2021"
 license = "Apache-2.0"
 homepage = "https://github.com/xmoezzz/rfvp"
 description = "A Non-Official Rust cross-platform implementation of the FVP engine"
-repository = ""
+repository = "https://github.com/xmoezzz/rfvp"
 readme = "README.md"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
