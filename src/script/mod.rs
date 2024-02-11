@@ -1,12 +1,11 @@
-use std::{collections::HashMap};
+use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use twofloat::TwoFloat;
 
 pub mod context;
-pub mod syscall;
-pub mod scheduler;
 pub mod parser;
 pub mod global;
+pub mod opcode;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct SavedStackInfo {
@@ -523,5 +522,5 @@ fn vm_mod(a: Variant, b: Variant) -> Variant {
 }
 
 pub trait VmSyscall {
-    fn call(&self, name: &str, args: Vec<Variant>) -> anyhow::Result<Variant>;
+    fn do_syscall(&self, name: &str, args: Vec<Variant>) -> anyhow::Result<Variant>;
 }

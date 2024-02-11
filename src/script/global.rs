@@ -10,7 +10,7 @@ use serde::{Serialize, Deserialize};
 use anyhow::Result;
 
 /// Global variables
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Global {
     global_table: HashMap<u16, Variant>,
 }

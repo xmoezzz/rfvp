@@ -4,14 +4,12 @@ use std::mem::size_of;
 use crate::script::parser::Parser;
 use crate::script::Variant;
 use crate::script::VmSyscall;
+use crate::script::opcode::Opcode;
+use crate::script::global::Global;
 
 use anyhow::{bail, Result};
 
-use super::global::Global;
-
 static MAX_STACK_SIZE: usize = 0x100;
-// we use 50 instructions as the default time slice
-static DEFAULT_TIME_SLICE: u64 = 50;
 
 #[derive(Debug, Clone, Default)]
 pub struct StackFrame {
@@ -24,7 +22,7 @@ pub enum ContextState {
     #[default]
     Running,
     Suspended,
-    Finished,
+    Yielded,
 }
 
 /// implementation of the virtual machine
@@ -38,25 +36,28 @@ pub enum ContextState {
 /// | local(0)        | <- cur_stack_base
 ///
 pub struct Context {
-    pub stack: Vec<Variant>,
-    pub cursor: usize,
+    /// the context id
+    id: u64,
+    stack: Vec<Variant>,
+    cursor: usize,
     /// absolute position of the current stack pointer
     /// start from 0 if the context is just created
-    pub cur_stack_pos: usize,
+    cur_stack_pos: usize,
     /// relative to the base pointer of the current stack frame
     /// start from 0
-    pub cur_stack_base: usize,
-    pub start_addr: u32,
-    pub return_value: Variant,
-    pub stack_frames: Vec<StackFrame>,
-    pub state: ContextState,
-    pub remaining_time_slice: u64,
-    pub wait_ms: u64,
+    cur_stack_base: usize,
+    start_addr: u32,
+    return_value: Variant,
+    stack_frames: Vec<StackFrame>,
+    state: ContextState,
+    wait_ms: u64,
 }
+
 
 impl Context {
     pub fn new(start_addr: u32) -> Self {
         Context {
+            id: 0,
             stack: Vec::new(),
             cursor: 0,
             cur_stack_pos: 0,
@@ -65,8 +66,8 @@ impl Context {
             return_value: Variant::Nil,
             stack_frames: Vec::new(),
             state: ContextState::Running,
-            remaining_time_slice: DEFAULT_TIME_SLICE,
             wait_ms: 0,
+            
         }
     }
 
@@ -269,7 +270,7 @@ impl Context {
 
     /// 0x03 syscall
     /// call a system call
-    pub fn syscall(&mut self, sys: impl VmSyscall, parser: &mut Parser) -> Result<()> {
+    pub fn syscall(&mut self, sys: &impl VmSyscall, parser: &mut Parser) -> Result<()> {
         self.cursor += 1;
         let id = parser.read_u16(self.cursor)?;
         self.cursor += size_of::<u16>();
@@ -280,7 +281,7 @@ impl Context {
                 args.push(self.pop()?);
             }
 
-            let result = sys.call(syscall.name.as_str(), args)?;
+            let result = sys.do_syscall(syscall.name.as_str(), args)?;
             self.return_value = result;
         } else {
             bail!("syscall not found: {}", id);
@@ -773,6 +774,193 @@ impl Context {
         Ok(())
     }
 
-    
+    /// get the program counter
+    pub fn get_pc(&self) -> usize {
+        self.cursor
+    }
+
+    /// get waiting time for the context in ms
+    pub fn get_waiting_time(&self) -> u64 {
+        self.wait_ms
+    } 
+
+    /// set waiting time for the context in ms
+    pub fn set_waiting_time(&mut self, wait_ms: u64) {
+        self.wait_ms = wait_ms;
+    }
+
+    /// is the main context
+    pub fn is_main(&self) -> bool {
+        self.id == 0
+    }
+
+    /// how many time have been escaped
+    pub fn elapsed(&mut self, escaped_ms: u64) {
+        if self.wait_ms >= escaped_ms {
+            self.wait_ms -= escaped_ms;
+        } else {
+            self.wait_ms == 0;
+        }
+
+        // If the context is waiting and the waiting time is over, then it is ready to run
+        if self.wait_ms == 0 && self.is_suspended() {
+            self.state = ContextState::Running;
+        }
+    }
+
+    /// the context is ready to be scheduled
+    pub fn is_running(&self) -> bool {
+        self.state == ContextState::Running
+    }
+
+    /// the context is suspended
+    pub fn is_suspended(&self) -> bool {
+        self.state == ContextState::Suspended
+    }
+
+    /// the context is yielded
+    pub fn is_yielded(&self) -> bool {
+        self.state == ContextState::Yielded
+    }
+
+    /// set the context to run
+    pub fn set_running(&mut self) {
+        self.state = ContextState::Running;
+    }
+
+
+    #[inline]
+    pub fn dispatch_opcode(&mut self, syscaller: &impl VmSyscall, parser: &mut Parser, global: &mut Global) -> Result<()> {
+        let opcode = parser.read_u8(self.get_pc())? as i32;
+        
+        match opcode.try_into() {
+            Ok(Opcode::Nop) => {
+                self.nop()?;
+            }
+            Ok(Opcode::InitStack) => {
+                self.init_stack(parser)?;
+            }
+            Ok(Opcode::Call) => {
+                self.call(parser)?;
+            }
+            Ok(Opcode::Syscall) => {
+                self.syscall(syscaller, parser)?;
+            }
+            Ok(Opcode::Ret) => {
+                self.ret()?;
+            }
+            Ok(Opcode::RetV) => {
+                self.retv()?;
+            }
+            Ok(Opcode::Jmp) => {
+                self.jmp(parser)?;
+            }
+            Ok(Opcode::Jz) => {
+                self.jz(parser)?;
+            }
+            Ok(Opcode::PushNil) => {
+                self.push_nil()?;
+            }
+            Ok(Opcode::PushTrue) => {
+                self.push_true()?;
+            }
+            Ok(Opcode::PushI32) => {
+                self.push_i32(parser)?;
+            }
+            Ok(Opcode::PushI16) => {
+                self.push_i16(parser)?;
+            }
+            Ok(Opcode::PushI8) => {
+                self.push_i8(parser)?;
+            }
+            Ok(Opcode::PushF32) => {
+                self.push_f32(parser)?;
+            }
+            Ok(Opcode::PushString) => {
+                self.push_string(parser)?;
+            }
+            Ok(Opcode::PushGlobal) => {
+                self.push_global(parser, global)?;
+            }
+            Ok(Opcode::PushStack) => {
+                self.push_stack(parser)?;
+            }
+            Ok(Opcode::PushGlobalTable) => {
+                self.push_global_table(parser, global)?;
+            }
+            Ok(Opcode::PushLocalTable) => {
+                self.push_local_table(parser)?;
+            }
+            Ok(Opcode::PushTop) => {
+                self.push_top()?;
+            }
+            Ok(Opcode::PushReturn) => {
+                self.push_return_value()?;
+            }
+            Ok(Opcode::PopGlobal) => {
+                self.pop_global(parser, global)?;
+            }
+            Ok(Opcode::PopStack) => {
+                self.local_copy(parser)?;
+            }
+            Ok(Opcode::PopGlobalTable) => {
+                self.pop_global_table(parser, global)?;
+            }
+            Ok(Opcode::PopLocalTable) => {
+                self.pop_local_table(parser)?;
+            }
+            Ok(Opcode::Neg) => {
+                self.neg()?;
+            }
+            Ok(Opcode::Add) => {
+                self.add()?;
+            }
+            Ok(Opcode::Sub) => {
+                self.sub()?;
+            }
+            Ok(Opcode::Mul) => {
+                self.mul()?;
+            }
+            Ok(Opcode::Div) => {
+                self.div()?;
+            }
+            Ok(Opcode::Mod) => {
+                self.modulo()?;
+            }
+            Ok(Opcode::BitTest) => {
+                self.bittest()?;
+            }
+            Ok(Opcode::And) => {
+                self.and()?;
+            }
+            Ok(Opcode::Or) => {
+                self.or()?;
+            }
+            Ok(Opcode::SetE) => {
+                self.sete()?;
+            }
+            Ok(Opcode::SetNE) => {
+                self.setne()?;
+            }
+            Ok(Opcode::SetG) => {
+                self.setg()?;
+            }
+            Ok(Opcode::SetLE) => {
+                self.setle()?;
+            }
+            Ok(Opcode::SetL) => {
+                self.setl()?;
+            }
+            Ok(Opcode::SetGE) => {
+                self.setge()?;
+            }
+            _ => {
+                self.nop()?;
+                log::error!("unknown opcode: {}", opcode);
+            }
+        };
+
+        Ok(())
+    }
 
 }

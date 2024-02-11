@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::hash::Hasher;
 
+use crate::script::{Variant, VmSyscall};
 use crate::subsystem::components::maths::camera::DefaultCamera;
 use crate::subsystem::resources::asset_manager::AssetManager;
 use crate::subsystem::resources::audio::Audio;
@@ -147,6 +148,12 @@ impl GameData {
     }
 
     
+}
+
+impl VmSyscall for GameData {
+    fn do_syscall(&self, name: &str, args: Vec<Variant>) -> anyhow::Result<Variant> {
+        Ok(Variant::Nil)
+    }
 }
 
 impl World for GameData {

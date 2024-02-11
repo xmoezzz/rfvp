@@ -6,7 +6,8 @@ mod rendering;
 mod config;
 
 
-use script::parser::{Nls, Parser};
+use script::{global::Global, parser::{Nls, Parser}};
+use subsystem::resources::scripter::ScriptScheduler;
 
 use crate::{
     config::{
@@ -33,10 +34,9 @@ impl Scene for MainScene {
     }
 }
 
-fn app_config(parser: &Parser) -> AppConfig {
-    let size = parser.get_screen_size();
+fn app_config(title: &str, size: (u32, u32)) -> AppConfig {
     AppConfigBuilder::new()
-        .with_app_name(parser.get_title())
+        .with_app_name(title.to_string())
         .with_logger_config(LoggerConfig { app_level_filter: LevelFilter::Info, level_filter: LevelFilter::Debug })
         .with_window_config(
             WindowConfigBuilder::new()
@@ -50,7 +50,6 @@ fn app_config(parser: &Parser) -> AppConfig {
 
 fn load_script(nls: Nls) -> Result<Parser> {
     let base_path = app_base_path();
-    println!("{:?}", &base_path.get_path());
     let opcode_path = App::find_hcb(base_path.get_path())?;
 
     Parser::new(opcode_path, nls)
@@ -58,9 +57,17 @@ fn load_script(nls: Nls) -> Result<Parser> {
 
 fn main() -> Result<()> {
     let parser = load_script(Nls::ShiftJIS)?;
-    App::app_with_config(app_config(&parser))
+    let title  = parser.get_title();
+    let size = parser.get_screen_size();
+    let script_engine = ScriptScheduler::new();
+
+    App::app_with_config(app_config(&title, size))
         .with_scene::<MainScene>()
-        .with_script_engine(parser)
+        .with_script_engine(script_engine)
+        .with_window_title(&title)
+        .with_window_size(size)
+        .with_global(Global::new())
+        .with_parser(parser)
         .with_vfs(Nls::ShiftJIS)?
         .run();
     Ok(())
