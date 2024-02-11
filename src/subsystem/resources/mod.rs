@@ -8,5 +8,4 @@ pub mod asset_manager;
 pub mod font_atlas;
 pub mod vfs;
 pub mod texture;
-pub mod syscall;
 pub mod scripter;

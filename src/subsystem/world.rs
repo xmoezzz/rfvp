@@ -147,7 +147,9 @@ impl GameData {
             .expect("The engine is missing the mandatory focus manager resource")
     }
 
-    
+    pub fn vfs_load_file(&self, path: &str) -> anyhow::Result<Vec<u8>> {
+        self.vfs.read_file(path)
+    }
 }
 
 impl VmSyscall for GameData {
