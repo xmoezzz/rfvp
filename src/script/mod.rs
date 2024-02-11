@@ -521,6 +521,7 @@ fn vm_mod(a: Variant, b: Variant) -> Variant {
     }
 }
 
+
 pub trait VmSyscall {
-    fn do_syscall(&self, name: &str, args: Vec<Variant>) -> anyhow::Result<Variant>;
+    fn do_syscall(&mut self, name: &str, args: Vec<Variant>) -> anyhow::Result<Variant>;
 }

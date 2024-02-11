@@ -22,6 +22,7 @@ use hecs::{
 use crate::subsystem::resources::focus_manager::FocusManager;
 use crate::subsystem::resources::font_atlas::FontAtlas;
 
+use super::resources::scripter::ScriptScheduler;
 use super::resources::vfs::Vfs;
 
 pub trait World {
@@ -41,6 +42,13 @@ pub trait World {
     fn entry_mut<Q: Query>(&mut self, entity: Entity) -> Result<Q::Item<'_>, QueryOneError>;
     fn contains(&self, entity: Entity) -> bool;
     fn add_default_camera(&mut self) -> Entity;
+}
+
+enum ScriptThreadEvent {
+    None,
+    Starting { id: u32, addr: u32 },
+    Yielded,
+    
 }
 
 #[derive(Default)]
@@ -153,7 +161,11 @@ impl GameData {
 }
 
 impl VmSyscall for GameData {
-    fn do_syscall(&self, name: &str, args: Vec<Variant>) -> anyhow::Result<Variant> {
+    fn do_syscall(&mut self, name: &str, args: Vec<Variant>) -> anyhow::Result<Variant> {
+
+        if name == "ThreadExit" {
+            let id = args[0].as_int().unwrap();
+        }
         Ok(Variant::Nil)
     }
 }

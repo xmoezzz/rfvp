@@ -6,6 +6,7 @@ use crate::script::Variant;
 use crate::script::VmSyscall;
 use crate::script::opcode::Opcode;
 use crate::script::global::Global;
+use crate::subsystem::resources::scripter::ScriptScheduler;
 
 use anyhow::{bail, Result};
 
@@ -51,6 +52,7 @@ pub struct Context {
     stack_frames: Vec<StackFrame>,
     state: ContextState,
     wait_ms: u64,
+    should_exit: bool,
 }
 
 
@@ -67,7 +69,7 @@ impl Context {
             stack_frames: Vec::new(),
             state: ContextState::Running,
             wait_ms: 0,
-            
+            should_exit: false,
         }
     }
 
@@ -270,7 +272,7 @@ impl Context {
 
     /// 0x03 syscall
     /// call a system call
-    pub fn syscall(&mut self, sys: &impl VmSyscall, parser: &mut Parser) -> Result<()> {
+    pub fn syscall(&mut self, sys: &mut impl VmSyscall, parser: &mut Parser) -> Result<()> {
         self.cursor += 1;
         let id = parser.read_u16(self.cursor)?;
         self.cursor += size_of::<u16>();
@@ -828,9 +830,16 @@ impl Context {
         self.state = ContextState::Running;
     }
 
+    pub fn set_exited(&mut self) {
+        self.should_exit = true;
+    }
+
+    pub fn should_exit_now(&self) -> bool {
+        self.should_exit
+    }
 
     #[inline]
-    pub fn dispatch_opcode(&mut self, syscaller: &impl VmSyscall, parser: &mut Parser, global: &mut Global) -> Result<()> {
+    pub fn dispatch_opcode(&mut self, syscaller: &mut impl VmSyscall, parser: &mut Parser, global: &mut Global) -> Result<()> {
         let opcode = parser.read_u8(self.get_pc())? as i32;
         
         match opcode.try_into() {

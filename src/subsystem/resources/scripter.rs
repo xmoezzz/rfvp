@@ -37,6 +37,15 @@ impl ScriptScheduler {
         self.queue.get_mut(&id)
     }
 
+    pub fn thread_exit(&mut self, id: u32) -> Result<()> {
+        if let Some(context) = self.queue.get_mut(&id) {
+            context.set_exited();
+            return Ok(());
+        }
+
+        bail!("no context found");
+    }
+
     /// move to the next schedulable context
     fn switch_context(&mut self) {
         let mut keys = self.queue.keys().map(|k| *k).collect::<Vec<_>>();
@@ -79,7 +88,7 @@ impl ScriptScheduler {
         &mut self,
         rendering_time: u64,
         total_time: u64,
-        game_data: &GameData,
+        game_data: &mut GameData,
         parser: &mut Parser,
         global: &mut Global,
     ) -> Result<()> {
@@ -87,6 +96,7 @@ impl ScriptScheduler {
 
         // let parser = self.get_parser_mut();
         let context = self.current_context()?;
+        
         if context.is_yielded() || context.is_suspended() {
             if context.is_yielded() {
                 // next time, context will be schedulable
@@ -111,6 +121,13 @@ impl ScriptScheduler {
             // we execute the script 50 instructions at a time
             for _ in 0..50 {
                 context.dispatch_opcode(game_data, parser, global)?;
+                if context.should_exit_now() {
+                    // remove the context from the queue
+                    self.remove(self.current_id);
+                    // set the next schedulable context
+                    self.switch_context();
+                    return Ok(());
+                }
 
                 // in case the script is triggered to yield or sleep
                 if context.is_yielded() || context.is_suspended() {

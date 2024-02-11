@@ -39,9 +39,9 @@ pub struct App {
     layer_machine: SceneMachine,
     window: Option<Arc<Window>>,
     renderer: Option<RendererState>,
-    script_engine: ScriptScheduler,
     parser: Parser,
     global: Global,
+    script_engine: ScriptScheduler,
 }
 
 impl App {
@@ -183,7 +183,7 @@ impl App {
         if let Err(e) = self.script_engine.execute(
             rendering_time,
             script_time,
-            &self.game_data,
+            &mut self.game_data,
             &mut self.parser,
             &mut self.global,
         ) {
@@ -247,9 +247,9 @@ pub struct AppBuilder {
     world: GameData,
     title: String,
     size: (u32, u32),
-    script_engine: ScriptScheduler,
     parser: Parser,
     global: Global,
+    script_engine: ScriptScheduler,
 }
 
 impl AppBuilder {
@@ -262,9 +262,9 @@ impl AppBuilder {
             world: Default::default(),
             title: Default::default(),
             size: Default::default(),
-            script_engine: Default::default(),
             parser: Default::default(),
             global: Default::default(),
+            script_engine: Default::default(),
         };
         builder.with_package(InternalPackage)
     }
@@ -355,9 +355,9 @@ impl AppBuilder {
             },
             window: Some(window.clone()),
             renderer: Some(renderer_state),
-            script_engine: self.script_engine,
             parser: self.parser,
             global: self.global,
+            script_engine: self.script_engine,
         };
 
         app.setup();
