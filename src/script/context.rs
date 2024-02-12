@@ -820,9 +820,20 @@ impl Context {
         self.state == ContextState::Suspended
     }
 
+    /// set the context to suspended
+    pub fn set_suspended(&mut self, wait_ms: u64) {
+        self.state = ContextState::Suspended;
+        self.wait_ms = wait_ms;
+    }
+
     /// the context is yielded
     pub fn is_yielded(&self) -> bool {
         self.state == ContextState::Yielded
+    }
+
+    /// set the context to yield
+    pub fn set_yielded(&mut self) {
+        self.state = ContextState::Yielded;
     }
 
     /// set the context to run

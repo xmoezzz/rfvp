@@ -1,8 +1,8 @@
 use anyhow::Result;
 use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
+    cell::RefCell, path::{Path, PathBuf}, rc::Rc, sync::Arc
 };
+
 
 use crate::{
     rendering,
@@ -41,7 +41,7 @@ pub struct App {
     renderer: Option<RendererState>,
     parser: Parser,
     global: Global,
-    script_engine: ScriptScheduler,
+    script_engine: Rc<RefCell<ScriptScheduler>>,
 }
 
 impl App {
@@ -180,7 +180,7 @@ impl App {
             5 // 5ms is the minimum time we want to give to the script engine
         };
 
-        if let Err(e) = self.script_engine.execute(
+        if let Err(e) = self.script_engine.borrow_mut().execute(
             rendering_time,
             script_time,
             &mut self.game_data,
@@ -346,6 +346,9 @@ impl AppBuilder {
         let renderer_state =
             futures::executor::block_on(RendererState::new(window.clone(), renderer));
 
+        let script_engine = Rc::new(RefCell::new(self.script_engine));
+        self.world.script_scheduler = script_engine.clone();
+
         let mut app = App {
             config: self.config,
             game_data: self.world,
@@ -357,7 +360,7 @@ impl AppBuilder {
             renderer: Some(renderer_state),
             parser: self.parser,
             global: self.global,
-            script_engine: self.script_engine,
+            script_engine,
         };
 
         app.setup();

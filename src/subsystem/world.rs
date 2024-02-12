@@ -1,8 +1,10 @@
 use std::any::TypeId;
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::hash::Hasher;
+use std::rc::Rc;
 
 use crate::script::{Variant, VmSyscall};
 use crate::subsystem::components::maths::camera::DefaultCamera;
@@ -44,18 +46,12 @@ pub trait World {
     fn add_default_camera(&mut self) -> Entity;
 }
 
-enum ScriptThreadEvent {
-    None,
-    Starting { id: u32, addr: u32 },
-    Yielded,
-    
-}
-
 #[derive(Default)]
 pub struct GameData {
     pub(crate) subworld: SubWorld,
     pub(crate) resources: Resources,
     pub(crate) vfs: Vfs,
+    pub(crate) script_scheduler: Rc<RefCell<ScriptScheduler>>,
 }
 
 impl GameData {
@@ -158,6 +154,7 @@ impl GameData {
     pub fn vfs_load_file(&self, path: &str) -> anyhow::Result<Vec<u8>> {
         self.vfs.read_file(path)
     }
+
 }
 
 impl VmSyscall for GameData {
@@ -165,6 +162,7 @@ impl VmSyscall for GameData {
 
         if name == "ThreadExit" {
             let id = args[0].as_int().unwrap();
+            crate::subsystem::components::syscalls::thread::thread_exit(self, id);
         }
         Ok(Variant::Nil)
     }

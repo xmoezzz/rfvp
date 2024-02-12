@@ -46,9 +46,33 @@ impl ScriptScheduler {
         bail!("no context found");
     }
 
+    pub fn thread_yield(&mut self) -> Result<()> {
+        if let Some(context) = self.queue.get_mut(&self.current_id) {
+            context.is_yielded();
+            return Ok(());
+        }
+
+        bail!("no context found");
+    }
+
+    pub fn thread_start(&mut self, id: u32, addr: u32) -> Result<()> {
+        let context = Context::new(addr);
+        self.add(id, context);
+        Ok(())
+    }
+
+    pub fn thread_wait(&mut self, time: u32) -> Result<()> {
+        if let Some(context) = self.queue.get_mut(&self.current_id) {
+            context.set_suspended(time as u64);
+            return Ok(());
+        }
+
+        bail!("no context found");
+    }
+
     /// move to the next schedulable context
     fn switch_context(&mut self) {
-        let mut keys = self.queue.keys().map(|k| *k).collect::<Vec<_>>();
+        let mut keys = self.queue.keys().copied().collect::<Vec<_>>();
         keys.sort();
 
         let idx = keys.binary_search(&self.current_id).unwrap();
