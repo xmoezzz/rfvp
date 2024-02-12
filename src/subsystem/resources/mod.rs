@@ -9,3 +9,4 @@ pub mod font_atlas;
 pub mod vfs;
 pub mod texture;
 pub mod scripter;
+pub mod history_manager;

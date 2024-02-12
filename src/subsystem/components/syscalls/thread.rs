@@ -1,7 +1,6 @@
 use anyhow::Result;
 
 use crate::script::Variant;
-use crate::subsystem::resources::scripter::ScriptScheduler;
 use crate::subsystem::world::GameData;
 
 /// exit thread by id
