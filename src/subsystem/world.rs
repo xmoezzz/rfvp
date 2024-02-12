@@ -24,6 +24,7 @@ use hecs::{
 use crate::subsystem::resources::focus_manager::FocusManager;
 use crate::subsystem::resources::font_atlas::FontAtlas;
 
+use super::resources::flag_manager::FlagManager;
 use super::resources::history_manager::HistoryManager;
 use super::resources::scripter::ScriptScheduler;
 use super::resources::vfs::Vfs;
@@ -54,6 +55,7 @@ pub struct GameData {
     pub(crate) vfs: Vfs,
     pub(crate) script_scheduler: Rc<RefCell<ScriptScheduler>>,
     pub(crate) history_manager: HistoryManager,
+    pub(crate) flag_manager: FlagManager,
 }
 
 impl GameData {

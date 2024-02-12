@@ -10,3 +10,4 @@ pub mod vfs;
 pub mod texture;
 pub mod scripter;
 pub mod history_manager;
+pub mod flag_manager;
