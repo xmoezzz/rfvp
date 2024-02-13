@@ -1,7 +1,6 @@
 use anyhow::{bail, Result};
 
 use crate::script::Variant;
-use crate::subsystem::resources::flag_manager::FlagManager;
 use crate::subsystem::world::GameData;
 
 
