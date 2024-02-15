@@ -26,6 +26,7 @@ use crate::subsystem::resources::font_atlas::FontAtlas;
 
 use super::resources::flag_manager::FlagManager;
 use super::resources::history_manager::HistoryManager;
+use super::resources::prim::PrimManager;
 use super::resources::scripter::ScriptScheduler;
 use super::resources::vfs::Vfs;
 
@@ -56,6 +57,7 @@ pub struct GameData {
     pub(crate) script_scheduler: Rc<RefCell<ScriptScheduler>>,
     pub(crate) history_manager: HistoryManager,
     pub(crate) flag_manager: FlagManager,
+    pub(crate) prim_manager: PrimManager,
 }
 
 impl GameData {
