@@ -3,9 +3,21 @@ use std::cell::{RefCell, RefMut};
 
 pub const INVAILD_PRIM_HANDLE: i16 = -1;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub enum PrimType {
+    #[default]
+    PrimTypeNone = 0,
+    PrimTypeGroup = 1,
+    PrimTypeTile = 2,
+    PrimTypeSprt = 4,
+    PrimTypeText = 5,
+    PrimTypeSnow = 7,
+}
+
+
 #[derive(Debug, Clone, Default)]
 pub struct Prim {
-    typ: i8,
+    typ: PrimType,
     draw_flag: bool,
     alpha: i8,
     blend: bool,
@@ -30,6 +42,7 @@ pub struct Prim {
     mode: i16,
     tile: i16,
     text_index: i16,
+    attr: u32,
 }
 
 impl Prim {
@@ -37,7 +50,7 @@ impl Prim {
         Self::default()
     }
 
-    pub fn set_type(&mut self, typ: i8) {
+    pub fn set_type(&mut self, typ: PrimType) {
         self.typ = typ;
     }
 
@@ -137,7 +150,15 @@ impl Prim {
         self.text_index = text_index;
     }
 
-    pub fn get_type(&self) -> i8 {
+    pub fn apply_attr(&mut self, attr: u32) {
+        self.attr |= attr;
+    }
+
+    pub fn set_attr(&mut self, attr: u32) {
+        self.attr = attr;
+    }
+
+    pub fn get_type(&self) -> PrimType {
         self.typ
     }
 
@@ -236,6 +257,10 @@ impl Prim {
     pub fn get_text_index(&self) -> i16 {
         self.text_index
     }
+
+    pub fn get_attr(&self) -> u32 {
+        self.attr
+    }
 }
 
 
@@ -256,10 +281,10 @@ impl PrimManager {
         self.prims[id as usize].borrow_mut()
     }
 
-    pub fn prim_init_with_type(&mut self, id: i16, typ: i8) {
+    pub fn prim_init_with_type(&mut self, id: i16, typ: PrimType) {
         let mut prim = self.get_prim(id);
         if prim.get_type() != typ {
-            if prim.get_type() == 1 {
+            if prim.get_type() == PrimType::PrimTypeGroup {
                 let mut child = prim.get_child();
                 while child != INVAILD_PRIM_HANDLE {
                     self.unlink_prim(child);
@@ -269,7 +294,7 @@ impl PrimManager {
 
             prim.set_type(typ);
             prim.set_draw_flag(true);
-            if typ == 1 {
+            if typ == PrimType::PrimTypeGroup {
                 prim.set_child(INVAILD_PRIM_HANDLE);
                 prim.set_group_args2(INVAILD_PRIM_HANDLE);
                 prim.set_x(0);
@@ -333,7 +358,7 @@ impl PrimManager {
     }
 
     pub fn set_prim_group_in(&mut self, new_root: i32, id: i32) {
-        self.prim_init_with_type(new_root as i16, 1);
+        self.prim_init_with_type(new_root as i16, PrimType::PrimTypeGroup);
         self.unlink_prim(id as i16);
 
         let mut prim = self.get_prim(id as i16);
@@ -356,5 +381,100 @@ impl PrimManager {
         // self.prim_slots[idx].m_Attribute |= 0x40;
     }
 
+    pub fn prim_set_op(&mut self, id: i32, opx: i32, opy: i32) {
+        let mut prim = self.get_prim(id as i16);
+        prim.set_opx(opx as i16);
+        prim.set_opy(opy as i16);
+    }
+
+    pub fn prim_set_alpha(&mut self, id: i32, alpha: i32) {
+        let mut prim = self.get_prim(id as i16);
+        prim.set_alpha(alpha as i8);
+    }
+
+    pub fn prim_set_blend(&mut self, id: i32, blend: i32) {
+        let mut prim = self.get_prim(id as i16);
+        prim.set_blend(blend != 0);
+    }
+
+    pub fn prim_set_draw(&mut self, id: i32, draw: i32) {
+        let mut prim = self.get_prim(id as i16);
+        prim.set_draw_flag(draw != 0);
+    }
+
+    pub fn prim_set_rotation(&mut self, id: i32, rotation: i32) {
+        let mut prim = self.get_prim(id as i16);
+        prim.set_rotation(rotation as i16);
+    }
+
+    pub fn prim_set_scale(&mut self, id: i32, factor_x: i32, factor_y: i32) {
+        let mut prim = self.get_prim(id as i16);
+        prim.set_factor_x(factor_x as i16);
+        prim.set_factor_y(factor_y as i16);
+    }
+
+    pub fn prim_set_uv(&mut self, id: i32, u: i32, v: i32) {
+        let mut prim = self.get_prim(id as i16);
+        prim.set_u(u as i16);
+        prim.set_v(v as i16);
+    }
+
+    pub fn prim_set_size(&mut self, id: i32, w: i32, h: i32) {
+        let mut prim = self.get_prim(id as i16);
+        prim.set_w(w as i16);
+        prim.set_h(h as i16);
+    }
+
+    pub fn prim_set_pos(&mut self, id: i32, x: i32, y: i32) {
+        let mut prim = self.get_prim(id as i16);
+        prim.set_x(x as i16);
+        prim.set_y(y as i16);
+    }
+
+    pub fn prim_set_sprt(&mut self, id: i32, sprt: i32) {
+        let mut prim = self.get_prim(id as i16);
+        prim.set_sprt(sprt as i16);
+    }
+
+    pub fn prim_set_z(&mut self, id: i32, z: i32) {
+        let mut prim = self.get_prim(id as i16);
+        prim.set_z(z as i16);
+    }
+
+    pub fn prim_set_mode(&mut self, id: i32, mode: i32) {
+        let mut prim = self.get_prim(id as i16);
+        prim.set_mode(mode as i16);
+    }
+
+    pub fn prim_set_text(&mut self, id: i32, text_index: i32) {
+        let mut prim = self.get_prim(id as i16);
+        prim.set_text_index(text_index as i16);
+    }
+
+    pub fn prim_set_tile(&mut self, id: i32, tile: i32) {
+        let mut prim = self.get_prim(id as i16);
+        prim.set_tile(tile as i16);
+    }
+
+    pub fn prim_add_attr(&mut self, id: i32, mask: u32) {
+        let mut prim = self.get_prim(id as i16);
+        let attr = prim.get_attr();
+        prim.set_attr(attr | mask);
+    }
+
+    pub fn prim_remove_attr(&mut self, id: i32, mask: u32) {
+        let mut prim = self.get_prim(id as i16);
+        let attr = prim.get_attr();
+        prim.set_attr(attr & mask);
+    }
+
+    pub fn prim_set_attr(&mut self, id: i32, attr: i32) {
+        let mut prim = self.get_prim(id as i16);
+        prim.set_attr(attr as u32);
+    }
+
+    pub fn prim_get_type(&self, id: i32) -> PrimType {
+        self.get_prim(id as i16).get_type()
+    }
 
 }
