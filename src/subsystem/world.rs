@@ -8,9 +8,16 @@ use std::rc::Rc;
 
 use crate::script::{Variant, VmSyscall};
 use crate::subsystem::components::maths::camera::DefaultCamera;
+use crate::subsystem::components::syscalls::graph::{
+    PrimExitGroup, PrimGroupIn, PrimGroupMove, PrimGroupOut, PrimSetAlpha, PrimSetBlend,
+    PrimSetDraw, PrimSetNull, PrimSetOp, PrimSetRS, PrimSetRS2, PrimSetSnow, PrimSetSprt,
+    PrimSetText, PrimSetTile, PrimSetUV, PrimSetWH, PrimSetXY, PrimSetZ,
+};
 use crate::subsystem::resources::asset_manager::AssetManager;
 use crate::subsystem::resources::audio::Audio;
 use crate::subsystem::resources::events::Events;
+use crate::subsystem::resources::focus_manager::FocusManager;
+use crate::subsystem::resources::font_atlas::FontAtlas;
 use crate::subsystem::resources::inputs::inputs_controller::InputsController;
 use crate::subsystem::resources::time::Timers;
 use crate::subsystem::resources::window::Window;
@@ -18,17 +25,17 @@ use crate::subsystem::scene::SceneController;
 use atomic_refcell::{AtomicRef, AtomicRefCell, AtomicRefMut};
 use downcast_rs::{impl_downcast, Downcast};
 use hecs::{
-    Component, ComponentError, DynamicBundle, Entity, NoSuchEntity, Query, QueryBorrow,
-    QueryMut, QueryOne, QueryOneError,
+    Component, ComponentError, DynamicBundle, Entity, NoSuchEntity, Query, QueryBorrow, QueryMut,
+    QueryOne, QueryOneError,
 };
-use crate::subsystem::resources::focus_manager::FocusManager;
-use crate::subsystem::resources::font_atlas::FontAtlas;
 
 use super::resources::flag_manager::FlagManager;
 use super::resources::history_manager::HistoryManager;
 use super::resources::prim::PrimManager;
 use super::resources::scripter::ScriptScheduler;
 use super::resources::vfs::Vfs;
+
+use crate::subsystem::components::syscalls::Syscaller;
 
 pub trait World {
     fn entities(&self) -> HashSet<Entity>;
@@ -66,14 +73,17 @@ impl GameData {
     }
 
     pub fn contains_resource<T: Resource>(&self) -> bool {
-        self.resources.internal_resources.storage.contains_key(&ResourceTypeId::of::<T>())
-    }
-
-    pub fn insert_resource<T: Resource>(&mut self, resource: T) {
         self.resources
             .internal_resources
             .storage
-            .insert(ResourceTypeId::of::<T>(), AtomicResourceCell::new(Box::new(resource)));
+            .contains_key(&ResourceTypeId::of::<T>())
+    }
+
+    pub fn insert_resource<T: Resource>(&mut self, resource: T) {
+        self.resources.internal_resources.storage.insert(
+            ResourceTypeId::of::<T>(),
+            AtomicResourceCell::new(Box::new(resource)),
+        );
     }
 
     pub fn remove_resource<T: Resource>(&mut self) -> Option<T> {
@@ -88,12 +98,20 @@ impl GameData {
 
     pub fn get_resource<T: Resource>(&self) -> Option<AtomicRef<T>> {
         let type_id = &ResourceTypeId::of::<T>();
-        self.resources.internal_resources.storage.get(&type_id).map(|x| x.get::<T>())
+        self.resources
+            .internal_resources
+            .storage
+            .get(&type_id)
+            .map(|x| x.get::<T>())
     }
 
     pub fn get_resource_mut<T: Resource>(&self) -> Option<AtomicRefMut<T>> {
         let type_id = &ResourceTypeId::of::<T>();
-        self.resources.internal_resources.storage.get(&type_id).map(|x| x.get_mut::<T>())
+        self.resources
+            .internal_resources
+            .storage
+            .get(&type_id)
+            .map(|x| x.get_mut::<T>())
     }
 
     /// retrieves the asset manager from the resources.
@@ -160,17 +178,18 @@ impl GameData {
     pub fn vfs_load_file(&self, path: &str) -> anyhow::Result<Vec<u8>> {
         self.vfs.read_file(path)
     }
-
 }
 
 impl VmSyscall for GameData {
     fn do_syscall(&mut self, name: &str, args: Vec<Variant>) -> anyhow::Result<Variant> {
-
-        if name == "ThreadExit" {
-            let id = args[0].as_int().unwrap();
-            crate::subsystem::components::syscalls::thread::thread_exit(self, id);
-        }
-        Ok(Variant::Nil)
+        let result = SYSCALL_TBL.borrow().get(name).map_or_else(
+            || {
+                log::error!("Syscall {} not found", name);
+                Ok(Variant::Nil)
+            },
+            |syscall| syscall.call(self, args),
+        );
+        result
     }
 }
 
@@ -244,7 +263,10 @@ pub struct Resources {
 
 impl World for SubWorld {
     fn entities(&self) -> HashSet<Entity> {
-        self.internal_world.iter().map(|entity_ref| entity_ref.entity()).collect::<HashSet<_>>()
+        self.internal_world
+            .iter()
+            .map(|entity_ref| entity_ref.entity())
+            .collect::<HashSet<_>>()
     }
 
     fn clear(&mut self) {
@@ -298,13 +320,16 @@ impl World for SubWorld {
 
 impl Resources {
     pub fn contains_resource<T: Resource>(&self) -> bool {
-        self.internal_resources.storage.contains_key(&ResourceTypeId::of::<T>())
+        self.internal_resources
+            .storage
+            .contains_key(&ResourceTypeId::of::<T>())
     }
 
     pub fn insert_resource<T: Resource>(&mut self, resource: T) {
-        self.internal_resources
-            .storage
-            .insert(ResourceTypeId::of::<T>(), AtomicResourceCell::new(Box::new(resource)));
+        self.internal_resources.storage.insert(
+            ResourceTypeId::of::<T>(),
+            AtomicResourceCell::new(Box::new(resource)),
+        );
     }
 
     pub fn remove_resource<T: Resource>(&mut self) -> Option<T> {
@@ -318,12 +343,18 @@ impl Resources {
 
     pub fn get_resource<T: Resource>(&self) -> Option<AtomicRef<T>> {
         let type_id = &ResourceTypeId::of::<T>();
-        self.internal_resources.storage.get(&type_id).map(|x| x.get::<T>())
+        self.internal_resources
+            .storage
+            .get(&type_id)
+            .map(|x| x.get::<T>())
     }
 
     pub fn get_resource_mut<T: Resource>(&self) -> Option<AtomicRefMut<T>> {
         let type_id = &ResourceTypeId::of::<T>();
-        self.internal_resources.storage.get(&type_id).map(|x| x.get_mut::<T>())
+        self.internal_resources
+            .storage
+            .get(&type_id)
+            .map(|x| x.get_mut::<T>())
     }
 
     /// retrieves the asset manager from the resources.
@@ -416,7 +447,10 @@ pub struct ResourceTypeId {
 impl ResourceTypeId {
     /// Returns the resource type ID of the given resource type.
     pub fn of<T: Resource>() -> Self {
-        Self { type_id: TypeId::of::<T>(), name: std::any::type_name::<T>() }
+        Self {
+            type_id: TypeId::of::<T>(),
+            name: std::any::type_name::<T>(),
+        }
     }
 }
 
@@ -444,7 +478,9 @@ pub struct AtomicResourceCell {
 
 impl AtomicResourceCell {
     fn new(resource: Box<dyn Resource>) -> Self {
-        Self { data: AtomicRefCell::new(resource) }
+        Self {
+            data: AtomicRefCell::new(resource),
+        }
     }
 
     fn into_inner(self) -> Box<dyn Resource> {
@@ -460,4 +496,34 @@ impl AtomicResourceCell {
         let borrow = self.data.borrow_mut(); // panics if this is borrowed already
         AtomicRefMut::map(borrow, |inner| inner.downcast_mut::<T>().unwrap())
     }
+}
+
+// no one wants to own this:(
+lazy_static::lazy_static! {
+    static ref SYSCALL_TBL : AtomicRefCell<HashMap<String, Box<dyn Syscaller + 'static + Send + Sync>>> = {
+        let mut m: HashMap<String, Box<dyn Syscaller + 'static + Send + Sync>> = HashMap::new();
+
+        // prim apis
+        m.insert("PrimExitGroup".into(), Box::new(PrimExitGroup));
+        m.insert("PrimGroupIn".into(), Box::new(PrimGroupIn));
+        m.insert("PrimGroupOut".into(), Box::new(PrimGroupOut));
+        m.insert("PrimGroupMove".into(), Box::new(PrimGroupMove));
+        m.insert("PrimSetNull".into(), Box::new(PrimSetNull));
+        m.insert("PrimSetAlpha".into(), Box::new(PrimSetAlpha));
+        m.insert("PrimSetBlend".into(), Box::new(PrimSetBlend));
+        m.insert("PrimSetDraw".into(), Box::new(PrimSetDraw));
+        m.insert("PrimSetOp".into(), Box::new(PrimSetOp));
+        m.insert("PrimSetRS".into(), Box::new(PrimSetRS));
+        m.insert("PrimSetRS2".into(), Box::new(PrimSetRS2));
+        m.insert("PrimSetSnow".into(), Box::new(PrimSetSnow));
+        m.insert("PrimSetSprt".into(), Box::new(PrimSetSprt));
+        m.insert("PrimSetText".into(), Box::new(PrimSetText));
+        m.insert("PrimSetTile".into(), Box::new(PrimSetTile));
+        m.insert("PrimSetUV".into(), Box::new(PrimSetUV));
+        m.insert("PrimSetXY".into(), Box::new(PrimSetXY));
+        m.insert("PrimSetWH".into(), Box::new(PrimSetWH));
+        m.insert("PrimSetZ".into(), Box::new(PrimSetZ));
+
+        AtomicRefCell::new(m)
+    };
 }

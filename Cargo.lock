@@ -1942,6 +1942,7 @@ dependencies = [
  "glob",
  "hecs",
  "image",
+ "lazy_static",
  "log",
  "mpeg2ts",
  "rand",

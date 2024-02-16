@@ -1,9 +1,12 @@
+use std::cell::RefMut;
+
 use anyhow::{bail, Result};
 
 use crate::script::Variant;
 use crate::subsystem::resources::prim::PrimType;
 use crate::subsystem::world::GameData;
 
+use super::Syscaller;
 
 pub fn prim_exit_group(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     let id = match id.as_int() {
@@ -82,7 +85,7 @@ pub fn prim_group_out(game_data: &mut GameData, id: &Variant) -> Result<Variant>
 }
 
 /// reset the primitive
-pub fn prim_set_null_parent(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
+pub fn prim_set_null(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
         None => bail!("prim_set_null_parent: invalid id : {:?}", id),
@@ -92,7 +95,9 @@ pub fn prim_set_null_parent(game_data: &mut GameData, id: &Variant) -> Result<Va
         bail!("prim_set_null_parent: invalid id : {}", id);
     }
 
-    game_data.prim_manager.prim_init_with_type(id as i16, PrimType::PrimTypeNone);
+    game_data
+        .prim_manager
+        .prim_init_with_type(id as i16, PrimType::PrimTypeNone);
 
     Ok(Variant::Nil)
 }
@@ -171,7 +176,12 @@ pub fn prim_set_draw(game_data: &mut GameData, id: &Variant, draw: &Variant) -> 
 }
 
 // set the primitive's archor point
-pub fn prim_set_op(game_data: &mut GameData, id: &Variant, opx: &Variant, opy: &Variant) -> Result<Variant> {
+pub fn prim_set_op(
+    game_data: &mut GameData,
+    id: &Variant,
+    opx: &Variant,
+    opy: &Variant,
+) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
         None => bail!("prim_set_op: invalid id : {:?}", id),
@@ -197,7 +207,12 @@ pub fn prim_set_op(game_data: &mut GameData, id: &Variant, opx: &Variant, opy: &
 }
 
 /// set the primitive's rotation and scale, and the scale value is the same in x and y
-pub fn prim_set_rs(game_data: &mut GameData, id: &Variant, rotation: &Variant, scale: &Variant) -> Result<Variant> {
+pub fn prim_set_rs(
+    game_data: &mut GameData,
+    id: &Variant,
+    rotation: &Variant,
+    scale: &Variant,
+) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
         None => bail!("prim_set_rs: invalid id : {:?}", id),
@@ -215,7 +230,7 @@ pub fn prim_set_rs(game_data: &mut GameData, id: &Variant, rotation: &Variant, s
             } else {
                 r2
             }
-        },
+        }
         None => bail!("prim_set_rs: invalid rs : {:?}", rotation),
     };
 
@@ -226,8 +241,7 @@ pub fn prim_set_rs(game_data: &mut GameData, id: &Variant, rotation: &Variant, s
 
     let scale = if !(0..=10000).contains(&scale) {
         100 // default value
-    }
-    else {
+    } else {
         scale
     };
 
@@ -238,9 +252,14 @@ pub fn prim_set_rs(game_data: &mut GameData, id: &Variant, rotation: &Variant, s
     Ok(Variant::Nil)
 }
 
-
 /// set the primitive's rotation and scale, and the scale value is different in x and y
-pub fn prim_set_rs2(game_data: &mut GameData, id: &Variant, rotation: &Variant, scale_x: &Variant, scale_y: &Variant) -> Result<Variant> {
+pub fn prim_set_rs2(
+    game_data: &mut GameData,
+    id: &Variant,
+    rotation: &Variant,
+    scale_x: &Variant,
+    scale_y: &Variant,
+) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
         None => bail!("prim_set_rs2: invalid id : {:?}", id),
@@ -258,7 +277,7 @@ pub fn prim_set_rs2(game_data: &mut GameData, id: &Variant, rotation: &Variant, 
             } else {
                 r2
             }
-        },
+        }
         None => bail!("prim_set_rs2: invalid rs : {:?}", rotation),
     };
 
@@ -274,15 +293,13 @@ pub fn prim_set_rs2(game_data: &mut GameData, id: &Variant, rotation: &Variant, 
 
     let scale_x = if !(0..=10000).contains(&scale_x) {
         100 // default value
-    }
-    else {
+    } else {
         scale_x
     };
 
     let scale_y = if !(0..=10000).contains(&scale_y) {
         100 // default value
-    }
-    else {
+    } else {
         scale_y
     };
 
@@ -293,8 +310,13 @@ pub fn prim_set_rs2(game_data: &mut GameData, id: &Variant, rotation: &Variant, 
     Ok(Variant::Nil)
 }
 
-
-pub fn prim_set_snow(game_data: &mut GameData, id: &Variant, mode: &Variant, x: &Variant, y: &Variant) -> Result<Variant> {
+pub fn prim_set_snow(
+    game_data: &mut GameData,
+    id: &Variant,
+    mode: &Variant,
+    x: &Variant,
+    y: &Variant,
+) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
         None => bail!("prim_set_snow: invalid id : {:?}", id),
@@ -316,7 +338,9 @@ pub fn prim_set_snow(game_data: &mut GameData, id: &Variant, mode: &Variant, x: 
     let x = x.as_int().unwrap_or(0);
     let y = y.as_int().unwrap_or(0);
 
-    game_data.prim_manager.prim_init_with_type(id as i16, PrimType::PrimTypeSnow);
+    game_data
+        .prim_manager
+        .prim_init_with_type(id as i16, PrimType::PrimTypeSnow);
     game_data.prim_manager.prim_set_op(id, 0, 0);
     game_data.prim_manager.prim_set_alpha(id, 255i32);
     game_data.prim_manager.prim_set_blend(id, 0);
@@ -331,7 +355,13 @@ pub fn prim_set_snow(game_data: &mut GameData, id: &Variant, mode: &Variant, x: 
     Ok(Variant::Nil)
 }
 
-pub fn prim_set_sprt(game_data: &mut GameData, id: &Variant, src_id: &Variant, x: &Variant, y: &Variant) -> Result<Variant> {
+pub fn prim_set_sprt(
+    game_data: &mut GameData,
+    id: &Variant,
+    src_id: &Variant,
+    x: &Variant,
+    y: &Variant,
+) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
         None => bail!("prim_set_snow: invalid id : {:?}", id),
@@ -353,7 +383,9 @@ pub fn prim_set_sprt(game_data: &mut GameData, id: &Variant, src_id: &Variant, x
     let x = x.as_int().unwrap_or(0);
     let y = y.as_int().unwrap_or(0);
 
-    game_data.prim_manager.prim_init_with_type(id as i16, PrimType::PrimTypeSprt);
+    game_data
+        .prim_manager
+        .prim_init_with_type(id as i16, PrimType::PrimTypeSprt);
     game_data.prim_manager.prim_set_op(id, 0, 0);
     game_data.prim_manager.prim_set_alpha(id, 255i32);
     game_data.prim_manager.prim_set_blend(id, 0);
@@ -369,7 +401,13 @@ pub fn prim_set_sprt(game_data: &mut GameData, id: &Variant, src_id: &Variant, x
     Ok(Variant::Nil)
 }
 
-pub fn prim_set_text(game_data: &mut GameData, id: &Variant, text_id: &Variant, x: &Variant, y: &Variant) -> Result<Variant> {
+pub fn prim_set_text(
+    game_data: &mut GameData,
+    id: &Variant,
+    text_id: &Variant,
+    x: &Variant,
+    y: &Variant,
+) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
         None => bail!("prim_set_text: invalid id : {:?}", id),
@@ -391,7 +429,9 @@ pub fn prim_set_text(game_data: &mut GameData, id: &Variant, text_id: &Variant, 
     let x = x.as_int().unwrap_or(0);
     let y = y.as_int().unwrap_or(0);
 
-    game_data.prim_manager.prim_init_with_type(id as i16, PrimType::PrimTypeText);
+    game_data
+        .prim_manager
+        .prim_init_with_type(id as i16, PrimType::PrimTypeText);
     game_data.prim_manager.prim_set_alpha(id, 255i32);
     game_data.prim_manager.prim_set_blend(id, 0);
     game_data.prim_manager.prim_set_pos(id, x, y);
@@ -400,7 +440,15 @@ pub fn prim_set_text(game_data: &mut GameData, id: &Variant, text_id: &Variant, 
     Ok(Variant::Nil)
 }
 
-pub fn prim_set_tile(game_data: &mut GameData, id: &Variant, tile_id: &Variant, x: &Variant, y: &Variant, w: &Variant, h: &Variant) -> Result<Variant> {
+pub fn prim_set_tile(
+    game_data: &mut GameData,
+    id: &Variant,
+    tile_id: &Variant,
+    x: &Variant,
+    y: &Variant,
+    w: &Variant,
+    h: &Variant,
+) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
         None => bail!("prim_set_tile: invalid id : {:?}", id),
@@ -424,7 +472,9 @@ pub fn prim_set_tile(game_data: &mut GameData, id: &Variant, tile_id: &Variant, 
     let w = w.as_int().unwrap_or(0);
     let h = h.as_int().unwrap_or(0);
 
-    game_data.prim_manager.prim_init_with_type(id as i16, PrimType::PrimTypeTile);
+    game_data
+        .prim_manager
+        .prim_init_with_type(id as i16, PrimType::PrimTypeTile);
     game_data.prim_manager.prim_set_alpha(id, 255i32);
     game_data.prim_manager.prim_set_blend(id, 0);
     game_data.prim_manager.prim_set_pos(id, x, y);
@@ -434,7 +484,12 @@ pub fn prim_set_tile(game_data: &mut GameData, id: &Variant, tile_id: &Variant, 
     Ok(Variant::Nil)
 }
 
-pub fn prim_set_uv(game_data: &mut GameData, id: &Variant, u: &Variant, v: &Variant) -> Result<Variant> {
+pub fn prim_set_uv(
+    game_data: &mut GameData,
+    id: &Variant,
+    u: &Variant,
+    v: &Variant,
+) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
         None => bail!("prim_set_uv: invalid id : {:?}", id),
@@ -461,7 +516,12 @@ pub fn prim_set_uv(game_data: &mut GameData, id: &Variant, u: &Variant, v: &Vari
     Ok(Variant::Nil)
 }
 
-pub fn prim_set_xy(game_data: &mut GameData, id: &Variant, x: &Variant, y: &Variant) -> Result<Variant> {
+pub fn prim_set_xy(
+    game_data: &mut GameData,
+    id: &Variant,
+    x: &Variant,
+    y: &Variant,
+) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
         None => bail!("prim_set_xy: invalid id : {:?}", id),
@@ -487,6 +547,39 @@ pub fn prim_set_xy(game_data: &mut GameData, id: &Variant, x: &Variant, y: &Vari
     Ok(Variant::Nil)
 }
 
+
+pub fn prim_set_wh(
+    game_data: &mut GameData,
+    id: &Variant,
+    w: &Variant,
+    h: &Variant,
+) -> Result<Variant> {
+    let id = match id.as_int() {
+        Some(id) => id,
+        None => bail!("prim_set_wh: invalid id : {:?}", id),
+    };
+
+    if !(1..=4095).contains(&id) {
+        bail!("prim_set_wh: invalid id : {}", id);
+    }
+
+    let w = match w.as_int() {
+        Some(w) => w,
+        None => bail!("prim_set_wh: invalid w : {:?}", w),
+    };
+
+    let h = match h.as_int() {
+        Some(h) => h,
+        None => bail!("prim_set_wh: invalid h : {:?}", h),
+    };
+
+    game_data.prim_manager.prim_set_size(id, w, h);
+    game_data.prim_manager.prim_add_attr(id, 0x40);
+    game_data.prim_manager.prim_add_attr(id, 1);
+
+    Ok(Variant::Nil)
+}
+
 pub fn prim_set_z(game_data: &mut GameData, id: &Variant, z: &Variant) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
@@ -506,22 +599,301 @@ pub fn prim_set_z(game_data: &mut GameData, id: &Variant, z: &Variant) -> Result
             } else {
                 z
             }
-        },
+        }
         None => bail!("prim_set_z: invalid z : {:?}", z),
     };
 
     game_data.prim_manager.prim_set_z(id, z);
     match game_data.prim_manager.prim_get_type(id) {
-        PrimType::PrimTypeNone => {},
+        PrimType::PrimTypeNone => {}
         PrimType::PrimTypeGroup | PrimType::PrimTypeTile => {
             game_data.prim_manager.prim_add_attr(id, 0x40);
             game_data.prim_manager.prim_add_attr(id, 4);
-        },
+        }
         _ => {
             game_data.prim_manager.prim_add_attr(id, 0x40);
             game_data.prim_manager.prim_remove_attr(id, 0xFB);
-        },
+        }
     };
 
     Ok(Variant::Nil)
 }
+
+pub struct PrimExitGroup;
+impl Syscaller for PrimExitGroup {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        prim_exit_group(game_data, super::get_var!(args, 0))
+    }
+}
+
+unsafe impl Send for PrimExitGroup {}
+unsafe impl Sync for PrimExitGroup {}
+
+pub struct PrimGroupIn;
+impl Syscaller for PrimGroupIn {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        prim_group_in(
+            game_data,
+            super::get_var!(args, 0),
+            super::get_var!(args, 1),
+        )
+    }
+}
+
+unsafe impl Send for PrimGroupIn {}
+unsafe impl Sync for PrimGroupIn {}
+
+pub struct PrimGroupMove;
+impl Syscaller for PrimGroupMove {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        prim_group_move(
+            game_data,
+            super::get_var!(args, 0),
+            super::get_var!(args, 1),
+        )
+    }
+}
+
+unsafe impl Send for PrimGroupMove {}
+unsafe impl Sync for PrimGroupMove {}
+
+pub struct PrimGroupOut;
+impl Syscaller for PrimGroupOut {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        prim_group_out(game_data, super::get_var!(args, 0))
+    }
+}
+
+unsafe impl Send for PrimGroupOut {}
+unsafe impl Sync for PrimGroupOut {}
+
+pub struct PrimSetNull;
+impl Syscaller for PrimSetNull {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        prim_set_null(game_data, super::get_var!(args, 0))
+    }
+}
+
+unsafe impl Send for PrimSetNull {}
+unsafe impl Sync for PrimSetNull {}
+
+pub struct PrimSetAlpha;
+impl Syscaller for PrimSetAlpha {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        prim_set_alpha(
+            game_data,
+            super::get_var!(args, 0),
+            super::get_var!(args, 1),
+        )
+    }
+}
+
+unsafe impl Send for PrimSetAlpha {}
+unsafe impl Sync for PrimSetAlpha {}
+
+pub struct PrimSetBlend;
+impl Syscaller for PrimSetBlend {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        prim_set_blend(
+            game_data,
+            super::get_var!(args, 0),
+            super::get_var!(args, 1),
+        )
+    }
+}
+
+unsafe impl Send for PrimSetBlend {}
+unsafe impl Sync for PrimSetBlend {}
+
+pub struct PrimSetDraw;
+impl Syscaller for PrimSetDraw {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        prim_set_draw(
+            game_data,
+            super::get_var!(args, 0),
+            super::get_var!(args, 1),
+        )
+    }
+}
+
+unsafe impl Send for PrimSetDraw {}
+unsafe impl Sync for PrimSetDraw {}
+
+pub struct PrimSetOp;
+impl Syscaller for PrimSetOp {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        prim_set_op(
+            game_data,
+            super::get_var!(args, 0),
+            super::get_var!(args, 1),
+            super::get_var!(args, 2),
+        )
+    }
+}
+
+unsafe impl Send for PrimSetOp {}
+unsafe impl Sync for PrimSetOp {}
+
+pub struct PrimSetRS;
+impl Syscaller for PrimSetRS {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        prim_set_rs(
+            game_data,
+            super::get_var!(args, 0),
+            super::get_var!(args, 1),
+            super::get_var!(args, 2),
+        )
+    }
+}
+
+unsafe impl Send for PrimSetRS {}
+unsafe impl Sync for PrimSetRS {}
+
+pub struct PrimSetRS2;
+impl Syscaller for PrimSetRS2 {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        prim_set_rs2(
+            game_data,
+            super::get_var!(args, 0),
+            super::get_var!(args, 1),
+            super::get_var!(args, 2),
+            super::get_var!(args, 3),
+        )
+    }
+}
+
+unsafe impl Send for PrimSetRS2 {}
+unsafe impl Sync for PrimSetRS2 {}
+
+pub struct PrimSetSnow;
+impl Syscaller for PrimSetSnow {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        prim_set_snow(
+            game_data,
+            super::get_var!(args, 0),
+            super::get_var!(args, 1),
+            super::get_var!(args, 2),
+            super::get_var!(args, 3),
+        )
+    }
+}
+
+unsafe impl Send for PrimSetSnow {}
+unsafe impl Sync for PrimSetSnow {}
+
+pub struct PrimSetSprt;
+impl Syscaller for PrimSetSprt {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        prim_set_sprt(
+            game_data,
+            super::get_var!(args, 0),
+            super::get_var!(args, 1),
+            super::get_var!(args, 2),
+            super::get_var!(args, 3),
+        )
+    }
+}
+
+unsafe impl Send for PrimSetSprt {}
+unsafe impl Sync for PrimSetSprt {}
+
+pub struct PrimSetText;
+impl Syscaller for PrimSetText {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        prim_set_text(
+            game_data,
+            super::get_var!(args, 0),
+            super::get_var!(args, 1),
+            super::get_var!(args, 2),
+            super::get_var!(args, 3),
+        )
+    }
+}
+
+unsafe impl Send for PrimSetText {}
+unsafe impl Sync for PrimSetText {}
+
+
+pub struct PrimSetTile;
+impl Syscaller for PrimSetTile {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        prim_set_tile(
+            game_data,
+            super::get_var!(args, 0),
+            super::get_var!(args, 1),
+            super::get_var!(args, 2),
+            super::get_var!(args, 3),
+            super::get_var!(args, 4),
+            super::get_var!(args, 5),
+        )
+    }
+}
+
+unsafe impl Send for PrimSetTile {}
+unsafe impl Sync for PrimSetTile {}
+
+
+pub struct PrimSetUV;
+impl Syscaller for PrimSetUV {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        prim_set_uv(
+            game_data,
+            super::get_var!(args, 0),
+            super::get_var!(args, 1),
+            super::get_var!(args, 2),
+        )
+    }
+}
+
+
+unsafe impl Send for PrimSetUV {}
+unsafe impl Sync for PrimSetUV {}
+
+
+pub struct PrimSetXY;
+impl Syscaller for PrimSetXY {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        prim_set_xy(
+            game_data,
+            super::get_var!(args, 0),
+            super::get_var!(args, 1),
+            super::get_var!(args, 2),
+        )
+    }
+}
+
+
+unsafe impl Send for PrimSetXY {}
+unsafe impl Sync for PrimSetXY {}
+
+
+pub struct PrimSetWH;
+impl Syscaller for PrimSetWH {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        prim_set_wh(
+            game_data,
+            super::get_var!(args, 0),
+            super::get_var!(args, 1),
+            super::get_var!(args, 2),
+        )
+    }
+}
+
+unsafe impl Send for PrimSetWH {}
+unsafe impl Sync for PrimSetWH {}
+
+pub struct PrimSetZ;
+impl Syscaller for PrimSetZ {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        prim_set_z(
+            game_data,
+            super::get_var!(args, 0),
+            super::get_var!(args, 1),
+        )
+    }
+}
+
+unsafe impl Send for PrimSetZ {}
+unsafe impl Sync for PrimSetZ {}
+
+
