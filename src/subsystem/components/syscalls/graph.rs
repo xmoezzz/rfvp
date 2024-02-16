@@ -1,5 +1,3 @@
-use std::cell::RefMut;
-
 use anyhow::{bail, Result};
 
 use crate::script::Variant;
@@ -8,7 +6,7 @@ use crate::subsystem::world::GameData;
 
 use super::Syscaller;
 
-pub fn prim_exit_group(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
+pub fn prim_exit_group(_game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
         None => bail!("prim_exit_group: invalid id : {:?}", id),

@@ -4,6 +4,8 @@ use crate::script::Variant;
 use crate::subsystem::resources::history_manager::HistoryFunction;
 use crate::subsystem::world::GameData;
 
+use super::Syscaller;
+
 pub fn history_set(game_data: &mut GameData, fnid: &Variant, value: &Variant) -> Result<Variant> {
     if fnid.is_nil() {
         game_data.history_manager.push();
@@ -57,7 +59,23 @@ pub fn history_set(game_data: &mut GameData, fnid: &Variant, value: &Variant) ->
     Ok(Variant::Nil)
 }
 
-pub fn history_get(game_data: &mut GameData, id: i32, fnid: i32) -> Result<Variant> {
+pub fn history_get(game_data: &mut GameData, id: &Variant, fnid: &Variant) -> Result<Variant> {
+    let id = match id.as_int() {
+        Some(id) => id,
+        None => {
+            log::error!("history_get: unexpected id: {:?}", id);
+            return Ok(Variant::Nil);
+        }
+    };
+
+    let fnid = match fnid.as_int() {
+        Some(id) => id,
+        None => {
+            log::error!("history_get: unexpected fnid: {:?}", fnid);
+            return Ok(Variant::Nil);
+        }
+    };
+
     let value = match fnid.try_into() {
         Ok(HistoryFunction::Name) => {
             match game_data.history_manager.get_name(id as u32) {
@@ -85,3 +103,32 @@ pub fn history_get(game_data: &mut GameData, id: i32, fnid: i32) -> Result<Varia
 
     Ok(value)
 }
+
+
+pub struct HistoryGet;
+impl Syscaller for HistoryGet {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        history_get(
+            game_data,
+            super::get_var!(args, 0),
+            super::get_var!(args, 1),
+        )
+    }
+}
+
+unsafe impl Send for HistoryGet {}
+unsafe impl Sync for HistoryGet {}
+
+pub struct HistorySet;
+impl Syscaller for HistorySet {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        history_set(
+            game_data,
+            super::get_var!(args, 0),
+            super::get_var!(args, 1),
+        )
+    }
+}
+
+unsafe impl Send for HistorySet {}
+unsafe impl Sync for HistorySet {}

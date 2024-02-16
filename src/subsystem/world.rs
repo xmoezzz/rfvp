@@ -13,6 +13,9 @@ use crate::subsystem::components::syscalls::graph::{
     PrimSetDraw, PrimSetNull, PrimSetOp, PrimSetRS, PrimSetRS2, PrimSetSnow, PrimSetSprt,
     PrimSetText, PrimSetTile, PrimSetUV, PrimSetWH, PrimSetXY, PrimSetZ,
 };
+use crate::subsystem::components::syscalls::history::{
+    HistoryGet, HistorySet
+};
 use crate::subsystem::resources::asset_manager::AssetManager;
 use crate::subsystem::resources::audio::Audio;
 use crate::subsystem::resources::events::Events;
@@ -502,6 +505,10 @@ impl AtomicResourceCell {
 lazy_static::lazy_static! {
     static ref SYSCALL_TBL : AtomicRefCell<HashMap<String, Box<dyn Syscaller + 'static + Send + Sync>>> = {
         let mut m: HashMap<String, Box<dyn Syscaller + 'static + Send + Sync>> = HashMap::new();
+
+        // history apis
+        m.insert("HistoryGet".into(), Box::new(HistoryGet));
+        m.insert("HistorySet".into(), Box::new(HistorySet));
 
         // prim apis
         m.insert("PrimExitGroup".into(), Box::new(PrimExitGroup));
