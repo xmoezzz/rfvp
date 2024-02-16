@@ -23,6 +23,10 @@ use crate::subsystem::components::syscalls::utils::{
     IntToText, Rand, SysProjFolder, SysAtSkipName, DebugMessage,
     BreakPoint, FloatToInt
 };
+use crate::subsystem::components::syscalls::thread::{
+    ThreadExit, ThreadNext, ThreadRaise, ThreadSleep,
+    ThreadStart, ThreadWait
+};
 
 use crate::subsystem::resources::asset_manager::AssetManager;
 use crate::subsystem::resources::audio::Audio;
@@ -522,6 +526,14 @@ lazy_static::lazy_static! {
         m.insert("DebugMessage".into(), Box::new(DebugMessage));
         m.insert("BreakPoint".into(), Box::new(BreakPoint));
         m.insert("FloatToInt".into(), Box::new(FloatToInt));
+
+        // thread apis
+        m.insert("ThreadExit".into(), Box::new(ThreadExit));
+        m.insert("ThreadNext".into(), Box::new(ThreadNext));
+        m.insert("ThreadRaise".into(), Box::new(ThreadRaise));
+        m.insert("ThreadSleep".into(), Box::new(ThreadSleep));
+        m.insert("ThreadStart".into(), Box::new(ThreadStart));
+        m.insert("ThreadWait".into(), Box::new(ThreadWait));
 
         // flag apis
         m.insert("FlagSet".into(), Box::new(FlagSet));
