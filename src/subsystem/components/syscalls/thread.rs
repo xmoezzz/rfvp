@@ -32,7 +32,7 @@ pub fn thread_next(game_data: &mut GameData) -> Result<Variant> {
 }
 
 /// raise the thread
-pub fn thread_raise(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
+pub fn thread_raise(_game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     let id = if let Variant::Int(id) = id {
         *id
     } else {
@@ -49,7 +49,7 @@ pub fn thread_raise(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
 }
 
 /// sleep the thread
-pub fn thread_sleep(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
+pub fn thread_sleep(_game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     let id = if let Variant::Int(id) = id {
         *id
     } else {

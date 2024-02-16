@@ -150,9 +150,9 @@ impl Audio {
     // }
 
     /// Stop the audio identified with `name`
-    pub fn stop_audio(&mut self, id: usize) -> anyhow::Result<()> {
+    pub fn stop_audio(&mut self, id: usize, _fadeout: usize) -> anyhow::Result<()> {
         if let Some(sink) = self.sinks.remove(&id) {
-                        
+            
             sink.stop();
             drop(sink);
         }
@@ -193,7 +193,7 @@ impl Audio {
     }
 
     /// Set the volume of the audio identified with `name`
-    pub fn audio_set_volume(&mut self, id: usize, volume: f32) {
+    pub fn audio_set_volume(&mut self, id: usize, volume: f32, _crossfade: usize) {
         if let Some(sink) = self.sinks.get_mut(&id) {
             sink.set_volume(volume * self.master_volume);
         }
@@ -230,7 +230,7 @@ impl Audio {
     }
 
     /// Stop the sound identified with `name`
-    pub fn stop_sound(&mut self, id: usize) -> anyhow::Result<()> {
+    pub fn stop_sound(&mut self, id: usize, _fadeout: usize) -> anyhow::Result<()> {
         let sid = id + 4;
         if let Some(sink) = self.sinks.remove(&sid) {
                         
@@ -242,11 +242,21 @@ impl Audio {
         Ok(())
     }
 
+    /// Pause the sound identified with `name`
+    pub fn pause_sound(&mut self, id: usize) -> anyhow::Result<()> {
+        let id = id + 4;
+        if let Some(sink) = self.sinks.get_mut(&id) {
+            sink.pause();
+        }
+        Ok(())
+    }
+    
+
     pub fn play_sound(
         &mut self,
         id: usize,
         looped: bool,
-        volume: f32,
+        _fadein: usize,
     ) -> anyhow::Result<()> {
         // sound id starts from 4 (after audio channels)
         let sid = id + 4;
@@ -268,7 +278,6 @@ impl Audio {
             else {
                 sink.append(source);
             }
-            sink.set_volume(volume);
             sink.play();
             self.sinks.insert(sid, sink);
         }
@@ -279,11 +288,7 @@ impl Audio {
     pub fn set_master_volume(&mut self, volume: f32) {
         self.master_volume = volume;
         for (id, sink) in self.sinks.iter_mut() {
-            if *id < 4 {
-                continue;
-            }
-
-            let sid = (id - 4) as i32;
+            let sid = *id as i32;
             let sound_type_vol = self.sound_type_volumes
                 .get(&sid)
                 .unwrap_or(&1.0)
@@ -310,7 +315,7 @@ impl Audio {
         }
     }
 
-    pub fn sound_set_volume(&mut self, id: usize, volume: f32) {
+    pub fn sound_set_volume(&mut self, id: usize, volume: f32, _crossfade: usize) {
         if let Some(channel) = self.sounds.get_mut(&id) {
             channel.volume = volume;
             if let Some(sink) = self.sinks.get_mut(&(id + 4)) {

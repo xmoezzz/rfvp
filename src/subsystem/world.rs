@@ -27,6 +27,11 @@ use crate::subsystem::components::syscalls::thread::{
     ThreadExit, ThreadNext, ThreadRaise, ThreadSleep,
     ThreadStart, ThreadWait
 };
+use crate::subsystem::components::syscalls::sound::{
+    SoundPlay, SoundStop, SoundLoad, SoundMasterVol, SoundSlientOn, SoundType,
+    SoundTypeVol, SoundVolume, AudioLoad, AudioPlay, AudioSlientOn, AudioStop,
+    AudioState, AudioType
+};
 
 use crate::subsystem::resources::asset_manager::AssetManager;
 use crate::subsystem::resources::audio::Audio;
@@ -517,6 +522,22 @@ impl AtomicResourceCell {
 lazy_static::lazy_static! {
     static ref SYSCALL_TBL : AtomicRefCell<HashMap<String, Box<dyn Syscaller + 'static + Send + Sync>>> = {
         let mut m: HashMap<String, Box<dyn Syscaller + 'static + Send + Sync>> = HashMap::new();
+
+        // audio apis
+        m.insert("SoundPlay".into(), Box::new(SoundPlay));
+        m.insert("SoundStop".into(), Box::new(SoundStop));
+        m.insert("SoundLoad".into(), Box::new(SoundLoad));
+        m.insert("SoundMasterVol".into(), Box::new(SoundMasterVol));
+        m.insert("SoundSlientOn".into(), Box::new(SoundSlientOn));
+        m.insert("SoundType".into(), Box::new(SoundType));
+        m.insert("SoundTypeVol".into(), Box::new(SoundTypeVol));
+        m.insert("SoundVolume".into(), Box::new(SoundVolume));
+        m.insert("AudioLoad".into(), Box::new(AudioLoad));
+        m.insert("AudioPlay".into(), Box::new(AudioPlay));
+        m.insert("AudioSlientOn".into(), Box::new(AudioSlientOn));
+        m.insert("AudioStop".into(), Box::new(AudioStop));
+        m.insert("AudioState".into(), Box::new(AudioState));
+        m.insert("AudioType".into(), Box::new(AudioType));
 
         // utils apis
         m.insert("IntToText".into(), Box::new(IntToText));
