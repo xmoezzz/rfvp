@@ -3,12 +3,21 @@ use anyhow::{bail, Result};
 use crate::script::Variant;
 use crate::subsystem::world::GameData;
 
+use super::{get_var, Syscaller};
 
 /// stupid api
 /// 11111111|111 means id_bit_pos can not larger than 2047
 /// the highest 8 bits is used for id
 /// the lowest 3 bits is used for the bits position
-pub fn set_flag(game_data: &mut GameData, id_bit_pos: i32, on: bool) -> Result<Variant> {
+pub fn flag_set(game_data: &mut GameData, id_bit_pos: &Variant, on: &Variant) -> Result<Variant> {
+    let id_bit_pos = if let Variant::Int(id_bit_pos) = id_bit_pos {
+        *id_bit_pos
+    } else {
+        bail!("set_flag: Invalid id_bit_pos type");
+    };
+
+    let on = on.canbe_true();
+
     if !(0..=2047).contains(&id_bit_pos) {
         bail!("set_flag: invalid id_bit_pos : {}", id_bit_pos);
     }
@@ -20,8 +29,13 @@ pub fn set_flag(game_data: &mut GameData, id_bit_pos: i32, on: bool) -> Result<V
     Ok(Variant::Nil)
 }
 
+pub fn flag_get(game_data: &mut GameData, id_bit_pos: &Variant) -> Result<Variant> {
+    let id_bit_pos = if let Variant::Int(id_bit_pos) = id_bit_pos {
+        *id_bit_pos
+    } else {
+        bail!("get_flag: Invalid id_bit_pos type");
+    };
 
-pub fn get_flag(game_data: &mut GameData, id_bit_pos: i32) -> Result<Variant> {
     if !(0..=2047).contains(&id_bit_pos) {
         bail!("get_flag: invalid id_bit_pos : {}", id_bit_pos);
     }
@@ -36,3 +50,22 @@ pub fn get_flag(game_data: &mut GameData, id_bit_pos: i32) -> Result<Variant> {
     Ok(Variant::Nil)
 }
 
+pub struct FlagSet;
+impl Syscaller for FlagSet {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        flag_set(game_data, get_var!(args, 0), get_var!(args, 1))
+    }
+}
+
+unsafe impl Send for FlagSet {}
+unsafe impl Sync for FlagSet {}
+
+pub struct FlagGet;
+impl Syscaller for FlagGet {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        flag_get(game_data, get_var!(args, 0))
+    }
+}
+
+unsafe impl Send for FlagGet {}
+unsafe impl Sync for FlagGet {}

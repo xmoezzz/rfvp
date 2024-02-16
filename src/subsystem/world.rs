@@ -16,6 +16,14 @@ use crate::subsystem::components::syscalls::graph::{
 use crate::subsystem::components::syscalls::history::{
     HistoryGet, HistorySet
 };
+use crate::subsystem::components::syscalls::flag::{
+    FlagSet, FlagGet
+};
+use crate::subsystem::components::syscalls::utils::{
+    IntToText, Rand, SysProjFolder, SysAtSkipName, DebugMessage,
+    BreakPoint, FloatToInt
+};
+
 use crate::subsystem::resources::asset_manager::AssetManager;
 use crate::subsystem::resources::audio::Audio;
 use crate::subsystem::resources::events::Events;
@@ -505,6 +513,19 @@ impl AtomicResourceCell {
 lazy_static::lazy_static! {
     static ref SYSCALL_TBL : AtomicRefCell<HashMap<String, Box<dyn Syscaller + 'static + Send + Sync>>> = {
         let mut m: HashMap<String, Box<dyn Syscaller + 'static + Send + Sync>> = HashMap::new();
+
+        // utils apis
+        m.insert("IntToText".into(), Box::new(IntToText));
+        m.insert("Rand".into(), Box::new(Rand));
+        m.insert("SysProjFolder".into(), Box::new(SysProjFolder));
+        m.insert("SysAtSkipName".into(), Box::new(SysAtSkipName));
+        m.insert("DebugMessage".into(), Box::new(DebugMessage));
+        m.insert("BreakPoint".into(), Box::new(BreakPoint));
+        m.insert("FloatToInt".into(), Box::new(FloatToInt));
+
+        // flag apis
+        m.insert("FlagSet".into(), Box::new(FlagSet));
+        m.insert("FlagGet".into(), Box::new(FlagGet));
 
         // history apis
         m.insert("HistoryGet".into(), Box::new(HistoryGet));
