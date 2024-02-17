@@ -56,12 +56,12 @@ pub fn rand(_game_data: &mut GameData) -> Result<Variant> {
     Ok(Variant::Float(rand::random()))
 }
 
-pub fn system_project_dir(game_data: &mut GameData, _dir: &Variant) -> Result<Variant> {
+pub fn system_project_dir(_game_data: &mut GameData, _dir: &Variant) -> Result<Variant> {
     Ok(Variant::Nil)
 }
 
 pub fn system_at_skipname(
-    game_data: &mut GameData,
+    _game_data: &mut GameData,
     _arg0: &Variant,
     _arg1: &Variant,
 ) -> Result<Variant> {

@@ -12,3 +12,4 @@ pub mod scripter;
 pub mod history_manager;
 pub mod flag_manager;
 pub mod prim;
+pub mod text_manager;
