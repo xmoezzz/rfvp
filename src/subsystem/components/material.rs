@@ -48,6 +48,10 @@ impl Texture {
         Texture::fallback_texture()
     }
 
+    pub fn from_raw_buffer(bytes: Vec<u8>, width: u32, height: u32) -> Texture {
+        Texture { bytes, width, height }
+    }
+
     pub fn from_color(color: &Color) -> Texture {
         let img = ImageBuffer::from_fn(1, 1, |_x, _y| {
             image::Rgba([color.red(), color.green(), color.blue(), (color.alpha() * 255.) as u8])

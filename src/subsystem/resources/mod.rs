@@ -13,3 +13,4 @@ pub mod history_manager;
 pub mod flag_manager;
 pub mod prim;
 pub mod text_manager;
+pub mod motion_manager;
