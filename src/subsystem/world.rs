@@ -32,11 +32,15 @@ use crate::subsystem::components::syscalls::sound::{
     SoundTypeVol, SoundVolume, AudioLoad, AudioPlay, AudioSlientOn, AudioStop,
     AudioState, AudioType
 };
+use crate::subsystem::components::syscalls::motion::{
+    MotionAlpha, MotionAlphaStop, MotionAlphaTest,
+};
 
 use crate::subsystem::resources::asset_manager::AssetManager;
 use crate::subsystem::resources::audio::Audio;
 use crate::subsystem::resources::events::Events;
 use crate::subsystem::resources::focus_manager::FocusManager;
+use crate::subsystem::resources::motion_manager::MotionManager;
 use crate::subsystem::resources::font_atlas::FontAtlas;
 use crate::subsystem::resources::inputs::inputs_controller::InputsController;
 use crate::subsystem::resources::time::Timers;
@@ -85,6 +89,7 @@ pub struct GameData {
     pub(crate) history_manager: HistoryManager,
     pub(crate) flag_manager: FlagManager,
     pub(crate) prim_manager: PrimManager,
+    pub(crate) motion_manager: Option<MotionManager>,
 }
 
 impl GameData {
@@ -584,6 +589,11 @@ lazy_static::lazy_static! {
         m.insert("PrimSetXY".into(), Box::new(PrimSetXY));
         m.insert("PrimSetWH".into(), Box::new(PrimSetWH));
         m.insert("PrimSetZ".into(), Box::new(PrimSetZ));
+
+        // motion apis
+        m.insert("MotionAlpha".into(), Box::new(MotionAlpha));
+        m.insert("MotionAlphaStop".into(), Box::new(MotionAlphaStop));
+        m.insert("MotionAlphaTest".into(), Box::new(MotionAlphaTest));
 
         AtomicRefCell::new(m)
     };

@@ -6,7 +6,7 @@ pub mod thread;
 pub mod graph;
 pub mod history;
 pub mod flag;
-
+pub mod motion;
 
 pub trait Syscaller {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> anyhow::Result<Variant>;
