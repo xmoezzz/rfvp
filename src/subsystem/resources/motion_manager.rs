@@ -2,14 +2,14 @@ use std::{cell::RefCell, sync::Arc};
 
 use anyhow::Result;
 
-use super::prim::{PrimManager, INVAILD_PRIM_HANDLE};
+use super::prim::{self, PrimManager, INVAILD_PRIM_HANDLE};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlphaMotionType {
-    // set alpha to destination value immediately
-    None,
     // linear interpolation
-    Linear,
+    Linear = 0,
+    // set alpha to src value immediately
+    Immediate,
 }
 
 #[derive(Debug, Clone)]
@@ -89,14 +89,71 @@ impl AlphaMotion {
         }
     }
 
-    pub fn update(&mut self, prim_manager: &Arc<RefCell<PrimManager>>, elapsed: i32) {
+    pub fn update(&mut self, prim_manager: &Arc<RefCell<PrimManager>>, flag: bool,  elapsed: i32) -> bool {
         if !self.running || self.prim_id as i16 == INVAILD_PRIM_HANDLE {
-            return;
+            return true;
         }
 
         let mut prim_manager = prim_manager.borrow_mut();
         let mut prim = prim_manager.get_prim(self.prim_id as i16);
+        let custom_root_id = prim_manager.get_custom_root_prim_id();
+        if flag {
+            if custom_root_id == 0 {
+                return true;
+            }
+            let mut next = prim.get_parent();
+            if next == INVAILD_PRIM_HANDLE {
+                return true;
+            }
 
+            while next as u16 != custom_root_id {
+                next = prim_manager.get_prim(next as i16).get_parent();
+                if next == INVAILD_PRIM_HANDLE {
+                    return true;
+                }
+            }
+        }
+        else {
+            let mut prim = prim_manager.get_prim(self.prim_id as i16);
+            if prim.get_flag() {
+                return true;
+            }
+
+            loop {
+                let next = prim.get_parent();
+                if next == INVAILD_PRIM_HANDLE {
+                    break;
+                }
+                prim = prim_manager.get_prim(next as i16);
+                if !prim.get_flag() {
+                    return true;
+                }
+            }
+        }
+
+        prim.apply_attr(0x40);
+        let mut elapsed = elapsed;
+        if self.reverse && elapsed < 0 {
+            elapsed = -elapsed;
+        }
+
+        self.elapsed += elapsed;
+        if elapsed < 0 || self.elapsed >= self.duration {
+            prim.set_alpha(self.dst_alpha);
+            return false;
+        }
+
+        match self.anm_type {
+            AlphaMotionType::Linear => {
+                let alpha = self.src_alpha as i32 + (self.dst_alpha as i32 - self.src_alpha as i32) * self.elapsed / self.duration;
+                prim.set_alpha(alpha as u8);
+            }
+            _ => {
+                prim.set_alpha(self.src_alpha);
+            }
+        }
+
+        true
     }
 
 }

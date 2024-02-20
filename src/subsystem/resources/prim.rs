@@ -19,8 +19,9 @@ pub enum PrimType {
 pub struct Prim {
     typ: PrimType,
     draw_flag: bool,
-    alpha: i8,
+    alpha: u8,
     blend: bool,
+    flag: bool,
 	parent: i16,
     sprt: i16,
     grand_parent: i16,
@@ -58,12 +59,16 @@ impl Prim {
         self.draw_flag = draw_flag;
     }
 
-    pub fn set_alpha(&mut self, alpha: i8) {
+    pub fn set_alpha(&mut self, alpha: u8) {
         self.alpha = alpha;
     }
 
     pub fn set_blend(&mut self, blend: bool) {
         self.blend = blend;
+    }
+
+    pub fn set_flag(&mut self, flag: bool) {
+        self.flag = flag;
     }
 
     pub fn set_parent(&mut self, parent: i16) {
@@ -166,12 +171,16 @@ impl Prim {
         self.draw_flag
     }
 
-    pub fn get_alpha(&self) -> i8 {
+    pub fn get_alpha(&self) -> u8 {
         self.alpha
     }
 
     pub fn get_blend(&self) -> bool {
         self.blend
+    }
+
+    pub fn get_flag(&self) -> bool {
+        self.flag
     }
 
     pub fn get_parent(&self) -> i16 {
@@ -267,6 +276,7 @@ impl Prim {
 #[derive(Debug, Clone, Default)]
 pub struct PrimManager {
     prims: Vec<RefCell<Prim>>,
+    custom_root_prim_id: u16,
 }
 
 impl PrimManager {
@@ -274,7 +284,12 @@ impl PrimManager {
         Self {
             // allocate 4096 prims
             prims: vec![RefCell::new(Prim::new()); 4096],
+            custom_root_prim_id: 0,
         }
+    }
+
+    pub fn get_custom_root_prim_id(&self) -> u16 {
+        self.custom_root_prim_id
     }
 
     pub fn get_prim(&self, id: i16) -> RefMut<'_, Prim> {
@@ -389,7 +404,7 @@ impl PrimManager {
 
     pub fn prim_set_alpha(&mut self, id: i32, alpha: i32) {
         let mut prim = self.get_prim(id as i16);
-        prim.set_alpha(alpha as i8);
+        prim.set_alpha(alpha as u8);
     }
 
     pub fn prim_set_blend(&mut self, id: i32, blend: i32) {
