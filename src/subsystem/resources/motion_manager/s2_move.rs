@@ -211,7 +211,97 @@ impl ScaleMotion {
 
         let src_w_factor = self.src_w_factor as i64;
         let src_h_factor = self.src_h_factor as i64;
-        
+        let dst_w_factor = self.dst_w_factor as i64;
+        let dst_h_factor = self.dst_h_factor as i64;
+        let delta_w_factor = dst_w_factor - src_w_factor;
+        let delta_h_factor = dst_h_factor - src_h_factor;
+
+        match self.get_type() {
+            ScaleMotionType::Linear => {
+                let factor_x = src_w_factor
+                    + delta_w_factor * self.elapsed as i64 / self.duration as i64;
+                let factor_y = src_h_factor
+                    + delta_h_factor * self.elapsed as i64 / self.duration as i64;
+
+                prim.set_factor_x(factor_x as i16);
+                prim.set_factor_y(factor_y as i16);
+            }
+            ScaleMotionType::Accelerate => {
+                let factor_x = src_w_factor
+                    + delta_w_factor * self.elapsed as i64 * self.elapsed as i64
+                        / (self.duration as i64 * self.duration as i64);
+                let factor_y = src_h_factor
+                    + delta_h_factor * self.elapsed as i64 * self.elapsed as i64
+                        / (self.duration as i64 * self.duration as i64);
+
+                prim.set_factor_x(factor_x as i16);
+                prim.set_factor_y(factor_y as i16);
+            }
+            ScaleMotionType::Decelerate => {
+                let numerator = (self.duration as i64 - self.elapsed as i64) * (self.duration as i64 - self.elapsed as i64);
+                let factor_x = src_w_factor - delta_w_factor * numerator / (self.duration as i64 * self.duration as i64);
+                let factor_y = src_h_factor - delta_h_factor * numerator / (self.duration as i64 * self.duration as i64);
+
+                prim.set_factor_x(factor_x as i16);
+                prim.set_factor_y(factor_y as i16);
+            }
+            ScaleMotionType::Rebound => {
+                let half_delta_w_factor = delta_w_factor / 2;
+                let half_delta_h_factor = delta_h_factor / 2;
+                let half_duration = self.duration as i64 / 2;
+                if self.elapsed as i64 > half_duration {
+                    let remain = self.duration as i64 - self.elapsed as i64;
+                    let time2 = self.duration as i64 - half_duration;
+                    let factor_x = dst_w_factor - (delta_w_factor - half_delta_w_factor) * remain * remain / (time2 * time2);
+                    let factor_y = dst_h_factor - (delta_h_factor - half_delta_h_factor) * remain * remain / (time2 * time2);
+                    prim.set_factor_x(factor_x as i16);
+                    prim.set_factor_y(factor_y as i16);
+                }
+                else
+                {
+                    let time2 = self.elapsed as i64 * self.elapsed as i64;
+                    let factor_x = src_w_factor + half_delta_w_factor * time2 / (half_duration * half_duration);
+                    let factor_y = src_h_factor + half_delta_h_factor * time2 / (half_duration * half_duration);
+                    prim.set_factor_x(factor_x as i16);
+                    prim.set_factor_y(factor_y as i16);
+                }
+            }
+            ScaleMotionType::Bounce => {
+                let half_delta_w_factor = delta_w_factor / 2;
+                let half_delta_h_factor = delta_h_factor / 2;
+                let half_duration = self.duration as i64 / 2;
+                
+                if self.elapsed as i64 > self.duration as i64 / 2 {
+                    let remian = self.elapsed as i64 - half_duration;
+                    let time2 = self.duration as i64 - half_duration;
+                    let factor_x = half_delta_w_factor
+                                    + src_w_factor
+                                    + (delta_w_factor - half_delta_w_factor) * remian * remian / (time2 * time2);
+                    let factor_y = half_delta_h_factor
+                                    + src_h_factor
+                                    + (delta_h_factor - half_delta_h_factor) * remian * remian / (time2 * time2);
+
+                    prim.set_factor_x(factor_x as i16);
+                    prim.set_factor_y(factor_y as i16);
+                }
+                else {
+                    let rev_remian = half_duration - self.elapsed as i64;
+                    let factor_x = half_delta_w_factor
+                                + src_w_factor
+                                 - half_delta_w_factor * rev_remian * rev_remian / (half_duration * half_duration);
+                    let factor_y = half_delta_h_factor
+                                + src_h_factor
+                                 - half_delta_h_factor * rev_remian * rev_remian / (half_duration * half_duration);
+
+                    prim.set_factor_x(factor_x as i16);
+                    prim.set_factor_y(factor_y as i16);
+                }
+            }
+            _ => {
+                prim.set_factor_x(dst_w_factor as i16);
+                prim.set_factor_y(dst_h_factor as i16);
+            }
+        }
 
         true
     }
