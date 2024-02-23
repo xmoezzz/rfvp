@@ -37,7 +37,7 @@ use crate::subsystem::components::syscalls::motion::{
     MotionMove, MotionMoveStop, MotionMoveTest,
     MotionMoveR, MotionMoveRStop, MotionMoveRTest,
     MotionMoveS2, MotionMoveS2Stop, MotionMoveS2Test,
-    MotionMoveZ, MotionMoveZStop, MotionMoveZTest,
+    MotionMoveZ, MotionMoveZStop, MotionMoveZTest, MotionPause
 };
 
 use crate::subsystem::resources::asset_manager::AssetManager;
@@ -610,6 +610,7 @@ lazy_static::lazy_static! {
         m.insert("MotionMoveZ".into(), Box::new(MotionMoveZ));
         m.insert("MotionMoveZStop".into(), Box::new(MotionMoveZStop));
         m.insert("MotionMoveZTest".into(), Box::new(MotionMoveZTest));
+        m.insert("MotionPause".into(), Box::new(MotionPause));
 
         AtomicRefCell::new(m)
     };

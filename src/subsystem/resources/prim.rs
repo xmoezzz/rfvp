@@ -21,7 +21,7 @@ pub struct Prim {
     draw_flag: bool,
     alpha: u8,
     blend: bool,
-    flag: bool,
+    is_paused: bool,
 	parent: i16,
     sprt: i16,
     grand_parent: i16,
@@ -67,8 +67,8 @@ impl Prim {
         self.blend = blend;
     }
 
-    pub fn set_flag(&mut self, flag: bool) {
-        self.flag = flag;
+    pub fn set_paused(&mut self, flag: bool) {
+        self.is_paused = flag;
     }
 
     pub fn set_parent(&mut self, parent: i16) {
@@ -179,8 +179,8 @@ impl Prim {
         self.blend
     }
 
-    pub fn get_flag(&self) -> bool {
-        self.flag
+    pub fn get_paused(&self) -> bool {
+        self.is_paused
     }
 
     pub fn get_parent(&self) -> i16 {

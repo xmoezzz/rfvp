@@ -565,6 +565,36 @@ pub fn motion_move_z_test(game_data: &GameData, id: &Variant) -> Result<Variant>
     Ok(Variant::Nil)
 }
 
+
+pub fn motion_pause(game_data: &mut GameData, id: &Variant, pause: &Variant) -> Result<Variant> {
+    let id = match id {
+        Variant::Int(id) => *id as i16,
+        _ => bail!("Invalid id"),
+    };
+
+    if !(0..=4096).contains(&id) {
+        bail!("prim_id must be between 0 and 4096");
+    }
+
+    let mut prim = game_data.prim_manager.get_prim(id);
+    match pause {
+        Variant::Int(b) => {
+            if *b == 0 {
+                prim.set_paused(false);
+            }
+            else {
+                prim.set_paused(true);
+            }
+        },
+        Variant::Nil => {
+            return Ok(Variant::Int(prim.get_paused() as i32));
+        },
+        _ => log::error!("Invalid pause value"),
+    }
+
+    Ok(Variant::Nil)
+}
+
 pub struct MotionAlpha;
 impl Syscaller for MotionAlpha {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -790,4 +820,18 @@ impl Syscaller for MotionMoveZTest {
 
 unsafe impl Send for MotionMoveZTest {}
 unsafe impl Sync for MotionMoveZTest {}
+
+
+pub struct MotionPause;
+impl Syscaller for MotionPause {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        let id = get_var!(args, 0);
+        let pause = get_var!(args, 1);
+
+        motion_pause(game_data, id, pause)
+    }
+}
+
+unsafe impl Send for MotionPause {}
+unsafe impl Sync for MotionPause {}
 

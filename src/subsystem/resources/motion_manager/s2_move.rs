@@ -180,7 +180,7 @@ impl ScaleMotion {
             }
         } else {
             let mut prim = prim_manager.get_prim(self.prim_id as i16);
-            if prim.get_flag() {
+            if prim.get_paused() {
                 return true;
             }
 
@@ -190,7 +190,7 @@ impl ScaleMotion {
                     break;
                 }
                 prim = prim_manager.get_prim(next as i16);
-                if !prim.get_flag() {
+                if !prim.get_paused() {
                     return true;
                 }
             }
