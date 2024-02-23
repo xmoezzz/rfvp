@@ -34,6 +34,10 @@ use crate::subsystem::components::syscalls::sound::{
 };
 use crate::subsystem::components::syscalls::motion::{
     MotionAlpha, MotionAlphaStop, MotionAlphaTest,
+    MotionMove, MotionMoveStop, MotionMoveTest,
+    MotionMoveR, MotionMoveRStop, MotionMoveRTest,
+    MotionMoveS2, MotionMoveS2Stop, MotionMoveS2Test,
+    MotionMoveZ, MotionMoveZStop, MotionMoveZTest,
 };
 
 use crate::subsystem::resources::asset_manager::AssetManager;
@@ -594,6 +598,18 @@ lazy_static::lazy_static! {
         m.insert("MotionAlpha".into(), Box::new(MotionAlpha));
         m.insert("MotionAlphaStop".into(), Box::new(MotionAlphaStop));
         m.insert("MotionAlphaTest".into(), Box::new(MotionAlphaTest));
+        m.insert("MotionMove".into(), Box::new(MotionMove));
+        m.insert("MotionMoveStop".into(), Box::new(MotionMoveStop));
+        m.insert("MotionMoveTest".into(), Box::new(MotionMoveTest));
+        m.insert("MotionMoveR".into(), Box::new(MotionMoveR));
+        m.insert("MotionMoveRStop".into(), Box::new(MotionMoveRStop));
+        m.insert("MotionMoveRTest".into(), Box::new(MotionMoveRTest));
+        m.insert("MotionMoveS2".into(), Box::new(MotionMoveS2));
+        m.insert("MotionMoveS2Stop".into(), Box::new(MotionMoveS2Stop));
+        m.insert("MotionMoveS2Test".into(), Box::new(MotionMoveS2Test));
+        m.insert("MotionMoveZ".into(), Box::new(MotionMoveZ));
+        m.insert("MotionMoveZStop".into(), Box::new(MotionMoveZStop));
+        m.insert("MotionMoveZTest".into(), Box::new(MotionMoveZTest));
 
         AtomicRefCell::new(m)
     };

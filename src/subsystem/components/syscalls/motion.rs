@@ -4,6 +4,7 @@ use crate::subsystem::resources::motion_manager::AlphaMotionType;
 use crate::subsystem::resources::motion_manager::MoveMotionType;
 use crate::subsystem::resources::motion_manager::RotationMotionType;
 use crate::subsystem::resources::motion_manager::ScaleMotionType;
+use crate::subsystem::resources::motion_manager::ZMotionType;
 use crate::subsystem::world::GameData;
 use crate::script::Variant;
 
@@ -112,6 +113,7 @@ pub fn motion_alpha_test(game_data: &GameData, id: &Variant) -> Result<Variant> 
     Ok(Variant::Nil)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn motion_move(
     game_data: &mut GameData,
     id: &Variant,
@@ -192,6 +194,46 @@ pub fn motion_move(
     Ok(Variant::Nil)
 }
 
+
+pub fn motion_move_stop(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
+    let id = match id {
+        Variant::Int(id) => *id as i16,
+        _ => bail!("Invalid id"),
+    };
+
+    if !(1..4096).contains(&id) {
+        bail!("prim_id must be between 1 and 4096");
+    }
+
+    if let Some(mm) = &mut game_data.motion_manager {
+        mm.stop_move_motion(id as u32)?;
+    }
+
+    Ok(Variant::Nil)
+}
+
+pub fn motion_move_test(game_data: &GameData, id: &Variant) -> Result<Variant> {
+    let id = match id {
+        Variant::Int(id) => *id as i16,
+        _ => bail!("Invalid id"),
+    };
+
+    if !(1..4096).contains(&id) {
+        bail!("prim_id must be between 1 and 4096");
+    }
+
+    let result = if let Some(mm) = &game_data.motion_manager {
+        mm.test_move_motion(id as u32)
+    } else {
+        false
+    };
+
+    if result {
+        return Ok(Variant::True);
+    }
+
+    Ok(Variant::Nil)
+}
 
 pub fn motion_move_r(game_data: &mut GameData, id: &Variant, src_r: &Variant, dst_r: &Variant, duration: &Variant, typ: &Variant, reverse: &Variant) -> Result<Variant> {
     let id = match id {
@@ -292,12 +334,14 @@ pub fn motion_move_r_test(game_data: &GameData, id: &Variant) -> Result<Variant>
     Ok(Variant::Nil)
 }
 
+
+#[allow(clippy::too_many_arguments)]
 pub fn motion_move_s2(
     game_data: &mut GameData,
     id: &Variant,
     src_w_factor: &Variant,
-    src_h_factor: &Variant,
     dst_w_factor: &Variant,
+    src_h_factor: &Variant,
     dst_h_factor: &Variant,
     duration: &Variant,
     typ: &Variant,
@@ -313,22 +357,22 @@ pub fn motion_move_s2(
     }
 
     let src_w_factor = match src_w_factor {
-        Variant::Int(x) => *x as i32,
+        Variant::Int(x) => *x,
         _ => game_data.prim_manager.get_prim(id).get_factor_x().into(),
     };
 
     let src_h_factor = match src_h_factor {
-        Variant::Int(y) => *y as i32,
+        Variant::Int(y) => *y,
         _ => game_data.prim_manager.get_prim(id).get_factor_y().into(),
     };
 
     let dst_w_factor = match dst_w_factor {
-        Variant::Int(x) => *x as i32,
+        Variant::Int(x) => *x,
         _ => game_data.prim_manager.get_prim(id).get_factor_x().into(),
     };
 
     let dst_h_factor = match dst_h_factor {
-        Variant::Int(y) => *y as i32,
+        Variant::Int(y) => *y,
         _ => game_data.prim_manager.get_prim(id).get_factor_y().into(),
     };
 
@@ -414,6 +458,113 @@ pub fn motion_move_s2_test(game_data: &GameData, id: &Variant) -> Result<Variant
 }
 
 
+pub fn motion_move_z(
+    game_data: &mut GameData,
+    id: &Variant,
+    src_z: &Variant,
+    dst_z: &Variant,
+    duration: &Variant,
+    typ: &Variant,
+    reverse: &Variant,
+) -> Result<Variant> {
+    let id = match id {
+        Variant::Int(id) => *id as i16,
+        _ => bail!("Invalid id"),
+    };
+
+    if !(1..4096).contains(&id) {
+        bail!("prim_id must be between 1 and 4096");
+    }
+
+    let src_z = match src_z {
+        Variant::Int(x) => *x,
+        _ => game_data.prim_manager.get_prim(id).get_z().into(),
+    };
+
+    let dst_z = match dst_z {
+        Variant::Int(y) => *y,
+        _ => game_data.prim_manager.get_prim(id).get_z().into(),
+    };
+
+    let duration = match duration {
+        Variant::Int(duration) => *duration,
+        _ => bail!("Invalid duration"),
+    };
+
+    if duration <= 0 || duration > 300000 {
+        bail!("Duration must be between 0 and 300000");
+    }
+
+    let typ = match typ {
+        Variant::Int(typ) => *typ,
+        _ => bail!("Invalid type"),
+    };
+
+    let typ = match typ.try_into() {
+        Ok(ZMotionType::None) => ZMotionType::None,
+        Ok(ZMotionType::Linear) => ZMotionType::Linear,
+        Ok(ZMotionType::Accelerate) => ZMotionType::Accelerate,
+        Ok(ZMotionType::Decelerate) => ZMotionType::Decelerate,
+        Ok(ZMotionType::Rebound) => ZMotionType::Rebound,
+        Ok(ZMotionType::Bounce) => ZMotionType::Bounce,
+        _ => ZMotionType::None,
+    };
+
+    if let Some(mm) = &mut game_data.motion_manager {
+        mm.set_z_motion(
+            id as u32,
+            src_z,
+            dst_z,
+            duration,
+            typ,
+            reverse.canbe_true(),
+        )?;
+    }
+
+    Ok(Variant::Nil)
+}
+
+
+pub fn motion_move_z_stop(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
+    let id = match id {
+        Variant::Int(id) => *id as i16,
+        _ => bail!("Invalid id"),
+    };
+
+    if !(1..4096).contains(&id) {
+        bail!("prim_id must be between 1 and 4096");
+    }
+
+    if let Some(mm) = &mut game_data.motion_manager {
+        mm.stop_z_motion(id as u32)?;
+    }
+
+    Ok(Variant::Nil)
+}
+
+pub fn motion_move_z_test(game_data: &GameData, id: &Variant) -> Result<Variant> {
+    let id = match id {
+        Variant::Int(id) => *id as i16,
+        _ => bail!("Invalid id"),
+    };
+
+    if !(1..4096).contains(&id) {
+        bail!("prim_id must be between 1 and 4096");
+    }
+
+    let result = if let Some(mm) = &game_data.motion_manager {
+        mm.test_z_motion(id as u32)
+    } else {
+        false
+    };
+
+    if result {
+        return Ok(Variant::True);
+    }
+
+    Ok(Variant::Nil)
+}
+
 pub struct MotionAlpha;
 impl Syscaller for MotionAlpha {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -478,6 +629,34 @@ unsafe impl Send for MotionMove {}
 unsafe impl Sync for MotionMove {}
 
 
+pub struct MotionMoveStop;
+impl Syscaller for MotionMoveStop {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        let id = get_var!(args, 0);
+
+        motion_move_stop(game_data, id)
+    }
+}
+
+unsafe impl Send for MotionMoveStop {}
+unsafe impl Sync for MotionMoveStop {}
+
+
+pub struct MotionMoveTest;
+impl Syscaller for MotionMoveTest {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        let id = get_var!(args, 0);
+
+        motion_move_test(game_data, id)
+    }
+}
+
+
+unsafe impl Send for MotionMoveTest {}
+unsafe impl Sync for MotionMoveTest {}
+
+
+
 pub struct MotionMoveR;
 impl Syscaller for MotionMoveR {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -527,14 +706,14 @@ impl Syscaller for MotionMoveS2 {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
         let id = get_var!(args, 0);
         let src_w_factor = get_var!(args, 1);
-        let src_h_factor = get_var!(args, 2);
-        let dst_w_factor = get_var!(args, 3);
+        let dst_w_factor = get_var!(args, 2);
+        let src_h_factor = get_var!(args, 3);
         let dst_h_factor = get_var!(args, 4);
         let duration = get_var!(args, 5);
         let typ = get_var!(args, 6);
         let reverse = get_var!(args, 7);
 
-        motion_move_s2(game_data, id, src_w_factor, src_h_factor, dst_w_factor, dst_h_factor, duration, typ, reverse)
+        motion_move_s2(game_data, id, src_w_factor, dst_w_factor, src_h_factor, dst_h_factor, duration, typ, reverse)
     }
 }
 
@@ -566,4 +745,49 @@ impl Syscaller for MotionMoveS2Test {
 
 unsafe impl Send for MotionMoveS2Test {}
 unsafe impl Sync for MotionMoveS2Test {}
+
+
+pub struct MotionMoveZ;
+impl Syscaller for MotionMoveZ {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        let id = get_var!(args, 0);
+        let src_z = get_var!(args, 1);
+        let dst_z = get_var!(args, 2);
+        let duration = get_var!(args, 3);
+        let typ = get_var!(args, 4);
+        let reverse = get_var!(args, 5);
+
+        motion_move_z(game_data, id, src_z, dst_z, duration, typ, reverse)
+    }
+}
+
+unsafe impl Send for MotionMoveZ {}
+unsafe impl Sync for MotionMoveZ {}
+
+
+pub struct MotionMoveZStop;
+impl Syscaller for MotionMoveZStop {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        let id = get_var!(args, 0);
+
+        motion_move_z_stop(game_data, id)
+    }
+}
+
+unsafe impl Send for MotionMoveZStop {}
+unsafe impl Sync for MotionMoveZStop {}
+
+
+pub struct MotionMoveZTest;
+impl Syscaller for MotionMoveZTest {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        let id = get_var!(args, 0);
+
+        motion_move_z_test(game_data, id)
+    }
+}
+
+
+unsafe impl Send for MotionMoveZTest {}
+unsafe impl Sync for MotionMoveZTest {}
 

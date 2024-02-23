@@ -354,6 +354,7 @@ impl MoveMotionContainer {
         &mut self.motions
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn push_motion(
         &mut self,
         prim_id: u32,
@@ -382,6 +383,36 @@ impl MoveMotionContainer {
         }
 
         Ok(())
+    }
+
+    pub fn stop_motion(&mut self, prim_id: u32) -> Result<()> {
+        let mut i = 0;
+        while self.motions[i].get_anm_type() == MoveMotionType::None || self.motions[i].get_prim_id() != prim_id {
+            i += 1;
+            if i >= 4096 {
+                return Ok(());
+            }
+        }
+
+        if self.current_id > 0 {
+            self.current_id -= 1;
+        }
+
+        self.motions[i].set_running(false);
+        self.motions[i].set_anm_type(MoveMotionType::None);
+        self.allocation_pool[self.current_id as usize] = self.motions[i].get_id() as u16;
+
+        Ok(())
+    }
+
+    pub fn test_motion(&self, prim_id: u32) -> bool {
+        for i in 0..4096 {
+            if self.motions[i].get_prim_id() == prim_id && self.motions[i].get_anm_type() != MoveMotionType::None {
+                return true;
+            }
+        }
+
+        false
     }
 }
 
