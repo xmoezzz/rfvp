@@ -3,18 +3,21 @@ mod normal_move;
 mod rotation_move;
 mod s2_move;
 mod z_move;
+mod v3d;
 
 use std::{cell::RefCell, sync::Arc};
 
-pub use super::motion_manager::alpha::{AlphaMotion, AlphaMotionContainer, AlphaMotionType};
-pub use super::motion_manager::normal_move::{MoveMotion, MoveMotionContainer, MoveMotionType};
+pub use super::motion_manager::alpha::{AlphaMotionContainer, AlphaMotionType};
+pub use super::motion_manager::normal_move::{MoveMotionContainer, MoveMotionType};
 pub use super::motion_manager::rotation_move::{
-    RotationMotion, RotationMotionContainer, RotationMotionType,
+    RotationMotionContainer, RotationMotionType,
 };
-pub use super::motion_manager::s2_move::{ScaleMotion, ScaleMotionContainer, ScaleMotionType};
-pub use super::motion_manager::z_move::{ZMotion, ZMotionContainer, ZMotionType};
+pub use super::motion_manager::s2_move::{ScaleMotionContainer, ScaleMotionType};
+pub use super::motion_manager::z_move::{ZMotionContainer, ZMotionType};
+pub use super::motion_manager::v3d::{V3dMotionContainer, V3dMotionType};
 use super::prim::{PrimManager, INVAILD_PRIM_HANDLE};
 use anyhow::Result;
+use atomic_refcell::AtomicRefCell;
 
 pub struct MotionManager {
     alpha_motion_container: AlphaMotionContainer,
@@ -22,16 +25,28 @@ pub struct MotionManager {
     rotation_motion_container: RotationMotionContainer,
     scale_motion_container: ScaleMotionContainer,
     z_motion_container: ZMotionContainer,
+    v3d_motion_container: V3dMotionContainer,
+    pub(crate) prim_manager: AtomicRefCell<PrimManager>,
+}
+
+impl Default for MotionManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MotionManager {
-    pub fn new(prim_manager: Arc<RefCell<PrimManager>>) -> MotionManager {
+    pub fn new() -> MotionManager {
+        let prim_manager = AtomicRefCell::new(PrimManager::new());
+
         MotionManager {
-            alpha_motion_container: AlphaMotionContainer::new(prim_manager.clone()),
-            move_motion_container: MoveMotionContainer::new(prim_manager.clone()),
-            rotation_motion_container: RotationMotionContainer::new(prim_manager.clone()),
-            scale_motion_container: ScaleMotionContainer::new(prim_manager.clone()),
-            z_motion_container: ZMotionContainer::new(prim_manager.clone()),
+            alpha_motion_container: AlphaMotionContainer::new(),
+            move_motion_container: MoveMotionContainer::new(),
+            rotation_motion_container: RotationMotionContainer::new(),
+            scale_motion_container: ScaleMotionContainer::new(),
+            z_motion_container: ZMotionContainer::new(),
+            v3d_motion_container: V3dMotionContainer::new(),
+            prim_manager,
         }
     }
 
@@ -153,5 +168,50 @@ impl MotionManager {
 
     pub fn test_z_motion(&self, prim_id: u32) -> bool {
         self.z_motion_container.test_motion(prim_id)
+    }
+
+    pub fn set_v3d_motion(
+        &mut self,
+        dest_x: i32,
+        dest_y: i32,
+        dest_z: i32,
+        duration: i32,
+        typ: V3dMotionType,
+        reverse: bool,
+    ) -> Result<()> {
+        self.v3d_motion_container
+            .set_motion(dest_x, dest_y, dest_z, duration, typ, reverse)
+    }
+
+    pub fn stop_v3d_motion(&mut self) -> Result<()> {
+        self.v3d_motion_container.stop_motion()
+    }
+
+    pub fn test_v3d_motion(&self) -> bool {
+        self.v3d_motion_container.test_motion()
+    }
+
+    pub fn set_v3d(&mut self, x: i32, y: i32, z: i32) {
+        self.v3d_motion_container.set_v3d(x, y, z)
+    }
+
+    pub fn set_v3d_motion_paused(&mut self, pause: bool) {
+        self.v3d_motion_container.set_paused(pause)
+    }
+
+    pub fn get_v3d_motion_paused(&self) -> bool {
+        self.v3d_motion_container.get_paused()
+    }
+
+    pub fn get_v3d_x(&self) -> i32 {
+        self.v3d_motion_container.get_x()
+    }
+
+    pub fn get_v3d_y(&self) -> i32 {
+        self.v3d_motion_container.get_y()
+    }
+
+    pub fn get_v3d_z(&self) -> i32 {
+        self.v3d_motion_container.get_z()
     }
 }

@@ -1,5 +1,6 @@
 use std::{cell::RefCell, sync::Arc};
 use anyhow::Result;
+use atomic_refcell::AtomicRefCell;
 
 use crate::subsystem::resources::prim::{PrimManager, INVAILD_PRIM_HANDLE};
 
@@ -153,7 +154,7 @@ impl MoveMotion {
 
     pub fn update(
         &mut self,
-        prim_manager: &Arc<RefCell<PrimManager>>,
+        prim_manager: &AtomicRefCell<PrimManager>,
         flag: bool,
         elapsed: i32,
     ) -> bool {
@@ -310,18 +311,16 @@ pub struct MoveMotionContainer {
     motions: Vec<MoveMotion>,
     current_id: u32,
     allocation_pool: Vec<u16>,
-    prim_manager: Arc<RefCell<PrimManager>>,
 }
 
 impl MoveMotionContainer {
-    pub fn new(prim_manager: Arc<RefCell<PrimManager>>) -> MoveMotionContainer {
+    pub fn new() -> MoveMotionContainer {
         let allocation_pool: Vec<u16> = (0..4096).collect();
 
         MoveMotionContainer {
             motions: vec![MoveMotion::new(); 4096],
             current_id: 0,
             allocation_pool,
-            prim_manager,
         }
     }
 
@@ -413,6 +412,28 @@ impl MoveMotionContainer {
         }
 
         false
+    }
+
+    pub fn exec_move_motion(
+        &mut self,
+        prim_manager: &AtomicRefCell<PrimManager>,
+        flag: bool,
+        elapsed: i32,
+    ) {
+        for i in 0..4096 {
+            if !self.motions[i].is_running() {
+                continue;
+            }
+            
+            if !self.motions[i].update(prim_manager, flag, elapsed) {
+                self.motions[i].set_running(false);
+                self.motions[i].set_anm_type(MoveMotionType::None);
+                if self.current_id > 0 {
+                    self.current_id -= 1;
+                }
+                self.allocation_pool[self.current_id as usize] = self.motions[i].get_id() as u16;
+            }
+        }
     }
 }
 

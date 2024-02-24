@@ -1,4 +1,5 @@
 use anyhow::Result;
+use atomic_refcell::AtomicRefCell;
 use std::{cell::RefCell, sync::Arc};
 
 use crate::subsystem::resources::prim::{PrimManager, INVAILD_PRIM_HANDLE};
@@ -65,7 +66,7 @@ impl ZMotion {
         self.prim_id
     }
 
-    pub fn is_zunning(&self) -> bool {
+    pub fn is_running(&self) -> bool {
         self.running
     }
 
@@ -131,7 +132,7 @@ impl ZMotion {
 
     pub fn update(
         &mut self,
-        prim_manager: &Arc<RefCell<PrimManager>>,
+        prim_manager: &AtomicRefCell<PrimManager>,
         flag: bool,
         elapsed: i32,
     ) -> bool {
@@ -264,18 +265,16 @@ pub struct ZMotionContainer {
     motions: Vec<ZMotion>,
     current_id: u32,
     allocation_pool: Vec<u16>,
-    prim_manager: Arc<RefCell<PrimManager>>,
 }
 
 impl ZMotionContainer {
-    pub fn new(prim_manager: Arc<RefCell<PrimManager>>) -> ZMotionContainer {
+    pub fn new() -> ZMotionContainer {
         let allocation_pool: Vec<u16> = (0..512).collect();
 
         ZMotionContainer {
             motions: vec![ZMotion::new(); 512],
             current_id: 0,
             allocation_pool,
-            prim_manager,
         }
     }
 
@@ -366,5 +365,27 @@ impl ZMotionContainer {
         }
 
         self.motions[i].get_type() != ZMotionType::None
+    }
+
+    pub fn exec_z_motion(
+        &mut self,
+        prim_manager: &AtomicRefCell<PrimManager>,
+        flag: bool,
+        elapsed: i32,
+    ) {
+        for i in 0..512 {
+            if !self.motions[i].is_running() {
+                continue;
+            }
+
+            if !self.motions[i].update(prim_manager, flag, elapsed) {
+                self.motions[i].set_zunning(false);
+                self.motions[i].set_type(ZMotionType::None);
+                if self.current_id > 0 {
+                    self.current_id -= 1;
+                }
+                self.allocation_pool[self.current_id as usize] = self.motions[i].get_id() as u16;
+            }
+        }
     }
 }

@@ -37,8 +37,10 @@ use crate::subsystem::components::syscalls::motion::{
     MotionMove, MotionMoveStop, MotionMoveTest,
     MotionMoveR, MotionMoveRStop, MotionMoveRTest,
     MotionMoveS2, MotionMoveS2Stop, MotionMoveS2Test,
-    MotionMoveZ, MotionMoveZStop, MotionMoveZTest, MotionPause
+    MotionMoveZ, MotionMoveZStop, MotionMoveZTest, MotionPause,
+    V3DMotion, V3DMotionStop, V3DMotionTest, V3DMotionPause, V3DSet
 };
+use crate::subsystem::components::syscalls::color::ColorSet;
 
 use crate::subsystem::resources::asset_manager::AssetManager;
 use crate::subsystem::resources::audio::Audio;
@@ -59,9 +61,10 @@ use hecs::{
 
 use super::resources::flag_manager::FlagManager;
 use super::resources::history_manager::HistoryManager;
-use super::resources::prim::PrimManager;
+use super::resources::text_manager::TextManager;
 use super::resources::scripter::ScriptScheduler;
 use super::resources::vfs::Vfs;
+use super::resources::color_manager::ColorManager;
 
 use crate::subsystem::components::syscalls::Syscaller;
 
@@ -92,8 +95,9 @@ pub struct GameData {
     pub(crate) script_scheduler: Rc<RefCell<ScriptScheduler>>,
     pub(crate) history_manager: HistoryManager,
     pub(crate) flag_manager: FlagManager,
-    pub(crate) prim_manager: PrimManager,
-    pub(crate) motion_manager: Option<MotionManager>,
+    pub(crate) motion_manager: MotionManager,
+    pub(crate) color_manager: ColorManager,
+    pub(crate) text_manager: TextManager,
 }
 
 impl GameData {
@@ -611,6 +615,14 @@ lazy_static::lazy_static! {
         m.insert("MotionMoveZStop".into(), Box::new(MotionMoveZStop));
         m.insert("MotionMoveZTest".into(), Box::new(MotionMoveZTest));
         m.insert("MotionPause".into(), Box::new(MotionPause));
+        m.insert("V3DMotion".into(), Box::new(V3DMotion));
+        m.insert("V3DMotionStop".into(), Box::new(V3DMotionStop));
+        m.insert("V3DMotionTest".into(), Box::new(V3DMotionTest));
+        m.insert("V3DMotionPause".into(), Box::new(V3DMotionPause));
+        m.insert("V3DSet".into(), Box::new(V3DSet));
+
+        // color apis
+        m.insert("ColorSet".into(), Box::new(ColorSet));
 
         AtomicRefCell::new(m)
     };

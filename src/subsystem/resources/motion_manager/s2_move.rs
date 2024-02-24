@@ -1,4 +1,5 @@
 use anyhow::Result;
+use atomic_refcell::AtomicRefCell;
 use std::{cell::RefCell, sync::Arc};
 
 use crate::subsystem::resources::prim::{PrimManager, INVAILD_PRIM_HANDLE};
@@ -151,7 +152,7 @@ impl ScaleMotion {
 
     pub fn update(
         &mut self,
-        prim_manager: &Arc<RefCell<PrimManager>>,
+        prim_manager: &AtomicRefCell<PrimManager>,
         flag: bool,
         elapsed: i32,
     ) -> bool {
@@ -311,18 +312,16 @@ pub struct ScaleMotionContainer {
     motions: Vec<ScaleMotion>,
     current_id: u32,
     allocation_pool: Vec<u16>,
-    prim_manager: Arc<RefCell<PrimManager>>,
 }
 
 impl ScaleMotionContainer {
-    pub fn new(prim_manager: Arc<RefCell<PrimManager>>) -> ScaleMotionContainer {
+    pub fn new() -> ScaleMotionContainer {
         let allocation_pool: Vec<u16> = (0..512).collect();
 
         ScaleMotionContainer {
             motions: vec![ScaleMotion::new(); 512],
             current_id: 0,
             allocation_pool,
-            prim_manager,
         }
     }
 
@@ -354,6 +353,7 @@ impl ScaleMotionContainer {
         &mut self.motions
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn push_motion(
         &mut self,
         prim_id: u32,
@@ -420,5 +420,25 @@ impl ScaleMotionContainer {
         self.motions[i].get_type() != ScaleMotionType::None
     }
 
-
+    pub fn exec_s2_motion(
+        &mut self,
+        prim_manager: &AtomicRefCell<PrimManager>,
+        flag: bool,
+        elapsed: i32,
+    ) {
+        for i in 0..512 {
+            if !self.motions[i].is_running() {
+                continue;
+            }
+            
+            if !self.motions[i].update(prim_manager, flag, elapsed) {
+                self.motions[i].set_running(false);
+                self.motions[i].set_type(ScaleMotionType::None);
+                if self.current_id > 0 {
+                    self.current_id -= 1;
+                }
+                self.allocation_pool[self.current_id as usize] = self.motions[i].get_id() as u16;
+            }
+        }
+    }
 }

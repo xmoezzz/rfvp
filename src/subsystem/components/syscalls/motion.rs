@@ -5,6 +5,7 @@ use crate::subsystem::resources::motion_manager::MoveMotionType;
 use crate::subsystem::resources::motion_manager::RotationMotionType;
 use crate::subsystem::resources::motion_manager::ScaleMotionType;
 use crate::subsystem::resources::motion_manager::ZMotionType;
+use crate::subsystem::resources::motion_manager::V3dMotionType;
 use crate::subsystem::world::GameData;
 use crate::script::Variant;
 
@@ -30,12 +31,12 @@ pub fn motion_alpha(
 
     let src_alpha = match src_alpha {
         Variant::Int(src_alpha) => *src_alpha as u8,
-        _ => game_data.prim_manager.get_prim(id).get_alpha(),
+        _ => game_data.motion_manager.prim_manager.get_mut().get_prim(id).get_alpha(),
     };
 
     let dst_alpha = match dst_alpha {
         Variant::Int(dst_alpha) => *dst_alpha as u8,
-        _ => game_data.prim_manager.get_prim(id).get_alpha(),
+        _ => game_data.motion_manager.prim_manager.get_mut().get_prim(id).get_alpha(),
     };
 
     let duration = match duration {
@@ -58,8 +59,7 @@ pub fn motion_alpha(
         _ => AlphaMotionType::Immediate,
     };
 
-    if let Some(mm) = &mut game_data.motion_manager {
-        mm.set_alpha_motion(
+    game_data.motion_manager.set_alpha_motion(
             id as u32,
             src_alpha,
             dst_alpha,
@@ -67,7 +67,6 @@ pub fn motion_alpha(
             typ,
             reverse.canbe_true(),
         )?;
-    }
 
     Ok(Variant::Nil)
 }
@@ -83,9 +82,7 @@ pub fn motion_alpha_stop(game_data: &mut GameData, id: &Variant) -> Result<Varia
         bail!("prim_id must be between 1 and 4096");
     }
 
-    if let Some(mm) = &mut game_data.motion_manager {
-        mm.stop_alpha_motion(id as u32)?;
-    }
+    game_data.motion_manager.stop_alpha_motion(id as u32)?;
 
     Ok(Variant::Nil)
 }
@@ -100,11 +97,7 @@ pub fn motion_alpha_test(game_data: &GameData, id: &Variant) -> Result<Variant> 
         bail!("prim_id must be between 1 and 4096");
     }
 
-    let result = if let Some(mm) = &game_data.motion_manager {
-        mm.test_alpha_motion(id as u32)
-    } else {
-        false
-    };
+    let result = game_data.motion_manager.test_alpha_motion(id as u32);
 
     if result {
         return Ok(Variant::True);
@@ -136,22 +129,22 @@ pub fn motion_move(
 
     let src_x = match src_x {
         Variant::Int(x) => *x as i16,
-        _ => game_data.prim_manager.get_prim(id).get_x(),
+        _ => game_data.motion_manager.prim_manager.get_mut().get_prim(id).get_x(),
     };
 
     let src_y = match src_y {
         Variant::Int(y) => *y as i16,
-        _ => game_data.prim_manager.get_prim(id).get_y(),
+        _ => game_data.motion_manager.prim_manager.get_mut().get_prim(id).get_y(),
     };
 
     let dst_x = match dst_x {
         Variant::Int(x) => *x as i16,
-        _ => game_data.prim_manager.get_prim(id).get_x(),
+        _ => game_data.motion_manager.prim_manager.get_mut().get_prim(id).get_x(),
     };
 
     let dst_y = match dst_y {
         Variant::Int(y) => *y as i16,
-        _ => game_data.prim_manager.get_prim(id).get_y(),
+        _ => game_data.motion_manager.prim_manager.get_mut().get_prim(id).get_y(),
     };
 
     let duration = match duration {
@@ -178,18 +171,16 @@ pub fn motion_move(
         _ => MoveMotionType::None,
     };
 
-    if let Some(mm) = &mut game_data.motion_manager {
-        mm.set_move_motion(
-            id as u32,
-            src_x as u32,
-            src_y as u32,
-            dst_x as u32,
-            dst_y as u32,
-            duration,
-            typ,
-            reverse.canbe_true(),
-        )?;
-    }
+    game_data.motion_manager.set_move_motion(
+        id as u32,
+        src_x as u32,
+        src_y as u32,
+        dst_x as u32,
+        dst_y as u32,
+        duration,
+        typ,
+        reverse.canbe_true(),
+    )?;
 
     Ok(Variant::Nil)
 }
@@ -205,9 +196,7 @@ pub fn motion_move_stop(game_data: &mut GameData, id: &Variant) -> Result<Varian
         bail!("prim_id must be between 1 and 4096");
     }
 
-    if let Some(mm) = &mut game_data.motion_manager {
-        mm.stop_move_motion(id as u32)?;
-    }
+    game_data.motion_manager.stop_move_motion(id as u32)?;
 
     Ok(Variant::Nil)
 }
@@ -222,11 +211,7 @@ pub fn motion_move_test(game_data: &GameData, id: &Variant) -> Result<Variant> {
         bail!("prim_id must be between 1 and 4096");
     }
 
-    let result = if let Some(mm) = &game_data.motion_manager {
-        mm.test_move_motion(id as u32)
-    } else {
-        false
-    };
+    let result = game_data.motion_manager.test_move_motion(id as u32);
 
     if result {
         return Ok(Variant::True);
@@ -247,12 +232,12 @@ pub fn motion_move_r(game_data: &mut GameData, id: &Variant, src_r: &Variant, ds
 
     let src_r = match src_r {
         Variant::Int(x) => *x as i16,
-        _ => game_data.prim_manager.get_prim(id).get_x(),
+        _ => game_data.motion_manager.prim_manager.get_mut().get_prim(id).get_x(),
     };
 
     let dst_r = match dst_r {
         Variant::Int(y) => *y as i16,
-        _ => game_data.prim_manager.get_prim(id).get_y(),
+        _ => game_data.motion_manager.prim_manager.get_mut().get_prim(id).get_y(),
     };
 
     let duration = match duration {
@@ -279,17 +264,14 @@ pub fn motion_move_r(game_data: &mut GameData, id: &Variant, src_r: &Variant, ds
         _ => RotationMotionType::None,
     };
 
-    if let Some(mm) = &mut game_data.motion_manager {
-        mm.set_rotation_motion(
-            id as u32,
-            src_r as i16,
-            dst_r as i16,
-            duration as i32,
-            typ,
-            reverse.canbe_true(),
-        )?;
-
-    }
+    game_data.motion_manager.set_rotation_motion(
+        id as u32,
+        src_r as i16,
+        dst_r as i16,
+        duration as i32,
+        typ,
+        reverse.canbe_true(),
+    )?;
 
     Ok(Variant::Nil)
 }
@@ -304,9 +286,7 @@ pub fn motion_move_r_stop(game_data: &mut GameData, id: &Variant) -> Result<Vari
         bail!("prim_id must be between 1 and 4096");
     }
 
-    if let Some(mm) = &mut game_data.motion_manager {
-        mm.stop_rotation_motion(id as u32)?;
-    }
+    game_data.motion_manager.stop_rotation_motion(id as u32)?;
 
     Ok(Variant::Nil)
 }
@@ -321,11 +301,7 @@ pub fn motion_move_r_test(game_data: &GameData, id: &Variant) -> Result<Variant>
         bail!("prim_id must be between 1 and 4096");
     }
 
-    let result = if let Some(mm) = &game_data.motion_manager {
-        mm.test_rotation_motion(id as u32)
-    } else {
-        false
-    };
+    let result = game_data.motion_manager.test_rotation_motion(id as u32);
 
     if result {
         return Ok(Variant::True);
@@ -358,22 +334,22 @@ pub fn motion_move_s2(
 
     let src_w_factor = match src_w_factor {
         Variant::Int(x) => *x,
-        _ => game_data.prim_manager.get_prim(id).get_factor_x().into(),
+        _ => game_data.motion_manager.prim_manager.get_mut().get_prim(id).get_factor_x().into(),
     };
 
     let src_h_factor = match src_h_factor {
         Variant::Int(y) => *y,
-        _ => game_data.prim_manager.get_prim(id).get_factor_y().into(),
+        _ => game_data.motion_manager.prim_manager.get_mut().get_prim(id).get_factor_y().into(),
     };
 
     let dst_w_factor = match dst_w_factor {
         Variant::Int(x) => *x,
-        _ => game_data.prim_manager.get_prim(id).get_factor_x().into(),
+        _ => game_data.motion_manager.prim_manager.get_mut().get_prim(id).get_factor_x().into(),
     };
 
     let dst_h_factor = match dst_h_factor {
         Variant::Int(y) => *y,
-        _ => game_data.prim_manager.get_prim(id).get_factor_y().into(),
+        _ => game_data.motion_manager.prim_manager.get_mut().get_prim(id).get_factor_y().into(),
     };
 
     let duration = match duration {
@@ -400,18 +376,16 @@ pub fn motion_move_s2(
         _ => ScaleMotionType::None,
     };
 
-    if let Some(mm) = &mut game_data.motion_manager {
-        mm.set_scale_motion(
-            id as u32,
-            src_w_factor,
-            src_h_factor,
-            dst_w_factor,
-            dst_h_factor,
-            duration,
-            typ,
-            reverse.canbe_true(),
-        )?;
-    }
+    game_data.motion_manager.set_scale_motion(
+        id as u32,
+        src_w_factor,
+        src_h_factor,
+        dst_w_factor,
+        dst_h_factor,
+        duration,
+        typ,
+        reverse.canbe_true(),
+    )?;
 
     Ok(Variant::Nil)
 }
@@ -427,9 +401,7 @@ pub fn motion_move_s2_stop(game_data: &mut GameData, id: &Variant) -> Result<Var
         bail!("prim_id must be between 1 and 4096");
     }
 
-    if let Some(mm) = &mut game_data.motion_manager {
-        mm.stop_scale_motion(id as u32)?;
-    }
+    game_data.motion_manager.stop_scale_motion(id as u32)?;
 
     Ok(Variant::Nil)
 }
@@ -444,11 +416,7 @@ pub fn motion_move_s2_test(game_data: &GameData, id: &Variant) -> Result<Variant
         bail!("prim_id must be between 1 and 4096");
     }
 
-    let result = if let Some(mm) = &game_data.motion_manager {
-        mm.test_scale_motion(id as u32)
-    } else {
-        false
-    };
+    let result = game_data.motion_manager.test_scale_motion(id as u32);
 
     if result {
         return Ok(Variant::True);
@@ -478,12 +446,12 @@ pub fn motion_move_z(
 
     let src_z = match src_z {
         Variant::Int(x) => *x,
-        _ => game_data.prim_manager.get_prim(id).get_z().into(),
+        _ => game_data.motion_manager.prim_manager.get_mut().get_prim(id).get_z().into(),
     };
 
     let dst_z = match dst_z {
         Variant::Int(y) => *y,
-        _ => game_data.prim_manager.get_prim(id).get_z().into(),
+        _ => game_data.motion_manager.prim_manager.get_mut().get_prim(id).get_z().into(),
     };
 
     let duration = match duration {
@@ -510,16 +478,14 @@ pub fn motion_move_z(
         _ => ZMotionType::None,
     };
 
-    if let Some(mm) = &mut game_data.motion_manager {
-        mm.set_z_motion(
-            id as u32,
-            src_z,
-            dst_z,
-            duration,
-            typ,
-            reverse.canbe_true(),
-        )?;
-    }
+    game_data.motion_manager.set_z_motion(
+        id as u32,
+        src_z,
+        dst_z,
+        duration,
+        typ,
+        reverse.canbe_true(),
+    )?;
 
     Ok(Variant::Nil)
 }
@@ -535,9 +501,7 @@ pub fn motion_move_z_stop(game_data: &mut GameData, id: &Variant) -> Result<Vari
         bail!("prim_id must be between 1 and 4096");
     }
 
-    if let Some(mm) = &mut game_data.motion_manager {
-        mm.stop_z_motion(id as u32)?;
-    }
+    game_data.motion_manager.stop_z_motion(id as u32)?;
 
     Ok(Variant::Nil)
 }
@@ -552,11 +516,7 @@ pub fn motion_move_z_test(game_data: &GameData, id: &Variant) -> Result<Variant>
         bail!("prim_id must be between 1 and 4096");
     }
 
-    let result = if let Some(mm) = &game_data.motion_manager {
-        mm.test_z_motion(id as u32)
-    } else {
-        false
-    };
+    let result =game_data.motion_manager.test_z_motion(id as u32);
 
     if result {
         return Ok(Variant::True);
@@ -576,7 +536,7 @@ pub fn motion_pause(game_data: &mut GameData, id: &Variant, pause: &Variant) -> 
         bail!("prim_id must be between 0 and 4096");
     }
 
-    let mut prim = game_data.prim_manager.get_prim(id);
+    let mut prim = game_data.motion_manager.prim_manager.get_mut().get_prim(id);
     match pause {
         Variant::Int(b) => {
             if *b == 0 {
@@ -591,6 +551,116 @@ pub fn motion_pause(game_data: &mut GameData, id: &Variant, pause: &Variant) -> 
         },
         _ => log::error!("Invalid pause value"),
     }
+
+    Ok(Variant::Nil)
+}
+
+
+pub fn v3d_motion(
+    game_data: &mut GameData,
+    dest_x: &Variant,
+    dest_y: &Variant,
+    dest_z: &Variant,
+    duration: &Variant,
+    typ: &Variant,
+    reverse: &Variant,
+) -> Result<Variant> {
+    let dest_x = match dest_x {
+        Variant::Int(x) => *x,
+        _ => bail!("Invalid dest_x"),
+    };
+
+    let dest_y = match dest_y {
+        Variant::Int(y) => *y,
+        _ => bail!("Invalid dest_y"),
+    };
+
+    let dest_z = match dest_z {
+        Variant::Int(z) => *z,
+        _ => bail!("Invalid dest_z"),
+    };
+
+    let duration = match duration {
+        Variant::Int(duration) => *duration,
+        _ => bail!("Invalid duration"),
+    };
+
+    if duration <= 0 || duration > 300000 {
+        bail!("Duration must be between 0 and 300000");
+    }
+
+    let typ = match typ {
+        Variant::Int(typ) => *typ,
+        _ => bail!("Invalid type"),
+    };
+
+    let typ = match typ.try_into() {
+        Ok(V3dMotionType::None) => V3dMotionType::None,
+        Ok(V3dMotionType::Linear) => V3dMotionType::Linear,
+        _ => V3dMotionType::None,
+    };
+
+    game_data.motion_manager.set_v3d_motion(dest_x, dest_y, dest_z, duration, typ, reverse.canbe_true())?;
+
+    Ok(Variant::Nil)
+}
+
+
+pub fn v3d_motion_pause(game_data: &mut GameData, pause: &Variant) -> Result<Variant> {
+    match pause {
+        Variant::Int(b) => {
+            if *b == 0 {
+                game_data.motion_manager.set_v3d_motion_paused(false);
+            }
+            else {
+                game_data.motion_manager.set_v3d_motion_paused(true);
+            }
+        },
+        Variant::Nil => {
+            return Ok(Variant::Int(game_data.motion_manager.get_v3d_motion_paused() as i32));
+        },
+        _ => log::error!("Invalid pause value"),
+    };
+
+    Ok(Variant::Nil)
+}
+
+
+pub fn v3d_motion_stop(game_data: &mut GameData) -> Result<Variant> {
+    game_data.motion_manager.stop_v3d_motion()?;
+
+    Ok(Variant::Nil)
+}
+
+
+pub fn v3d_motion_test(game_data: &GameData) -> Result<Variant> {
+    let result = game_data.motion_manager.test_v3d_motion();
+
+    if result {
+        return Ok(Variant::True);
+    }
+
+    Ok(Variant::Nil)
+}
+
+pub fn v3d_set(game_data: &mut GameData, x: &Variant, y: &Variant, z: &Variant) -> Result<Variant> {
+
+    let x = match x {
+        Variant::Int(x) => *x,
+        _ => game_data.motion_manager.get_v3d_x(),
+    };
+
+    let y = match y {
+        Variant::Int(y) => *y,
+        _ => game_data.motion_manager.get_v3d_y(),
+    };
+
+    let z = match z {
+        Variant::Int(z) => *z,
+        _ => game_data.motion_manager.get_v3d_z(),
+    };
+
+    game_data.motion_manager.set_v3d(x, y, z);
 
     Ok(Variant::Nil)
 }
@@ -834,4 +904,72 @@ impl Syscaller for MotionPause {
 
 unsafe impl Send for MotionPause {}
 unsafe impl Sync for MotionPause {}
+
+
+pub struct V3DMotion;
+impl Syscaller for V3DMotion {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        let dest_x = get_var!(args, 0);
+        let dest_y = get_var!(args, 1);
+        let dest_z = get_var!(args, 2);
+        let duration = get_var!(args, 3);
+        let typ = get_var!(args, 4);
+        let reverse = get_var!(args, 5);
+
+        v3d_motion(game_data, dest_x, dest_y, dest_z, duration, typ, reverse)
+    }
+}
+
+unsafe impl Send for V3DMotion {}
+unsafe impl Sync for V3DMotion {}
+
+
+pub struct V3DMotionPause;
+impl Syscaller for V3DMotionPause {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        let pause = get_var!(args, 0);
+
+        v3d_motion_pause(game_data, pause)
+    }
+}
+
+unsafe impl Send for V3DMotionPause {}
+unsafe impl Sync for V3DMotionPause {}
+
+
+pub struct V3DMotionStop;
+impl Syscaller for V3DMotionStop {
+    fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+        v3d_motion_stop(game_data)
+    }
+}
+
+unsafe impl Send for V3DMotionStop {}
+unsafe impl Sync for V3DMotionStop {}
+
+
+pub struct V3DMotionTest;
+impl Syscaller for V3DMotionTest {
+    fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+        v3d_motion_test(game_data)
+    }
+}
+
+unsafe impl Send for V3DMotionTest {}
+unsafe impl Sync for V3DMotionTest {}
+
+
+pub struct V3DSet;
+impl Syscaller for V3DSet {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        let x = get_var!(args, 0);
+        let y = get_var!(args, 1);
+        let z = get_var!(args, 2);
+
+        v3d_set(game_data, x, y, z)
+    }
+}
+
+unsafe impl Send for V3DSet {}
+unsafe impl Sync for V3DSet {}
 

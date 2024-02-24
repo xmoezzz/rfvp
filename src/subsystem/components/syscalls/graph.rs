@@ -38,7 +38,11 @@ pub fn prim_group_in(game_data: &mut GameData, id: &Variant, id2: &Variant) -> R
         bail!("prim_group_in: invalid id2 : {}", id2);
     }
 
-    game_data.prim_manager.set_prim_group_in(id2, id);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .set_prim_group_in(id2, id);
 
     Ok(Variant::Nil)
 }
@@ -62,7 +66,11 @@ pub fn prim_group_move(game_data: &mut GameData, id: &Variant, id2: &Variant) ->
         bail!("prim_group_move: invalid id2 : {}", id2);
     }
 
-    game_data.prim_manager.prim_move(id2, id);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_move(id2, id);
 
     Ok(Variant::Nil)
 }
@@ -77,7 +85,11 @@ pub fn prim_group_out(game_data: &mut GameData, id: &Variant) -> Result<Variant>
         bail!("prim_group_out: invalid id : {}", id);
     }
 
-    game_data.prim_manager.unlink_prim(id as i16);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .unlink_prim(id as i16);
 
     Ok(Variant::Nil)
 }
@@ -94,7 +106,9 @@ pub fn prim_set_null(game_data: &mut GameData, id: &Variant) -> Result<Variant> 
     }
 
     game_data
+        .motion_manager
         .prim_manager
+        .get_mut()
         .prim_init_with_type(id as i16, PrimType::PrimTypeNone);
 
     Ok(Variant::Nil)
@@ -120,7 +134,11 @@ pub fn prim_set_alpha(game_data: &mut GameData, id: &Variant, alpha: &Variant) -
         bail!("prim_set_alpha: invalid alpha : {}", alpha);
     }
 
-    game_data.prim_manager.prim_set_alpha(id, alpha);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_alpha(id, alpha);
 
     Ok(Variant::Nil)
 }
@@ -144,7 +162,11 @@ pub fn prim_set_blend(game_data: &mut GameData, id: &Variant, blend: &Variant) -
         bail!("prim_set_blend: invalid blend : {}", blend);
     }
 
-    game_data.prim_manager.prim_set_blend(id, blend);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_blend(id, blend);
 
     Ok(Variant::Nil)
 }
@@ -168,7 +190,11 @@ pub fn prim_set_draw(game_data: &mut GameData, id: &Variant, draw: &Variant) -> 
         bail!("prim_set_draw: invalid draw : {}", draw);
     }
 
-    game_data.prim_manager.prim_set_draw(id, draw);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_draw(id, draw);
 
     Ok(Variant::Nil)
 }
@@ -199,7 +225,11 @@ pub fn prim_set_op(
         None => bail!("prim_set_op: invalid op : {:?}", opy),
     };
 
-    game_data.prim_manager.prim_set_op(id, opx, opy);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_op(id, opx, opy);
 
     Ok(Variant::Nil)
 }
@@ -243,9 +273,21 @@ pub fn prim_set_rs(
         scale
     };
 
-    game_data.prim_manager.prim_set_rotation(id, rotation);
-    game_data.prim_manager.prim_set_scale(id, scale, scale);
-    game_data.prim_manager.prim_add_attr(id, 0x40);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_rotation(id, rotation);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_scale(id, scale, scale);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_add_attr(id, 0x40);
 
     Ok(Variant::Nil)
 }
@@ -301,9 +343,21 @@ pub fn prim_set_rs2(
         scale_y
     };
 
-    game_data.prim_manager.prim_set_rotation(id, rotation);
-    game_data.prim_manager.prim_set_scale(id, scale_x, scale_y);
-    game_data.prim_manager.prim_add_attr(id, 0x40);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_rotation(id, rotation);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_scale(id, scale_x, scale_y);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_add_attr(id, 0x40);
 
     Ok(Variant::Nil)
 }
@@ -337,18 +391,60 @@ pub fn prim_set_snow(
     let y = y.as_int().unwrap_or(0);
 
     game_data
+        .motion_manager
         .prim_manager
+        .get_mut()
         .prim_init_with_type(id as i16, PrimType::PrimTypeSnow);
-    game_data.prim_manager.prim_set_op(id, 0, 0);
-    game_data.prim_manager.prim_set_alpha(id, 255i32);
-    game_data.prim_manager.prim_set_blend(id, 0);
-    game_data.prim_manager.prim_set_rotation(id, 0);
-    game_data.prim_manager.prim_set_scale(id, 1000, 1000);
-    game_data.prim_manager.prim_set_uv(id, 0, 0);
-    game_data.prim_manager.prim_set_size(id, 0, 0);
-    game_data.prim_manager.prim_set_pos(id, x, y);
-    game_data.prim_manager.prim_set_z(id, 1000);
-    game_data.prim_manager.prim_set_attr(id, 0);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_op(id, 0, 0);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_alpha(id, 255i32);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_blend(id, 0);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_rotation(id, 0);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_scale(id, 1000, 1000);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_uv(id, 0, 0);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_size(id, 0, 0);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_pos(id, x, y);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_z(id, 1000);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_attr(id, 0);
 
     Ok(Variant::Nil)
 }
@@ -382,19 +478,65 @@ pub fn prim_set_sprt(
     let y = y.as_int().unwrap_or(0);
 
     game_data
+        .motion_manager
         .prim_manager
+        .get_mut()
         .prim_init_with_type(id as i16, PrimType::PrimTypeSprt);
-    game_data.prim_manager.prim_set_op(id, 0, 0);
-    game_data.prim_manager.prim_set_alpha(id, 255i32);
-    game_data.prim_manager.prim_set_blend(id, 0);
-    game_data.prim_manager.prim_set_rotation(id, 0);
-    game_data.prim_manager.prim_set_scale(id, 1000, 1000);
-    game_data.prim_manager.prim_set_uv(id, 0, 0);
-    game_data.prim_manager.prim_set_size(id, 0, 0);
-    game_data.prim_manager.prim_set_pos(id, x, y);
-    game_data.prim_manager.prim_set_z(id, 1000);
-    game_data.prim_manager.prim_set_mode(id, 0);
-    game_data.prim_manager.prim_set_attr(id, 0);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_op(id, 0, 0);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_alpha(id, 255i32);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_blend(id, 0);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_rotation(id, 0);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_scale(id, 1000, 1000);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_uv(id, 0, 0);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_size(id, 0, 0);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_pos(id, x, y);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_z(id, 1000);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_mode(id, 0);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_attr(id, 0);
 
     Ok(Variant::Nil)
 }
@@ -428,12 +570,30 @@ pub fn prim_set_text(
     let y = y.as_int().unwrap_or(0);
 
     game_data
+        .motion_manager
         .prim_manager
+        .get_mut()
         .prim_init_with_type(id as i16, PrimType::PrimTypeText);
-    game_data.prim_manager.prim_set_alpha(id, 255i32);
-    game_data.prim_manager.prim_set_blend(id, 0);
-    game_data.prim_manager.prim_set_pos(id, x, y);
-    game_data.prim_manager.prim_remove_attr(id, 0xFE);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_alpha(id, 255i32);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_blend(id, 0);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_pos(id, x, y);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_remove_attr(id, 0xFE);
 
     Ok(Variant::Nil)
 }
@@ -471,13 +631,35 @@ pub fn prim_set_tile(
     let h = h.as_int().unwrap_or(0);
 
     game_data
+        .motion_manager
         .prim_manager
+        .get_mut()
         .prim_init_with_type(id as i16, PrimType::PrimTypeTile);
-    game_data.prim_manager.prim_set_alpha(id, 255i32);
-    game_data.prim_manager.prim_set_blend(id, 0);
-    game_data.prim_manager.prim_set_pos(id, x, y);
-    game_data.prim_manager.prim_set_size(id, w, h);
-    game_data.prim_manager.prim_set_tile(id, tile_id);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_alpha(id, 255i32);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_blend(id, 0);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_pos(id, x, y);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_size(id, w, h);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_tile(id, tile_id);
 
     Ok(Variant::Nil)
 }
@@ -507,9 +689,21 @@ pub fn prim_set_uv(
         None => bail!("prim_set_uv: invalid v : {:?}", v),
     };
 
-    game_data.prim_manager.prim_set_uv(id, u, v);
-    game_data.prim_manager.prim_add_attr(id, 1);
-    game_data.prim_manager.prim_add_attr(id, 0x40);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_uv(id, u, v);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_add_attr(id, 1);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_add_attr(id, 0x40);
 
     Ok(Variant::Nil)
 }
@@ -539,12 +733,19 @@ pub fn prim_set_xy(
         None => bail!("prim_set_xy: invalid y : {:?}", y),
     };
 
-    game_data.prim_manager.prim_set_pos(id, x, y);
-    game_data.prim_manager.prim_add_attr(id, 0x40);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_pos(id, x, y);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_add_attr(id, 0x40);
 
     Ok(Variant::Nil)
 }
-
 
 pub fn prim_set_wh(
     game_data: &mut GameData,
@@ -571,9 +772,21 @@ pub fn prim_set_wh(
         None => bail!("prim_set_wh: invalid h : {:?}", h),
     };
 
-    game_data.prim_manager.prim_set_size(id, w, h);
-    game_data.prim_manager.prim_add_attr(id, 0x40);
-    game_data.prim_manager.prim_add_attr(id, 1);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_size(id, w, h);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_add_attr(id, 0x40);
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_add_attr(id, 1);
 
     Ok(Variant::Nil)
 }
@@ -601,16 +814,41 @@ pub fn prim_set_z(game_data: &mut GameData, id: &Variant, z: &Variant) -> Result
         None => bail!("prim_set_z: invalid z : {:?}", z),
     };
 
-    game_data.prim_manager.prim_set_z(id, z);
-    match game_data.prim_manager.prim_get_type(id) {
+    game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_set_z(id, z);
+    match game_data
+        .motion_manager
+        .prim_manager
+        .get_mut()
+        .prim_get_type(id)
+    {
         PrimType::PrimTypeNone => {}
         PrimType::PrimTypeGroup | PrimType::PrimTypeTile => {
-            game_data.prim_manager.prim_add_attr(id, 0x40);
-            game_data.prim_manager.prim_add_attr(id, 4);
+            game_data
+                .motion_manager
+                .prim_manager
+                .get_mut()
+                .prim_add_attr(id, 0x40);
+            game_data
+                .motion_manager
+                .prim_manager
+                .get_mut()
+                .prim_add_attr(id, 4);
         }
         _ => {
-            game_data.prim_manager.prim_add_attr(id, 0x40);
-            game_data.prim_manager.prim_remove_attr(id, 0xFB);
+            game_data
+                .motion_manager
+                .prim_manager
+                .get_mut()
+                .prim_add_attr(id, 0x40);
+            game_data
+                .motion_manager
+                .prim_manager
+                .get_mut()
+                .prim_remove_attr(id, 0xFB);
         }
     };
 
@@ -811,7 +1049,6 @@ impl Syscaller for PrimSetText {
 unsafe impl Send for PrimSetText {}
 unsafe impl Sync for PrimSetText {}
 
-
 pub struct PrimSetTile;
 impl Syscaller for PrimSetTile {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -830,7 +1067,6 @@ impl Syscaller for PrimSetTile {
 unsafe impl Send for PrimSetTile {}
 unsafe impl Sync for PrimSetTile {}
 
-
 pub struct PrimSetUV;
 impl Syscaller for PrimSetUV {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -843,10 +1079,8 @@ impl Syscaller for PrimSetUV {
     }
 }
 
-
 unsafe impl Send for PrimSetUV {}
 unsafe impl Sync for PrimSetUV {}
-
 
 pub struct PrimSetXY;
 impl Syscaller for PrimSetXY {
@@ -860,10 +1094,8 @@ impl Syscaller for PrimSetXY {
     }
 }
 
-
 unsafe impl Send for PrimSetXY {}
 unsafe impl Sync for PrimSetXY {}
-
 
 pub struct PrimSetWH;
 impl Syscaller for PrimSetWH {
@@ -893,5 +1125,3 @@ impl Syscaller for PrimSetZ {
 
 unsafe impl Send for PrimSetZ {}
 unsafe impl Sync for PrimSetZ {}
-
-
