@@ -1,12 +1,9 @@
 use anyhow::{bail, Result};
 use byteorder::{LittleEndian, WriteBytesExt};
 use flate2::read::ZlibDecoder;
-use flate2::Decompress;
-use std::io::Cursor;
 use std::io::Read;
 use std::io::Seek;
 use std::io::Write;
-use std::sync::Arc;
 
 // NVSGHDR type constants
 const NVSGHDR_TYPE_SINGLE_24BIT: u16 = 0;
@@ -156,7 +153,7 @@ fn texture_to_bmp(buff: &[u8], width: i32, height: i32, depth_bytes: u16) -> Res
     Ok(buffer)
 }
 
-fn read_texture(buff: &[u8]) -> Result<TextureContainer> {
+fn read_texture(buff: &[u8], output_raw: bool) -> Result<TextureContainer> {
     if buff.len() < 4 || buff[..4] != HZC1_SIGNATURE {
         bail!("Invalid HZC1 header");
     }
@@ -241,12 +238,16 @@ fn read_texture(buff: &[u8]) -> Result<TextureContainer> {
             out_buff.get(i as usize * frame_len as usize..(i as usize + 1) * frame_len as usize);
 
         if let Some(frame) = frame {
-            let slice = texture_to_bmp(
-                frame,
-                nvsghdr.width as i32,
-                0 - (nvsghdr.height as i32),
-                depth as u16,
-            )?;
+            let slice = if output_raw { 
+                texture_to_bmp(
+                    frame,
+                    nvsghdr.width as i32,
+                    0 - (nvsghdr.height as i32),
+                    depth as u16,
+                )?
+            } else {
+                frame.to_vec()
+            };
             container.add_slice(slice);
         }
     }
@@ -265,7 +266,7 @@ mod tests {
         let mut file = std::fs::File::open(filepath).unwrap();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
-        let container = read_texture(&buffer).unwrap();
+        let container = read_texture(&buffer, false).unwrap();
         assert!(!container.slices.is_empty());
 
         let slice = &container.slices[0];
@@ -280,7 +281,7 @@ mod tests {
         let mut file = std::fs::File::open(filepath).unwrap();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
-        let container = read_texture(&buffer).unwrap();
+        let container = read_texture(&buffer, false).unwrap();
         assert!(!container.slices.is_empty());
 
         let output = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/testcase/BGS016a_parts.dir"));

@@ -44,6 +44,21 @@ pub fn text_buff(
     Ok(Variant::Nil)
 }
 
+
+pub fn text_clear(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
+    let id = match id {
+        Variant::Int(id) => *id,
+        _ => bail!("text_clear: invalid id type"),
+    };
+
+    if !(0..32).contains(&id) {
+        bail!("text_clear: id should be in range 0..32");
+    }
+
+    game_data.text_manager.set_text_clear(id);
+    Ok(Variant::Nil)
+}
+
 pub fn text_color(
     game_data: &mut GameData,
     id: &Variant,
@@ -93,3 +108,43 @@ pub fn text_color(
     Ok(Variant::Nil)
 }
 
+
+// ＭＳ ゴシック
+// ＭＳ 明朝
+// ＭＳ Ｐゴシック
+// ＭＳ Ｐ明朝
+pub fn text_font(
+    game_data: &mut GameData,
+    id: &Variant,
+    font_id: &Variant,
+    font_id2: &Variant,
+) -> Result<Variant> {
+    let id = match id {
+        Variant::Int(id) => *id,
+        _ => bail!("text_font: invalid id type"),
+    };
+
+    if !(0..32).contains(&id) {
+        bail!("text_font: id should be in range 0..32");
+    }
+
+    let font_id = match font_id {
+        Variant::Int(id) => *id,
+        _ => bail!("text_font: invalid font_id type"),
+    };
+
+    if font_id >= -5 && font_id <= 0 {
+        game_data.text_manager.set_font_name(id, font_id);
+    }
+
+    let font_id2 = match font_id2 {
+        Variant::Int(id) => *id,
+        _ => bail!("text_font: invalid font_id2 type"),
+    };
+
+    if font_id2 >= -5 && font_id2 <= 0 {
+        game_data.text_manager.set_font_text(id, font_id2);
+    }
+
+    Ok(Variant::Nil)
+}

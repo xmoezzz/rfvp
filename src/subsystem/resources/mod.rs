@@ -16,3 +16,4 @@ pub mod text_manager;
 pub mod motion_manager;
 pub mod color_manager;
 pub mod input_manager;
+pub mod graph_buff;
