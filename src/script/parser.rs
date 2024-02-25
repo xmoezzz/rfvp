@@ -30,10 +30,10 @@ pub struct Parser {
     pub sys_desc_offset: u32,
     /// entry point (offset) of the script
     pub entry_point: u32,
-    /// I used to reverse this field, but I forgot what it is:(
-    pub unk1: u16,
-    /// I used to reverse this field, but I forgot what it is:(
-    pub unk2: u16,
+    pub non_volatile_global_count: u16,
+    pub volatile_global_count: u16,
+    // register a script function as syscall, never use?
+    pub custom_syscall_count: u16,
     /// Game resolution for the window mode
     game_mode: u16,
     game_title: String,
@@ -52,8 +52,9 @@ impl Parser {
             nls,
             sys_desc_offset: 0,
             entry_point: 0,
-            unk1: 0,
-            unk2: 0,
+            non_volatile_global_count: 0,
+            volatile_global_count: 0,
+            custom_syscall_count: 0,
             game_mode: 0,
             game_title: String::new(),
             syscall_count: 0,
@@ -177,10 +178,10 @@ impl Parser {
         self.entry_point = self.read_u32(off)?;
         off += size_of::<u32>();
 
-        self.unk1 = self.read_u16(off)?;
+        self.non_volatile_global_count = self.read_u16(off)?;
         off += size_of::<u16>();
 
-        self.unk2 = self.read_u16(off)?;
+        self.volatile_global_count = self.read_u16(off)?;
         off += size_of::<u16>();
 
         self.game_mode = self.read_u16(off)?;
@@ -208,6 +209,11 @@ impl Parser {
             self.syscalls.insert(i as usize, Syscall { args, name });
         }
 
+        self.custom_syscall_count = self.read_u16(off)?;
+        if self.custom_syscall_count > 0 {
+            log::warn!("custom syscall count: {}", self.custom_syscall_count);
+        }
+
         Ok(())
     }
 
@@ -221,6 +227,14 @@ impl Parser {
 
     pub fn get_title(&self) -> String {
         self.game_title.clone()
+    }
+
+    pub fn get_non_volatile_global_count(&self) -> u16 {
+        self.non_volatile_global_count
+    }
+
+    pub fn get_volatile_global_count(&self) -> u16 {
+        self.volatile_global_count
     }
 
     pub fn get_screen_size(&self) -> (u32, u32) {
