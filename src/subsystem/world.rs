@@ -61,7 +61,7 @@ use hecs::{
 
 use super::resources::flag_manager::FlagManager;
 use super::resources::history_manager::HistoryManager;
-use super::resources::text_manager::TextManager;
+use super::resources::text_manager::{FontEnumerator, TextManager};
 use super::resources::scripter::ScriptScheduler;
 use super::resources::vfs::Vfs;
 use super::resources::color_manager::ColorManager;
@@ -98,6 +98,7 @@ pub struct GameData {
     pub(crate) motion_manager: MotionManager,
     pub(crate) color_manager: ColorManager,
     pub(crate) text_manager: TextManager,
+    pub(crate) fontface_manager: FontEnumerator,
 }
 
 impl GameData {
