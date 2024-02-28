@@ -7,9 +7,20 @@ use crate::{
 use anyhow::{bail, Result};
 use atomic_refcell::AtomicRefCell;
 
+// ＭＳ ゴシック
+pub const FONTFACE_MS_GOTHIC: i32 = -4;
+// ＭＳ 明朝
+pub const FONTFACE_MS_MINCHO: i32 = -3;
+// ＭＳ Ｐゴシック
+pub const FONTFACE_MS_PGOTHIC: i32 = -2;
+// ＭＳ Ｐ明朝
+pub const FONTFACE_MS_PMINCHO: i32 = -1;
+
 pub struct FontEnumerator {
     default_font: AtomicRefCell<fontdue::Font>,
     fonts: Vec<(String, AtomicRefCell<fontdue::Font>)>,
+    system_fontface_id: i32,
+    current_font_name: String,
 }
 
 impl Default for FontEnumerator {
@@ -24,12 +35,12 @@ impl FontEnumerator {
         // should never fail
         let font = fontdue::Font::from_bytes(font, fontdue::FontSettings::default()).unwrap();
 
-        let enumerator = Self {
+        Self {
             default_font: AtomicRefCell::new(font),
             fonts: Self::enum_font().unwrap_or_default(),
-        };
-
-        enumerator
+            system_fontface_id: -4,
+            current_font_name: "ＭＳ ゴシック".into(),
+        }
     }
 
     fn enum_font() -> Result<Vec<(String, AtomicRefCell<fontdue::Font>)>> {
@@ -95,16 +106,32 @@ impl FontEnumerator {
         }
     }
 
-    pub fn get_font_name(&self, id: i32) -> String {
+    pub fn get_font_name(&self, id: i32) -> Option<String> {
         if self.fonts.is_empty() || id >= self.fonts.len() as i32 {
-            "ＭＳ ゴシック".to_string()
+            None
         } else {
-            self.fonts[id as usize - 1].0.clone()
+            Some(self.fonts[id as usize - 1].0.clone())
         }
     }
 
     pub fn get_font_count(&self) -> i32 {
         self.fonts.len() as i32
+    }
+
+    pub fn get_system_fontface_id(&self) -> i32 {
+        self.system_fontface_id
+    }
+
+    pub fn set_system_fontface_id(&mut self, id: i32) {
+        self.system_fontface_id = id;
+    }
+
+    pub fn get_current_font_name(&self) -> &str {
+        &self.current_font_name
+    }
+
+    pub fn set_current_font_name(&mut self, name: &str) {
+        self.current_font_name = name.into();
     }
 }
 
