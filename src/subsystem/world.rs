@@ -41,6 +41,11 @@ use crate::subsystem::components::syscalls::motion::{
     V3DMotion, V3DMotionStop, V3DMotionTest, V3DMotionPause, V3DSet
 };
 use crate::subsystem::components::syscalls::color::ColorSet;
+use crate::subsystem::components::syscalls::input::{
+    InputFlash, InputGetCursIn, InputGetCursX, InputGetCursY,
+    InputGetDown, InputGetEvent, InputGetRepeat, InputGetState,
+    InputGetUp, InputGetWheel, InputSetClick
+};
 
 use crate::subsystem::resources::asset_manager::AssetManager;
 use crate::subsystem::resources::audio::Audio;
@@ -61,6 +66,7 @@ use hecs::{
 
 use super::resources::flag_manager::FlagManager;
 use super::resources::history_manager::HistoryManager;
+use super::resources::input_manager::InputManager;
 use super::resources::text_manager::{FontEnumerator, TextManager};
 use super::resources::scripter::ScriptScheduler;
 use super::resources::vfs::Vfs;
@@ -99,6 +105,7 @@ pub struct GameData {
     pub(crate) color_manager: ColorManager,
     pub(crate) text_manager: TextManager,
     pub(crate) fontface_manager: FontEnumerator,
+    pub(crate) inputs_manager: InputManager,
 }
 
 impl GameData {
@@ -624,6 +631,19 @@ lazy_static::lazy_static! {
 
         // color apis
         m.insert("ColorSet".into(), Box::new(ColorSet));
+
+        // input apis
+        m.insert("InputFlash".into(), Box::new(InputFlash));
+        m.insert("InputGetCursIn".into(), Box::new(InputGetCursIn));
+        m.insert("InputGetCursX".into(), Box::new(InputGetCursX));
+        m.insert("InputGetCursY".into(), Box::new(InputGetCursY));
+        m.insert("InputGetDown".into(), Box::new(InputGetDown));
+        m.insert("InputGetEvent".into(), Box::new(InputGetEvent));
+        m.insert("InputGetRepeat".into(), Box::new(InputGetRepeat));
+        m.insert("InputGetState".into(), Box::new(InputGetState));
+        m.insert("InputGetUp".into(), Box::new(InputGetUp));
+        m.insert("InputGetWheel".into(), Box::new(InputGetWheel));
+        m.insert("InputSetClick".into(), Box::new(InputSetClick));
 
         AtomicRefCell::new(m)
     };
