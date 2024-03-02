@@ -47,6 +47,9 @@ use crate::subsystem::components::syscalls::input::{
     InputGetUp, InputGetWheel, InputSetClick,
     ControlMask, ControlPulse
 };
+use crate::subsystem::components::syscalls::timer::{
+    TimerSet, TimerGet, TimerSuspend
+};
 
 use crate::subsystem::resources::asset_manager::AssetManager;
 use crate::subsystem::resources::audio::Audio;
@@ -69,6 +72,7 @@ use super::resources::history_manager::HistoryManager;
 use super::resources::input_manager::InputManager;
 use super::resources::text_manager::{FontEnumerator, TextManager};
 use super::resources::scripter::ScriptScheduler;
+use super::resources::timer_manager::TimerManager;
 use super::resources::vfs::Vfs;
 use super::resources::color_manager::ColorManager;
 
@@ -106,6 +110,7 @@ pub struct GameData {
     pub(crate) text_manager: TextManager,
     pub(crate) fontface_manager: FontEnumerator,
     pub(crate) inputs_manager: InputManager,
+    pub(crate) timer_manager: TimerManager,
 }
 
 impl GameData {
@@ -634,6 +639,11 @@ lazy_static::lazy_static! {
         m.insert("InputSetClick".into(), Box::new(InputSetClick));
         m.insert("ControlPulse".into(), Box::new(ControlPulse));
         m.insert("ControlMask".into(), Box::new(ControlMask));
+
+        // timer apis
+        m.insert("TimerSet".into(), Box::new(TimerSet));
+        m.insert("TimerGet".into(), Box::new(TimerGet));
+        m.insert("TimerSuspend".into(), Box::new(TimerSuspend));
 
         AtomicRefCell::new(m)
     };

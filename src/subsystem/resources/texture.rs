@@ -255,6 +255,61 @@ fn read_texture(buff: &[u8], output_raw: bool) -> Result<TextureContainer> {
     Ok(container)
 }
 
+pub fn texture_color_tone_32(
+    texture: &mut Vec<u8> ,
+    red_value: i32,
+    green_value: i32,
+    blue_value: i32,
+) {
+    let pixel_count = texture.len() % 4;
+    for i in 0..pixel_count {
+        let index = i * 4;
+        let r = texture[index] as i32;
+        let g = texture[index + 1] as i32;
+        let b = texture[index + 2] as i32;
+        let a = texture[index + 3] as i32;
+
+        let r = if red_value >= 100 {
+            if red_value > 100 {
+                let green = g;
+                let adjusted_red = r.saturating_add(green.saturating_mul(red_value - 100) / 0xFF);
+                if adjusted_red > green { green } else { adjusted_red }
+            } else {
+                red_value * r / 100
+            }
+        } else {
+            r
+        };
+
+        let b = if green_value >= 100 {
+            if green_value > 100 {
+                let blue = b;
+                let adjusted_green = b.saturating_add(blue.saturating_mul(green_value - 100) / 0xFF);
+                if adjusted_green > blue { blue } else { adjusted_green }
+            } else {
+                green_value * a / 100
+            }
+        } else {
+            b
+        };
+
+        let a = if blue_value < 100 {
+            blue_value * a / 100
+        } else if blue_value > 100 {
+            let blue_value = b;
+            let adjusted_blue = a.saturating_add(blue_value.saturating_mul(blue_value - 100) / 0xFF);
+            if adjusted_blue > blue_value { blue_value } else { adjusted_blue }
+        } else {
+            a
+        };
+
+        texture[index] = r as u8;
+        texture[index + 1] = g as u8;
+        texture[index + 2] = b as u8;
+        texture[index + 3] = a as u8;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -10,6 +10,7 @@ pub mod motion;
 pub mod color;
 pub mod text;
 pub mod input;
+pub mod timer;
 
 pub trait Syscaller {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> anyhow::Result<Variant>;
