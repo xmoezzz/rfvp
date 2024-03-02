@@ -44,7 +44,8 @@ use crate::subsystem::components::syscalls::color::ColorSet;
 use crate::subsystem::components::syscalls::input::{
     InputFlash, InputGetCursIn, InputGetCursX, InputGetCursY,
     InputGetDown, InputGetEvent, InputGetRepeat, InputGetState,
-    InputGetUp, InputGetWheel, InputSetClick
+    InputGetUp, InputGetWheel, InputSetClick,
+    ControlMask, ControlPulse
 };
 
 use crate::subsystem::resources::asset_manager::AssetManager;
@@ -53,7 +54,6 @@ use crate::subsystem::resources::events::Events;
 use crate::subsystem::resources::focus_manager::FocusManager;
 use crate::subsystem::resources::motion_manager::MotionManager;
 use crate::subsystem::resources::font_atlas::FontAtlas;
-use crate::subsystem::resources::inputs::inputs_controller::InputsController;
 use crate::subsystem::resources::time::Timers;
 use crate::subsystem::resources::window::Window;
 use crate::subsystem::scene::SceneController;
@@ -171,12 +171,6 @@ impl GameData {
     pub fn timers(&self) -> AtomicRefMut<Timers> {
         self.get_resource_mut::<Timers>()
             .expect("The engine is missing the mandatory timers resource")
-    }
-
-    /// retrieves the inputs resource from the resources
-    pub fn inputs(&self) -> AtomicRefMut<InputsController> {
-        self.get_resource_mut::<InputsController>()
-            .expect("The engine is missing the mandatory inputs controller resource")
     }
 
     /// retrieves the events resource from the resources
@@ -416,12 +410,6 @@ impl Resources {
             .expect("The engine is missing the mandatory timers resource")
     }
 
-    /// retrieves the inputs resource from the resources
-    pub fn inputs(&self) -> AtomicRefMut<InputsController> {
-        self.get_resource_mut::<InputsController>()
-            .expect("The engine is missing the mandatory inputs controller resource")
-    }
-
     /// retrieves the events resource from the resources
     pub fn events(&self) -> AtomicRefMut<Events> {
         self.get_resource_mut::<Events>()
@@ -644,6 +632,8 @@ lazy_static::lazy_static! {
         m.insert("InputGetUp".into(), Box::new(InputGetUp));
         m.insert("InputGetWheel".into(), Box::new(InputGetWheel));
         m.insert("InputSetClick".into(), Box::new(InputSetClick));
+        m.insert("ControlPulse".into(), Box::new(ControlPulse));
+        m.insert("ControlMask".into(), Box::new(ControlMask));
 
         AtomicRefCell::new(m)
     };

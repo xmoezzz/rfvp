@@ -1,5 +1,4 @@
 pub mod window;
-pub mod inputs;
 pub mod events;
 pub mod time;
 pub mod audio;

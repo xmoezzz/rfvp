@@ -109,23 +109,6 @@ impl App {
                                 *scale_factor,
                             );
                         }
-                        WindowEvent::CursorMoved {
-                            device_id: _,
-                            position,
-                            ..
-                        } => {
-                            let dpi_factor = self
-                                .window
-                                .as_mut()
-                                .unwrap()
-                                .current_monitor()
-                                .expect("Missing the monitor")
-                                .scale_factor();
-                            self.game_data.inputs().set_mouse_position(
-                                position.x / dpi_factor,
-                                position.y / dpi_factor,
-                            );
-                        }
                         WindowEvent::RedrawRequested => {
                             self.renderer.as_mut().unwrap().update(&mut self.game_data);
                             match self
@@ -190,7 +173,7 @@ impl App {
             log::error!("script error: {:?}", e);
         }
         self.update_cursor();
-        self.game_data.inputs().reset_inputs();
+        // self.game_data.inputs().reset_inputs();
         self.game_data.events().cleanup();
     }
 

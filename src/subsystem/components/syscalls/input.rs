@@ -62,7 +62,7 @@ pub fn input_get_up(game_data: &GameData) -> Result<Variant> {
 }
 
 pub fn input_get_wheel(game_data: &GameData) -> Result<Variant> {
-    Ok(Variant::Int(game_data.inputs_manager.get_wheel_value() as i32))
+    Ok(Variant::Int(game_data.inputs_manager.get_wheel_value()))
 }
 
 pub fn input_set_click(game_data: &mut GameData, clicked: &Variant) -> Result<Variant> {
@@ -74,6 +74,19 @@ pub fn input_set_click(game_data: &mut GameData, clicked: &Variant) -> Result<Va
         },
         _ => return Err(anyhow::anyhow!("input_set_click: invalid clicked type")),
     };
+
+    Ok(Variant::Nil)
+}
+
+
+pub fn control_pulse(game_data: &mut GameData) -> Result<Variant> {
+    game_data.inputs_manager.set_control_pulse();
+    Ok(Variant::Nil)
+}
+
+pub fn control_mask(game_data: &mut GameData, mask: &Variant) -> Result<Variant> {
+    let mask = mask.canbe_true();
+    game_data.inputs_manager.set_control_mask(mask);
 
     Ok(Variant::Nil)
 }
@@ -200,3 +213,30 @@ impl Syscaller for InputSetClick {
 
 unsafe impl Send for InputSetClick {}
 unsafe impl Sync for InputSetClick {}
+
+
+pub struct ControlPulse;
+impl Syscaller for ControlPulse {
+    fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+        control_pulse(game_data)
+    }
+}
+
+unsafe impl Send for ControlPulse {}
+unsafe impl Sync for ControlPulse {}
+
+
+pub struct ControlMask;
+impl Syscaller for ControlMask {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        if args.len() != 1 {
+            return Err(anyhow::anyhow!("control_mask: invalid number of arguments"));
+        }
+
+        control_mask(game_data, &args[0])
+    }
+}
+
+unsafe impl Send for ControlMask {}
+unsafe impl Sync for ControlMask {}
+

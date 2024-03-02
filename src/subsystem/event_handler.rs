@@ -1,30 +1,55 @@
-use winit::event::WindowEvent;
+use winit::event::{MouseButton, WindowEvent};
 use winit::keyboard::Key;
-
-use crate::subsystem::resources::inputs::{
-    mouse::MouseEvent,
-    types::{InputState, KeyCode, KeyboardEvent},
-};
 use crate::subsystem::world::GameData;
+
+use super::resources::input_manager::KeyCode;
 
 pub fn update_input_events(window_event: &WindowEvent, data: &mut GameData) {
     match window_event {
         WindowEvent::KeyboardInput { event,.. } => {
-            if let &Key::Dead(_) = &event.logical_key {
-            }else{
-                let k_event = KeyboardEvent {
-                    keycode: KeyCode::from(&event.logical_key),
-                    state: InputState::from(event.state),
-                };
-                data.inputs().add_keyboard_event(k_event.clone());
+            match event.state {
+                winit::event::ElementState::Pressed => {
+                    data.inputs_manager.notify_keydown(event.logical_key.clone(), event.repeat);
+                }
+                winit::event::ElementState::Released => {
+                    data.inputs_manager.notify_keyup(event.logical_key.clone());
+                }
             }
         }
         WindowEvent::MouseInput { state, button, .. } => {
-            let m_event = MouseEvent {
-                button: crate::subsystem::resources::inputs::types::MouseButton::from(*button),
-                state: InputState::from(*state),
-            };
-            data.inputs().add_click_event(m_event);
+            match state {
+                winit::event::ElementState::Pressed => {
+                    if *button == MouseButton::Left {
+                        data.inputs_manager.notify_mouse_down(KeyCode::MouseLeft);
+                    } else if *button == MouseButton::Right {
+                        data.inputs_manager.notify_mouse_down(KeyCode::MouseRight);
+                    }
+                }
+                winit::event::ElementState::Released => {
+                    if *button == MouseButton::Left {
+                        data.inputs_manager.notify_mouse_up(KeyCode::MouseLeft);
+                    } else if *button == MouseButton::Right {
+                        data.inputs_manager.notify_mouse_up(KeyCode::MouseRight);
+                    }
+                }
+            }
+        }
+        WindowEvent::MouseWheel { delta, .. } => {
+            match delta {
+                winit::event::MouseScrollDelta::LineDelta(_, y) => {
+                    data.inputs_manager.notify_mouse_wheel(*y as i32);
+                }
+                winit::event::MouseScrollDelta::PixelDelta(_) => {}
+            }
+        }
+        WindowEvent::CursorMoved { position, .. } => {
+            data.inputs_manager.notify_mouse_move(position.x as i32, position.y as i32);
+        }
+        WindowEvent::CursorEntered {..} => {
+            data.inputs_manager.set_mouse_in(true);
+        }
+        WindowEvent::CursorLeft {..} => {
+            data.inputs_manager.set_mouse_in(false);
         }
         _ => {}
     };
