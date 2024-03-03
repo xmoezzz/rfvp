@@ -17,4 +17,5 @@ pub mod color_manager;
 pub mod input_manager;
 pub mod graph_buff;
 pub mod timer_manager;
-
+pub mod parts_manager;
+pub mod videoplayer;

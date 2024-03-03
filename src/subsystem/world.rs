@@ -50,6 +50,9 @@ use crate::subsystem::components::syscalls::input::{
 use crate::subsystem::components::syscalls::timer::{
     TimerSet, TimerGet, TimerSuspend
 };
+use crate::subsystem::components::syscalls::movie::{
+    MoviePlay, MovieState, MovieStop
+};
 
 use crate::subsystem::resources::asset_manager::AssetManager;
 use crate::subsystem::resources::audio::Audio;
@@ -75,6 +78,7 @@ use super::resources::scripter::ScriptScheduler;
 use super::resources::timer_manager::TimerManager;
 use super::resources::vfs::Vfs;
 use super::resources::color_manager::ColorManager;
+use super::resources::videoplayer::VideoPlayerManager;
 
 use crate::subsystem::components::syscalls::Syscaller;
 
@@ -111,6 +115,7 @@ pub struct GameData {
     pub(crate) fontface_manager: FontEnumerator,
     pub(crate) inputs_manager: InputManager,
     pub(crate) timer_manager: TimerManager,
+    pub(crate) video_manager: VideoPlayerManager,
 }
 
 impl GameData {
@@ -217,6 +222,14 @@ impl GameData {
 
     pub fn vfs_load_file(&self, path: &str) -> anyhow::Result<Vec<u8>> {
         self.vfs.read_file(path)
+    }
+
+    pub fn get_width(&self) -> u32 {
+        self.window().width()
+    }
+
+    pub fn get_height(&self) -> u32 {
+        self.window().height()
     }
 }
 
@@ -644,6 +657,11 @@ lazy_static::lazy_static! {
         m.insert("TimerSet".into(), Box::new(TimerSet));
         m.insert("TimerGet".into(), Box::new(TimerGet));
         m.insert("TimerSuspend".into(), Box::new(TimerSuspend));
+
+        // movie apis
+        m.insert("MoviePlay".into(), Box::new(MoviePlay));
+        m.insert("MovieState".into(), Box::new(MovieState));
+        m.insert("MovieStop".into(), Box::new(MovieStop));
 
         AtomicRefCell::new(m)
     };

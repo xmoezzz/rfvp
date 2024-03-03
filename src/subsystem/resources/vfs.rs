@@ -264,10 +264,10 @@ mod tests {
 
     // #[test]
     // fn test_vfs_file2() {
-    //     let filepath = Path::new("/Users/xmoe/Downloads/WhiteEternity/graph_bg.bin");
+    //     let filepath = Path::new("/Users/xmoe/Downloads/WhiteEternity/graph.bin");
 
-    //     let vfs = VfsFile::new(filepath, "graph_bg", Nls::ShiftJIS).unwrap();
-    //     vfs.extract_all("/Users/xmoe/Downloads/bg").unwrap();
+    //     let vfs = VfsFile::new(filepath, "graph", Nls::ShiftJIS).unwrap();
+    //     vfs.extract_all("/Users/xmoe/Downloads/graph").unwrap();
     // }
 
     #[test]

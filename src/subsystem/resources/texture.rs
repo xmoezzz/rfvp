@@ -5,6 +5,8 @@ use std::io::Read;
 use std::io::Seek;
 use std::io::Write;
 
+use image::{GrayAlphaImage, ImageBuffer, open};
+
 // NVSGHDR type constants
 const NVSGHDR_TYPE_SINGLE_24BIT: u16 = 0;
 const NVSGHDR_TYPE_SINGLE_32BIT: u16 = 1;
@@ -238,7 +240,7 @@ fn read_texture(buff: &[u8], output_raw: bool) -> Result<TextureContainer> {
             out_buff.get(i as usize * frame_len as usize..(i as usize + 1) * frame_len as usize);
 
         if let Some(frame) = frame {
-            let slice = if output_raw { 
+            let slice = if !output_raw {
                 texture_to_bmp(
                     frame,
                     nvsghdr.width as i32,
@@ -256,7 +258,7 @@ fn read_texture(buff: &[u8], output_raw: bool) -> Result<TextureContainer> {
 }
 
 pub fn texture_color_tone_32(
-    texture: &mut Vec<u8> ,
+    texture: &mut Vec<u8>,
     red_value: i32,
     green_value: i32,
     blue_value: i32,
@@ -273,7 +275,11 @@ pub fn texture_color_tone_32(
             if red_value > 100 {
                 let green = g;
                 let adjusted_red = r.saturating_add(green.saturating_mul(red_value - 100) / 0xFF);
-                if adjusted_red > green { green } else { adjusted_red }
+                if adjusted_red > green {
+                    green
+                } else {
+                    adjusted_red
+                }
             } else {
                 red_value * r / 100
             }
@@ -284,8 +290,13 @@ pub fn texture_color_tone_32(
         let b = if green_value >= 100 {
             if green_value > 100 {
                 let blue = b;
-                let adjusted_green = b.saturating_add(blue.saturating_mul(green_value - 100) / 0xFF);
-                if adjusted_green > blue { blue } else { adjusted_green }
+                let adjusted_green =
+                    b.saturating_add(blue.saturating_mul(green_value - 100) / 0xFF);
+                if adjusted_green > blue {
+                    blue
+                } else {
+                    adjusted_green
+                }
             } else {
                 green_value * a / 100
             }
@@ -297,8 +308,13 @@ pub fn texture_color_tone_32(
             blue_value * a / 100
         } else if blue_value > 100 {
             let blue_value = b;
-            let adjusted_blue = a.saturating_add(blue_value.saturating_mul(blue_value - 100) / 0xFF);
-            if adjusted_blue > blue_value { blue_value } else { adjusted_blue }
+            let adjusted_blue =
+                a.saturating_add(blue_value.saturating_mul(blue_value - 100) / 0xFF);
+            if adjusted_blue > blue_value {
+                blue_value
+            } else {
+                adjusted_blue
+            }
         } else {
             a
         };
@@ -332,14 +348,20 @@ mod tests {
 
     #[test]
     fn test_read_texture_2() {
-        let filepath = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/testcase/BGS016a_parts"));
+        let filepath = Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/testcase/BGS016a_parts"
+        ));
         let mut file = std::fs::File::open(filepath).unwrap();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
         let container = read_texture(&buffer, false).unwrap();
         assert!(!container.slices.is_empty());
 
-        let output = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/testcase/BGS016a_parts.dir"));
+        let output = Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/testcase/BGS016a_parts.dir"
+        ));
         if !output.exists() {
             std::fs::create_dir(output).unwrap();
         }
@@ -348,6 +370,39 @@ mod tests {
             let output = output.join(format!("BGS016b_parts_{}.bmp", i));
             let mut file = std::fs::File::create(output).unwrap();
             file.write_all(slice).unwrap();
+        }
+    }
+
+    #[test]
+    fn test_read_texture_3() {
+        let filepath = Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/testcase/gaiji_shiru156"
+        ));
+        let mut file = std::fs::File::open(filepath).unwrap();
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).unwrap();
+        let container = read_texture(&buffer, true).unwrap();
+        assert!(!container.slices.is_empty());
+
+        let output = Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/testcase/gaiji_shiru156.dir"
+        ));
+        if !output.exists() {
+            std::fs::create_dir(output).unwrap();
+        }
+
+        for (i, slice) in container.slices.iter().enumerate() {
+            let output = output.join(format!("gaiji_shiru156_{}.bmp", i));
+            let mut img: GrayAlphaImage = ImageBuffer::new(container.width as u32, container.height as u32);
+
+            for (x, y, pixel) in img.enumerate_pixels_mut() {
+                let index = (y * container.width as u32 + x) as usize;
+                let alpha_value = slice[index];
+                *pixel = image::LumaA([alpha_value, 0xff]);
+            }
+            img.save(output).unwrap();
         }
     }
 }
