@@ -6,8 +6,9 @@ use std::path::Path;
 use image::{GrayAlphaImage, ImageBuffer, DynamicImage};
 
 #[allow(clippy::enum_variant_names)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TextureType {
+    #[default]
     Single24Bit = 0,
     Single32Bit = 1,
     Multi32Bit = 2,
@@ -33,6 +34,7 @@ impl TryFrom<u16> for TextureType {
 const HZC1_SIGNATURE: [u8; 4] = [b'h', b'z', b'c', b'1'];
 const NVSG_SIGNATURE: [u8; 4] = [b'N', b'V', b'S', b'G'];
 
+#[derive(Debug, Clone, Default)]
 pub struct NvsgTexture {
     unknown1: u16,
     typ: TextureType,
@@ -107,7 +109,7 @@ impl NvsgTexture {
         self.entry_count
     }
 
-    fn read_texture(&mut self, buff: &[u8]) -> Result<()> {
+    pub fn read_texture<F: FnOnce(TextureType) -> bool >(&mut self, buff: &[u8], type_callback: F) -> Result<()> {
         if buff.len() < 4 || buff[..4] != HZC1_SIGNATURE {
             bail!("Invalid HZC1 header");
         }
@@ -160,6 +162,10 @@ impl NvsgTexture {
             TextureType::Single8Bit | TextureType::Single1Bit => 1,
             _ => bail!("Invalid NVSG type: {:?}", self.typ),
         };
+
+        if !type_callback(self.typ) {
+            bail!("Unexpected texture type: {:?}", self.typ);
+        }
 
         let out_len = hzc1hdr.original_length as usize;
         let mut out_buff = vec![0; out_len];
@@ -429,7 +435,7 @@ mod tests {
         file.read_to_end(&mut buffer).unwrap();
 
         let mut container = NvsgTexture::new();
-        container.read_texture(&buffer).unwrap();
+        container.read_texture(&buffer, |typ: TextureType| {true}).unwrap();
         let output = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/testcase"));
         container.extract_textures(output).unwrap();
     }
@@ -444,7 +450,7 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
         let mut container = NvsgTexture::new();
-        container.read_texture(&buffer).unwrap();
+        container.read_texture(&buffer, |typ: TextureType| {true}).unwrap();
         let output = Path::new(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/testcase/BGS016a_parts.dir"
@@ -462,7 +468,7 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
         let mut container = NvsgTexture::new();
-        container.read_texture(&buffer).unwrap();
+        container.read_texture(&buffer, |typ: TextureType| {true}).unwrap();
         assert!(!container.slices.is_empty());
 
         let output = Path::new(concat!(
@@ -482,7 +488,7 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
         let mut container = NvsgTexture::new();
-        container.read_texture(&buffer).unwrap();
+        container.read_texture(&buffer, |typ: TextureType| {true}).unwrap();
         let output = Path::new(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/testcase/sd_302_70.dir"
@@ -500,7 +506,7 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
         let mut container = NvsgTexture::new();
-        container.read_texture(&buffer).unwrap();
+        container.read_texture(&buffer, |typ: TextureType| {true}).unwrap();
         let output = Path::new(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/testcase/sd_302_70_tone"
