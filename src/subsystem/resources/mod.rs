@@ -19,3 +19,4 @@ pub mod graph_buff;
 pub mod timer_manager;
 pub mod parts_manager;
 pub mod videoplayer;
+pub mod image_surface;

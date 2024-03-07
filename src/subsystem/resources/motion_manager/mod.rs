@@ -15,6 +15,7 @@ pub use super::motion_manager::rotation_move::{
 pub use super::motion_manager::s2_move::{ScaleMotionContainer, ScaleMotionType};
 pub use super::motion_manager::z_move::{ZMotionContainer, ZMotionType};
 pub use super::motion_manager::v3d::{V3dMotionContainer, V3dMotionType};
+use super::parts_manager::PartsManager;
 use super::prim::{PrimManager, INVAILD_PRIM_HANDLE};
 use anyhow::Result;
 use atomic_refcell::AtomicRefCell;
@@ -27,6 +28,7 @@ pub struct MotionManager {
     z_motion_container: ZMotionContainer,
     v3d_motion_container: V3dMotionContainer,
     pub(crate) prim_manager: AtomicRefCell<PrimManager>,
+    pub(crate) parts_manager: AtomicRefCell<PartsManager>,
 }
 
 impl Default for MotionManager {
@@ -38,6 +40,7 @@ impl Default for MotionManager {
 impl MotionManager {
     pub fn new() -> MotionManager {
         let prim_manager = AtomicRefCell::new(PrimManager::new());
+        let parts_manager = AtomicRefCell::new(PartsManager::new());
 
         MotionManager {
             alpha_motion_container: AlphaMotionContainer::new(),
@@ -47,6 +50,7 @@ impl MotionManager {
             z_motion_container: ZMotionContainer::new(),
             v3d_motion_container: V3dMotionContainer::new(),
             prim_manager,
+            parts_manager,
         }
     }
 

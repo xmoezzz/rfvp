@@ -1,7 +1,5 @@
-use bytemuck::allocation;
-
-use super::texture::NvsgTexture;
-
+use super::texture::{NvsgTexture, TextureType};
+use anyhow::Result;
 
 #[derive(Debug, Clone)]
 pub struct PartsItem {
@@ -11,6 +9,7 @@ pub struct PartsItem {
     b_value: u8,
     running: bool,
     texture: NvsgTexture,
+    texture_name: String,
 }
 
 impl PartsItem {
@@ -22,7 +21,31 @@ impl PartsItem {
             b_value: 0,
             running: false,
             texture: NvsgTexture::new(),
+            texture_name: String::new(),
         }
+    }
+
+    pub fn load_texture(&mut self, file_name: &str, buff: Vec<u8>) -> Result<()> {
+        self.texture.read_texture(&buff, |typ| {
+            typ == TextureType::Multi32Bit
+        })?;
+
+        self.texture_name = file_name.to_string();
+        self.r_value = 100;
+        self.g_value = 100;
+        self.b_value = 100;
+
+        Ok(())
+    }
+
+    pub fn set_color_tone(&mut self, r: u8, g: u8, b: u8) {
+        for index in 0..self.texture.get_entry_count() as usize {
+            self.texture.texture_color_tone_32(index, r as i32, g as i32, b as i32);
+        }
+
+        self.r_value = r;
+        self.g_value = g;
+        self.b_value = b;
     }
 }
 
@@ -118,14 +141,13 @@ impl PartsManager {
         }
     }
 
-    pub fn load_parts(&mut self, id: u16, file_name: &str) {
-
+    pub fn load_parts(&mut self, id: u16, file_name: &str, buff: Vec<u8>) -> Result<()> {
+        self.parts[id as usize].load_texture(file_name, buff)?;
+        Ok(())
     }
 
     pub fn set_rgb(&mut self, id: u16, r: u8, g: u8, b: u8) {
-        self.parts[id as usize].r_value = r;
-        self.parts[id as usize].g_value = g;
-        self.parts[id as usize].b_value = b;
+        self.parts[id as usize].set_color_tone(r, g, b);
     }
     
     pub fn next_free_id(&mut self, parts_id: u8) -> Option<u8> {

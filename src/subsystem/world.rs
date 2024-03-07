@@ -117,7 +117,6 @@ pub struct GameData {
     pub(crate) inputs_manager: InputManager,
     pub(crate) timer_manager: TimerManager,
     pub(crate) video_manager: VideoPlayerManager,
-    pub(crate) parts_manager: PartsManager,
 }
 
 impl GameData {

@@ -1,12 +1,11 @@
 use anyhow::{bail, Result};
 
-use crate::subsystem::world::GameData;
 use crate::script::Variant;
+use crate::subsystem::world::GameData;
 
 use super::{get_var, Syscaller};
 
 pub fn parts_load(game_data: &mut GameData, id: &Variant, path: &Variant) -> Result<Variant> {
-
     let id = match id {
         Variant::Int(id) => *id,
         _ => bail!("parts_load: invalid id type"),
@@ -21,11 +20,27 @@ pub fn parts_load(game_data: &mut GameData, id: &Variant, path: &Variant) -> Res
         _ => bail!("parts_load: invalid path type"),
     };
 
-    game_data.parts_manager.load_parts(id as u16, path);
+    let buff = match game_data.vfs_load_file(&path) {
+        Ok(buff) => buff,
+        Err(e) => bail!("parts_load: failed to load file: {}", e),
+    };
+
+    game_data
+        .motion_manager
+        .parts_manager
+        .borrow_mut()
+        .load_parts(id as u16, path, buff)?;
+    
     Ok(Variant::Nil)
 }
 
-pub fn parts_rgb(game_data: &mut GameData, id: &Variant, r: &Variant, g: &Variant, b: &Variant) -> Result<Variant> {
+pub fn parts_rgb(
+    game_data: &mut GameData,
+    id: &Variant,
+    r: &Variant,
+    g: &Variant,
+    b: &Variant,
+) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
         _ => bail!("parts_rgb: invalid id type"),
@@ -42,7 +57,7 @@ pub fn parts_rgb(game_data: &mut GameData, id: &Variant, r: &Variant, g: &Varian
             } else {
                 100
             }
-        },
+        }
         _ => bail!("parts_rgb: invalid r type"),
     };
 
@@ -68,8 +83,33 @@ pub fn parts_rgb(game_data: &mut GameData, id: &Variant, r: &Variant, g: &Varian
         _ => bail!("parts_rgb: invalid b type"),
     };
 
-    game_data.parts_manager.set_rgb(id as u16, r as u8, g as u8, b as u8);
+    game_data
+        .motion_manager
+        .parts_manager
+        .borrow_mut()
+        .set_rgb(id as u16, r as u8, g as u8, b as u8);
     Ok(Variant::Nil)
 }
 
+pub fn parts_select(game_data: &mut GameData, id: &Variant, entry_id: &Variant) -> Result<Variant> {
+    let id = match id {
+        Variant::Int(id) => *id,
+        _ => bail!("parts_select: invalid id type"),
+    };
 
+    if !(0..64).contains(&id) {
+        bail!("parts_select: id should be in range 0..64");
+    }
+
+    let entry_id = match entry_id {
+        Variant::Int(entry_id) => *entry_id,
+        _ => bail!("parts_select: invalid entry_id type"),
+    };
+
+    if !(0..256).contains(&entry_id) {
+        bail!("parts_select: entry_id should be in range 0..256");
+    }
+
+    // game_data.parts_manager.select(id as u16, entry_id as u8);
+    Ok(Variant::Nil)
+}
