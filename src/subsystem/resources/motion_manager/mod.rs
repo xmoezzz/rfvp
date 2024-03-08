@@ -7,6 +7,7 @@ mod v3d;
 
 use std::{cell::RefCell, sync::Arc};
 
+use super::graph_buff::{copy_rect, GraphBuff};
 pub use super::motion_manager::alpha::{AlphaMotionContainer, AlphaMotionType};
 pub use super::motion_manager::normal_move::{MoveMotionContainer, MoveMotionType};
 pub use super::motion_manager::rotation_move::{
@@ -17,7 +18,7 @@ pub use super::motion_manager::z_move::{ZMotionContainer, ZMotionType};
 pub use super::motion_manager::v3d::{V3dMotionContainer, V3dMotionType};
 use super::parts_manager::PartsManager;
 use super::prim::{PrimManager, INVAILD_PRIM_HANDLE};
-use anyhow::Result;
+use anyhow::{anyhow, bail, Result};
 use atomic_refcell::AtomicRefCell;
 
 pub struct MotionManager {
@@ -29,6 +30,7 @@ pub struct MotionManager {
     v3d_motion_container: V3dMotionContainer,
     pub(crate) prim_manager: AtomicRefCell<PrimManager>,
     pub(crate) parts_manager: AtomicRefCell<PartsManager>,
+    textures: Vec<GraphBuff>,
 }
 
 impl Default for MotionManager {
@@ -51,6 +53,7 @@ impl MotionManager {
             v3d_motion_container: V3dMotionContainer::new(),
             prim_manager,
             parts_manager,
+            textures: vec![GraphBuff::new(); 4096],
         }
     }
 
@@ -217,5 +220,41 @@ impl MotionManager {
 
     pub fn get_v3d_z(&self) -> i32 {
         self.v3d_motion_container.get_z()
+    }
+
+    pub fn draw_parts_to_texture(&mut self, parts_id: u16, entry_id: u32) -> Result<()> {
+        let parts = self.parts_manager.get_mut().get(parts_id);
+        if entry_id >= parts.get_texture_count() {
+            bail!("draw_parts_to_texture: invalid entry_id");
+        }
+
+        let prim_id = parts.get_prim_id();
+        let texture = &mut self.textures[prim_id as usize];
+        if !texture.get_texture_ready() {
+            bail!("draw_parts_to_texture: texture not ready");
+        }
+
+        if texture.get_width() < parts.get_width() + parts.get_offset_x()
+            || texture.get_height() < parts.get_height() + parts.get_offset_y()
+        {
+            bail!("draw_parts_to_texture: invalid texture size");
+        }
+
+        let parts_texture = parts.get_texture(entry_id as usize)?;
+
+        for dest in texture.get_textures_mut().iter_mut().flatten() {
+            let src_x = 0;
+            let src_y = 0;
+            let src_w = parts.get_width() as u32;
+            let src_h = parts.get_height() as u32;
+            let dest_x = parts.get_offset_x() as u32;
+            let dest_y = parts.get_offset_y() as u32;
+
+            if let Err(e) = copy_rect(&parts_texture, src_x, src_y, src_w, src_h, dest, dest_x, dest_y) {
+                log::warn!("draw_parts_to_texture: {}", e);
+            }
+        }
+
+        Ok(())
     }
 }

@@ -1,5 +1,6 @@
 use super::texture::{NvsgTexture, TextureType};
 use anyhow::Result;
+use image::DynamicImage;
 
 #[derive(Debug, Clone)]
 pub struct PartsItem {
@@ -10,6 +11,7 @@ pub struct PartsItem {
     running: bool,
     texture: NvsgTexture,
     texture_name: String,
+    loaded: bool,
 }
 
 impl PartsItem {
@@ -22,6 +24,7 @@ impl PartsItem {
             running: false,
             texture: NvsgTexture::new(),
             texture_name: String::new(),
+            loaded: false,
         }
     }
 
@@ -34,6 +37,7 @@ impl PartsItem {
         self.r_value = 100;
         self.g_value = 100;
         self.b_value = 100;
+        self.loaded = true;
 
         Ok(())
     }
@@ -46,6 +50,34 @@ impl PartsItem {
         self.r_value = r;
         self.g_value = g;
         self.b_value = b;
+    }
+
+    pub fn get_texture_count(&self) -> u32 {
+        self.texture.get_entry_count()
+    }
+
+    pub fn get_texture(&self, index: usize) -> Result<DynamicImage> {
+        self.texture.get_texture(index)
+    }
+
+    pub fn get_prim_id(&self) -> u16 {
+        self.prim_id
+    }
+
+    pub fn get_width(&self) -> u16 {
+        self.texture.get_width()
+    }
+
+    pub fn get_height(&self) -> u16 {
+        self.texture.get_height()
+    }
+
+    pub fn get_offset_x(&self) -> u16 {
+        self.texture.get_offset_x()
+    }
+
+    pub fn get_offset_y(&self) -> u16 {
+        self.texture.get_offset_y()
     }
 }
 
@@ -164,6 +196,10 @@ impl PartsManager {
         }
         self.allocation_pool[self.current_id as usize] = self.parts_motions[i].get_id() as u8;
         Some(self.current_id)
+    }
+
+    pub fn get(&self, id: u16) -> &PartsItem {
+        &self.parts[id as usize]
     }
 }
 
