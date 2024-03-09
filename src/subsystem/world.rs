@@ -53,7 +53,10 @@ use crate::subsystem::components::syscalls::timer::{
 use crate::subsystem::components::syscalls::movie::{
     MoviePlay, MovieState, MovieStop
 };
-
+use crate::subsystem::components::syscalls::parts::{
+    PartsLoad, PartsRGB, PartsMotion, PartsMotionTest, 
+    PartsMotionStop, PartsMotionPause, PartsAssign, PartsSelect
+};
 use crate::subsystem::resources::asset_manager::AssetManager;
 use crate::subsystem::resources::audio::Audio;
 use crate::subsystem::resources::events::Events;
@@ -663,6 +666,16 @@ lazy_static::lazy_static! {
         m.insert("MoviePlay".into(), Box::new(MoviePlay));
         m.insert("MovieState".into(), Box::new(MovieState));
         m.insert("MovieStop".into(), Box::new(MovieStop));
+
+        // parts apis
+        m.insert("PartsLoad".into(), Box::new(PartsLoad));
+        m.insert("PartsRGB".into(), Box::new(PartsRGB));
+        m.insert("PartsMotion".into(), Box::new(PartsMotion));
+        m.insert("PartsMotionTest".into(), Box::new(PartsMotionTest));
+        m.insert("PartsMotionStop".into(), Box::new(PartsMotionStop));
+        m.insert("PartsMotionPause".into(), Box::new(PartsMotionPause));
+        m.insert("PartsAssign".into(), Box::new(PartsAssign));
+        m.insert("PartsSelect".into(), Box::new(PartsSelect));
 
         AtomicRefCell::new(m)
     };

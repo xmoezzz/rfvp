@@ -29,9 +29,8 @@ impl PartsItem {
     }
 
     pub fn load_texture(&mut self, file_name: &str, buff: Vec<u8>) -> Result<()> {
-        self.texture.read_texture(&buff, |typ| {
-            typ == TextureType::Multi32Bit
-        })?;
+        self.texture
+            .read_texture(&buff, |typ| typ == TextureType::Multi32Bit)?;
 
         self.texture_name = file_name.to_string();
         self.r_value = 100;
@@ -44,12 +43,17 @@ impl PartsItem {
 
     pub fn set_color_tone(&mut self, r: u8, g: u8, b: u8) {
         for index in 0..self.texture.get_entry_count() as usize {
-            self.texture.texture_color_tone_32(index, r as i32, g as i32, b as i32);
+            let _ = self.texture
+                .texture_color_tone_32(index, r as i32, g as i32, b as i32);
         }
 
         self.r_value = r;
         self.g_value = g;
         self.b_value = b;
+    }
+
+    pub fn set_running(&mut self, running: bool) {
+        self.running = running;
     }
 
     pub fn get_texture_count(&self) -> u32 {
@@ -79,15 +83,18 @@ impl PartsItem {
     pub fn get_offset_y(&self) -> u16 {
         self.texture.get_offset_y()
     }
-}
 
+    pub fn get_running(&self) -> bool {
+        self.running
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct PartsMotion {
     running: bool,
     parts_id: u8,
-    dest_alpha: u8,
-    id: u16,
+    entry_id: u8,
+    id: u8,
     elapsed: u32,
     duration: u32,
 }
@@ -97,7 +104,7 @@ impl PartsMotion {
         Self {
             running: false,
             parts_id: 0,
-            dest_alpha: 0,
+            entry_id: 0,
             id: 0,
             elapsed: 0,
             duration: 0,
@@ -112,11 +119,11 @@ impl PartsMotion {
         self.parts_id = parts_id;
     }
 
-    pub fn set_dest_alpha(&mut self, dest_alpha: u8) {
-        self.dest_alpha = dest_alpha;
+    pub fn set_entry_id(&mut self, entry_id: u8) {
+        self.entry_id = entry_id;
     }
 
-    pub fn set_id(&mut self, id: u16) {
+    pub fn set_id(&mut self, id: u8) {
         self.id = id;
     }
 
@@ -134,13 +141,13 @@ impl PartsMotion {
 
     pub fn get_parts_id(&self) -> u8 {
         self.parts_id
-    }   
-
-    pub fn get_dest_alpha(&self) -> u8 {
-        self.dest_alpha
     }
 
-    pub fn get_id(&self) -> u16 {
+    pub fn get_entry_id(&self) -> u8 {
+        self.entry_id
+    }
+
+    pub fn get_id(&self) -> u8 {
         self.id
     }
 
@@ -163,7 +170,7 @@ pub struct PartsManager {
 
 impl PartsManager {
     pub fn new() -> Self {
-        let allocation_pool : Vec<u8> = (0..8).collect();
+        let allocation_pool: Vec<u8> = (0..8).collect();
 
         Self {
             parts: vec![PartsItem::new(); 64],
@@ -181,7 +188,7 @@ impl PartsManager {
     pub fn set_rgb(&mut self, id: u16, r: u8, g: u8, b: u8) {
         self.parts[id as usize].set_color_tone(r, g, b);
     }
-    
+
     pub fn next_free_id(&mut self, parts_id: u8) -> Option<u8> {
         let mut i = 0;
         while !self.parts_motions[i].running || self.parts_motions[i].parts_id != parts_id {
@@ -194,12 +201,71 @@ impl PartsManager {
         if self.current_id > 0 {
             self.current_id -= 1;
         }
-        self.allocation_pool[self.current_id as usize] = self.parts_motions[i].get_id() as u8;
+        self.allocation_pool[self.current_id as usize] = self.parts_motions[i].get_id();
         Some(self.current_id)
     }
 
-    pub fn get(&self, id: u16) -> &PartsItem {
+    pub fn get(&self, id: u8) -> &PartsItem {
         &self.parts[id as usize]
+    }
+
+    pub fn get_mut(&mut self, id: u8) -> &mut PartsItem {
+        &mut self.parts[id as usize]
+    }
+
+    pub fn set_motion(&mut self, parts_id: u8, entry_id: u8, time: u32) -> Result<()> {
+        if let Some(id) = self.next_free_id(parts_id) {
+            let id = self.allocation_pool[id as usize];
+            self.current_id += 1;
+            let parts_motion = &mut self.parts_motions[id as usize];
+
+            parts_motion.set_id(id);
+            parts_motion.set_running(true);
+            parts_motion.set_parts_id(parts_id);
+            parts_motion.set_entry_id(entry_id);
+            parts_motion.set_duration(time);
+            parts_motion.set_elapsed(0);
+        }
+
+        Ok(())
+    }
+
+    pub fn test_motion(&self, parts_id: u8) -> bool {
+        let mut i = 0;
+        while !self.parts_motions[i].get_running()
+            || self.parts_motions[i].get_parts_id() != parts_id
+        {
+            i += 1;
+            if i >= 8 {
+                return false;
+            }
+        }
+
+        self.parts_motions[i].get_running()
+    }
+
+    pub fn stop_motion(&mut self, parts_id: u8) -> Result<()> {
+        let mut i = 0;
+        while !self.parts_motions[i].get_running()
+            || self.parts_motions[i].get_parts_id() != parts_id
+        {
+            i += 1;
+            if i >= 8 {
+                return Ok(());
+            }
+        }
+
+        self.parts_motions[i].set_running(false);
+        if self.current_id > 0 {
+            self.current_id -= 1;
+        }
+        self.allocation_pool[self.current_id as usize] = self.parts_motions[i].get_id();
+
+        Ok(())
+    }
+
+    pub fn assign_prim_id(&mut self, parts_id: u8, prim_id: u16) {
+        self.parts[parts_id as usize].prim_id = prim_id;
     }
 }
 
@@ -208,4 +274,3 @@ impl Default for PartsManager {
         Self::new()
     }
 }
-

@@ -32,7 +32,7 @@ impl TryFrom<i32> for RotationMotionType {
 
 #[derive(Debug, Clone)]
 pub struct RotationMotion {
-    id: u32,
+    id: u16,
     prim_id: u32,
     running: bool,
     reverse: bool,
@@ -58,7 +58,7 @@ impl RotationMotion {
         }
     }
 
-    pub fn get_id(&self) -> u32 {
+    pub fn get_id(&self) -> u16 {
         self.id
     }
 
@@ -94,7 +94,7 @@ impl RotationMotion {
         self.typ.clone()
     }
 
-    pub fn set_id(&mut self, id: u32) {
+    pub fn set_id(&mut self, id: u16) {
         self.id = id;
     }
 
@@ -316,6 +316,8 @@ impl RotationMotionContainer {
         reverse: bool,
     ) -> Result<()> {
         if let Some(id) = self.next_free_id(prim_id) {
+            let id = self.allocation_pool[id as usize];
+            self.current_id += 1;
             let mut prim = &mut self.motions[id as usize];
 
             prim.set_id(id);

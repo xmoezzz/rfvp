@@ -27,7 +27,7 @@ impl TryFrom<i32> for AlphaMotionType {
 
 #[derive(Debug, Clone)]
 pub struct AlphaMotion {
-    id: u32,
+    id: u16,
     prim_id: u32,
     running: bool,
     reverse: bool,
@@ -53,7 +53,7 @@ impl AlphaMotion {
         }
     }
 
-    pub fn get_id(&self) -> u32 {
+    pub fn get_id(&self) -> u16 {
         self.id
     }
 
@@ -87,6 +87,14 @@ impl AlphaMotion {
 
     pub fn get_anm_type(&self) -> AlphaMotionType {
         self.anm_type.clone()
+    }
+
+    pub fn set_id(&mut self, id: u16) {
+        self.id = id;
+    }
+
+    pub fn set_prim_id(&mut self, prim_id: u32) {
+        self.prim_id = prim_id;
     }
 
     pub fn set_anm_type(&mut self, anm_type: AlphaMotionType) {
@@ -243,15 +251,20 @@ impl AlphaMotionContainer {
         reverse: bool,
     ) -> Result<()> {
         if let Some(id) = self.next_free_id(prim_id) {
-            self.motions[id as usize].id = id;
-            self.motions[id as usize].prim_id = prim_id;
-            self.motions[id as usize].running = true;
-            self.motions[id as usize].reverse = false;
-            self.motions[id as usize].src_alpha = src_alpha;
-            self.motions[id as usize].dst_alpha = dest_alpha;
-            self.motions[id as usize].duration = duration;
-            self.motions[id as usize].elapsed = 0;
-            self.motions[id as usize].anm_type = anm_type;
+            let id = self.allocation_pool[id as usize];
+            self.current_id += 1;
+            let alpha_motion = &mut self.motions[id as usize];
+
+            alpha_motion.set_id(id);
+            alpha_motion.set_prim_id(prim_id);
+            alpha_motion.set_running(true);
+            alpha_motion.set_reverse(reverse);
+            alpha_motion.set_src_alpha(src_alpha);
+            alpha_motion.set_dst_alpha(dest_alpha);
+            alpha_motion.set_duration(duration);
+            alpha_motion.set_elapsed(0);
+            alpha_motion.set_anm_type(anm_type);
+
             return Ok(());
         }
 

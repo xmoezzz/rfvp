@@ -32,7 +32,7 @@ impl TryFrom<i32> for ScaleMotionType {
 
 #[derive(Debug, Clone)]
 pub struct ScaleMotion {
-    id: u32,
+    id: u16,
     prim_id: u32,
     running: bool,
     reverse: bool,
@@ -62,7 +62,7 @@ impl ScaleMotion {
         }
     }
 
-    pub fn get_id(&self) -> u32 {
+    pub fn get_id(&self) -> u16 {
         self.id
     }
 
@@ -106,7 +106,7 @@ impl ScaleMotion {
         self.typ.clone()
     }
 
-    pub fn set_id(&mut self, id: u32) {
+    pub fn set_id(&mut self, id: u16) {
         self.id = id;
     }
 
@@ -366,6 +366,8 @@ impl ScaleMotionContainer {
         reverse: bool,
     ) -> Result<()> {
         if let Some(id) = self.next_free_id(prim_id) {
+            let mut id = self.allocation_pool[id as usize];
+            self.current_id += 1;
             let mut prim = &mut self.motions[id as usize];
 
             prim.set_id(id);

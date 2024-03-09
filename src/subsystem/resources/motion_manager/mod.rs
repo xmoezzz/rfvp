@@ -2,20 +2,18 @@ mod alpha;
 mod normal_move;
 mod rotation_move;
 mod s2_move;
-mod z_move;
 mod v3d;
+mod z_move;
 
 use std::{cell::RefCell, sync::Arc};
 
 use super::graph_buff::{copy_rect, GraphBuff};
 pub use super::motion_manager::alpha::{AlphaMotionContainer, AlphaMotionType};
 pub use super::motion_manager::normal_move::{MoveMotionContainer, MoveMotionType};
-pub use super::motion_manager::rotation_move::{
-    RotationMotionContainer, RotationMotionType,
-};
+pub use super::motion_manager::rotation_move::{RotationMotionContainer, RotationMotionType};
 pub use super::motion_manager::s2_move::{ScaleMotionContainer, ScaleMotionType};
-pub use super::motion_manager::z_move::{ZMotionContainer, ZMotionType};
 pub use super::motion_manager::v3d::{V3dMotionContainer, V3dMotionType};
+pub use super::motion_manager::z_move::{ZMotionContainer, ZMotionType};
 use super::parts_manager::PartsManager;
 use super::prim::{PrimManager, INVAILD_PRIM_HANDLE};
 use anyhow::{anyhow, bail, Result};
@@ -165,8 +163,14 @@ impl MotionManager {
         typ: ZMotionType,
         reverse: bool,
     ) -> Result<()> {
-        self.z_motion_container
-            .push_motion(prim_id, src_z as i16, dst_z as i16, duration, typ, reverse)
+        self.z_motion_container.push_motion(
+            prim_id,
+            src_z as i16,
+            dst_z as i16,
+            duration,
+            typ,
+            reverse,
+        )
     }
 
     pub fn stop_z_motion(&mut self, prim_id: u32) -> Result<()> {
@@ -222,7 +226,28 @@ impl MotionManager {
         self.v3d_motion_container.get_z()
     }
 
-    pub fn draw_parts_to_texture(&mut self, parts_id: u16, entry_id: u32) -> Result<()> {
+    pub fn set_parts_motion(
+        &mut self,
+        parts_id: u8,
+        entry_id: u8,
+        duration: u32,
+    ) -> Result<()> {
+        self.parts_manager.get_mut().set_motion(
+            parts_id,
+            entry_id,
+            duration
+        )
+    }
+
+    pub fn stop_parts_motion(&mut self, parts_id: u8) -> Result<()> {
+        self.parts_manager.get_mut().stop_motion(parts_id)
+    }
+
+    pub fn test_parts_motion(&mut self, parts_id: u8) -> bool {
+        self.parts_manager.get_mut().test_motion(parts_id)
+    }
+
+    pub fn draw_parts_to_texture(&mut self, parts_id: u8, entry_id: u32) -> Result<()> {
         let parts = self.parts_manager.get_mut().get(parts_id);
         if entry_id >= parts.get_texture_count() {
             bail!("draw_parts_to_texture: invalid entry_id");
@@ -250,7 +275,16 @@ impl MotionManager {
             let dest_x = parts.get_offset_x() as u32;
             let dest_y = parts.get_offset_y() as u32;
 
-            if let Err(e) = copy_rect(&parts_texture, src_x, src_y, src_w, src_h, dest, dest_x, dest_y) {
+            if let Err(e) = copy_rect(
+                &parts_texture,
+                src_x,
+                src_y,
+                src_w,
+                src_h,
+                dest,
+                dest_x,
+                dest_y,
+            ) {
                 log::warn!("draw_parts_to_texture: {}", e);
             }
         }
