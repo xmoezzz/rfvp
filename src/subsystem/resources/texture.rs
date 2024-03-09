@@ -9,10 +9,15 @@ use image::{GrayAlphaImage, ImageBuffer, DynamicImage};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TextureType {
     #[default]
+    /// for background, etc...
     Single24Bit = 0,
+    /// for character, etc...
     Single32Bit = 1,
+    /// for parts
     Multi32Bit = 2,
+    /// for mask
     Single8Bit = 3,
+    /// for gaiji
     Single1Bit = 4,
 }
 
@@ -42,7 +47,8 @@ pub struct NvsgTexture {
     height: u16,
     offset_x: u16,
     offset_y: u16,
-    unknown2: u32,
+    u: u16,
+    v: u16,
     entry_count: u32,
     unknown3: u32,
     unknown4: u32,
@@ -58,7 +64,8 @@ impl NvsgTexture {
             height: 0,
             offset_x: 0,
             offset_y: 0,
-            unknown2: 0,
+            u: 0,
+            v: 0,
             entry_count: 0,
             unknown3: 0,
             unknown4: 0,
@@ -105,6 +112,14 @@ impl NvsgTexture {
         self.offset_y
     }
 
+    pub fn get_u(&self) -> u16 {
+        self.u
+    }
+
+    pub fn get_v(&self) -> u16 {
+        self.v
+    }
+
     pub fn get_entry_count(&self) -> u32 {
         self.entry_count
     }
@@ -141,7 +156,8 @@ impl NvsgTexture {
         self.height = self.read_u16le(data_buff, 10)?;
         self.offset_x = self.read_u16le(data_buff, 12)?;
         self.offset_y = self.read_u16le(data_buff, 14)?;
-        self.unknown2 = self.read_u32le(data_buff, 16)?;
+        self.u = self.read_u16le(data_buff, 16)?;
+        self.v = self.read_u16le(data_buff, 18)?;
         self.entry_count = self.read_u32le(data_buff, 20)?;
         self.unknown3 = self.read_u32le(data_buff, 24)?;
         self.unknown4 = self.read_u32le(data_buff, 28)?;
@@ -334,6 +350,21 @@ impl NvsgTexture {
         Ok(img)
     }
 
+    fn as_24bit_to_32bit_texture(&self, index: usize) -> Result<ImageBuffer<image::Rgba<u8>, Vec<u8>>> {
+        let slice = &self.slices[index];
+        let mut img = ImageBuffer::new(self.width as u32, self.height as u32);
+
+        for (x, y, pixel) in img.enumerate_pixels_mut() {
+            let index = (y * self.width as u32 + x) as usize * 3;
+            let r = slice[index + 2];
+            let g = slice[index + 1];
+            let b = slice[index + 0];
+            *pixel = image::Rgba([r, g, b, 0xff]);
+        }
+
+        Ok(img)
+    }
+
     fn extract_32bit_texture(&self, index: usize, out_path: impl AsRef<Path>) -> Result<()> {
         let slice = &self.slices[index];
         let mut img = ImageBuffer::new(self.width as u32, self.height as u32);
@@ -401,7 +432,7 @@ impl NvsgTexture {
                 DynamicImage::ImageLumaA8(self.as_8bit_texture(index)?)
             }
             TextureType::Single24Bit => {
-                DynamicImage::ImageRgb8(self.as_24bit_texture(index)?)
+                DynamicImage::ImageRgba8(self.as_24bit_to_32bit_texture(index)?)
             }
             TextureType::Single32Bit | TextureType::Multi32Bit => {
                 DynamicImage::ImageRgba8(self.as_32bit_texture(index)?)
@@ -476,6 +507,33 @@ mod tests {
             "/testcase/gaiji_shiru156.dir"
         ));
         container.extract_textures(output).unwrap();
+    }
+
+
+    #[test]
+    fn test_read_texture_3_2() {
+        let filepath = Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/testcase/gaiji_shiru156"
+        ));
+        let mut file = std::fs::File::open(filepath).unwrap();
+        let mut buffer = Vec::new();
+        file.read_to_end(&mut buffer).unwrap();
+        let mut container = NvsgTexture::new();
+        container.read_texture(&buffer, |typ: TextureType| {true}).unwrap();
+        assert!(!container.slices.is_empty());
+
+        // print all metadata
+        println!("type: {:?}", container.typ);
+        println!("width: {}", container.width);
+        println!("height: {}", container.height);
+        println!("offset_x: {}", container.offset_x);
+        println!("offset_y: {}", container.offset_y);
+        println!("u: {}", container.u);
+        println!("v: {}", container.v);
+        println!("entry_count: {}", container.entry_count);
+        println!("unknown3: {}", container.unknown3);
+        println!("unknown4: {}", container.unknown4);
     }
 
     #[test]

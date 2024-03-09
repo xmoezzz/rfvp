@@ -25,11 +25,11 @@ pub fn input_get_curs_in(game_data: &GameData) -> Result<Variant> {
 }
 
 pub fn input_get_curs_x(game_data: &GameData) -> Result<Variant> {
-    Ok(Variant::Int(game_data.inputs_manager.get_cursor_x() as i32))
+    Ok(Variant::Int(game_data.inputs_manager.get_cursor_x()))
 }
 
 pub fn input_get_curs_y(game_data: &GameData) -> Result<Variant> {
-    Ok(Variant::Int(game_data.inputs_manager.get_cursor_y() as i32))
+    Ok(Variant::Int(game_data.inputs_manager.get_cursor_y()))
 }
 
 pub fn input_get_down(game_data: &GameData) -> Result<Variant> {

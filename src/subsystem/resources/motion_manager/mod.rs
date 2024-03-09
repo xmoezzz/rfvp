@@ -5,8 +5,6 @@ mod s2_move;
 mod v3d;
 mod z_move;
 
-use std::{cell::RefCell, sync::Arc};
-
 use super::graph_buff::{copy_rect, GraphBuff};
 pub use super::motion_manager::alpha::{AlphaMotionContainer, AlphaMotionType};
 pub use super::motion_manager::normal_move::{MoveMotionContainer, MoveMotionType};
@@ -14,10 +12,13 @@ pub use super::motion_manager::rotation_move::{RotationMotionContainer, Rotation
 pub use super::motion_manager::s2_move::{ScaleMotionContainer, ScaleMotionType};
 pub use super::motion_manager::v3d::{V3dMotionContainer, V3dMotionType};
 pub use super::motion_manager::z_move::{ZMotionContainer, ZMotionType};
+use crate::subsystem::resources::prim::{PrimType, Prim};
 use super::parts_manager::PartsManager;
 use super::prim::{PrimManager, INVAILD_PRIM_HANDLE};
-use anyhow::{anyhow, bail, Result};
+use anyhow::{bail, Result};
 use atomic_refcell::AtomicRefCell;
+use image::GenericImageView;
+use std::cell::{Ref, RefMut};
 
 pub struct MotionManager {
     alpha_motion_container: AlphaMotionContainer,
@@ -26,7 +27,7 @@ pub struct MotionManager {
     scale_motion_container: ScaleMotionContainer,
     z_motion_container: ZMotionContainer,
     v3d_motion_container: V3dMotionContainer,
-    pub(crate) prim_manager: AtomicRefCell<PrimManager>,
+    pub(crate) prim_manager: PrimManager,
     pub(crate) parts_manager: AtomicRefCell<PartsManager>,
     textures: Vec<GraphBuff>,
 }
@@ -39,7 +40,6 @@ impl Default for MotionManager {
 
 impl MotionManager {
     pub fn new() -> MotionManager {
-        let prim_manager = AtomicRefCell::new(PrimManager::new());
         let parts_manager = AtomicRefCell::new(PartsManager::new());
 
         MotionManager {
@@ -49,7 +49,7 @@ impl MotionManager {
             scale_motion_container: ScaleMotionContainer::new(),
             z_motion_container: ZMotionContainer::new(),
             v3d_motion_container: V3dMotionContainer::new(),
-            prim_manager,
+            prim_manager: PrimManager::new(),
             parts_manager,
             textures: vec![GraphBuff::new(); 4096],
         }
@@ -247,6 +247,10 @@ impl MotionManager {
         self.parts_manager.get_mut().test_motion(parts_id)
     }
 
+    pub fn get_texture(&self, id: u32) -> &GraphBuff {
+        &self.textures[id as usize]
+    }
+
     pub fn draw_parts_to_texture(&mut self, parts_id: u8, entry_id: u32) -> Result<()> {
         let parts = self.parts_manager.get_mut().get(parts_id);
         if entry_id >= parts.get_texture_count() {
@@ -290,5 +294,195 @@ impl MotionManager {
         }
 
         Ok(())
+    }
+
+
+    fn prim_hit_priv(
+        &self,
+        prim: RefMut<'_, Prim>,
+        x: i32,
+        y: i32,
+        cursor_in: bool,
+        cursor_x: i32,
+        cursor_y: i32,
+    ) -> bool {
+        if !cursor_in {
+            return false;
+        }
+        let mut sprite = prim;
+        loop {
+            if sprite.get_sprt() == INVAILD_PRIM_HANDLE {
+                break;
+            }
+            sprite = self.prim_manager.get_prim(sprite.get_sprt());
+        }
+
+        match sprite.get_type() {
+            PrimType::PrimTypeGroup => {
+                let mut child = sprite.get_child();
+                if child != INVAILD_PRIM_HANDLE {
+                    loop {
+                        let p = self.prim_manager.get_prim(child);
+                        if self.prim_hit_priv(p, x, y, cursor_in, cursor_x, cursor_y) {
+                            return true;
+                        }
+
+                        let p = self.prim_manager.get_prim_immutable(child);
+                        child = p.get_grand_son();
+                        if child == INVAILD_PRIM_HANDLE {
+                            return false;
+                        }
+                    }
+                }
+                return false;
+            }
+            PrimType::PrimTypeTile => {
+                if sprite.get_alpha() == 0 {
+                    return false;
+                }
+
+                let cur_x = x + sprite.get_x() as i32;
+                let cur_y = y + sprite.get_y() as i32;
+                if cursor_x >= cur_x
+                    && cursor_x < cur_x + sprite.get_w() as i32
+                    && cursor_y >= cur_y
+                    && cursor_y < cur_y + sprite.get_h() as i32
+                {
+                    return true;
+                }
+                return false;
+            }
+            PrimType::PrimTypeSprt => {
+                let texture_id = sprite.get_text_index();
+                let texture = self.get_texture(texture_id as u32);
+                let mut total_x = x + texture.get_offset_x() as i32 + sprite.get_x() as i32;
+                let mut total_y = y + texture.get_offset_y() as i32 + sprite.get_y() as i32;
+                let mut u = 0i32;
+                let mut v = 0i32;
+                let mut edge_x = 0i32;
+                let mut edge_y = 0i32;
+                if sprite.get_attr() & 1 != 0 {
+                    let mut sprt_w = sprite.get_w() as i32;
+                    if sprt_w > texture.get_width() as i32 {
+                        sprt_w = texture.get_width() as i32;
+                    }
+                    let mut sprt_h = sprite.get_h() as i32;
+                    if sprt_h > texture.get_height() as i32 {
+                        sprt_h = texture.get_height() as i32;
+                    }
+                    edge_x = total_x + sprt_w;
+                    edge_y = total_y + sprt_h;
+                    u = sprite.get_u() as i32;
+                    v = sprite.get_v() as i32;
+                } else {
+                    edge_x = texture.get_width() as i32 + total_x;
+                    edge_y = texture.get_height() as i32 + total_y;
+                }
+
+                if cursor_x < total_x
+                    || cursor_x >= edge_x
+                    || cursor_y < total_y
+                    || cursor_y >= edge_y
+                {
+                    return false;
+                }
+
+                let adjusted_x = cursor_x + u - total_x;
+                let adjusted_y = cursor_y + v - total_y;
+                if adjusted_x >= texture.get_width() as i32 || adjusted_y >= texture.get_height() as i32 {
+                    return false;
+                }
+
+                let mut offset_x = 0i32;
+                let mut offset_y = 0i32;
+                for texture_image in texture.get_textures().iter().flatten() {
+                    if adjusted_x >= cursor_x
+                        && adjusted_x < offset_x + texture.get_width() as i32
+                        && adjusted_y >= offset_y
+                        && adjusted_y < offset_y + texture.get_height() as i32
+                    {
+                        let left = adjusted_x - offset_x;
+                        let top = adjusted_y - offset_y;
+                        let pixel = texture_image.get_pixel(left as u32, top as u32);
+                        let alpha_value = pixel.0[3];
+                        if alpha_value != 0 {
+                            return true;
+                        }
+                    }
+
+                    // TODO: incorrect offset calculation?
+                    offset_x += texture.get_width() as i32;
+                    offset_y += texture.get_height() as i32;
+                }
+            }
+            _ => return false,
+        };
+
+        false
+    }
+
+    pub fn prim_hit(
+        &self,
+        id: i32,
+        flag: bool,
+        cursor_in: bool,
+        cursor_x: i32,
+        cursor_y: i32,
+    ) -> bool {
+        let prim = self.prim_manager.get_prim(id as i16);
+        if !flag && !prim.get_draw_flag() {
+            return false;
+        }
+
+        let mut parent = prim.get_parent();
+        let mut x = 0i32;
+        let mut y = 0i32;
+        if parent != INVAILD_PRIM_HANDLE {
+            let mut found = false;
+            loop {
+                if parent == 0 || parent as u16 == self.prim_manager.get_custom_root_prim_id() {
+                    found = true;
+                }
+                let parent_prim = self.prim_manager.get_prim(parent);
+                if !parent_prim.get_draw_flag() {
+                    break;
+                }
+                x += parent_prim.get_x() as i32;
+                y += parent_prim.get_y() as i32;
+                parent = parent_prim.get_parent();
+                if parent == INVAILD_PRIM_HANDLE {
+                    if !found {
+                        return false;
+                    }
+                    return self.prim_hit_priv(prim, x, y, cursor_in, cursor_x, cursor_y);
+                }
+            }
+        }
+
+        false
+    }
+
+    pub fn load_graph(&mut self, id: u16, file_name: &str, buff: Vec<u8>) -> Result<()> {
+        let graph = &mut self.textures[id as usize];
+        graph.load_texture(file_name, buff)
+    }
+
+    pub fn unload_graph(&mut self, id: u16) {
+        let graph = &mut self.textures[id as usize];
+        graph.unload();
+    }
+
+    pub fn graph_color_tone(&mut self, id: u16, r: i32, g: i32, b: i32) {
+        let graph = &mut self.textures[id as usize];
+        graph.set_color_tone(r, g, b);
+    }
+
+    pub fn refresh_prims(&mut self, graph_id: u16) {
+        for prim in self.prim_manager.get_prims_mut().iter_mut().skip(1) {
+            let mut prim = prim.borrow_mut();
+            if prim.get_type() == PrimType::PrimTypeSprt && prim.get_text_index() as u16 == graph_id {
+                prim.apply_attr(0x40);
+            }
+        }
     }
 }

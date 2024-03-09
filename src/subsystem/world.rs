@@ -11,7 +11,8 @@ use crate::subsystem::components::maths::camera::DefaultCamera;
 use crate::subsystem::components::syscalls::graph::{
     PrimExitGroup, PrimGroupIn, PrimGroupMove, PrimGroupOut, PrimSetAlpha, PrimSetBlend,
     PrimSetDraw, PrimSetNull, PrimSetOp, PrimSetRS, PrimSetRS2, PrimSetSnow, PrimSetSprt,
-    PrimSetText, PrimSetTile, PrimSetUV, PrimSetWH, PrimSetXY, PrimSetZ,
+    PrimSetText, PrimSetTile, PrimSetUV, PrimSetWH, PrimSetXY, PrimSetZ, PrimHit,
+    GraphLoad, GraphRGB, 
 };
 use crate::subsystem::components::syscalls::history::{
     HistoryGet, HistorySet
@@ -76,7 +77,6 @@ use hecs::{
 use super::resources::flag_manager::FlagManager;
 use super::resources::history_manager::HistoryManager;
 use super::resources::input_manager::InputManager;
-use super::resources::parts_manager::PartsManager;
 use super::resources::text_manager::{FontEnumerator, TextManager};
 use super::resources::scripter::ScriptScheduler;
 use super::resources::timer_manager::TimerManager;
@@ -615,6 +615,11 @@ lazy_static::lazy_static! {
         m.insert("PrimSetXY".into(), Box::new(PrimSetXY));
         m.insert("PrimSetWH".into(), Box::new(PrimSetWH));
         m.insert("PrimSetZ".into(), Box::new(PrimSetZ));
+        m.insert("PrimHit".into(), Box::new(PrimHit));
+
+        // graph apis
+        m.insert("GraphLoad".into(), Box::new(GraphLoad));
+        m.insert("GraphRGB".into(), Box::new(GraphRGB));
 
         // motion apis
         m.insert("MotionAlpha".into(), Box::new(MotionAlpha));

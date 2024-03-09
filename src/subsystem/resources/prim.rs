@@ -1,10 +1,8 @@
-use std::cell::{RefCell, RefMut};
+use std::cell::{Ref, RefCell, RefMut};
 
 use super::graph_buff::GraphBuff;
 
-
 pub const INVAILD_PRIM_HANDLE: i16 = -1;
-
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub enum PrimType {
@@ -17,7 +15,6 @@ pub enum PrimType {
     PrimTypeSnow = 7,
 }
 
-
 #[derive(Debug, Clone, Default)]
 pub struct Prim {
     typ: PrimType,
@@ -25,7 +22,7 @@ pub struct Prim {
     alpha: u8,
     blend: bool,
     is_paused: bool,
-	parent: i16,
+    parent: i16,
     sprt: i16,
     grand_parent: i16,
     grand_son: i16,
@@ -43,7 +40,7 @@ pub struct Prim {
     factor_y: i16,
     child: i16,
     group_args2: i16,
-    mode: i16,
+    texture_id: i16,
     tile: i16,
     text_index: i16,
     attr: u32,
@@ -146,8 +143,8 @@ impl Prim {
         self.group_args2 = group_args2;
     }
 
-    pub fn set_mode(&mut self, mode: i16) {
-        self.mode = mode;
+    pub fn set_texture_id(&mut self, id: i16) {
+        self.texture_id = id;
     }
 
     pub fn set_tile(&mut self, tile: i16) {
@@ -258,8 +255,8 @@ impl Prim {
         self.group_args2
     }
 
-    pub fn get_mode(&self) -> i16 {
-        self.mode
+    pub fn get_texture_id(&self) -> i16 {
+        self.texture_id
     }
 
     pub fn get_tile(&self) -> i16 {
@@ -274,7 +271,6 @@ impl Prim {
         self.attr
     }
 }
-
 
 #[derive(Debug, Clone, Default)]
 pub struct PrimManager {
@@ -297,6 +293,18 @@ impl PrimManager {
 
     pub fn get_prim(&self, id: i16) -> RefMut<'_, Prim> {
         self.prims[id as usize].borrow_mut()
+    }
+
+    pub fn get_prim_immutable(&self, id: i16) -> Ref<'_, Prim> {
+        self.prims[id as usize].borrow()
+    }
+
+    pub fn get_prims(&self) -> &Vec<RefCell<Prim>> {
+        &self.prims
+    }
+
+    pub fn get_prims_mut(&mut self) -> &mut Vec<RefCell<Prim>> {
+        &mut self.prims
     }
 
     pub fn prim_init_with_type(&mut self, id: i16, typ: PrimType) {
@@ -336,7 +344,7 @@ impl PrimManager {
                 let next_id = self.get_prim(id).get_grand_son();
                 self.get_prim(grand_parent).set_grand_son(next_id);
             }
-            
+
             let grand_son = self.get_prim(id).get_grand_son();
             let grand_parent = self.get_prim(id).get_grand_parent();
             if grand_son == INVAILD_PRIM_HANDLE {
@@ -345,7 +353,7 @@ impl PrimManager {
             } else {
                 self.get_prim(grand_parent).set_grand_parent(grand_parent);
             }
-            
+
             // self.prim_slots[idx].m_Attribute |= 0x40;
             self.get_prim(id).set_parent(INVAILD_PRIM_HANDLE);
         }
@@ -354,7 +362,7 @@ impl PrimManager {
     pub fn prim_move(&mut self, new_root: i32, id: i32) {
         self.unlink_prim(id as i16);
         let parent_id = self.get_prim(new_root as i16).get_parent();
-        
+
         if parent_id != INVAILD_PRIM_HANDLE {
             let mut prim = self.get_prim(id as i16);
             prim.set_parent(parent_id);
@@ -459,9 +467,9 @@ impl PrimManager {
         prim.set_z(z as i16);
     }
 
-    pub fn prim_set_mode(&mut self, id: i32, mode: i32) {
+    pub fn prim_set_texture_id(&mut self, id: i32, texture_id: i32) {
         let mut prim = self.get_prim(id as i16);
-        prim.set_mode(mode as i16);
+        prim.set_texture_id(texture_id as i16);
     }
 
     pub fn prim_set_text(&mut self, id: i32, text_index: i32) {
@@ -494,5 +502,4 @@ impl PrimManager {
     pub fn prim_get_type(&self, id: i32) -> PrimType {
         self.get_prim(id as i16).get_type()
     }
-
 }
