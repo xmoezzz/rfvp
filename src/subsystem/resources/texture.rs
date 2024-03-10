@@ -426,7 +426,6 @@ impl NvsgTexture {
             bail!("Invalid index: {}", index);
         }
 
-        let slice = &self.slices[index];
         let img = match self.typ {
             TextureType::Single8Bit | TextureType::Single1Bit => {
                 DynamicImage::ImageLumaA8(self.as_8bit_texture(index)?)

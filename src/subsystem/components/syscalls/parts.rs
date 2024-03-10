@@ -16,7 +16,7 @@ pub fn parts_load(game_data: &mut GameData, id: &Variant, path: &Variant) -> Res
     }
 
     let path = match path {
-        Variant::String(path) => path,
+        Variant::String(path) | Variant::ConstString(path, _) => path,
         _ => bail!("parts_load: invalid path type"),
     };
 

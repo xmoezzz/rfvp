@@ -5,7 +5,7 @@ use anyhow::Result;
 use crate::script::Variant;
 use crate::subsystem::world::GameData;
 
-use super::Syscaller;
+use super::{get_var, Syscaller};
 
 pub fn input_flash(game_data: &mut GameData) -> Result<Variant> {
 
@@ -40,8 +40,8 @@ pub fn input_get_event(game_data: &mut GameData) -> Result<Variant> {
     if let Some(event) = game_data.inputs_manager.get_event() {
         let mut table = HashMap::new();
         table.insert(0i32, Variant::Int(event.get_keycode() as i32));
-        table.insert(1, Variant::Int(event.get_x() as i32));
-        table.insert(2, Variant::Int(event.get_y() as i32));
+        table.insert(1, Variant::Int(event.get_x()));
+        table.insert(2, Variant::Int(event.get_y()));
 
         Ok(Variant::Table(table))
     } else {
@@ -203,11 +203,7 @@ unsafe impl Sync for InputGetWheel {}
 pub struct InputSetClick;
 impl Syscaller for InputSetClick {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
-        if args.len() != 1 {
-            return Err(anyhow::anyhow!("input_set_click: invalid number of arguments"));
-        }
-
-        input_set_click(game_data, &args[0])
+        input_set_click(game_data, get_var!(args, 0))
     }
 }
 
@@ -233,7 +229,7 @@ impl Syscaller for ControlMask {
             return Err(anyhow::anyhow!("control_mask: invalid number of arguments"));
         }
 
-        control_mask(game_data, &args[0])
+        control_mask(game_data, get_var!(args, 0))
     }
 }
 

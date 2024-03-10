@@ -751,7 +751,7 @@ pub fn graph_load(game_data: &mut GameData, id: &Variant, path: &Variant) -> Res
     }
 
     match path {
-        Variant::String(path) => {
+        Variant::String(path) | Variant::ConstString(path, _) => {
             let buff = game_data.vfs_load_file(path)?;
             game_data
                 .motion_manager
@@ -819,6 +819,37 @@ pub fn graph_rgb(game_data: &mut GameData, id: &Variant, r: &Variant, g: &Varian
     game_data
         .motion_manager
         .graph_color_tone(id as u16, r, g, b);
+
+    Ok(Variant::Nil)
+}
+
+
+pub fn gaiji_load(game_data: &mut GameData, fname: &Variant, size: &Variant, code: &Variant) -> Result<Variant> {
+    let fname = match fname.as_string() {
+        Some(fname) => fname,
+        None => bail!("gaiji_load: invalid fname : {:?}", fname),
+    };
+
+    let size = match size.as_int() {
+        Some(size) => size,
+        None => bail!("gaiji_load: invalid size : {:?}", size),
+    };
+
+    let code = match code.as_string() {
+        Some(code) => code,
+        None => bail!("gaiji_load: invalid code : {:?}", code),
+    };
+
+    if code.is_empty() {
+        bail!("gaiji_load: empty code : {:?}", code);
+    }
+
+    let code = code.chars().collect::<Vec<_>>().first().unwrap().to_owned();
+    let buff = game_data.vfs_load_file(fname)?;
+
+    game_data
+        .motion_manager
+        .set_gaiji(code, size as u8, fname, buff)?;
 
     Ok(Variant::Nil)
 }
@@ -1140,4 +1171,20 @@ impl Syscaller for GraphRGB {
 
 unsafe impl Send for GraphRGB {}
 unsafe impl Sync for GraphRGB {}
+
+
+pub struct GaijiLoad;
+impl Syscaller for GaijiLoad {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        gaiji_load(
+            game_data,
+            super::get_var!(args, 0),
+            super::get_var!(args, 1),
+            super::get_var!(args, 2),
+        )
+    }
+}
+
+unsafe impl Send for GaijiLoad {}
+unsafe impl Sync for GaijiLoad {}
 

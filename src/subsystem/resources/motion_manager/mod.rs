@@ -5,6 +5,7 @@ mod s2_move;
 mod v3d;
 mod z_move;
 
+use super::gaiji_manager::GaijiManager;
 use super::graph_buff::{copy_rect, GraphBuff};
 pub use super::motion_manager::alpha::{AlphaMotionContainer, AlphaMotionType};
 pub use super::motion_manager::normal_move::{MoveMotionContainer, MoveMotionType};
@@ -12,6 +13,7 @@ pub use super::motion_manager::rotation_move::{RotationMotionContainer, Rotation
 pub use super::motion_manager::s2_move::{ScaleMotionContainer, ScaleMotionType};
 pub use super::motion_manager::v3d::{V3dMotionContainer, V3dMotionType};
 pub use super::motion_manager::z_move::{ZMotionContainer, ZMotionType};
+use super::text_manager::TextManager;
 use crate::subsystem::resources::prim::{PrimType, Prim};
 use super::parts_manager::PartsManager;
 use super::prim::{PrimManager, INVAILD_PRIM_HANDLE};
@@ -29,7 +31,9 @@ pub struct MotionManager {
     v3d_motion_container: V3dMotionContainer,
     pub(crate) prim_manager: PrimManager,
     pub(crate) parts_manager: AtomicRefCell<PartsManager>,
+    pub(crate) gaiji_manager: GaijiManager,
     textures: Vec<GraphBuff>,
+    pub(crate) text_manager: TextManager,
 }
 
 impl Default for MotionManager {
@@ -52,6 +56,8 @@ impl MotionManager {
             prim_manager: PrimManager::new(),
             parts_manager,
             textures: vec![GraphBuff::new(); 4096],
+            gaiji_manager: GaijiManager::new(),
+            text_manager: TextManager::new(),
         }
     }
 
@@ -484,5 +490,16 @@ impl MotionManager {
                 prim.apply_attr(0x40);
             }
         }
+    }
+
+    pub fn set_gaiji(&mut self, code: char, size: u8, filename: &str, buff: Vec<u8>) -> Result<()> {
+        let mut texture = GraphBuff::new();
+        texture.load_gaiji_fontface_glyph(filename, buff)?;
+        self.gaiji_manager.set_gaiji(code, size, texture);
+        Ok(())
+    }
+
+    pub fn text_reprint(&mut self) {
+        todo!()
     }
 }

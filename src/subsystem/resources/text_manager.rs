@@ -16,6 +16,11 @@ pub const FONTFACE_MS_PGOTHIC: i32 = -2;
 // ＭＳ Ｐ明朝
 pub const FONTFACE_MS_PMINCHO: i32 = -1;
 
+pub enum FontItem {
+    Font(char),
+    RubyFont(Vec<char>, Vec<char>),
+}
+
 pub struct FontEnumerator {
     default_font: AtomicRefCell<fontdue::Font>,
     fonts: Vec<(String, AtomicRefCell<fontdue::Font>)>,
@@ -138,35 +143,29 @@ impl FontEnumerator {
 pub struct TextItem {
     offset_x: u16,
     offset_y: u16,
-    // char text_buff[1024];
-    // FontDraw draw1;
-    // FontDraw draw2;
-    // _BYTE text_size1;
+    suspend_chrs: Vec<char>,
+    text_content: String,
+    content_text: String,
     font_name_id: i32,
     font_text_id: i32,
-    // _BYTE text_size2;
-    // _BYTE outline1;
-    // _BYTE outline2;
-    // _BYTE distance;
+    main_text_size: u8,
+    ruby_text_size: u8,
+    main_text_outline: u8,
+    ruby_text_outline: u8,
+    distance: u8,
     color1: ColorItem,
     color2: ColorItem,
     color3: ColorItem,
-    // _BYTE func2;
-    // _BYTE func1;
-    // _BYTE func3;
-    space_vertical: u16,
-    space_horizon: u16,
+    func1: u8,
+    func2: u8,
+    func3: u8,
+    space_vertical: i16,
+    space_horizon: i16,
     text_start_horizon: u16,
     text_start_vertical: u16,
     ruby_vertical: u16,
     ruby_horizon: u16,
-    // _BYTE gap5B6[2];
-    // FontEnum font_enumer2;
-    // _BYTE byte5D4;
-    // _BYTE gap5D5[2];
     skip_mode: u8,
-    // _BYTE gap5D5_2;
-    // _BYTE loaded;
     is_suspended: bool,
     x: u16,
     y: u16,
@@ -175,12 +174,6 @@ pub struct TextItem {
     speed: u32,
     loaded: bool,
     pixel_buffer: Vec<u8>,
-    // WORD unk4;
-    // WORD unk5;
-    // stl_string str;
-    // BYTE unk[12];
-    // FontEnum font_enumer3;
-    // BYTE unk2[24];
     elapsed: u32,
 }
 
@@ -217,6 +210,115 @@ impl TextItem {
         self.font_text_id = id;
     }
 
+    pub fn set_suspend_chrs(&mut self, chrs: &str) {
+        self.suspend_chrs = chrs.chars().collect();
+    }
+
+    pub fn set_speed(&mut self, speed: u32) {
+        self.speed = speed;
+    }
+
+    pub fn set_vertical_space(&mut self, space: i16) {
+        self.space_vertical = space;
+    }
+
+    pub fn set_horizon_space(&mut self, space: i16) {
+        self.space_horizon = space;
+    }
+
+    pub fn set_text_skip(&mut self, skip: u8) {
+        self.skip_mode = skip;
+    }
+
+    pub fn set_main_text_size(&mut self, size: u8) {
+        self.main_text_size = size;
+    }
+
+    pub fn set_ruby_text_size(&mut self, size: u8) {
+        self.ruby_text_size = size;
+    }
+
+    pub fn set_text_shadow_distance(&mut self, distance: u8) {
+        self.distance = distance;
+    }
+
+    pub fn set_pos_x(&mut self, x: u16) {
+        self.x = x;
+    }
+
+    pub fn set_pos_y(&mut self, y: u16) {
+        self.y = y;
+    }
+
+    pub fn set_suspend(&mut self, suspended: bool) {
+        self.is_suspended = suspended;
+    }
+
+    pub fn get_suspend(&self) -> bool {
+        self.is_suspended
+    }
+
+    pub fn set_outline(&mut self, outline: u8) {
+        self.main_text_outline = outline;
+    }
+
+    pub fn set_ruby_outline(&mut self, outline: u8) {
+        self.ruby_text_outline = outline;
+    }
+
+    pub fn set_function1(&mut self, func: u8) {
+        self.func1 = func;
+    }
+
+    pub fn set_function2(&mut self, func: u8) {
+        self.func2 = func;
+    }
+
+    pub fn set_function3(&mut self, func: u8) {
+        self.func3 = func;
+    }
+
+    pub fn parse_content_text(&mut self, content_text: &str) {
+        let content_chrs = content_text.chars().collect::<Vec<_>>();
+
+        let mut items = vec![];
+        let mut i = 0;
+
+        // aaa[bbb|ccc]
+        // aaa : normal font item
+        // bbb : normal font item for the ruby
+        // ccc : ruby font item
+        while i < content_chrs.len() {
+            let chr = content_chrs[i];
+            if chr == '[' {
+                let mut j = i + 1;
+                while j < content_chrs.len() {
+                    if content_chrs[j] == '|' {
+                        let mut k = j + 1;
+                        while k < content_chrs.len() {
+                            if content_chrs[k] == ']' {
+                                items.push(FontItem::RubyFont(
+                                    content_chrs[i + 1..j].to_vec(),
+                                    content_chrs[j + 1..k].to_vec(),
+                                ));
+                                i = k + 1;
+                                break;
+                            }
+                            k += 1;
+                        }
+                        break;
+                    }
+                    j += 1;
+                }
+            } else {
+                items.push(FontItem::Font(chr));
+                i += 1;
+            }
+        }
+        self.content_text = content_text.to_string();
+
+    }
+
     pub fn get_loaded(&self) -> bool {
         self.loaded
     }
@@ -224,6 +326,7 @@ impl TextItem {
 
 pub struct TextManager {
     pub items: Vec<TextItem>,
+    pub readed_text: Vec<u8>,
 }
 
 impl Default for TextManager {
@@ -234,7 +337,10 @@ impl Default for TextManager {
 
 impl TextManager {
     pub fn new() -> Self {
-        Self { items: Vec::new() }
+        Self { 
+            items: Vec::new(),
+            readed_text: vec![0; 0x100000],
+        }
     }
 
     pub fn set_text_clear(&mut self, id: i32) {
@@ -276,4 +382,95 @@ impl TextManager {
     pub fn set_font_text(&mut self, id: i32, font_text_id: i32) {
         self.items[id as usize].set_font_text(font_text_id);
     }
+
+    pub fn test_readed_text(&self, addr: u32) -> bool {
+        if addr < 0x800000 {
+            let bits = addr % 32;
+            let slot = &self.readed_text[4 * (addr / 32) as usize];
+            ((1 << bits) & *slot) != 0
+        } else {
+            false
+        }
+    }
+
+    pub fn set_readed_text(&mut self, addr: u32) {
+        if addr < 0x800000 {
+            let bits = addr % 32;
+            let slot = &mut self.readed_text[4 * (addr / 32) as usize];
+            *slot |= 1 << bits;
+        }
+    }
+
+    pub fn set_text_suspend_chr(&mut self, id: i32, chrs: &str) {
+        self.items[id as usize].set_suspend_chrs(chrs);
+    }
+
+    pub fn set_text_speed(&mut self, id: i32, speed: i32) {
+        self.items[id as usize].set_speed(speed as u32);
+    }
+
+    pub fn set_text_space_vertical(&mut self, id: i32, space: i32) {
+        self.items[id as usize].set_vertical_space(space as i16);
+    }
+
+    pub fn set_text_space_horizon(&mut self, id: i32, space: i32) {
+        self.items[id as usize].set_horizon_space(space as i16);
+    }
+
+    pub fn set_text_skip(&mut self, id: i32, skip: i32) {
+        self.items[id as usize].set_text_skip(skip as u8);
+    }
+
+    pub fn set_text_main_text_size(&mut self, id: i32, size: i32) {
+        self.items[id as usize].set_main_text_size(size as u8);
+    }
+
+    pub fn set_text_ruby_text_size(&mut self, id: i32, size: i32) {
+        self.items[id as usize].set_ruby_text_size(size as u8);
+    }
+
+    pub fn set_text_shadow_distance(&mut self, id: i32, distance: i32) {
+        self.items[id as usize].set_text_shadow_distance(distance as u8);
+    }
+
+    pub fn set_text_pos_x(&mut self, id: i32, x: i32) {
+        self.items[id as usize].set_pos_x(x as u16);
+    }
+
+    pub fn set_text_pos_y(&mut self, id: i32, y: i32) {
+        self.items[id as usize].set_pos_y(y as u16);
+    }
+
+    pub fn set_text_suspend(&mut self, id: i32, suspended: bool) {
+        self.items[id as usize].set_suspend(suspended);
+    }
+
+    pub fn get_text_suspend(&self, id: i32) -> bool {
+        self.items[id as usize].get_suspend()
+    }
+
+    pub fn set_text_outline(&mut self, id: i32, outline: i32) {
+        self.items[id as usize].set_outline(outline as u8);
+    }
+
+    pub fn set_text_ruby_outline(&mut self, id: i32, outline: i32) {
+        self.items[id as usize].set_ruby_outline(outline as u8);
+    }
+
+    pub fn set_text_function1(&mut self, id: i32, func: i32) {
+        self.items[id as usize].set_function1(func as u8);
+    }
+
+    pub fn set_text_function2(&mut self, id: i32, func: i32) {
+        self.items[id as usize].set_function2(func as u8);
+    }
+
+    pub fn set_text_function3(&mut self, id: i32, func: i32) {
+        self.items[id as usize].set_function3(func as u8);
+    }
+
+    pub fn set_text_content(&mut self, id: i32, content_text: &str) {
+        self.items[id as usize].parse_content_text(content_text);
+    }
+    
 }

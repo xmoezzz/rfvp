@@ -7,7 +7,7 @@ use super::{Syscaller, get_var};
 
 pub fn movie_play(game_data: &mut GameData, path: &Variant, _flag: &Variant) -> Result<Variant> {
     let path = match path {
-        Variant::String(path) => path,
+        Variant::String(path) | Variant::ConstString(path, _) => path,
         _ => return Ok(Variant::Nil),
     };
 

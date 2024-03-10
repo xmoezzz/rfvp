@@ -10,10 +10,9 @@ pub fn debug_message(
     message: &Variant,
     var: &Variant,
 ) -> Result<Variant> {
-    let msg = if let Variant::String(message) = message {
-        message
-    } else {
-        bail!("Invalid message type");
+    let msg = match message {
+        Variant::String(message) | Variant::ConstString(message, _) => message.clone(),
+        _ => bail!("debug_message: Invalid message type"),
     };
 
     log::info!("DEBUG => {}: {:?}", msg, var);

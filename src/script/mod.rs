@@ -23,6 +23,7 @@ pub enum Variant {
     Int(i32),
     Float(f32),
     String(String),
+    ConstString(String, u32),
     Table(HashMap<i32, Variant>),
 
     /// used to store the stack info when calling a function
@@ -48,7 +49,11 @@ impl Variant {
     }
 
     pub fn is_string(&self) -> bool {
-        matches!(self, Variant::String(_))
+        matches!(self, Variant::String(_)) || matches!(self, Variant::ConstString(_, _))
+    }
+
+    pub fn is_const_string(&self) -> bool {
+        matches!(self, Variant::ConstString(_, _))
     }
 
     pub fn is_table(&self) -> bool {
@@ -80,6 +85,7 @@ impl Variant {
     pub fn as_string(&self) -> Option<&String> {
         match self {
             Variant::String(s) => Some(s),
+            Variant::ConstString(s, _) => Some(s),
             _ => None,
         }
     }
@@ -203,6 +209,20 @@ impl Variant {
                     Variant::Nil
                 }
             },
+            (Variant::String(a), Variant::ConstString(b, _)) => {
+                if a == *b {
+                    Variant::True
+                } else {
+                    Variant::Nil
+                }
+            },
+            (Variant::ConstString(a, _), Variant::String(b)) => {
+                if a == *b {
+                    Variant::True
+                } else {
+                    Variant::Nil
+                }
+            },
             _ => Variant::Nil,
         };
 
@@ -249,6 +269,20 @@ impl Variant {
                 }
             },
             (Variant::String(a), Variant::String(b)) => {
+                if a != *b {
+                    Variant::True
+                } else {
+                    Variant::Nil
+                }
+            },
+            (Variant::String(a), Variant::ConstString(b, _)) => {
+                if a != *b {
+                    Variant::True
+                } else {
+                    Variant::Nil
+                }
+            },
+            (Variant::ConstString(a, _), Variant::String(b)) => {
                 if a != *b {
                     Variant::True
                 } else {
@@ -315,6 +349,20 @@ impl Variant {
                     Variant::Nil
                 }
             },
+            (Variant::String(a), Variant::ConstString(b, _)) => {
+                if a > *b {
+                    Variant::True
+                } else {
+                    Variant::Nil
+                }
+            },
+            (Variant::ConstString(a, _), Variant::String(b)) => {
+                if a > *b {
+                    Variant::True
+                } else {
+                    Variant::Nil
+                }
+            },
             _ => Variant::Nil,
         };
 
@@ -361,6 +409,20 @@ impl Variant {
                 }
             },
             (Variant::String(a), Variant::String(b)) => {
+                if a < *b {
+                    Variant::True
+                } else {
+                    Variant::Nil
+                }
+            },
+            (Variant::String(a), Variant::ConstString(b, _)) => {
+                if a < *b {
+                    Variant::True
+                } else {
+                    Variant::Nil
+                }
+            },
+            (Variant::ConstString(a, _), Variant::String(b)) => {
                 if a < *b {
                     Variant::True
                 } else {
@@ -418,6 +480,8 @@ pub fn vm_add(a: Variant, b: Variant) -> Variant {
             Variant::Float(result.into())
         },
         (Variant::String(a), Variant::String(b)) => Variant::String(a + &b),
+        (Variant::String(a), Variant::ConstString(b, _)) => Variant::String(a + &b),
+        (Variant::ConstString(a, _), Variant::String(b)) => Variant::String(a + &b),
         _ => Variant::Nil,
     }
 }

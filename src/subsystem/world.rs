@@ -12,7 +12,7 @@ use crate::subsystem::components::syscalls::graph::{
     PrimExitGroup, PrimGroupIn, PrimGroupMove, PrimGroupOut, PrimSetAlpha, PrimSetBlend,
     PrimSetDraw, PrimSetNull, PrimSetOp, PrimSetRS, PrimSetRS2, PrimSetSnow, PrimSetSprt,
     PrimSetText, PrimSetTile, PrimSetUV, PrimSetWH, PrimSetXY, PrimSetZ, PrimHit,
-    GraphLoad, GraphRGB, 
+    GraphLoad, GraphRGB, GaijiLoad,
 };
 use crate::subsystem::components::syscalls::history::{
     HistoryGet, HistorySet
@@ -58,6 +58,13 @@ use crate::subsystem::components::syscalls::parts::{
     PartsLoad, PartsRGB, PartsMotion, PartsMotionTest, 
     PartsMotionStop, PartsMotionPause, PartsAssign, PartsSelect
 };
+use crate::subsystem::components::syscalls::text::{
+    TextBuff, TextClear, TextColor, TextFont, TextFontCount,
+    TextFontGet, TextFontName, TextFontSet, TextFormat,
+    TextFunction, TextOutSize, TextPause, TextPos, TextPrint,
+    TextReprint, TextShadowDist, TextSize, TextSkip, TextSpace,
+    TextSpeed, TextSuspendChr, TextTest
+};
 use crate::subsystem::resources::asset_manager::AssetManager;
 use crate::subsystem::resources::audio::Audio;
 use crate::subsystem::resources::events::Events;
@@ -77,7 +84,7 @@ use hecs::{
 use super::resources::flag_manager::FlagManager;
 use super::resources::history_manager::HistoryManager;
 use super::resources::input_manager::InputManager;
-use super::resources::text_manager::{FontEnumerator, TextManager};
+use super::resources::text_manager::FontEnumerator;
 use super::resources::scripter::ScriptScheduler;
 use super::resources::timer_manager::TimerManager;
 use super::resources::vfs::Vfs;
@@ -115,7 +122,6 @@ pub struct GameData {
     pub(crate) flag_manager: FlagManager,
     pub(crate) motion_manager: MotionManager,
     pub(crate) color_manager: ColorManager,
-    pub(crate) text_manager: TextManager,
     pub(crate) fontface_manager: FontEnumerator,
     pub(crate) inputs_manager: InputManager,
     pub(crate) timer_manager: TimerManager,
@@ -621,6 +627,9 @@ lazy_static::lazy_static! {
         m.insert("GraphLoad".into(), Box::new(GraphLoad));
         m.insert("GraphRGB".into(), Box::new(GraphRGB));
 
+        // gaiji apis
+        m.insert("GaijiLoad".into(), Box::new(GaijiLoad));
+
         // motion apis
         m.insert("MotionAlpha".into(), Box::new(MotionAlpha));
         m.insert("MotionAlphaStop".into(), Box::new(MotionAlphaStop));
@@ -646,6 +655,30 @@ lazy_static::lazy_static! {
 
         // color apis
         m.insert("ColorSet".into(), Box::new(ColorSet));
+
+        // text api
+        m.insert("TextBuff".into(), Box::new(TextBuff));
+        m.insert("TextClear".into(), Box::new(TextClear));
+        m.insert("TextColor".into(), Box::new(TextColor));
+        m.insert("TextFont".into(), Box::new(TextFont));
+        m.insert("TextFontCount".into(), Box::new(TextFontCount));
+        m.insert("TextFontGet".into(), Box::new(TextFontGet));
+        m.insert("TextFontName".into(), Box::new(TextFontName));
+        m.insert("TextFontSet".into(), Box::new(TextFontSet));
+        m.insert("TextFormat".into(), Box::new(TextFormat));
+        m.insert("TextFunction".into(), Box::new(TextFunction));
+        m.insert("TextOutSize".into(), Box::new(TextOutSize));
+        m.insert("TextPause".into(), Box::new(TextPause));
+        m.insert("TextPos".into(), Box::new(TextPos));
+        m.insert("TextPrint".into(), Box::new(TextPrint));
+        m.insert("TextReprint".into(), Box::new(TextReprint));
+        m.insert("TextShadowDist".into(), Box::new(TextShadowDist));
+        m.insert("TextSize".into(), Box::new(TextSize));
+        m.insert("TextSkip".into(), Box::new(TextSkip));
+        m.insert("TextSpace".into(), Box::new(TextSpace));
+        m.insert("TextSpeed".into(), Box::new(TextSpeed));
+        m.insert("TextSuspendChr".into(), Box::new(TextSuspendChr));
+        m.insert("TextTest".into(), Box::new(TextTest));
 
         // input apis
         m.insert("InputFlash".into(), Box::new(InputFlash));

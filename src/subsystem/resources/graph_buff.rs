@@ -124,6 +124,29 @@ impl GraphBuff {
         Ok(())
     }
 
+    pub fn load_gaiji_fontface_glyph(&mut self, file_name: &str, buff: Vec<u8>) -> Result<()> {
+        let mut nvsg_texture = NvsgTexture::new();
+        nvsg_texture.read_texture(&buff, |typ| {
+            typ == super::texture::TextureType::Single1Bit
+        })?;
+
+        self.unload();
+        self.textures[0] = Some(nvsg_texture.get_texture(0)?);
+        self.r_value = 100;
+        self.g_value = 100;
+        self.b_value = 100;
+        self.texture_ready = true;
+        self.offset_x = nvsg_texture.get_offset_x();
+        self.offset_y = nvsg_texture.get_offset_y();
+        self.width = nvsg_texture.get_width();
+        self.height = nvsg_texture.get_height();
+        self.u = nvsg_texture.get_u();
+        self.v = nvsg_texture.get_v();
+        self.texture_path = file_name.to_string();
+    
+        Ok(())
+    }
+
     pub fn set_color_tone(
         &mut self,
         red_value: i32,

@@ -22,7 +22,7 @@ pub fn audio_load(game_data: &mut GameData, channel: &Variant, path: &Variant) -
     }
 
     let path = match path {
-        Variant::String(path) => path.clone(),
+        Variant::String(path) | Variant::ConstString(path, _) => path.clone(),
         // unload channel
         Variant::Nil => {
             game_data.audio().stop_audio(channel as usize, 0)?;
@@ -254,7 +254,7 @@ pub fn sound_load(game_data: &mut GameData, channel: &Variant, path: &Variant) -
     }
 
     let path = match path {
-        Variant::String(path) => path.clone(),
+        Variant::String(path) | Variant::ConstString(path, _) => path.clone(),
         // unload channel
         Variant::Nil => {
             game_data.audio().stop_sound(channel as usize, 0)?;
