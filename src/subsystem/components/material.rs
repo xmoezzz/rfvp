@@ -3,7 +3,7 @@ use std::path::Path;
 use image::{DynamicImage, ImageBuffer, ImageFormat};
 
 use crate::{
-    subsystem::components::{color::Color, tiles::tileset::Tileset},
+    subsystem::components::color::Color,
     utils::file::read_file,
 };
 
@@ -14,19 +14,6 @@ pub enum Material {
     Color(Color),
     /// Use a texture. Note that this means the target object will need to have uv maps.
     Texture(String),
-    /// Tileset Texture. This will be added by the engine on entities with a sprite component.
-    Tileset(Tileset),
-}
-
-impl Material {
-    /// Returns the tile_size in case of a Tileset Material.
-    pub(crate) fn tile_size(material: &Material) -> Option<usize> {
-        if let Material::Tileset(tileset) = material {
-            Some(tileset.tile_size)
-        } else {
-            None
-        }
-    }
 }
 
 #[derive(Debug)]

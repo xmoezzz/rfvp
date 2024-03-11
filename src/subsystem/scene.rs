@@ -36,6 +36,7 @@ impl SceneMachine {
             };
         }
 
+        #[allow(clippy::single_match)]
         match action {
             SceneAction::EndFrame => {
                 let action = data.scene_controller().action();
@@ -70,7 +71,7 @@ impl SceneController {
     /// Replace the current scene with the name `` with the scene created from type `T`. (Useful for level switching).
     /// Note that the scene's stop will happen at the end of the frame.
     pub fn switch<T: Scene + Default + 'static>(&mut self) {
-        self.action = Some(SceneTrans::Switch(Box::new(T::default())));
+        self.action = Some(SceneTrans::Switch(Box::<T>::default()));
     }
 
     pub(crate) fn action(&mut self) -> Option<SceneTrans> {

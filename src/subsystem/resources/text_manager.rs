@@ -1,10 +1,10 @@
 use std::{fs, os::unix::fs::MetadataExt};
 
 use crate::{
-    subsystem::{components::color, resources::color_manager::ColorItem},
+    subsystem::resources::color_manager::ColorItem,
     utils::file::app_base_path,
 };
-use anyhow::{bail, Result};
+use anyhow::Result;
 use atomic_refcell::AtomicRefCell;
 
 // ＭＳ ゴシック

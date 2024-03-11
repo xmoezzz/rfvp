@@ -1,6 +1,6 @@
 use std::{collections::HashMap, marker::PhantomData};
 
-use crate::subsystem::components::{material::Material, tiles::tileset::Tileset};
+use crate::subsystem::components::material::Material;
 use crate::subsystem::components::ui::font::Font;
 
 /// `AssetManager` is resource that will link assets to an asset ref to allow reusability of assets
@@ -31,26 +31,10 @@ impl AssetManager {
         next_ref
     }
 
-    pub fn register_tileset(&mut self, tileset: Tileset) -> AssetRef<Material> {
-        let next_ref = AssetRef(self.materials.keys().count(), PhantomData::default());
-        self.materials.insert(next_ref.0, Material::Tileset(tileset));
-        next_ref
-    }
-
     pub fn register_font(&mut self, font: Font) -> AssetRef<Font> {
         let next_ref = AssetRef(self.fonts.keys().count(), PhantomData::default());
         self.fonts.insert(next_ref.0, font);
         next_ref
-    }
-
-    pub fn retrieve_tileset(&self, asset_ref: &AssetRef<Material>) -> Option<&Tileset> {
-        match self.materials.get(&asset_ref.0) {
-            None => None,
-            Some(material) => match material {
-                Material::Tileset(tileset) => Some(tileset),
-                _ => None,
-            },
-        }
     }
 }
 
@@ -60,7 +44,7 @@ pub struct AssetRef<T: Send + Sync>(pub(crate) usize, pub(crate) PhantomData<T>)
 #[cfg(test)]
 mod tests {
     use crate::subsystem::{
-        components::{color::Color, material::Material, tiles::tileset::Tileset},
+        components::{color::Color, material::Material},
         resources::asset_manager::AssetManager,
     };
 
@@ -74,13 +58,5 @@ mod tests {
         let asset_ref = manager.register_material(Material::Color(Color::new(2, 2, 2, 1.)));
         assert_eq!(1, asset_ref.0);
         assert_eq!(2, manager.materials.len());
-    }
-
-    #[test]
-    fn register_tileset_test() {
-        let mut manager = AssetManager::default();
-        let asset_ref = manager.register_tileset(Tileset::new("test".to_string(), 1, 1, 1));
-        assert_eq!(0, asset_ref.0);
-        assert_eq!(1, manager.materials.len());
     }
 }

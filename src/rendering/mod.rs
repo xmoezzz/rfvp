@@ -38,23 +38,20 @@ pub trait Renderer {
 }
 
 /// Type of renderer to use to render the game.
+#[derive(Default)]
 pub enum RendererType {
     /// Internal 2D Renderer. Will render everything that is in [`bidimensional`]
+    #[default]
     Scion2D,
     /// Provide your own renderer
     Custom(Box<dyn Renderer>),
 }
 
-impl Default for RendererType {
-    fn default() -> Self {
-        RendererType::Scion2D
-    }
-}
 
 impl RendererType {
     pub(crate) fn into_boxed_renderer(self) -> Box<dyn Renderer> {
         match self {
-            RendererType::Scion2D => Box::new(Shinku2D::default()),
+            RendererType::Scion2D => Box::<Shinku2D>::default(),
             RendererType::Custom(boxed) => boxed,
         }
     }

@@ -1,9 +1,3 @@
-use std::{
-    fs::File,
-    io::{Error, ErrorKind, Read, Write},
-    path::Path,
-};
-
 use serde::{Deserialize, Serialize};
 
 use crate::config::{logger_config::LoggerConfig, window_config::WindowConfig};
@@ -23,7 +17,7 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            app_name: "Scion game".to_string(),
+            app_name: "FVP Game Engine".to_string(),
             logger_config: Some(Default::default()),
             window_config: Some(Default::default()),
         }
@@ -62,41 +56,6 @@ impl AppConfigBuilder {
     /// Retrieves the configuration built
     pub fn get(self) -> AppConfig {
         self.config
-    }
-}
-
-pub(crate) struct AppConfigReader;
-
-impl AppConfigReader {
-    pub(crate) fn read_or_create_default_scion_json() -> Result<AppConfig, Error> {
-        let path = Path::new("app.json");
-        let path_exists = path.exists();
-
-        if !path_exists {
-            println!("Couldn't find `app.json` configuration file. Generating a new one");
-            let config = AppConfig::default();
-            let mut file = File::create(path)?;
-            file.write_all(serde_json::to_vec(&config).unwrap().as_slice())?;
-            Ok(config)
-        } else {
-            AppConfigReader::read_app_config(path)
-        }
-    }
-
-    pub(crate) fn read_app_json(path: &Path) -> Result<AppConfig, Error> {
-        let path_exists = path.exists();
-        if !path_exists {
-            return Err(Error::new(ErrorKind::NotFound, "File not found"));
-        }
-        AppConfigReader::read_app_config(path)
-    }
-
-    fn read_app_config(path: &Path) -> Result<AppConfig, Error> {
-        let mut scion_config = File::open(path)?;
-        let mut bytes = Vec::new();
-        scion_config.read_to_end(&mut bytes)?;
-        let config = serde_json::from_slice(bytes.as_slice())?;
-        Ok(config)
     }
 }
 

@@ -23,11 +23,10 @@ use crate::subsystem::package::Package;
 use crate::subsystem::resources::time::Time;
 use crate::subsystem::scene::{Scene, SceneAction, SceneMachine};
 use crate::subsystem::scheduler::Scheduler;
-use crate::subsystem::systems::collider_systems::collider_cleaner_system;
 use crate::subsystem::systems::InternalPackage;
 use crate::subsystem::world::GameData;
 use crate::{
-    config::app_config::{AppConfig, AppConfigReader},
+    config::app_config::AppConfig,
     rendering::{renderer_state::RendererState, RendererType},
     subsystem::event_handler::update_input_events,
 };
@@ -46,16 +45,7 @@ pub struct App {
 
 impl App {
     pub fn app() -> AppBuilder {
-        let app_config = AppConfigReader::read_or_create_default_scion_json().expect(
-            "Fatal error when trying to retrieve and deserialize `app.json` configuration file.",
-        );
-        App::app_with_config(app_config)
-    }
-
-    pub fn app_with_config_path(config_path: impl AsRef<Path>) -> AppBuilder {
-        let app_config = AppConfigReader::read_app_json(config_path.as_ref()).expect(
-            "Fatal error when trying to retrieve and deserialize `app.json` configuration file.",
-        );
+        let app_config = AppConfig::default();
         App::app_with_config(app_config)
     }
 
@@ -266,7 +256,7 @@ impl AppBuilder {
 
     /// Add a normal game layer to the pile. Every layer added before in the pile will be called
     pub fn with_scene<T: Scene + Default + 'static>(mut self) -> Self {
-        self.scene = Some(Box::new(T::default()));
+        self.scene = Some(Box::<T>::default());
         self
     }
 
@@ -351,7 +341,6 @@ impl AppBuilder {
     }
 
     fn add_late_internal_systems_to_schedule(&mut self) {
-        self.scheduler.add_system(collider_cleaner_system);
     }
 }
 

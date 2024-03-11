@@ -4,20 +4,13 @@ use std::{cfg, collections::HashMap, ops::Range, path::Path, time::SystemTime};
 use wgpu::{util::DeviceExt, BindGroup, BindGroupLayout, Buffer, CommandEncoder, Device, Queue, RenderPassColorAttachment, RenderPipeline, SurfaceConfiguration, TextureView, SamplerBindingType, TextureFormat, StoreOp};
 
 use crate::subsystem::world::{GameData, World};
-use crate::rendering::gl_representations::TexturedGlVertex;
 use crate::{
     config::app_config::AppConfig,
     subsystem::components::{
         color::Color,
         material::{Material, Texture},
         maths::{camera::Camera, transform::Transform},
-        shapes::{
-            line::Line, polygon::Polygon, rectangle::Rectangle, square::Square, triangle::Triangle,
-        },
-        tiles::{
-            sprite::Sprite,
-            tilemap::{Tile, Tilemap},
-        },
+        tiles::sprite::Sprite,
         ui::{ui_image::UiImage, ui_text::UiTextImage, UiComponent},
         Hide, HidePropagated,
     },
@@ -91,15 +84,9 @@ impl Renderer for Shinku2D {
 
         self.transform_bind_group_layout = Some(uniform_bind_group_layout);
         self.texture_bind_group_layout = Some(texture_bind_group_layout);
-        self.insert_components_pipelines::<Triangle>(&device, &surface_config);
-        self.insert_components_pipelines::<Square>(&device, &surface_config);
-        self.insert_components_pipelines::<Rectangle>(&device, &surface_config);
         self.insert_components_pipelines::<Sprite>(&device, &surface_config);
-        self.insert_components_pipelines::<Line>(&device, &surface_config);
-        self.insert_components_pipelines::<Polygon>(&device, &surface_config);
         self.insert_components_pipelines::<UiImage>(&device, &surface_config);
         self.insert_components_pipelines::<UiTextImage>(&device, &surface_config);
-        self.insert_components_pipelines::<Tilemap>(&device, &surface_config);
     }
 
     fn update(
@@ -112,13 +99,7 @@ impl Renderer for Shinku2D {
         if world_contains_camera(data) {
             self.update_diffuse_bind_groups(data, device, queue);
             self.update_transforms(data, &device, queue);
-            self.upsert_component_buffers::<Triangle>(data, &device);
-            self.upsert_component_buffers::<Square>(data, &device);
-            self.upsert_component_buffers::<Rectangle>(data, &device);
             self.upsert_component_buffers::<Sprite>(data, &device);
-            self.upsert_component_buffers::<Line>(data, &device);
-            self.upsert_component_buffers::<Polygon>(data, &device);
-            self.upsert_tilemaps_buffers(data, &device);
             self.upsert_ui_component_buffers::<UiImage>(data, &device, &surface_config, queue);
             self.upsert_ui_component_buffers::<UiTextImage>(data, &device, &surface_config, queue);
         } else {
@@ -136,15 +117,9 @@ impl Renderer for Shinku2D {
     ) {
         if world_contains_camera(data) {
             let mut rendering_infos = Vec::new();
-            rendering_infos.append(&mut self.pre_render_component::<Triangle>(data));
-            rendering_infos.append(&mut self.pre_render_component::<Square>(data));
-            rendering_infos.append(&mut self.pre_render_component::<Rectangle>(data));
             rendering_infos.append(&mut self.pre_render_component::<Sprite>(data));
-            rendering_infos.append(&mut self.pre_render_component::<Line>(data));
-            rendering_infos.append(&mut self.pre_render_component::<Polygon>(data));
             rendering_infos.append(&mut self.pre_render_ui_component::<UiImage>(data));
             rendering_infos.append(&mut self.pre_render_ui_component::<UiTextImage>(data));
-            rendering_infos.append(&mut self.pre_render_tilemaps(data));
 
             rendering_infos.sort_by(|a, b| b.layer.cmp(&a.layer));
 
@@ -186,71 +161,6 @@ impl Shinku2D {
         }
     }
 
-    fn upsert_tilemaps_buffers(&mut self, data: &mut GameData, device: &&Device) {
-        let mut to_modify: Vec<(Entity, [TexturedGlVertex; 4])> = Vec::new();
-
-        for (entity, (_, material, _)) in
-            data.query::<(&mut Tilemap, &Material, &Transform)>().iter()
-        {
-            let tile_size = Material::tile_size(material).expect("");
-            let mut vertexes = Vec::new();
-            let mut position = 0;
-            let mut indexes = Vec::new();
-            let any_tile_modified = !self.vertex_buffers.contains_key(&entity)
-                || data
-                    .query::<(&Tile, &Sprite)>()
-                    .iter()
-                    .filter(|(_, (tile, sprite))| tile.tilemap == entity && sprite.dirty())
-                    .count()
-                    > 0;
-
-            if any_tile_modified {
-                for (e, (tile, sprite)) in data.query::<(&Tile, &Sprite)>().iter() {
-                    if tile.tilemap == entity {
-                        let res = sprite.compute_content(Some(material));
-                        to_modify.push((e, res.clone()));
-                        let mut vec = res.to_vec();
-                        vec.iter_mut().for_each(|gl_vertex| {
-                            gl_vertex.position.append_position(
-                                tile_size as f32 * tile.position.x() as f32,
-                                tile_size as f32 * tile.position.y() as f32,
-                                tile.position.z() as f32 / 100.,
-                            )
-                        });
-                        vertexes.append(&mut vec);
-                        let sprite_indexes = Sprite::indices();
-                        let mut sprite_indexes: Vec<u16> = sprite_indexes
-                            .iter()
-                            .map(|indice| (*indice as usize + (position * 4)) as u16)
-                            .collect();
-                        indexes.append(&mut sprite_indexes);
-                        position += 1;
-                    }
-                }
-
-                let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("TileMap Vertex Buffer"),
-                    contents: bytemuck::cast_slice(vertexes.as_slice()),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
-
-                self.vertex_buffers.insert(entity, buffer);
-
-                let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("TileMap Index Buffer"),
-                    contents: bytemuck::cast_slice(&indexes),
-                    usage: wgpu::BufferUsages::INDEX,
-                });
-                self.index_buffers.insert(entity, index_buffer);
-            }
-        }
-
-        for (e, vertexes) in to_modify.drain(0..) {
-            data.entry_mut::<&mut Sprite>(e).expect("").set_dirty(false);
-            data.entry_mut::<&mut Sprite>(e).expect("").set_content(vertexes);
-        }
-    }
-
     fn upsert_ui_component_buffers<T: Component + Renderable2D + RenderableUi>(
         &mut self,
         data: &mut GameData,
@@ -259,17 +169,17 @@ impl Shinku2D {
         _queue: &mut Queue,
     ) {
         for (entity, (component, _, m)) in data.query::<(&mut T, &Transform, Option<&Material>)>().iter() {
-            if !self.vertex_buffers.contains_key(&entity) {
+            self.vertex_buffers.entry(entity).or_insert_with(|| {
                 let vertex_buffer =
                     device.create_buffer_init(&component.vertex_buffer_descriptor(m));
-                self.vertex_buffers.insert(entity, vertex_buffer);
-            }
+                vertex_buffer
+            });
 
-            if !self.index_buffers.contains_key(&entity) {
+            self.index_buffers.entry(entity).or_insert_with(|| {
                 let index_buffer =
                     device.create_buffer_init(&component.indexes_buffer_descriptor());
-                self.index_buffers.insert(entity, index_buffer);
-            }
+                index_buffer
+            });
         }
     }
 
@@ -345,7 +255,6 @@ impl Shinku2D {
         let mut render_infos = Vec::new();
         for (entity, (component, material, transform)) in data
             .query::<(&mut T, &Material, &Transform)>()
-            .without::<&Tile>()
             .without::<&Hide>()
             .without::<&HidePropagated>()
             .iter()
@@ -353,42 +262,10 @@ impl Shinku2D {
             let path = match material {
                 Material::Color(color) => Some(get_path_from_color(&color)),
                 Material::Texture(p) => Some(p.clone()),
-                Material::Tileset(tileset) => Some(tileset.texture.clone()),
             };
             render_infos.push(RenderingInfos {
                 layer: transform.translation().z(),
                 range: component.range(),
-                entity,
-                texture_path: path,
-                type_name: type_name.to_string(),
-            });
-        }
-        render_infos
-    }
-
-    fn pre_render_tilemaps(&mut self, data: &mut GameData) -> Vec<RenderingInfos> {
-        let type_name = std::any::type_name::<Tilemap>();
-        let mut render_infos = Vec::new();
-
-        let tiles = data.query::<(&Tile, &Sprite)>().iter().map(|(e, _)| e).collect::<Vec<_>>();
-
-        for (entity, (_, material, transform)) in data
-            .query::<(&mut Tilemap, &Material, &Transform)>()
-            .without::<(&Hide, &HidePropagated)>()
-            .iter()
-        {
-            let tiles_nb = tiles
-                .iter()
-                .filter(|t| data.entry::<&Tile>(**t).expect("").get().expect("").tilemap == entity)
-                .count();
-
-            let path = match material {
-                Material::Tileset(tileset) => Some(tileset.texture.clone()),
-                _ => None,
-            };
-            render_infos.push(RenderingInfos {
-                layer: transform.translation().z(),
-                range: 0..(tiles_nb * Sprite::indices().len()) as u32,
                 entity,
                 texture_path: path,
                 type_name: type_name.to_string(),
@@ -431,15 +308,9 @@ impl Shinku2D {
     }
 
     fn update_transforms(&mut self, data: &mut GameData, device: &&Device, queue: &mut Queue) {
-        self.update_transforms_for_type::<Triangle>(data, &device, queue);
-        self.update_transforms_for_type::<Square>(data, &device, queue);
-        self.update_transforms_for_type::<Rectangle>(data, &device, queue);
         self.update_transforms_for_type::<Sprite>(data, &device, queue);
-        self.update_transforms_for_type::<Line>(data, &device, queue);
-        self.update_transforms_for_type::<Polygon>(data, &device, queue);
         self.update_transforms_for_type::<UiImage>(data, &device, queue);
         self.update_transforms_for_type::<UiTextImage>(data, &device, queue);
-        self.update_transforms_for_type::<Tilemap>(data, &device, queue);
     }
 
     fn update_transforms_for_type<T: Component + Renderable2D>(
@@ -464,7 +335,7 @@ impl Shinku2D {
         for (entity, (transform, optional_ui_component, _)) in
             data.query::<(&Transform, Option<&UiComponent>, &T)>().iter()
         {
-            if !self.transform_uniform_bind_groups.contains_key(&entity) {
+            if let std::collections::hash_map::Entry::Vacant(e) = self.transform_uniform_bind_groups.entry(entity) {
                 let (uniform, uniform_buffer, group) = create_transform_uniform_bind_group(
                     &device,
                     transform,
@@ -473,7 +344,7 @@ impl Shinku2D {
                     self.transform_bind_group_layout.as_ref().unwrap(),
                 );
                 queue.write_buffer(&uniform_buffer, 0, bytemuck::cast_slice(&[uniform]));
-                self.transform_uniform_bind_groups.insert(entity, (uniform, uniform_buffer, group));
+                e.insert((uniform, uniform_buffer, group));
             } else {
                 let (uniform, uniform_buffer, _) = self
                     .transform_uniform_bind_groups
@@ -491,13 +362,13 @@ impl Shinku2D {
 
     fn texture_should_be_reloaded(
         &self,
-        path: &String,
+        path: &str,
         new_timestamp: &Option<Result<SystemTime, FileReaderError>>,
     ) -> bool {
-        !self.diffuse_bind_groups.contains_key(path.as_str())
+        !self.diffuse_bind_groups.contains_key(path)
             || if let Some(Ok(timestamp)) = new_timestamp {
-                !self.assets_timestamps.contains_key(path.as_str())
-                    || !self.assets_timestamps.get(path.as_str()).unwrap().eq(timestamp)
+                !self.assets_timestamps.contains_key(path)
+                    || !self.assets_timestamps.get(path).unwrap().eq(timestamp)
             } else {
                 false
             }
@@ -575,32 +446,6 @@ impl Shinku2D {
                                 self.texture_bind_group_layout.as_ref().unwrap(),
                             ),
                         );
-                    }
-                }
-                Material::Tileset(tileset) => {
-                    let path = Path::new(tileset.texture.as_str());
-                    let new_timestamp = if hot_timer_cycle
-                        || !self.diffuse_bind_groups.contains_key(tileset.texture.as_str())
-                    {
-                        Some(read_file_modification_time(path))
-                    } else {
-                        None
-                    };
-
-                    if self.texture_should_be_reloaded(&tileset.texture, &new_timestamp) {
-                        let loaded_texture = Texture::from_png(Path::new(tileset.texture.as_str()));
-                        self.diffuse_bind_groups.insert(
-                            tileset.texture.clone(),
-                            load_texture_to_queue(
-                                &loaded_texture,
-                                queue,
-                                device,
-                                self.texture_bind_group_layout.as_ref().unwrap(),
-                            ),
-                        );
-                        if let Some(Ok(timestamp)) = new_timestamp {
-                            self.assets_timestamps.insert(tileset.texture.clone(), timestamp);
-                        }
                     }
                 }
             }

@@ -138,13 +138,12 @@ impl GlUniform {
 }
 
 pub(crate) fn create_glmat4(t: &mut Mat4) -> [[f32; 4]; 4] {
-    let result = [
+    [
         create_glmat(&t.cols[0]),
         create_glmat(&t.cols[1]),
         create_glmat(&t.cols[2]),
         create_glmat(&t.cols[3]),
-    ];
-    result
+    ]
 }
 
 pub(crate) fn create_glmat(t: &Vec4) -> [f32; 4] {

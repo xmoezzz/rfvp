@@ -3,9 +3,7 @@ use std::ops::Range;
 use wgpu::{util::BufferInitDescriptor, PrimitiveTopology};
 
 use crate::{
-    subsystem::components::{
-        material::Material, maths::coordinates::Coordinates, tiles::tileset::Tileset,
-    },
+    subsystem::components::material::Material,
     rendering::{gl_representations::TexturedGlVertex, Renderable2D},
 };
 
@@ -39,35 +37,8 @@ impl Sprite {
         self.tile_number
     }
 
-    fn uv_refs(&self, tileset: &Tileset) -> [Coordinates; 4] {
-        let line = (self.tile_number / tileset.width) as f32;
-        let column = (self.tile_number % tileset.width) as f32;
-
-        let unit_line = 1.0 / tileset.height as f32;
-        let unit_column = 1.0 / tileset.width as f32;
-
-        let a = Coordinates::new(column * unit_column, line * unit_line);
-        let b = Coordinates::new(a.x(), a.y() + unit_line);
-        let c = Coordinates::new(a.x() + unit_column, a.y() + unit_line);
-        let d = Coordinates::new(a.x() + unit_column, a.y());
-        [a, b, c, d]
-    }
-
     pub(crate) fn compute_content(&self, material: Option<&Material>) -> [TexturedGlVertex; 4] {
         if (self.dirty || self.contents.is_none()) && material.is_some() {
-            if let Material::Tileset(tileset) = material.unwrap() {
-                let a = Coordinates::new(0., 0.);
-                let b = Coordinates::new(0., tileset.tile_size as f32);
-                let c = Coordinates::new(tileset.tile_size as f32, tileset.tile_size as f32);
-                let d = Coordinates::new(tileset.tile_size as f32, 0.);
-                let uvs_ref = self.uv_refs(&tileset);
-                return [
-                    TexturedGlVertex::from((&a, &uvs_ref[0])),
-                    TexturedGlVertex::from((&b, &uvs_ref[1])),
-                    TexturedGlVertex::from((&c, &uvs_ref[2])),
-                    TexturedGlVertex::from((&d, &uvs_ref[3])),
-                ];
-            }
         }
         self.contents.as_ref().expect("A computed content is missing in Sprite component").clone()
     }

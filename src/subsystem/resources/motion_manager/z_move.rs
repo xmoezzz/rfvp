@@ -1,6 +1,5 @@
 use anyhow::Result;
 use atomic_refcell::AtomicRefCell;
-use std::{cell::RefCell, sync::Arc};
 
 use crate::subsystem::resources::prim::{PrimManager, INVAILD_PRIM_HANDLE};
 
@@ -318,7 +317,7 @@ impl ZMotionContainer {
         if let Some(id) = self.next_free_id(prim_id) {
             let id = self.allocation_pool[id as usize];
             self.current_id += 1;
-            let mut prim = &mut self.motions[id as usize];
+            let prim = &mut self.motions[id as usize];
 
             prim.set_id(id);
             prim.set_prim_id(prim_id);

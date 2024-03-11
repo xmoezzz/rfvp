@@ -154,7 +154,7 @@ impl RotationMotion {
             }
 
             while next as u16 != custom_root_id {
-                next = prim_manager.get_prim(next as i16).get_parent();
+                next = prim_manager.get_prim(next).get_parent();
                 if next == INVAILD_PRIM_HANDLE {
                     return true;
                 }

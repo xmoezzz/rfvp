@@ -86,8 +86,7 @@ mod tests {
         let parent = world.push((2, Children(vec![child])));
 
         // We check that we have the child
-        assert_eq!(
-            true,
+        assert!(
             world.entry::<&Children>(parent).unwrap().get().unwrap().0.contains(&child)
         );
         let _r = world.remove(child);
@@ -95,6 +94,6 @@ mod tests {
         // we delete the child and then we execute the schedule and test that we have the good result
         children_manager_system(&mut world);
 
-        assert_eq!(true, world.entry::<&Children>(parent).is_err());
+        assert!(world.entry::<&Children>(parent).is_err());
     }
 }

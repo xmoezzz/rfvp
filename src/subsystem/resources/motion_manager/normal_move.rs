@@ -1,4 +1,3 @@
-use std::{cell::RefCell, sync::Arc};
 use anyhow::Result;
 use atomic_refcell::AtomicRefCell;
 
@@ -401,7 +400,7 @@ impl MoveMotionContainer {
 
         self.motions[i].set_running(false);
         self.motions[i].set_anm_type(MoveMotionType::None);
-        self.allocation_pool[self.current_id as usize] = self.motions[i].get_id() as u16;
+        self.allocation_pool[self.current_id as usize] = self.motions[i].get_id();
 
         Ok(())
     }
@@ -433,7 +432,7 @@ impl MoveMotionContainer {
                 if self.current_id > 0 {
                     self.current_id -= 1;
                 }
-                self.allocation_pool[self.current_id as usize] = self.motions[i].get_id() as u16;
+                self.allocation_pool[self.current_id as usize] = self.motions[i].get_id();
             }
         }
     }

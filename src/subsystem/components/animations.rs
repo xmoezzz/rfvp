@@ -423,7 +423,7 @@ mod tests {
             },
         );
         let a = Animations::new(h);
-        assert_eq!(true, a.any_animation_running());
+        assert!(a.any_animation_running());
 
         let mut h = HashMap::new();
         h.insert(
@@ -435,6 +435,6 @@ mod tests {
             },
         );
         let a = Animations::new(h);
-        assert_eq!(false, a.any_animation_running());
+        assert!(!a.any_animation_running());
     }
 }

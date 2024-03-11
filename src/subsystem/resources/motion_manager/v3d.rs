@@ -1,10 +1,7 @@
 use anyhow::Result;
 use std::{cell::RefCell, sync::Arc};
 
-use crate::subsystem::{
-    components::shapes::square,
-    resources::prim::{PrimManager, INVAILD_PRIM_HANDLE},
-};
+use crate::subsystem::resources::prim::PrimManager;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum V3dMotionType {

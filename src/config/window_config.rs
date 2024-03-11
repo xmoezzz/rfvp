@@ -1,9 +1,7 @@
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-use winit::{
-    window::WindowBuilder,
-};
+use winit::window::WindowBuilder;
 use winit::dpi::LogicalSize;
 use winit::window::WindowLevel;
 

@@ -25,7 +25,7 @@ impl RendererState {
             gles_minor_version: wgpu::Gles3MinorVersion::Automatic
         });
 
-        let (_size, surface) = unsafe {
+        let (_size, surface) = {
             let size = window.inner_size();
             let surface = instance.create_surface(window.clone()).expect("Surface unsupported by adapter");
             (size, surface)
