@@ -7,7 +7,7 @@ mod config;
 
 
 use script::{global::Global, parser::{Nls, Parser}};
-use subsystem::resources::scripter::ScriptScheduler;
+use subsystem::{resources::scripter::ScriptScheduler, world::World};
 
 use crate::{
     config::{
@@ -31,6 +31,7 @@ pub struct MainScene {
 
 impl Scene for MainScene {
     fn on_start(&mut self, data: &mut GameData) {
+        data.add_default_camera();
     }
 }
 

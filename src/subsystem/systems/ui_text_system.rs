@@ -59,7 +59,7 @@ pub(crate) fn ui_text_bitmap_update_system(data: &mut GameData) {
                     let mut current_pos = 0.;
                     for character in ui_text.text().chars() {
                         if character.is_whitespace() {
-                            current_pos = current_pos + 5.;
+                            current_pos += 5.;
                             continue;
                         }
                         let char = true_type_data.character_positions.get(&character).unwrap();

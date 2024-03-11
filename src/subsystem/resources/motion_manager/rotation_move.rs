@@ -141,7 +141,7 @@ impl RotationMotion {
             return true;
         }
 
-        let mut prim_manager = prim_manager.borrow_mut();
+        let prim_manager = prim_manager.borrow_mut();
         let mut prim = prim_manager.get_prim(self.prim_id as i16);
         let custom_root_id = prim_manager.get_custom_root_prim_id();
         if flag {
@@ -170,7 +170,7 @@ impl RotationMotion {
                 if next == INVAILD_PRIM_HANDLE {
                     break;
                 }
-                prim = prim_manager.get_prim(next as i16);
+                prim = prim_manager.get_prim(next);
                 if !prim.get_paused() {
                     return true;
                 }
@@ -294,7 +294,7 @@ impl RotationMotionContainer {
         if self.current_id > 0 {
             self.current_id -= 1;
         }
-        self.allocation_pool[self.current_id as usize] = self.motions[i].get_id() as u16;
+        self.allocation_pool[self.current_id as usize] = self.motions[i].get_id();
         Some(self.current_id)
     }
 
@@ -318,7 +318,7 @@ impl RotationMotionContainer {
         if let Some(id) = self.next_free_id(prim_id) {
             let id = self.allocation_pool[id as usize];
             self.current_id += 1;
-            let mut prim = &mut self.motions[id as usize];
+            let prim = &mut self.motions[id as usize];
 
             prim.set_id(id);
             prim.set_prim_id(prim_id);
@@ -350,7 +350,7 @@ impl RotationMotionContainer {
         if self.current_id > 0 {
             self.current_id -= 1;
         }
-        self.allocation_pool[self.current_id as usize] = self.motions[i].get_id() as u16;
+        self.allocation_pool[self.current_id as usize] = self.motions[i].get_id();
 
         Ok(())
     }
@@ -386,7 +386,7 @@ impl RotationMotionContainer {
                 if self.current_id > 0 {
                     self.current_id -= 1;
                 }
-                self.allocation_pool[self.current_id as usize] = self.motions[i].get_id() as u16;
+                self.allocation_pool[self.current_id as usize] = self.motions[i].get_id();
             }
         }
     }
