@@ -13,6 +13,7 @@ pub mod input;
 pub mod timer;
 pub mod movie;
 pub mod parts;
+pub mod other_anm;
 
 pub trait Syscaller {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> anyhow::Result<Variant>;

@@ -34,6 +34,7 @@ pub struct MotionManager {
     pub(crate) gaiji_manager: GaijiManager,
     textures: Vec<GraphBuff>,
     pub(crate) text_manager: TextManager,
+    mask_prim: Prim,
 }
 
 impl Default for MotionManager {
@@ -58,6 +59,7 @@ impl MotionManager {
             textures: vec![GraphBuff::new(); 4096],
             gaiji_manager: GaijiManager::new(),
             text_manager: TextManager::new(),
+            mask_prim: Prim::new(),
         }
     }
 
@@ -497,6 +499,10 @@ impl MotionManager {
         texture.load_gaiji_fontface_glyph(filename, buff)?;
         self.gaiji_manager.set_gaiji(code, size, texture);
         Ok(())
+    }
+
+    pub fn get_mask_prim(&mut self) -> &mut Prim {
+        &mut self.mask_prim
     }
 
     pub fn text_reprint(&mut self) {
