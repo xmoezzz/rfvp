@@ -67,6 +67,64 @@ pub fn system_at_skipname(
     Ok(Variant::Nil)
 }
 
+pub enum WinMode {
+    _Unknown = -1,
+    Windowed = 0,
+    Fullscreen = 1,
+    GetWindowed = 2,
+    GetResizable = 3,
+    Resizable = 4,
+    NonResizable = 5,
+    _UnUsed = 6,
+}
+
+impl TryFrom<i32> for WinMode {
+    type Error = anyhow::Error;
+
+    fn try_from(value: i32) -> anyhow::Result<Self> {
+        match value {
+            -1 => Ok(WinMode::_Unknown),
+            0 => Ok(WinMode::Windowed),
+            1 => Ok(WinMode::Fullscreen),
+            2 => Ok(WinMode::GetWindowed),
+            3 => Ok(WinMode::GetResizable),
+            4 => Ok(WinMode::Resizable),
+            5 => Ok(WinMode::NonResizable),
+            6 => Ok(WinMode::_UnUsed),
+            _ => bail!("Invalid value for WinMode"),
+        }
+    }
+}
+
+pub fn window_mode(_game_data: &mut GameData, mode: &Variant) -> Result<Variant> {
+    let mode = match mode {
+        Variant::Int(mode) => WinMode::try_from(*mode)?,
+        _ => bail!("window_mode: Invalid mode type"),
+    };
+
+    // emulate the behavior of the original engine
+    match mode {
+        WinMode::_Unknown => return Ok(Variant::Int(0)),
+        WinMode::Windowed => return Ok(Variant::Int(0)),
+        WinMode::Fullscreen => return Ok(Variant::Int(1)),
+        WinMode::GetWindowed => return Ok(Variant::Int(0)),
+        WinMode::GetResizable => {},
+        WinMode::Resizable => {},
+        WinMode::NonResizable => {},
+        WinMode::_UnUsed => {
+            log::warn!("window_mode: UnUsed mode");
+        },
+    }
+
+    Ok(Variant::Nil)
+}
+
+pub fn title_menu(_game_data: &mut GameData, _title: &Variant) -> Result<Variant> {
+    Ok(Variant::Nil)
+}
+
+
+
 pub struct DebugMessage;
 impl Syscaller for DebugMessage {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -136,3 +194,25 @@ impl Syscaller for SysAtSkipName {
 
 unsafe impl Send for SysAtSkipName {}
 unsafe impl Sync for SysAtSkipName {}
+
+
+pub struct WindowMode;
+impl Syscaller for WindowMode {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        window_mode(game_data, get_var!(args, 0))
+    }
+}
+
+unsafe impl Send for WindowMode {}
+unsafe impl Sync for WindowMode {}
+
+
+pub struct TitleMenu;
+impl Syscaller for TitleMenu {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        title_menu(game_data, get_var!(args, 0))
+    }
+}
+
+unsafe impl Send for TitleMenu {}
+unsafe impl Sync for TitleMenu {}

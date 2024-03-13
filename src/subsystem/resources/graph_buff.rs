@@ -5,7 +5,7 @@ use super::texture::NvsgTexture;
 
 #[derive(Debug, Clone)]
 pub struct GraphBuff {
-    pub textures: Vec<Option<DynamicImage>>,
+    pub texture: Option<DynamicImage>,
     pub r_value: u8,
     pub g_value: u8,
     pub b_value: u8,
@@ -22,7 +22,7 @@ pub struct GraphBuff {
 impl GraphBuff {
     pub fn new() -> Self {
         Self {
-            textures: vec![None; 16],
+            texture: None,
             r_value: 0,
             g_value: 0,
             b_value: 0,
@@ -81,16 +81,16 @@ impl GraphBuff {
         self.height
     }
 
-    pub fn get_textures_mut(&mut self) -> &mut Vec<Option<DynamicImage>> {
-        &mut self.textures
+    pub fn get_texture_mut(&mut self) -> &mut Option<DynamicImage> {
+        &mut self.texture
     }
 
-    pub fn get_textures(&self) -> &Vec<Option<DynamicImage>> {
-        &self.textures
+    pub fn get_texture(&self) -> &Option<DynamicImage> {
+        &self.texture
     }
 
     pub fn unload(&mut self) {
-        self.textures = vec![None; 16];
+        self.texture = None;
         self.texture_ready = false;
         self.texture_path = String::new();
         self.offset_x = 0;
@@ -108,7 +108,7 @@ impl GraphBuff {
 
         self.unload();
         // we don't need to split the texture into multiple 256x256 textures
-        self.textures[0] = Some(nvsg_texture.get_texture(0)?);
+        self.texture = Some(nvsg_texture.get_texture(0)?);
         self.r_value = 100;
         self.g_value = 100;
         self.b_value = 100;
@@ -131,7 +131,30 @@ impl GraphBuff {
         })?;
 
         self.unload();
-        self.textures[0] = Some(nvsg_texture.get_texture(0)?);
+        self.texture = Some(nvsg_texture.get_texture(0)?);
+        self.r_value = 100;
+        self.g_value = 100;
+        self.b_value = 100;
+        self.texture_ready = true;
+        self.offset_x = nvsg_texture.get_offset_x();
+        self.offset_y = nvsg_texture.get_offset_y();
+        self.width = nvsg_texture.get_width();
+        self.height = nvsg_texture.get_height();
+        self.u = nvsg_texture.get_u();
+        self.v = nvsg_texture.get_v();
+        self.texture_path = file_name.to_string();
+    
+        Ok(())
+    }
+
+    pub fn load_mask(&mut self, file_name: &str, buff: Vec<u8>) -> Result<()> {
+        let mut nvsg_texture = NvsgTexture::new();
+        nvsg_texture.read_texture(&buff, |typ| {
+            typ == super::texture::TextureType::Single8Bit
+        })?;
+
+        self.unload();
+        self.texture = Some(nvsg_texture.get_texture(0)?);
         self.r_value = 100;
         self.g_value = 100;
         self.b_value = 100;
@@ -153,73 +176,71 @@ impl GraphBuff {
         green_value: i32,
         blue_value: i32
     ) {
-        for index in 0..self.textures.len() {
-            if let Some(texture) = &mut self.textures[index] {
-                if let Some(texture) = texture.as_mut_rgba8() {
-                    for y in 0..texture.height() {
-                        for x in 0..texture.width() {
-                            let pixel = texture.get_pixel_mut(x, y);
-                            let mut data = pixel.0;
-                            let r = data[0] as i32;
-                            let g = data[1] as i32;
-                            let b = data[2] as i32;
-                            let a = data[3] as i32;
-                
-                            let r = if red_value >= 100 {
-                                if red_value > 100 {
-                                    let green = g;
-                                    let adjusted_red =
-                                        r.saturating_add(green.saturating_mul(red_value - 100) / 0xFF);
-                                    if adjusted_red > green {
-                                        green
-                                    } else {
-                                        adjusted_red
-                                    }
+        if let Some(texture) = &self.texture {
+            if let Some(texture) = texture.as_mut_rgba8() {
+                for y in 0..texture.height() {
+                    for x in 0..texture.width() {
+                        let pixel = texture.get_pixel_mut(x, y);
+                        let mut data = pixel.0;
+                        let r = data[0] as i32;
+                        let g = data[1] as i32;
+                        let b = data[2] as i32;
+                        let a = data[3] as i32;
+            
+                        let r = if red_value >= 100 {
+                            if red_value > 100 {
+                                let green = g;
+                                let adjusted_red =
+                                    r.saturating_add(green.saturating_mul(red_value - 100) / 0xFF);
+                                if adjusted_red > green {
+                                    green
                                 } else {
-                                    red_value * r / 100
+                                    adjusted_red
                                 }
                             } else {
-                                r
-                            };
-                
-                            let b = if green_value >= 100 {
-                                if green_value > 100 {
-                                    let blue = b;
-                                    let adjusted_green =
-                                        b.saturating_add(blue.saturating_mul(green_value - 100) / 0xFF);
-                                    if adjusted_green > blue {
-                                        blue
-                                    } else {
-                                        adjusted_green
-                                    }
+                                red_value * r / 100
+                            }
+                        } else {
+                            r
+                        };
+            
+                        let b = if green_value >= 100 {
+                            if green_value > 100 {
+                                let blue = b;
+                                let adjusted_green =
+                                    b.saturating_add(blue.saturating_mul(green_value - 100) / 0xFF);
+                                if adjusted_green > blue {
+                                    blue
                                 } else {
-                                    green_value * a / 100
+                                    adjusted_green
                                 }
                             } else {
-                                b
-                            };
-                
-                            let a = if blue_value < 100 {
-                                blue_value * a / 100
-                            } else if blue_value > 100 {
-                                let blue_value = b;
-                                let adjusted_blue =
-                                    a.saturating_add(blue_value.saturating_mul(blue_value - 100) / 0xFF);
-                                if adjusted_blue > blue_value {
-                                    blue_value
-                                } else {
-                                    adjusted_blue
-                                }
+                                green_value * a / 100
+                            }
+                        } else {
+                            b
+                        };
+            
+                        let a = if blue_value < 100 {
+                            blue_value * a / 100
+                        } else if blue_value > 100 {
+                            let blue_value = b;
+                            let adjusted_blue =
+                                a.saturating_add(blue_value.saturating_mul(blue_value - 100) / 0xFF);
+                            if adjusted_blue > blue_value {
+                                blue_value
                             } else {
-                                a
-                            };
-                
-                            data[0] = r as u8;
-                            data[1] = g as u8;
-                            data[2] = b as u8;
-                            data[3] = a as u8;
-                            *pixel = image::Rgba(data);
-                        }
+                                adjusted_blue
+                            }
+                        } else {
+                            a
+                        };
+            
+                        data[0] = r as u8;
+                        data[1] = g as u8;
+                        data[2] = b as u8;
+                        data[3] = a as u8;
+                        *pixel = image::Rgba(data);
                     }
                 }
             }

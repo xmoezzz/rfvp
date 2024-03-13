@@ -1,20 +1,10 @@
 use anyhow::{bail, Result};
 
+use crate::subsystem::resources::{graph_buff::GraphBuff, motion_manager::DissolveType};
 use crate::script::Variant;
 use crate::subsystem::world::GameData;
 
 use super::{get_var, Syscaller};
-
-pub enum DissolveType {
-    // no animation
-    None = 0,
-    Static = 1,
-    ColoredFadeIn = 2,
-    ColoredFadeOut = 3,
-    MaskFadeIn = 4,
-    MaskFadeInOut = 5,
-    MaskFadeOut = 6,
-}
 
 // UNUSED macro
 macro_rules! UNUSED {
@@ -66,14 +56,46 @@ pub fn dissolve(
         bail!("dissolve: duration should be in range 1..300000");
     }
 
+    let game_width = game_data.get_width() as i16;
+    let game_height = game_data.get_height() as i16;
+
     match name_or_color {
         Variant::ConstString(s, _) | Variant::String(s) => {
-            
+            let buff = game_data.vfs_load_file(s)?;
+            let mut graph = GraphBuff::new();
+            graph.load_mask(s, buff)?;
+            game_data.motion_manager.set_dissolve_mask_graph(graph);
+            if inout.is_true() {
+                
+            }
         },
         Variant::Int(color_id) => {
-
+            let color_id = *color_id;
+            if color_id >= 1 && color_id <= 255 {
+                game_data.motion_manager.set_dissolve_type(DissolveType::ColoredFadeOut);
+                game_data.motion_manager.set_dissolve_color_id(color_id as u32);
+                let mask_prim = game_data.motion_manager.get_mask_prim();
+                mask_prim.set_x(0);
+                mask_prim.set_y(0);
+                mask_prim.set_w(game_width);
+                mask_prim.set_h(game_height);
+                if let Variant::Int(x) = x {
+                    mask_prim.set_x(*x as i16);
+                }
+                if let Variant::Int(y) = y {
+                    mask_prim.set_y(*y as i16);
+                }
+                if let Variant::Int(w) = w {
+                    mask_prim.set_w(*w as i16);
+                }
+                if let Variant::Int(h) = h {
+                    mask_prim.set_h(*h as i16);
+                }
+            }
         },
-        _ => bail!("dissolve: invalid name_or_color type"),
+        _ => {
+            game_data.motion_manager.set_dissolve_type(DissolveType::ColoredFadeIn);
+        },
     }
     Ok(Variant::Nil)
 }

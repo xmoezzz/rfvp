@@ -19,8 +19,20 @@ use super::parts_manager::PartsManager;
 use super::prim::{PrimManager, INVAILD_PRIM_HANDLE};
 use anyhow::{bail, Result};
 use atomic_refcell::AtomicRefCell;
-use image::GenericImageView;
 use std::cell::{Ref, RefMut};
+use image::GenericImageView;
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum DissolveType {
+    // no animation
+    None = 0,
+    Static = 1,
+    ColoredFadeIn = 2,
+    ColoredFadeOut = 3,
+    MaskFadeIn = 4,
+    MaskFadeInOut = 5,
+    MaskFadeOut = 6,
+}
 
 pub struct MotionManager {
     alpha_motion_container: AlphaMotionContainer,
@@ -35,6 +47,9 @@ pub struct MotionManager {
     textures: Vec<GraphBuff>,
     pub(crate) text_manager: TextManager,
     mask_prim: Prim,
+    dissolve_type: DissolveType,
+    dissolve_color_id: u32,
+    dissolve_mask_graph: GraphBuff,
 }
 
 impl Default for MotionManager {
@@ -60,6 +75,9 @@ impl MotionManager {
             gaiji_manager: GaijiManager::new(),
             text_manager: TextManager::new(),
             mask_prim: Prim::new(),
+            dissolve_type: DissolveType::None,
+            dissolve_color_id: 0,
+            dissolve_mask_graph: GraphBuff::new(),
         }
     }
 
@@ -279,7 +297,7 @@ impl MotionManager {
 
         let parts_texture = parts.get_texture(entry_id as usize)?;
 
-        for dest in texture.get_textures_mut().iter_mut().flatten() {
+        if let Some(dest) = texture.get_texture_mut() {
             let src_x = 0;
             let src_y = 0;
             let src_w = parts.get_width() as u32;
@@ -401,26 +419,20 @@ impl MotionManager {
                     return false;
                 }
 
-                let mut offset_x = 0i32;
-                let mut offset_y = 0i32;
-                for texture_image in texture.get_textures().iter().flatten() {
+                if let Some(tex) = texture.get_texture() {
                     if adjusted_x >= cursor_x
-                        && adjusted_x < offset_x + texture.get_width() as i32
-                        && adjusted_y >= offset_y
-                        && adjusted_y < offset_y + texture.get_height() as i32
+                        && adjusted_x < texture.get_width() as i32
+                        && adjusted_y >= 0
+                        && adjusted_y < texture.get_height() as i32
                     {
-                        let left = adjusted_x - offset_x;
-                        let top = adjusted_y - offset_y;
-                        let pixel = texture_image.get_pixel(left as u32, top as u32);
+                        let left = adjusted_x;
+                        let top = adjusted_y;
+                        let pixel = tex.get_pixel(left as u32, top as u32);
                         let alpha_value = pixel.0[3];
                         if alpha_value != 0 {
                             return true;
                         }
                     }
-
-                    // TODO: incorrect offset calculation?
-                    offset_x += texture.get_width() as i32;
-                    offset_y += texture.get_height() as i32;
                 }
             }
             _ => return false,
@@ -503,6 +515,30 @@ impl MotionManager {
 
     pub fn get_mask_prim(&mut self) -> &mut Prim {
         &mut self.mask_prim
+    }
+
+    pub fn set_dissolve_type(&mut self, typ: DissolveType) {
+        self.dissolve_type = typ;
+    }
+
+    pub fn get_dissolve_type(&self) -> DissolveType {
+        self.dissolve_type
+    }
+
+    pub fn set_dissolve_color_id(&mut self, color_id: u32) {
+        self.dissolve_color_id = color_id;
+    }
+
+    pub fn get_dissolve_color_id(&self) -> u32 {
+        self.dissolve_color_id
+    }
+
+    pub fn set_dissolve_mask_graph(&mut self, graph: GraphBuff) {
+        self.dissolve_mask_graph = graph;
+    }
+
+    pub fn get_dissolve_mask_graph(&self) -> &GraphBuff {
+        &self.dissolve_mask_graph
     }
 
     pub fn text_reprint(&mut self) {
