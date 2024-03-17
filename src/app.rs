@@ -1,6 +1,6 @@
 use anyhow::Result;
 use std::{
-    cell::RefCell, path::{Path, PathBuf}, rc::Rc, sync::Arc
+    cell::RefCell, path::{Path, PathBuf}, process::exit, rc::Rc, sync::Arc
 };
 
 
@@ -161,6 +161,7 @@ impl App {
             &mut self.global,
         ) {
             log::error!("script error: {:?}", e);
+            exit(1);
         }
         self.update_cursor();
         // self.game_data.inputs().reset_inputs();
@@ -190,13 +191,6 @@ impl App {
             window.reset_future_settings()
         }
     }
-
-    // pub fn new(game_path: impl AsRef<Path>) -> Result<Self> {
-    //     let opcode_file = Self::find_hcb(game_path.as_ref())?;
-    //     let parser = Parser::new(opcode_file, Nls::ShiftJIS).unwrap();
-    //     let app = App { parser, game_path: game_path.as_ref().to_path_buf()};
-    //     Ok(app)
-    // }
 
     pub fn find_hcb(game_path: impl AsRef<Path>) -> Result<PathBuf> {
         let mut path = game_path.as_ref().to_path_buf();
@@ -321,6 +315,11 @@ impl AppBuilder {
 
         let script_engine = Rc::new(RefCell::new(self.script_engine));
         self.world.script_scheduler = script_engine.clone();
+        let entry_point = self.parser.get_entry_point();
+        let non_volatile_global_count = self.parser.get_non_volatile_global_count();
+        let volatile_global_count = self.parser.get_volatile_global_count();
+        self.global.init_with(non_volatile_global_count, volatile_global_count);
+        self.world.script_scheduler.borrow_mut().start_main(entry_point);
 
         let mut app = App {
             config: self.config,

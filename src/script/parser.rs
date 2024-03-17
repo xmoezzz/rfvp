@@ -261,6 +261,10 @@ impl Parser {
             }
         }
     }
+
+    pub fn get_entry_point(&self) -> u32 {
+        self.entry_point
+    }
 }
 
 #[cfg(test)]

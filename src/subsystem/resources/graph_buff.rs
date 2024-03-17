@@ -176,7 +176,7 @@ impl GraphBuff {
         green_value: i32,
         blue_value: i32
     ) {
-        if let Some(texture) = &self.texture {
+        if let Some(texture) = &mut self.texture {
             if let Some(texture) = texture.as_mut_rgba8() {
                 for y in 0..texture.height() {
                     for x in 0..texture.width() {

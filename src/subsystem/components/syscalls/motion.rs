@@ -22,7 +22,7 @@ pub fn motion_alpha(
 ) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id as i16,
-        _ => bail!("Invalid id"),
+        _ => bail!("Invalid alpha motion id"),
     };
 
     if !(1..4096).contains(&id) {
@@ -82,7 +82,7 @@ pub fn motion_alpha(
 pub fn motion_alpha_stop(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id as i16,
-        _ => bail!("Invalid id"),
+        _ => bail!("Invalid alpha motion id"),
     };
 
     if !(1..4096).contains(&id) {

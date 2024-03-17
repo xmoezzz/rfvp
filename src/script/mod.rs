@@ -28,7 +28,7 @@ pub enum Variant {
 
     /// used to store the stack info when calling a function
     /// for internal use only
-    _SavedStackInfo(SavedStackInfo),
+    SavedStackInfo(SavedStackInfo),
 }
 
 impl Variant {
@@ -61,7 +61,7 @@ impl Variant {
     }
 
     pub fn is_saved_stack_info(&self) -> bool {
-        matches!(self, Variant::_SavedStackInfo(_))
+        matches!(self, Variant::SavedStackInfo(_))
     }
 
     pub fn canbe_true(&self) -> bool {
@@ -106,7 +106,7 @@ impl Variant {
 
     pub fn as_saved_stack_info(&self) -> Option<&SavedStackInfo> {
         match self {
-            Variant::_SavedStackInfo(info) => Some(info),
+            Variant::SavedStackInfo(info) => Some(info),
             _ => None,
         }
     }

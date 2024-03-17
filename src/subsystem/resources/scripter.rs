@@ -29,14 +29,6 @@ impl ScriptScheduler {
         self.queue.remove(&id);
     }
 
-    pub fn get(&self, id: u32) -> Option<&Context> {
-        self.queue.get(&id)
-    }
-
-    pub fn get_mut(&mut self, id: u32) -> Option<&mut Context> {
-        self.queue.get_mut(&id)
-    }
-
     pub fn thread_exit(&mut self, id: u32) -> Result<()> {
         if let Some(context) = self.queue.get_mut(&id) {
             context.set_exited();
@@ -168,5 +160,9 @@ impl ScriptScheduler {
         self.elapsed(script_elapsed + rendering_time);
 
         Ok(())
+    }
+
+    pub fn start_main(&mut self, entry_point: u32) {
+        self.thread_start(0, entry_point).unwrap();
     }
 }

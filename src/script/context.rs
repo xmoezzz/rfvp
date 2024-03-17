@@ -49,7 +49,6 @@ pub struct Context {
     cur_stack_base: usize,
     start_addr: u32,
     return_value: Variant,
-    stack_frames: Vec<StackFrame>,
     state: ContextState,
     wait_ms: u64,
     should_exit: bool,
@@ -60,13 +59,12 @@ impl Context {
     pub fn new(start_addr: u32) -> Self {
         Context {
             id: 0,
-            stack: Vec::new(),
-            cursor: 0,
+            stack: vec![Variant::Nil; MAX_STACK_SIZE],
+            cursor: start_addr as usize,
             cur_stack_pos: 0,
             cur_stack_base: 0,
             start_addr,
             return_value: Variant::Nil,
-            stack_frames: Vec::new(),
             state: ContextState::Running,
             wait_ms: 0,
             should_exit: false,
@@ -105,7 +103,15 @@ impl Context {
 
     fn pop(&mut self) -> Result<Variant> {
         let pos = self.to_global_offset();
-        let result = if let Ok(pos) = pos {
+        let result = if let Ok(mut pos) = pos {
+            if pos == 0 {
+                bail!("pop: stack pointer underflow");
+            }
+            pos -= 1;
+            if pos >= self.stack.len() {
+                let msg = format!("pop: stack pointer out of bounds: {:x}", self.cursor);
+                bail!(msg);
+            }
             let r = self.stack[pos].clone();
             self.stack[pos].set_nil();
             r
@@ -124,14 +130,6 @@ impl Context {
 
     fn top(&mut self) -> Result<Variant> {
         self.get_local(self.cur_stack_pos as i8)
-    }
-
-    fn top_frame(&self) -> Result<&StackFrame> {
-        if let Some(frame) = self.stack_frames.last() {
-            Ok(frame)
-        } else {
-            bail!("stack frame underflow");
-        }
     }
 
     fn get_local(&self, offset: i8) -> Result<Variant> {
@@ -228,12 +226,6 @@ impl Context {
             bail!("locals count is negative");
         }
 
-        let frame = StackFrame {
-            args_count: args_count as u16,
-            locals_count: locals_count as u16,
-        };
-        self.stack_frames.push(frame);
-
         for i in 0..locals_count {
             self.set_local(i,Variant::Nil)?;
         }
@@ -252,7 +244,7 @@ impl Context {
             bail!("call: address is not in the code area");
         }
 
-        let frame = Variant::_SavedStackInfo(
+        let frame = Variant::SavedStackInfo(
             super::SavedStackInfo { 
                 stack_base: self.cur_stack_base, 
                 stack_pos: self.cur_stack_pos, 
@@ -283,6 +275,7 @@ impl Context {
                 args.push(self.pop()?);
             }
 
+            log::info!("syscall: {} {:?}", &syscall.name, &args);
             let result = sys.do_syscall(syscall.name.as_str(), args)?;
             self.return_value = result;
         } else {

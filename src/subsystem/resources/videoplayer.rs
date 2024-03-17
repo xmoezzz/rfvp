@@ -179,6 +179,8 @@ mod tests {
     //     let window = window_builder
     //         .build(&event_loop)
     //         .expect("An error occured while building the main game window");
+        
+    //     let vm = VideoPlayerManager::new();
 
     //     // init wgpu
     //     let backend = wgpu::util::backend_bits_from_env().unwrap_or_else(wgpu::Backends::all);
@@ -208,7 +210,6 @@ mod tests {
     //                     }
     //                     WindowEvent::RedrawRequested => {
 
-    //                         // frame.present();
 
     //                     }
     //                     WindowEvent::CloseRequested => {

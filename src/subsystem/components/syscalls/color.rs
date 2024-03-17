@@ -15,7 +15,7 @@ pub fn color_set(
 ) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("Invalid id"),
+        _ => bail!("Invalid color id"),
     };
 
     if !(0..256).contains(&id) {

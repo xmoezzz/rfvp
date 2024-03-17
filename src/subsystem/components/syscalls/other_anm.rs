@@ -66,7 +66,7 @@ pub fn dissolve(
             graph.load_mask(s, buff)?;
             game_data.motion_manager.set_dissolve_mask_graph(graph);
             if inout.is_true() {
-                
+
             }
         },
         Variant::Int(color_id) => {
@@ -99,3 +99,6 @@ pub fn dissolve(
     }
     Ok(Variant::Nil)
 }
+
+
+// pub fn snow(game_data: &mut GameData, width: &Variant, height: &Variant, )
