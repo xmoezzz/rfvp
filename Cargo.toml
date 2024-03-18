@@ -31,7 +31,7 @@ rodio = "0.17.3"
 ab_glyph = "0.2.23"
 futures = "0.3.30"
 fern = { version = "0.6.2", features = ["colored"] }
-
+chrono = "0.4.35"
 
 flate2 = "1.0.28"
 byteorder = "1.5.0"

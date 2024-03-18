@@ -6,7 +6,6 @@ use crate::script::Variant;
 use crate::script::VmSyscall;
 use crate::script::opcode::Opcode;
 use crate::script::global::Global;
-use crate::subsystem::resources::scripter::ScriptScheduler;
 
 use anyhow::{bail, Result};
 

@@ -71,7 +71,7 @@ pub fn dissolve(
         },
         Variant::Int(color_id) => {
             let color_id = *color_id;
-            if color_id >= 1 && color_id <= 255 {
+            if (1..=255).contains(&color_id) {
                 game_data.motion_manager.set_dissolve_type(DissolveType::ColoredFadeOut);
                 game_data.motion_manager.set_dissolve_color_id(color_id as u32);
                 let mask_prim = game_data.motion_manager.get_mask_prim();

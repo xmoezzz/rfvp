@@ -84,6 +84,7 @@ use hecs::{
 use super::resources::flag_manager::FlagManager;
 use super::resources::history_manager::HistoryManager;
 use super::resources::input_manager::InputManager;
+use super::resources::save_manager::SaveManager;
 use super::resources::text_manager::FontEnumerator;
 use super::resources::scripter::ScriptScheduler;
 use super::resources::timer_manager::TimerManager;
@@ -126,6 +127,7 @@ pub struct GameData {
     pub(crate) inputs_manager: InputManager,
     pub(crate) timer_manager: TimerManager,
     pub(crate) video_manager: VideoPlayerManager,
+    pub(crate) save_manager: SaveManager,
 }
 
 impl GameData {
