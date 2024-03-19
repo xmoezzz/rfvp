@@ -51,6 +51,7 @@ pub struct Context {
     state: ContextState,
     wait_ms: u64,
     should_exit: bool,
+    should_break: bool,
 }
 
 
@@ -67,7 +68,12 @@ impl Context {
             state: ContextState::Running,
             wait_ms: 0,
             should_exit: false,
+            should_break: false,
         }
+    }
+
+    pub fn set_should_break(&mut self, should_break: bool) {
+        self.should_break = should_break;
     }
 
     fn to_global_offset(&self) -> Result<usize> {

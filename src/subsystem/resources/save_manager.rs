@@ -1,18 +1,50 @@
-use std::{io::Read, path::Path};
-use anyhow::Result;
+use anyhow::{bail, Result};
 use chrono::{DateTime, Datelike, Local, Timelike, Weekday};
+use std::{io::Read, path::Path};
 
-use crate::script::parser::Nls;
+use crate::{script::parser::Nls, utils::file::app_base_path};
 
-
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SaveDataFunction {
     LoadSaveThumbToTexture = 0,
     TestSaveData = 1,
     DeleteSaveData = 2,
     CopySaveData = 3,
+    GetSaveTitle = 4,
+    GetSaveSceneTitle = 5,
+    GetScriptContent = 6,
+    GetYear = 7,
+    GetMonth = 8,
+    GetDay = 9,
+    GetDayOfWeek = 10,
+    GetHour = 11,
+    GetMinute = 12,
 }
 
-#[derive(Debug)]
+impl TryFrom<i32> for SaveDataFunction {
+    type Error = anyhow::Error;
+
+    fn try_from(value: i32) -> anyhow::Result<Self> {
+        match value {
+            0 => Ok(SaveDataFunction::LoadSaveThumbToTexture),
+            1 => Ok(SaveDataFunction::TestSaveData),
+            2 => Ok(SaveDataFunction::DeleteSaveData),
+            3 => Ok(SaveDataFunction::CopySaveData),
+            4 => Ok(SaveDataFunction::GetSaveTitle),
+            5 => Ok(SaveDataFunction::GetSaveSceneTitle),
+            6 => Ok(SaveDataFunction::GetScriptContent),
+            7 => Ok(SaveDataFunction::GetYear),
+            8 => Ok(SaveDataFunction::GetMonth),
+            9 => Ok(SaveDataFunction::GetDay),
+            10 => Ok(SaveDataFunction::GetDayOfWeek),
+            11 => Ok(SaveDataFunction::GetHour),
+            12 => Ok(SaveDataFunction::GetMinute),
+            _ => bail!("invalid save data function: {}", value),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct SaveItem {
     year: u16,
     month: u8,
@@ -67,24 +99,19 @@ impl SaveItem {
             Nls::ShiftJIS => {
                 let string = encoding_rs::SHIFT_JIS.decode(&string).0;
                 Ok(string.to_string())
-            },
+            }
             Nls::GBK => {
                 let string = encoding_rs::GBK.decode(&string).0;
                 Ok(string.to_string())
-            },
+            }
             Nls::UTF8 => {
                 let string = encoding_rs::UTF_8.decode(&string).0;
                 Ok(string.to_string())
-            },
+            }
         }
     }
 
-    pub fn load_from_file(path: impl AsRef<Path>, nls: Nls) -> Result<Self> {
-        let file = std::fs::File::open(path)?;
-        let mut reader = std::io::BufReader::new(file);
-        let mut buf = vec![];
-        reader.read_to_end(&mut buf)?;
-
+    pub fn load_from_mem(buf: &Vec<u8>, nls: Nls) -> Result<Self> {
         if buf.len() < Self::calculate_offset() {
             return Err(anyhow::anyhow!("invalid save data: too short"));
         }
@@ -107,7 +134,7 @@ impl SaveItem {
         cursor += 2;
         let title = if title_len > 0 {
             Self::read_string(&buf, title_len as u16, &mut cursor, nls.clone())?
-        } else  {
+        } else {
             String::new()
         };
 
@@ -138,21 +165,30 @@ impl SaveItem {
             scene_title,
             script_content,
         })
-
     }
 
-}
+    pub fn load_from_file(path: impl AsRef<Path>, nls: Nls) -> Result<Self> {
+        let file = std::fs::File::open(path)?;
+        let mut reader = std::io::BufReader::new(file);
+        let mut buf = vec![];
+        reader.read_to_end(&mut buf)?;
 
+        Self::load_from_mem(&buf, nls)
+    }
+}
 
 #[derive(Debug, Default)]
 pub struct SaveManager {
-    pub thumb_width: u32,
-    pub thumb_height: u32,
-    pub current_scene_title: String,
-    pub current_title: String,
-    pub current_script_content: String,
-    pub current_save_slot: u32,
-    pub save_requested: bool,
+    thumb_width: u32,
+    thumb_height: u32,
+    current_scene_title: String,
+    current_title: String,
+    current_script_content: String,
+    current_save_slot: u32,
+    save_requested: bool,
+    savedata_prepared: bool,
+    should_load: bool,
+    slots: Vec<Option<SaveItem>>,
 }
 
 impl SaveManager {
@@ -165,6 +201,11 @@ impl SaveManager {
             current_script_content: String::new(),
             current_save_slot: 0,
             save_requested: false,
+            savedata_prepared: false,
+            should_load: false,
+            slots: std::iter::repeat_with(|| Option::<SaveItem>::None)
+                .take(1000)
+                .collect::<Vec<_>>(),
         }
     }
 
@@ -183,6 +224,22 @@ impl SaveManager {
 
     pub fn set_current_script_content(&mut self, content: String) {
         self.current_script_content = content;
+    }
+
+    pub fn set_current_save_slot(&mut self, slot: u32) {
+        self.current_save_slot = slot;
+    }
+
+    pub fn set_savedata_requested(&mut self, requested: bool) {
+        self.save_requested = requested;
+    }
+
+    pub fn set_savedata_prepared(&mut self, prepared: bool) {
+        self.savedata_prepared = prepared;
+    }
+
+    pub fn set_should_load(&mut self, should_load: bool) {
+        self.should_load = should_load;
     }
 
     pub fn get_thumb_width(&self) -> u32 {
@@ -209,13 +266,191 @@ impl SaveManager {
         self.current_save_slot
     }
 
+    pub fn is_save_requested(&self) -> bool {
+        self.save_requested
+    }
+
+    pub fn is_savedata_prepared(&self) -> bool {
+        self.savedata_prepared
+    }
+
+    pub fn is_should_load(&self) -> bool {
+        self.should_load
+    }
+
     pub fn asynchronously_save(&mut self, slot: u32) {
         // mark the save status as dirty and perform the 'delayed' save
         self.current_save_slot = slot;
         self.save_requested = true;
     }
-}
 
+    pub fn test_save_slot(&self, slot: u32) -> bool {
+        if let Some(save_item) = self.slots.get(slot as usize) {
+            save_item.is_some()
+        } else {
+            false
+        }
+    }
+
+    pub fn get_save_title(&self, slot: u32) -> String {
+        if let Some(save_item) = self.slots.get(slot as usize) {
+            if let Some(save_item) = save_item {
+                save_item.title.clone()
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        }
+    }
+
+    pub fn get_save_scene_title(&self, slot: u32) -> String {
+        if let Some(save_item) = self.slots.get(slot as usize) {
+            if let Some(save_item) = save_item {
+                save_item.scene_title.clone()
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        }
+    }
+
+    pub fn get_script_content(&self, slot: u32) -> String {
+        if let Some(save_item) = self.slots.get(slot as usize) {
+            if let Some(save_item) = save_item {
+                save_item.script_content.clone()
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        }
+    }
+
+    pub fn get_year(&self, slot: u32) -> u16 {
+        if let Some(save_item) = self.slots.get(slot as usize) {
+            if let Some(save_item) = save_item {
+                save_item.year
+            } else {
+                u16::MAX
+            }
+        } else {
+            u16::MAX
+        }
+    }
+
+    pub fn get_month(&self, slot: u32) -> u8 {
+        if let Some(save_item) = self.slots.get(slot as usize) {
+            if let Some(save_item) = save_item {
+                save_item.month
+            } else {
+                u8::MAX
+            }
+        } else {
+            u8::MAX
+        }
+    }
+
+    pub fn get_day(&self, slot: u32) -> u8 {
+        if let Some(save_item) = self.slots.get(slot as usize) {
+            if let Some(save_item) = save_item {
+                save_item.day
+            } else {
+                u8::MAX
+            }
+        } else {
+            u8::MAX
+        }
+    }
+
+    pub fn get_day_of_week(&self, slot: u32) -> u8 {
+        if let Some(save_item) = self.slots.get(slot as usize) {
+            if let Some(save_item) = save_item {
+                save_item.day_of_week
+            } else {
+                u8::MAX
+            }
+        } else {
+            u8::MAX
+        }
+    }
+
+    pub fn get_hour(&self, slot: u32) -> u8 {
+        if let Some(save_item) = self.slots.get(slot as usize) {
+            if let Some(save_item) = save_item {
+                save_item.hour
+            } else {
+                u8::MAX
+            }
+        } else {
+            u8::MAX
+        }
+    }
+
+    pub fn get_minute(&self, slot: u32) -> u8 {
+        if let Some(save_item) = self.slots.get(slot as usize) {
+            if let Some(save_item) = save_item {
+                save_item.minute
+            } else {
+                u8::MAX
+            }
+        } else {
+            u8::MAX
+        }
+    }
+
+    pub fn delete_savedata(&mut self, slot: u32) {
+        if let Some(save_item) = self.slots.get_mut(slot as usize) {
+            *save_item = None;
+            app_base_path()
+                .get_path()
+                .join("save")
+                .join(format!("s{}.bin", slot))
+                .to_str()
+                .map(std::fs::remove_file);
+        }
+    }
+
+    pub fn copy_savedata(&mut self, src: u32, dst: u32) -> Result<()> {
+        if let Some(save_item) = self.slots.get(src as usize) {
+            if let Some(save_item) = save_item {
+                self.slots[dst as usize] = Some(save_item.clone());
+                let src_data = app_base_path()
+                    .get_path()
+                    .join("save")
+                    .join(format!("s{}.bin", src));
+
+                let dst_data = app_base_path()
+                    .get_path()
+                    .join("save")
+                    .join(format!("s{}.bin", dst));
+
+                let _ = std::fs::copy(src_data, dst_data)?;
+            }
+        }
+        Ok(())
+    }
+
+    
+
+    pub fn load_savedata(&mut self, slot: u32, nls: Nls) -> Result<()> {
+        let save_item = SaveItem::load_from_file(
+            app_base_path()
+                .get_path()
+                .join("save")
+                .join(format!("s{}.bin", slot)),
+            nls,
+        )?;
+        Ok(())
+    }
+
+    pub fn load_save_buff(&mut self, slot: u32, nls: Nls, cache: &Vec<u8>) -> Result<()> {
+        let save_item = SaveItem::load_from_mem(cache, nls)?;
+        self.slots[slot as usize] = Some(save_item);
+        Ok(())
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -223,10 +458,7 @@ mod tests {
 
     #[test]
     fn test_read_save_item() {
-        let filepath = Path::new(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/testcase/s282.bin"
-        ));
+        let filepath = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/testcase/s282.bin"));
 
         let save_item = SaveItem::load_from_file(filepath, Nls::ShiftJIS).unwrap();
         println!("{:?}", save_item);

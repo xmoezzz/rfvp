@@ -320,6 +320,7 @@ impl AppBuilder {
         let volatile_global_count = self.parser.get_volatile_global_count();
         self.global.init_with(non_volatile_global_count, volatile_global_count);
         self.world.script_scheduler.borrow_mut().start_main(entry_point);
+        self.world.nls = self.parser.nls.clone();
 
         let mut app = App {
             config: self.config,

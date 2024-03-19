@@ -29,6 +29,10 @@ impl ScriptScheduler {
         self.queue.remove(&id);
     }
 
+    pub fn get_current_thread(&mut self) -> Option<&mut Context> {
+        self.queue.get_mut(&self.current_id)
+    }
+
     pub fn thread_exit(&mut self, id: u32) -> Result<()> {
         if let Some(context) = self.queue.get_mut(&id) {
             context.set_exited();

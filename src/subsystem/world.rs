@@ -6,6 +6,7 @@ use std::fmt::{Display, Formatter};
 use std::hash::Hasher;
 use std::rc::Rc;
 
+use crate::script::parser::Nls;
 use crate::script::{Variant, VmSyscall};
 use crate::subsystem::components::maths::camera::DefaultCamera;
 use crate::subsystem::components::syscalls::graph::{
@@ -65,6 +66,10 @@ use crate::subsystem::components::syscalls::text::{
     TextReprint, TextShadowDist, TextSize, TextSkip, TextSpace,
     TextSpeed, TextSuspendChr, TextTest
 };
+use crate::subsystem::components::syscalls::saveload::{
+    SaveCreate, SaveThumbSize, SaveWrite, SaveData, Load,
+};
+
 use crate::subsystem::resources::asset_manager::AssetManager;
 use crate::subsystem::resources::audio::Audio;
 use crate::subsystem::resources::events::Events;
@@ -128,6 +133,8 @@ pub struct GameData {
     pub(crate) timer_manager: TimerManager,
     pub(crate) video_manager: VideoPlayerManager,
     pub(crate) save_manager: SaveManager,
+    pub(crate) nls: Nls,
+    pub(crate) memory_cache: Vec<u8>,
 }
 
 impl GameData {
@@ -242,6 +249,21 @@ impl GameData {
 
     pub fn get_height(&self) -> u32 {
         self.window().height()
+    }
+
+    pub fn get_nls(&self) -> Nls {
+        self.nls.clone()
+    }
+
+    pub fn get_cache(&self) -> Vec<u8> {
+        self.memory_cache.clone()
+    }
+
+    pub fn break_current_thread(&mut self) {
+        let mut ss = self.script_scheduler.borrow_mut();
+        if let Some(th) = ss.get_current_thread() {
+            th.set_should_break(true);
+        }
     }
 }
 
@@ -716,6 +738,15 @@ lazy_static::lazy_static! {
         m.insert("PartsMotionPause".into(), Box::new(PartsMotionPause));
         m.insert("PartsAssign".into(), Box::new(PartsAssign));
         m.insert("PartsSelect".into(), Box::new(PartsSelect));
+
+        // save apis
+        m.insert("SaveCreate".into(), Box::new(SaveCreate));
+        m.insert("SaveThumbSize".into(), Box::new(SaveThumbSize));
+        m.insert("SaveWrite".into(), Box::new(SaveWrite));
+        m.insert("SaveData".into(), Box::new(SaveData));
+
+        // load api
+        m.insert("Load".into(), Box::new(Load));
 
         AtomicRefCell::new(m)
     };
