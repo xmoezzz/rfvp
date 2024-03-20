@@ -83,7 +83,7 @@ pub fn save_data(
         Ok(SaveDataFunction::LoadSaveThumbToTexture) => {
             let mut slot_id = 0;
             let mut texture_id = 0;
-            
+
             if let Some(slot) = value.as_int() {
                 if slot >= 0 || slot <= 999 {
                     slot_id = slot as u32;
@@ -106,8 +106,26 @@ pub fn save_data(
 
             let thumb_width = game_data.save_manager.get_thumb_width();
             let thumb_height = game_data.save_manager.get_thumb_height();
-            // todo
+            let thumb = game_data
+                .save_manager
+                .get_save_thumb(slot_id, thumb_width, thumb_height);
+            let thumb = match thumb {
+                Ok(thumb) => thumb,
+                Err(e) => {
+                    log::error!("save_data: failed to get save thumb: {}", e);
+                    return Ok(Variant::Nil);
+                }
+            };
 
+            if let Err(e) = game_data.motion_manager.load_texture_from_buff(
+                texture_id as u16,
+                thumb,
+                thumb_width,
+                thumb_height,
+            ) {
+                log::error!("save_data: failed to load texture from buff: {}", e);
+                return Ok(Variant::Nil);
+            }
         }
         Ok(SaveDataFunction::TestSaveData) => {
             if let Some(slot) = value.as_int() {
@@ -135,8 +153,9 @@ pub fn save_data(
                         if slot2 >= 0 || slot2 <= 999 {
                             if let Err(e) = game_data
                                 .save_manager
-                                .copy_savedata(slot as u32, slot2 as u32) {
-                                    log::error!("save_data: failed to copy save data: {}", e);
+                                .copy_savedata(slot as u32, slot2 as u32)
+                            {
+                                log::error!("save_data: failed to copy save data: {}", e);
                             }
                         }
                     }
@@ -253,7 +272,9 @@ pub fn save_write(game_data: &mut GameData, slot: &Variant) -> Result<Variant> {
             game_data.save_manager.set_savedata_requested(true);
             game_data.save_manager.set_current_save_slot(slot);
             if game_data.save_manager.is_savedata_prepared() {
-                game_data.save_manager.load_save_buff(slot, nls, &cache);
+                if let Err(e) = game_data.save_manager.load_save_buff(slot, nls, &cache) {
+                    log::error!("save_write: failed to load save buff: {}", e);
+                }
             }
         }
     }
@@ -275,15 +296,10 @@ pub fn load(game_data: &mut GameData, slot: &Variant) -> Result<Variant> {
     Ok(Variant::Nil)
 }
 
-
 pub struct SaveCreate;
 impl Syscaller for SaveCreate {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
-        save_create(
-            game_data,
-            get_var!(args, 0),
-            get_var!(args, 1),
-        )
+        save_create(game_data, get_var!(args, 0), get_var!(args, 1))
     }
 }
 
@@ -308,11 +324,7 @@ unsafe impl Sync for SaveData {}
 pub struct SaveThumbSize;
 impl Syscaller for SaveThumbSize {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
-        save_thumb_size(
-            game_data,
-            get_var!(args, 0),
-            get_var!(args, 1),
-        )
+        save_thumb_size(game_data, get_var!(args, 0), get_var!(args, 1))
     }
 }
 
@@ -322,10 +334,7 @@ unsafe impl Sync for SaveThumbSize {}
 pub struct SaveWrite;
 impl Syscaller for SaveWrite {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
-        save_write(
-            game_data,
-            get_var!(args, 0),
-        )
+        save_write(game_data, get_var!(args, 0))
     }
 }
 
@@ -335,10 +344,7 @@ unsafe impl Sync for SaveWrite {}
 pub struct Load;
 impl Syscaller for Load {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
-        load(
-            game_data,
-            get_var!(args, 0),
-        )
+        load(game_data, get_var!(args, 0))
     }
 }
 

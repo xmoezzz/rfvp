@@ -541,6 +541,11 @@ impl MotionManager {
         &self.dissolve_mask_graph
     }
 
+    pub fn load_texture_from_buff(&mut self, id: u16, buff: Vec<u8>, width: u32, height: u32) -> Result<()> {
+        let graph = &mut self.textures[id as usize];
+        graph.load_from_buff(buff, width, height)
+    }
+
     pub fn text_reprint(&mut self) {
         todo!()
     }

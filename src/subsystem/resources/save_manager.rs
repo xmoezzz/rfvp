@@ -1,5 +1,6 @@
 use anyhow::{bail, Result};
 use chrono::{DateTime, Datelike, Local, Timelike, Weekday};
+use std::mem::size_of;
 use std::{io::Read, path::Path};
 
 use crate::{script::parser::Nls, utils::file::app_base_path};
@@ -71,6 +72,49 @@ impl SaveItem {
             scene_title: String::new(),
             script_content: String::new(),
         }
+    }
+
+    pub fn read_thumb_texture(slot: u32, width: u32, height: u32) -> Result<Vec<u8>> {
+        let thumb_path = app_base_path()
+            .get_path()
+            .join("save")
+            .join(format!("s{}.bin", slot));
+
+        let mut file = std::fs::File::open(thumb_path)?;
+        let mut buf = vec![];
+        file.read_to_end(&mut buf)?;
+
+        if buf.len() < Self::calculate_offset() {
+            return Err(anyhow::anyhow!("invalid save data: too short"));
+        }
+
+        let mut cursor = 0;
+        cursor += size_of::<u16>(); // skip year
+        cursor += size_of::<u8>(); // skip month
+        cursor += size_of::<u8>(); // skip day
+        cursor += size_of::<u8>(); // skip day_of_week
+        cursor += size_of::<u8>(); // skip hour
+        cursor += size_of::<u8>(); // skip minute
+
+        // read string length
+        let title_len = u16::from_le_bytes([buf[cursor], buf[cursor + 1]]) as usize;
+        cursor += size_of::<u16>();
+        cursor += title_len;
+        let scene_title_len = u16::from_le_bytes([buf[cursor], buf[cursor + 1]]) as usize;
+        cursor += size_of::<u16>();
+        cursor += scene_title_len;
+        let script_content_len = u16::from_le_bytes([buf[cursor], buf[cursor + 1]]) as usize;
+        cursor += size_of::<u16>();
+        cursor += script_content_len;
+
+        let thumb_size = width * height * 4;
+        // safely read thumb texture
+        if buf.len() < cursor + thumb_size as usize {
+            return Err(anyhow::anyhow!("invalid save data: too short"));
+        }
+
+        let thumb = buf[cursor..cursor + thumb_size as usize].to_vec();
+        Ok(thumb)
     }
 
     fn calculate_offset() -> usize {
@@ -400,6 +444,10 @@ impl SaveManager {
         }
     }
 
+    pub fn get_save_thumb(&self, slot: u32, width: u32, height: u32) -> Result<Vec<u8>> {
+        SaveItem::read_thumb_texture(slot, width, height)
+    }
+
     pub fn delete_savedata(&mut self, slot: u32) {
         if let Some(save_item) = self.slots.get_mut(slot as usize) {
             *save_item = None;
@@ -431,8 +479,6 @@ impl SaveManager {
         }
         Ok(())
     }
-
-    
 
     pub fn load_savedata(&mut self, slot: u32, nls: Nls) -> Result<()> {
         let save_item = SaveItem::load_from_file(

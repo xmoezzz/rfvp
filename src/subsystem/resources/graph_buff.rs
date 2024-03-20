@@ -1,4 +1,4 @@
-use image::{DynamicImage, GenericImageView};
+use image::{DynamicImage, GenericImageView, ImageBuffer};
 use anyhow::{Result, anyhow};
 
 use super::texture::NvsgTexture;
@@ -167,6 +167,35 @@ impl GraphBuff {
         self.v = nvsg_texture.get_v();
         self.texture_path = file_name.to_string();
     
+        Ok(())
+    }
+
+    pub fn load_from_buff(&mut self, buff: Vec<u8>, width: u32, height: u32) -> Result<()> {
+        let mut img = ImageBuffer::new(self.width as u32, self.height as u32);
+
+        for (x, y, pixel) in img.enumerate_pixels_mut() {
+            let index = (y * self.width as u32 + x) as usize * 4;
+            let r = buff[index + 2];
+            let g = buff[index + 1];
+            let b = buff[index + 0];
+            let a = buff[index + 3];
+            *pixel = image::Rgba([r, g, b, a]);
+        }
+
+        self.unload();
+        self.texture = Some(DynamicImage::ImageRgba8(img));
+        self.r_value = 100;
+        self.g_value = 100;
+        self.b_value = 100;
+        self.texture_ready = true;
+        self.offset_x = 0;
+        self.offset_y = 0;
+        self.width = width as u16;
+        self.height = height as u16;
+        self.u = 0;
+        self.v = 0;
+        self.texture_path = String::new();
+
         Ok(())
     }
 
