@@ -69,6 +69,9 @@ use crate::subsystem::components::syscalls::text::{
 use crate::subsystem::components::syscalls::saveload::{
     SaveCreate, SaveThumbSize, SaveWrite, SaveData, Load,
 };
+use crate::subsystem::components::syscalls::other_anm::{
+    LipAnim, LipSync, Dissolve, Snow, SnowStart, SnowStop,
+};
 
 use crate::subsystem::resources::asset_manager::AssetManager;
 use crate::subsystem::resources::audio::Audio;
@@ -747,6 +750,14 @@ lazy_static::lazy_static! {
 
         // load api
         m.insert("Load".into(), Box::new(Load));
+
+        // other anm apis
+        m.insert("LipAnim".into(), Box::new(LipAnim));
+        m.insert("LipSync".into(), Box::new(LipSync));
+        m.insert("Dissolve".into(), Box::new(Dissolve));
+        m.insert("Snow".into(), Box::new(Snow));
+        m.insert("SnowStart".into(), Box::new(SnowStart));
+        m.insert("SnowStop".into(), Box::new(SnowStop));
 
         AtomicRefCell::new(m)
     };

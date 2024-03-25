@@ -283,7 +283,6 @@ pub fn save_write(game_data: &mut GameData, slot: &Variant) -> Result<Variant> {
 }
 
 pub fn load(game_data: &mut GameData, slot: &Variant) -> Result<Variant> {
-    let nls = game_data.get_nls();
     if let Variant::Int(slot) = slot {
         let slot = *slot as u32;
         if (0..1000).contains(&slot) {

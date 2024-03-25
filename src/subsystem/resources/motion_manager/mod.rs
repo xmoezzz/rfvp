@@ -4,6 +4,9 @@ mod rotation_move;
 mod s2_move;
 mod v3d;
 mod z_move;
+mod snow;
+
+use self::snow::SnowMotionContainer;
 
 use super::gaiji_manager::GaijiManager;
 use super::graph_buff::{copy_rect, GraphBuff};
@@ -41,6 +44,7 @@ pub struct MotionManager {
     scale_motion_container: ScaleMotionContainer,
     z_motion_container: ZMotionContainer,
     v3d_motion_container: V3dMotionContainer,
+    snow_motion_container: SnowMotionContainer,
     pub(crate) prim_manager: PrimManager,
     pub(crate) parts_manager: AtomicRefCell<PartsManager>,
     pub(crate) gaiji_manager: GaijiManager,
@@ -69,6 +73,7 @@ impl MotionManager {
             scale_motion_container: ScaleMotionContainer::new(),
             z_motion_container: ZMotionContainer::new(),
             v3d_motion_container: V3dMotionContainer::new(),
+            snow_motion_container: SnowMotionContainer::new(),
             prim_manager: PrimManager::new(),
             parts_manager,
             textures: vec![GraphBuff::new(); 4096],
@@ -178,6 +183,48 @@ impl MotionManager {
 
     pub fn test_scale_motion(&self, prim_id: u32) -> bool {
         self.scale_motion_container.test_motion(prim_id)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_snow_motion(
+        &mut self,
+        id: u32,
+        a2: i32,
+        a3: i32,
+        a4: i32,
+        a5: i32,
+        a6: i32,
+        a7: i32,
+        a8: i32,
+        a9: i32,
+        a10: i32,
+        a11: i32,
+        a12: i32,
+        a13: i32,
+        a14: i32,
+        a15: i32,
+        a16: i32,
+        a17: i32,
+        a18: i32,
+        screen_width: u32,
+        screen_height: u32,
+    ) {
+        self.snow_motion_container.push_motion(
+            id, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18,
+            screen_width, screen_height,
+        )
+    }
+
+    pub fn start_snow_motion(&mut self, id: u32) {
+        self.snow_motion_container.start_snow_motion(id)
+    }
+
+    pub fn test_snow_motion(&self, id: u32) -> bool {
+        self.snow_motion_container.test_snow_motion(id)
+    }
+
+    pub fn stop_snow_motion(&mut self, id: u32) {
+        self.snow_motion_container.stop_snow_motion(id)
     }
 
     pub fn set_z_motion(
