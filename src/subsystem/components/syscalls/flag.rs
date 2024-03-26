@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 
 use crate::script::Variant;
 use crate::subsystem::world::GameData;
@@ -13,13 +13,15 @@ pub fn flag_set(game_data: &mut GameData, id_bit_pos: &Variant, on: &Variant) ->
     let id_bit_pos = if let Variant::Int(id_bit_pos) = id_bit_pos {
         *id_bit_pos
     } else {
-        bail!("set_flag: Invalid id_bit_pos type");
+        log::error!("set_flag: Invalid id_bit_pos type");
+        return Ok(Variant::Nil);
     };
 
     let on = on.canbe_true();
 
     if !(0..=2047).contains(&id_bit_pos) {
-        bail!("set_flag: invalid id_bit_pos : {}", id_bit_pos);
+        log::error!("set_flag: invalid id_bit_pos : {}", id_bit_pos);
+        return Ok(Variant::Nil);
     }
 
     let id = (id_bit_pos / 8) as u8;
@@ -33,11 +35,13 @@ pub fn flag_get(game_data: &mut GameData, id_bit_pos: &Variant) -> Result<Varian
     let id_bit_pos = if let Variant::Int(id_bit_pos) = id_bit_pos {
         *id_bit_pos
     } else {
-        bail!("get_flag: Invalid id_bit_pos type");
+        log::error!("get_flag: Invalid id_bit_pos type");
+        return Ok(Variant::Nil);
     };
 
     if !(0..=2047).contains(&id_bit_pos) {
-        bail!("get_flag: invalid id_bit_pos : {}", id_bit_pos);
+        log::error!("get_flag: invalid id_bit_pos : {}", id_bit_pos);
+        return Ok(Variant::Nil);
     }
 
     let id = (id_bit_pos / 8) as u8;

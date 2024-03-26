@@ -280,6 +280,9 @@ impl Context {
                 args.push(self.pop()?);
             }
 
+            // reverse the arguments
+            args.reverse();
+
             log::info!("syscall: {} {:?}", &syscall.name, &args);
             let result = sys.do_syscall(syscall.name.as_str(), args)?;
             self.return_value = result;
