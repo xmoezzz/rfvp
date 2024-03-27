@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 
 use crate::script::Variant;
 use crate::subsystem::world::GameData;

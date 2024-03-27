@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 
 use crate::script::Variant;
 use crate::subsystem::resources::prim::PrimType;
@@ -26,20 +26,28 @@ pub fn prim_exit_group(_game_data: &mut GameData, id: &Variant) -> Result<Varian
 pub fn prim_group_in(game_data: &mut GameData, id: &Variant, id2: &Variant) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
-        None => log::error!("prim_group_in: invalid id : {:?}", id),
+        None => {
+            log::error!("prim_group_in: invalid id : {:?}", id);
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..=4095).contains(&id) {
         log::error!("prim_group_in: invalid id : {}", id);
+        return Ok(Variant::Nil);
     }
 
     let id2 = match id2.as_int() {
         Some(id2) => id2,
-        None => log::error!("prim_group_in: invalid id2 : {:?}", id2),
+        None => {
+            log::error!("prim_group_in: invalid id2 : {:?}", id2);
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..=4095).contains(&id2) {
         log::error!("prim_group_in: invalid id2 : {}", id2);
+        return Ok(Variant::Nil);
     }
 
     game_data
@@ -303,12 +311,18 @@ pub fn prim_set_rs(
                 r2
             }
         }
-        None => log::error!("prim_set_rs: invalid rs : {:?}", rotation),
+        None => {
+            log::error!("prim_set_rs: invalid rs : {:?}", rotation);
+            return Ok(Variant::Nil);
+        },
     };
 
     let scale = match scale.as_int() {
         Some(s) => s,
-        None => log::error!("prim_set_rs: invalid rs : {:?}", scale),
+        None => {
+            log::error!("prim_set_rs: invalid rs : {:?}", scale);
+            return Ok(Variant::Nil);
+        },
     };
 
     let scale = if !(0..=10000).contains(&scale) {
@@ -343,11 +357,15 @@ pub fn prim_set_rs2(
 ) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
-        None => log::error!("prim_set_rs2: invalid id : {:?}", id),
+        None => {
+            log::error!("prim_set_rs2: invalid id : {:?}", id);
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..=4095).contains(&id) {
         log::error!("prim_set_rs2: invalid id : {}", id);
+        return Ok(Variant::Nil);
     }
 
     let rotation = match rotation.as_int() {
@@ -359,17 +377,26 @@ pub fn prim_set_rs2(
                 r2
             }
         }
-        None => log::error!("prim_set_rs2: invalid rs : {:?}", rotation),
+        None => {
+            log::error!("prim_set_rs2: invalid rs : {:?}", rotation);
+            return Ok(Variant::Nil);
+        },
     };
 
     let scale_x = match scale_x.as_int() {
         Some(s) => s,
-        None => log::error!("prim_set_rs2: invalid rs : {:?}", scale_x),
+        None => {
+            log::error!("prim_set_rs2: invalid rs : {:?}", scale_x);
+            return Ok(Variant::Nil);
+        },
     };
 
     let scale_y = match scale_y.as_int() {
         Some(s) => s,
-        None => log::error!("prim_set_rs2: invalid rs : {:?}", scale_y),
+        None => {
+            log::error!("prim_set_rs2: invalid rs : {:?}", scale_y);
+            return Ok(Variant::Nil);
+        },
     };
 
     let scale_x = if !(0..=10000).contains(&scale_x) {
@@ -409,20 +436,28 @@ pub fn prim_set_snow(
 ) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
-        None => log::error!("prim_set_snow: invalid id : {:?}", id),
+        None => {
+            log::error!("prim_set_snow: invalid id : {:?}", id);
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..=4095).contains(&id) {
         log::error!("prim_set_snow: invalid id : {}", id);
+        return Ok(Variant::Nil);
     }
 
     let mode = match mode.as_int() {
         Some(mode) => mode,
-        None => log::error!("prim_set_snow: invalid mode : {:?}", mode),
+        None => {
+            log::error!("prim_set_snow: invalid mode : {:?}", mode);
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..=1).contains(&mode) {
         log::error!("prim_set_snow: invalid mode : {}", mode);
+        return Ok(Variant::Nil);
     }
 
     let x = x.as_int().unwrap_or(0);
@@ -467,20 +502,28 @@ pub fn prim_set_sprt(
 ) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
-        None => log::error!("prim_set_snow: invalid id : {:?}", id),
+        None => {
+            log::error!("prim_set_snow: invalid id : {:?}", id);
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..=4095).contains(&id) {
         log::error!("prim_set_snow: invalid id : {}", id);
+        return Ok(Variant::Nil);
     }
 
     let src_id = match src_id.as_int() {
         Some(src_id) => src_id,
-        None => log::error!("prim_set_snow: invalid src_id : {:?}", src_id),
+        None => {
+            log::error!("prim_set_snow: invalid src_id : {:?}", src_id);
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(-2..=4095).contains(&src_id) {
         log::error!("prim_set_snow: invalid src_id : {}", src_id);
+        return Ok(Variant::Nil);
     }
 
     let x = x.as_int().unwrap_or(0);
@@ -526,20 +569,28 @@ pub fn prim_set_text(
 ) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
-        None => log::error!("prim_set_text: invalid id : {:?}", id),
+        None => {
+            log::error!("prim_set_text: invalid id : {:?}", id);
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..=4095).contains(&id) {
         log::error!("prim_set_text: invalid id : {}", id);
+        return Ok(Variant::Nil);
     }
 
     let text_id = match text_id.as_int() {
         Some(text_id) => text_id,
-        None => log::error!("prim_set_text: invalid text_id : {:?}", text_id),
+        None => {
+            log::error!("prim_set_text: invalid text_id : {:?}", text_id);
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..=31).contains(&text_id) {
         log::error!("prim_set_text: invalid text_id : {}", text_id);
+        return Ok(Variant::Nil);
     }
 
     let x = x.as_int().unwrap_or(0);
@@ -574,20 +625,28 @@ pub fn prim_set_tile(
 ) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
-        None => log::error!("prim_set_tile: invalid id : {:?}", id),
+        None => {
+            log::error!("prim_set_tile: invalid id : {:?}", id);
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..=4095).contains(&id) {
         log::error!("prim_set_tile: invalid id : {}", id);
+        return Ok(Variant::Nil);
     }
 
     let tile_id = match tile_id.as_int() {
         Some(tile_id) => tile_id,
-        None => log::error!("prim_set_tile: invalid tile_id : {:?}", tile_id),
+        None => {
+            log::error!("prim_set_tile: invalid tile_id : {:?}", tile_id);
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..=31).contains(&tile_id) {
         log::error!("prim_set_tile: invalid tile_id : {}", tile_id);
+        return Ok(Variant::Nil);
     }
 
     let x = x.as_int().unwrap_or(0);
@@ -625,21 +684,31 @@ pub fn prim_set_uv(
 ) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
-        None => log::error!("prim_set_uv: invalid id : {:?}", id),
+        None => {
+            log::error!("prim_set_uv: invalid id : {:?}", id);
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..=4095).contains(&id) {
         log::error!("prim_set_uv: invalid id : {}", id);
+        return Ok(Variant::Nil);
     }
 
     let u = match u.as_int() {
         Some(u) => u,
-        None => log::error!("prim_set_uv: invalid u : {:?}", u),
+        None => {
+            log::error!("prim_set_uv: invalid u : {:?}", u);
+            return Ok(Variant::Nil);
+        },
     };
 
     let v = match v.as_int() {
         Some(v) => v,
-        None => log::error!("prim_set_uv: invalid v : {:?}", v),
+        None => {
+            log::error!("prim_set_uv: invalid v : {:?}", v);
+            return Ok(Variant::Nil);
+        },
     };
 
     game_data.motion_manager.prim_manager.prim_set_uv(id, u, v);
@@ -660,21 +729,31 @@ pub fn prim_set_xy(
 ) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
-        None => log::error!("prim_set_xy: invalid id : {:?}", id),
+        None => {
+            log::error!("prim_set_xy: invalid id : {:?}", id);
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..=4095).contains(&id) {
         log::error!("prim_set_xy: invalid id : {}", id);
+        return Ok(Variant::Nil);
     }
 
     let x = match x.as_int() {
         Some(x) => x,
-        None => log::error!("prim_set_xy: invalid x : {:?}", x),
+        None => {
+            log::error!("prim_set_xy: invalid x : {:?}", x);
+            return Ok(Variant::Nil);
+        },
     };
 
     let y = match y.as_int() {
         Some(y) => y,
-        None => log::error!("prim_set_xy: invalid y : {:?}", y),
+        None => {
+            log::error!("prim_set_xy: invalid y : {:?}", y);
+            return Ok(Variant::Nil);
+        },
     };
 
     game_data.motion_manager.prim_manager.prim_set_pos(id, x, y);
@@ -694,21 +773,31 @@ pub fn prim_set_wh(
 ) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
-        None => log::error!("prim_set_wh: invalid id : {:?}", id),
+        None => {
+            log::error!("prim_set_wh: invalid id : {:?}", id);
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..=4095).contains(&id) {
         log::error!("prim_set_wh: invalid id : {}", id);
+        return Ok(Variant::Nil);
     }
 
     let w = match w.as_int() {
         Some(w) => w,
-        None => log::error!("prim_set_wh: invalid w : {:?}", w),
+        None => {
+            log::error!("prim_set_wh: invalid w : {:?}", w);
+            return Ok(Variant::Nil);
+        },
     };
 
     let h = match h.as_int() {
         Some(h) => h,
-        None => log::error!("prim_set_wh: invalid h : {:?}", h),
+        None => {
+            log::error!("prim_set_wh: invalid h : {:?}", h);
+            return Ok(Variant::Nil);
+        },
     };
 
     game_data
@@ -727,11 +816,15 @@ pub fn prim_set_wh(
 pub fn prim_set_z(game_data: &mut GameData, id: &Variant, z: &Variant) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
-        None => log::error!("prim_set_z: invalid id : {:?}", id),
+        None => {
+            log::error!("prim_set_z: invalid id : {:?}", id);
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..=4095).contains(&id) {
         log::error!("prim_set_z: invalid id : {}", id);
+        return Ok(Variant::Nil);
     }
 
     let z = match z.as_int() {
@@ -744,7 +837,10 @@ pub fn prim_set_z(game_data: &mut GameData, id: &Variant, z: &Variant) -> Result
                 z
             }
         }
-        None => log::error!("prim_set_z: invalid z : {:?}", z),
+        None => {
+            log::error!("prim_set_z: invalid z : {:?}", z);
+            return Ok(Variant::Nil);
+        },
     };
 
     game_data.motion_manager.prim_manager.prim_set_z(id, z);
@@ -775,11 +871,15 @@ pub fn prim_set_z(game_data: &mut GameData, id: &Variant, z: &Variant) -> Result
 pub fn prim_hit(game_data: &mut GameData, id: &Variant, flag: &Variant) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
-        None => log::error!("prim_hit: invalid id : {:?}", id),
+        None => {
+            log::error!("prim_hit: invalid id : {:?}", id);
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..=4095).contains(&id) {
         log::error!("prim_hit: invalid id : {}", id);
+        return Ok(Variant::Nil);
     }
 
     let flag = flag.canbe_true();
@@ -801,11 +901,15 @@ pub fn prim_hit(game_data: &mut GameData, id: &Variant, flag: &Variant) -> Resul
 pub fn graph_load(game_data: &mut GameData, id: &Variant, path: &Variant) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
-        None => log::error!("graph_load: invalid id : {:?}", id),
+        None => {
+            log::error!("graph_load: invalid id : {:?}", id);
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..4096).contains(&id) {
         log::error!("graph_load: invalid id : {}", id);
+        return Ok(Variant::Nil);
     }
 
     match path {
@@ -823,7 +927,10 @@ pub fn graph_load(game_data: &mut GameData, id: &Variant, path: &Variant) -> Res
                 .motion_manager
                 .unload_graph(id as u16);
         }
-        _ => log::error!("graph_load: invalid path : {:?}", path),
+        _ => {
+            log::error!("graph_load: invalid path : {:?}", path);
+            return Ok(Variant::Nil);
+        },
     }
 
     Ok(Variant::Nil)
@@ -833,11 +940,15 @@ pub fn graph_load(game_data: &mut GameData, id: &Variant, path: &Variant) -> Res
 pub fn graph_rgb(game_data: &mut GameData, id: &Variant, r: &Variant, g: &Variant, b: &Variant) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
-        None => log::error!("graph_rgb: invalid id : {:?}", id),
+        None => {
+            log::error!("graph_rgb: invalid id : {:?}", id);
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..4096).contains(&id) {
         log::error!("graph_rgb: invalid id : {}", id);
+        return Ok(Variant::Nil);
     }
 
     let r = match r.as_int() {
@@ -848,7 +959,10 @@ pub fn graph_rgb(game_data: &mut GameData, id: &Variant, r: &Variant, g: &Varian
                 r
             }
         },
-        None => log::error!("graph_rgb: invalid r : {:?}", r),
+        None => {
+            log::error!("graph_rgb: invalid r : {:?}", r);
+            return Ok(Variant::Nil);
+        },
     };
 
     let g = match g.as_int() {
@@ -859,7 +973,10 @@ pub fn graph_rgb(game_data: &mut GameData, id: &Variant, r: &Variant, g: &Varian
                 g
             }
         },
-        None => log::error!("graph_rgb: invalid g : {:?}", g),
+        None => {
+            log::error!("graph_rgb: invalid g : {:?}", g);
+            return Ok(Variant::Nil);
+        },
     };
 
     let b = match b.as_int() {
@@ -870,7 +987,10 @@ pub fn graph_rgb(game_data: &mut GameData, id: &Variant, r: &Variant, g: &Varian
                 b
             }
         },
-        None => log::error!("graph_rgb: invalid b : {:?}", b),
+        None => {
+            log::error!("graph_rgb: invalid b : {:?}", b);
+            return Ok(Variant::Nil);
+        },
     };
 
 
@@ -885,21 +1005,31 @@ pub fn graph_rgb(game_data: &mut GameData, id: &Variant, r: &Variant, g: &Varian
 pub fn gaiji_load(game_data: &mut GameData, fname: &Variant, size: &Variant, code: &Variant) -> Result<Variant> {
     let fname = match fname.as_string() {
         Some(fname) => fname,
-        None => log::error!("gaiji_load: invalid fname : {:?}", fname),
+        None => {
+            log::error!("gaiji_load: invalid fname : {:?}", fname);
+            return Ok(Variant::Nil);
+        },
     };
 
     let size = match size.as_int() {
         Some(size) => size,
-        None => log::error!("gaiji_load: invalid size : {:?}", size),
+        None => {
+            log::error!("gaiji_load: invalid size : {:?}", size);
+            return Ok(Variant::Nil);
+        },
     };
 
     let code = match code.as_string() {
         Some(code) => code,
-        None => log::error!("gaiji_load: invalid code : {:?}", code),
+        None => {
+            log::error!("gaiji_load: invalid code : {:?}", code);
+            return Ok(Variant::Nil);
+        },
     };
 
     if code.is_empty() {
         log::error!("gaiji_load: empty code : {:?}", code);
+        return Ok(Variant::Nil);
     }
 
     let code = code.chars().collect::<Vec<_>>().first().unwrap().to_owned();

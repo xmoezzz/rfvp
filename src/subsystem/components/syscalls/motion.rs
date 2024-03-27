@@ -22,11 +22,15 @@ pub fn motion_alpha(
 ) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id as i16,
-        _ => bail!("Invalid alpha motion id"),
+        _ => {
+            log::error!("Invalid alpha motion id");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..4096).contains(&id) {
-        bail!("prim_id must be between 1 and 4096");
+        log::error!("prim_id must be between 1 and 4096");
+        return Ok(Variant::Nil);
     }
 
     let src_alpha = match src_alpha {
@@ -49,16 +53,23 @@ pub fn motion_alpha(
 
     let duration = match duration {
         Variant::Int(duration) => *duration,
-        _ => bail!("Invalid duration"),
+        _ => {
+            log::error!("Invalid duration");
+            return Ok(Variant::Nil);
+        },
     };
 
     if duration <= 0 || duration > 300000 {
-        bail!("Duration must be between 0 and 300000");
+        log::error!("Duration must be between 0 and 300000");
+        return Ok(Variant::Nil);
     }
 
     let typ = match typ {
         Variant::Int(typ) => *typ,
-        _ => bail!("Invalid type"),
+        _ => {
+            log::error!("Invalid type");
+            return Ok(Variant::Nil);
+        },
     };
 
     let typ = match typ.try_into() {
@@ -82,11 +93,15 @@ pub fn motion_alpha(
 pub fn motion_alpha_stop(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id as i16,
-        _ => bail!("Invalid alpha motion id"),
+        _ => {
+            log::error!("Invalid alpha motion id");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..4096).contains(&id) {
-        bail!("prim_id must be between 1 and 4096");
+        log::error!("prim_id must be between 1 and 4096");
+        return Ok(Variant::Nil);
     }
 
     game_data.motion_manager.stop_alpha_motion(id as u32)?;
@@ -97,11 +112,15 @@ pub fn motion_alpha_stop(game_data: &mut GameData, id: &Variant) -> Result<Varia
 pub fn motion_alpha_test(game_data: &GameData, id: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id as i16,
-        _ => bail!("Invalid id"),
+        _ => {
+            log::error!("Invalid id");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..4096).contains(&id) {
-        bail!("prim_id must be between 1 and 4096");
+        log::error!("prim_id must be between 1 and 4096");
+        return Ok(Variant::Nil);
     }
 
     let result = game_data.motion_manager.test_alpha_motion(id as u32);
@@ -127,11 +146,15 @@ pub fn motion_move(
 ) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id as i16,
-        _ => bail!("Invalid id"),
+        _ => {
+            log::error!("Invalid id");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..4096).contains(&id) {
-        bail!("prim_id must be between 1 and 4096");
+        log::error!("prim_id must be between 1 and 4096");
+        return Ok(Variant::Nil);
     }
 
     let src_x = match src_x {
@@ -156,16 +179,23 @@ pub fn motion_move(
 
     let duration = match duration {
         Variant::Int(duration) => *duration,
-        _ => bail!("Invalid duration"),
+        _ => {
+            log::error!("Invalid duration");
+            return Ok(Variant::Nil);
+        },
     };
 
     if duration <= 0 || duration > 300000 {
-        bail!("Duration must be between 0 and 300000");
+        log::error!("Duration must be between 0 and 300000");
+        return Ok(Variant::Nil);
     }
 
     let typ = match typ {
         Variant::Int(typ) => *typ,
-        _ => bail!("Invalid type"),
+        _ => { 
+            log::error!("Invalid type");
+            return Ok(Variant::Nil);
+        },
     };
 
     let typ = match typ.try_into() {
@@ -195,11 +225,15 @@ pub fn motion_move(
 pub fn motion_move_stop(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id as i16,
-        _ => bail!("Invalid id"),
+        _ => {
+            log::error!("Invalid id");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..4096).contains(&id) {
-        bail!("prim_id must be between 1 and 4096");
+        log::error!("prim_id must be between 1 and 4096");
+        return Ok(Variant::Nil);
     }
 
     game_data.motion_manager.stop_move_motion(id as u32)?;
@@ -210,11 +244,15 @@ pub fn motion_move_stop(game_data: &mut GameData, id: &Variant) -> Result<Varian
 pub fn motion_move_test(game_data: &GameData, id: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id as i16,
-        _ => bail!("Invalid id"),
+        _ => {
+            log::error!("Invalid id");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..4096).contains(&id) {
-        bail!("prim_id must be between 1 and 4096");
+        log::error!("prim_id must be between 1 and 4096");
+        return Ok(Variant::Nil);
     }
 
     let result = game_data.motion_manager.test_move_motion(id as u32);
@@ -237,11 +275,15 @@ pub fn motion_move_r(
 ) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id as i16,
-        _ => bail!("Invalid id"),
+        _ => {
+            log::error!("Invalid id");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..4096).contains(&id) {
-        bail!("prim_id must be between 1 and 4096");
+        log::error!("prim_id must be between 1 and 4096");
+        return Ok(Variant::Nil);
     }
 
     let src_r = match src_r {
@@ -256,16 +298,23 @@ pub fn motion_move_r(
 
     let duration = match duration {
         Variant::Int(duration) => *duration,
-        _ => bail!("Invalid duration"),
+        _ => {
+            log::error!("Invalid duration");
+            return Ok(Variant::Nil);
+        },
     };
 
     if duration <= 0 || duration > 300000 {
-        bail!("Duration must be between 0 and 300000");
+        log::error!("Duration must be between 0 and 300000");
+        return Ok(Variant::Nil);
     }
 
     let typ = match typ {
         Variant::Int(typ) => *typ,
-        _ => bail!("Invalid type"),
+        _ => {
+            log::error!("Invalid type");
+            return Ok(Variant::Nil);
+        },
     };
 
     let typ = match typ.try_into() {
@@ -293,11 +342,15 @@ pub fn motion_move_r(
 pub fn motion_move_r_stop(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id as i16,
-        _ => bail!("Invalid id"),
+        _ => {
+            log::error!("Invalid id");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..4096).contains(&id) {
-        bail!("prim_id must be between 1 and 4096");
+        log::error!("prim_id must be between 1 and 4096");
+        return Ok(Variant::Nil);
     }
 
     game_data.motion_manager.stop_rotation_motion(id as u32)?;
@@ -308,11 +361,15 @@ pub fn motion_move_r_stop(game_data: &mut GameData, id: &Variant) -> Result<Vari
 pub fn motion_move_r_test(game_data: &GameData, id: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id as i16,
-        _ => bail!("Invalid id"),
+        _ => {
+            log::error!("Invalid id");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..4096).contains(&id) {
-        bail!("prim_id must be between 1 and 4096");
+        log::error!("prim_id must be between 1 and 4096");
+        return Ok(Variant::Nil);
     }
 
     let result = game_data.motion_manager.test_rotation_motion(id as u32);
@@ -338,11 +395,15 @@ pub fn motion_move_s2(
 ) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id as i16,
-        _ => bail!("Invalid id"),
+        _ => {
+            log::error!("Invalid id");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..4096).contains(&id) {
-        bail!("prim_id must be between 1 and 4096");
+        log::error!("prim_id must be between 1 and 4096");
+        return Ok(Variant::Nil);
     }
 
     let src_w_factor = match src_w_factor {
@@ -387,16 +448,23 @@ pub fn motion_move_s2(
 
     let duration = match duration {
         Variant::Int(duration) => *duration,
-        _ => bail!("Invalid duration"),
+        _ => {
+            log::error!("Invalid duration");
+            return Ok(Variant::Nil);
+        },
     };
 
     if duration <= 0 || duration > 300000 {
-        bail!("Duration must be between 0 and 300000");
+        log::error!("Duration must be between 0 and 300000");
+        return Ok(Variant::Nil);
     }
 
     let typ = match typ {
         Variant::Int(typ) => *typ,
-        _ => bail!("Invalid type"),
+        _ => {
+            log::error!("Invalid type");
+            return Ok(Variant::Nil);
+        },
     };
 
     let typ = match typ.try_into() {
@@ -426,11 +494,15 @@ pub fn motion_move_s2(
 pub fn motion_move_s2_stop(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id as i16,
-        _ => bail!("Invalid id"),
+        _ => {
+            log::error!("Invalid id");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..4096).contains(&id) {
-        bail!("prim_id must be between 1 and 4096");
+        log::error!("prim_id must be between 1 and 4096");
+        return Ok(Variant::Nil);
     }
 
     game_data.motion_manager.stop_scale_motion(id as u32)?;
@@ -441,11 +513,15 @@ pub fn motion_move_s2_stop(game_data: &mut GameData, id: &Variant) -> Result<Var
 pub fn motion_move_s2_test(game_data: &GameData, id: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id as i16,
-        _ => bail!("Invalid id"),
+        _ => {
+            log::error!("Invalid id");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..4096).contains(&id) {
-        bail!("prim_id must be between 1 and 4096");
+        log::error!("prim_id must be between 1 and 4096");
+        return Ok(Variant::Nil);
     }
 
     let result = game_data.motion_manager.test_scale_motion(id as u32);
@@ -468,11 +544,15 @@ pub fn motion_move_z(
 ) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id as i16,
-        _ => bail!("Invalid id"),
+        _ => {
+            log::error!("Invalid id");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..4096).contains(&id) {
-        bail!("prim_id must be between 1 and 4096");
+        log::error!("prim_id must be between 1 and 4096");
+        return Ok(Variant::Nil);
     }
 
     let src_z = match src_z {
@@ -497,16 +577,23 @@ pub fn motion_move_z(
 
     let duration = match duration {
         Variant::Int(duration) => *duration,
-        _ => bail!("Invalid duration"),
+        _ => {
+            log::error!("Invalid duration");
+            return Ok(Variant::Nil);
+        },
     };
 
     if duration <= 0 || duration > 300000 {
-        bail!("Duration must be between 0 and 300000");
+        log::error!("Duration must be between 0 and 300000");
+        return Ok(Variant::Nil);
     }
 
     let typ = match typ {
         Variant::Int(typ) => *typ,
-        _ => bail!("Invalid type"),
+        _ => {
+            log::error!("Invalid type");
+            return Ok(Variant::Nil);
+        },
     };
 
     let typ = match typ.try_into() {
@@ -534,11 +621,15 @@ pub fn motion_move_z(
 pub fn motion_move_z_stop(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id as i16,
-        _ => bail!("Invalid id"),
+        _ => {
+            log::error!("Invalid id");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..4096).contains(&id) {
-        bail!("prim_id must be between 1 and 4096");
+        log::error!("prim_id must be between 1 and 4096");
+        return Ok(Variant::Nil);
     }
 
     game_data.motion_manager.stop_z_motion(id as u32)?;
@@ -549,11 +640,15 @@ pub fn motion_move_z_stop(game_data: &mut GameData, id: &Variant) -> Result<Vari
 pub fn motion_move_z_test(game_data: &GameData, id: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id as i16,
-        _ => bail!("Invalid id"),
+        _ => {
+            log::error!("Invalid id");
+            return Ok(Variant::Nil);;
+        },
     };
 
     if !(1..4096).contains(&id) {
-        bail!("prim_id must be between 1 and 4096");
+        log::error!("prim_id must be between 1 and 4096");
+        return Ok(Variant::Nil);
     }
 
     let result = game_data.motion_manager.test_z_motion(id as u32);
@@ -568,11 +663,15 @@ pub fn motion_move_z_test(game_data: &GameData, id: &Variant) -> Result<Variant>
 pub fn motion_pause(game_data: &mut GameData, id: &Variant, pause: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id as i16,
-        _ => bail!("Invalid id"),
+        _ => {
+            log::error!("Invalid id");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..=4096).contains(&id) {
-        bail!("prim_id must be between 0 and 4096");
+        log::error!("prim_id must be between 0 and 4096");
+        return Ok(Variant::Nil);
     }
 
     let mut prim = game_data.motion_manager.prim_manager.get_prim(id);
@@ -587,7 +686,10 @@ pub fn motion_pause(game_data: &mut GameData, id: &Variant, pause: &Variant) -> 
         Variant::Nil => {
             return Ok(Variant::Int(prim.get_paused() as i32));
         }
-        _ => log::error!("Invalid pause value"),
+        _ => {
+            log::error!("Invalid pause value");
+            return Ok(Variant::Nil);
+        },
     }
 
     Ok(Variant::Nil)
@@ -604,31 +706,47 @@ pub fn v3d_motion(
 ) -> Result<Variant> {
     let dest_x = match dest_x {
         Variant::Int(x) => *x,
-        _ => bail!("Invalid dest_x"),
+        _ => {
+            log::error!("Invalid dest_x");
+            return Ok(Variant::Nil);
+        },
     };
 
     let dest_y = match dest_y {
         Variant::Int(y) => *y,
-        _ => bail!("Invalid dest_y"),
+        _ => {
+            log::error!("Invalid dest_y");
+            return Ok(Variant::Nil);
+        },
     };
 
     let dest_z = match dest_z {
         Variant::Int(z) => *z,
-        _ => bail!("Invalid dest_z"),
+        _ => {
+            log::error!("Invalid dest_z");
+            return Ok(Variant::Nil);
+        },
     };
 
     let duration = match duration {
         Variant::Int(duration) => *duration,
-        _ => bail!("Invalid duration"),
+        _ => {
+            log::error!("Invalid duration");
+            return Ok(Variant::Nil);
+        },
     };
 
     if duration <= 0 || duration > 300000 {
-        bail!("Duration must be between 0 and 300000");
+        log::error!("Duration must be between 0 and 300000");
+        return Ok(Variant::Nil);
     }
 
     let typ = match typ {
         Variant::Int(typ) => *typ,
-        _ => bail!("Invalid type"),
+        _ => {
+            log::error!("Invalid type");
+            return Ok(Variant::Nil);
+        },
     };
 
     let typ = match typ.try_into() {
@@ -663,7 +781,10 @@ pub fn v3d_motion_pause(game_data: &mut GameData, pause: &Variant) -> Result<Var
                 game_data.motion_manager.get_v3d_motion_paused() as i32,
             ));
         }
-        _ => log::error!("Invalid pause value"),
+        _ => {
+            log::error!("Invalid pause value");
+            return Ok(Variant::Nil);
+        },
     };
 
     Ok(Variant::Nil)

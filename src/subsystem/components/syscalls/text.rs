@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 
 use crate::subsystem::world::GameData;
 use crate::{script::Variant, subsystem::resources::text_manager::FONTFACE_MS_GOTHIC};
@@ -13,11 +13,15 @@ pub fn text_buff(
 ) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("text_buff: invalid id type"),
+        _ => {
+            log::error!("text_buff: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..32).contains(&id) {
-        bail!("text_buff: id should be in range 0..32");
+        log::error!("text_buff: id should be in range 0..32");
+        return Ok(Variant::Nil);
     }
 
     let w = if let Variant::Int(w) = w {
@@ -27,7 +31,8 @@ pub fn text_buff(
             *w
         }
     } else {
-        bail!("text_buff: invalid w type");
+        log::error!("text_buff: invalid w type");
+        return Ok(Variant::Nil);
     };
 
     let h = if let Variant::Int(h) = h {
@@ -37,7 +42,8 @@ pub fn text_buff(
             *h
         }
     } else {
-        bail!("text_buff: invalid h type");
+        log::error!("text_buff: invalid h type");
+        return Ok(Variant::Nil);
     };
 
     game_data
@@ -50,11 +56,15 @@ pub fn text_buff(
 pub fn text_clear(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("text_clear: invalid id type"),
+        _ => {
+            log::error!("text_clear: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..32).contains(&id) {
-        bail!("text_clear: id should be in range 0..32");
+        log::error!("text_clear: id should be in range 0..32");
+        return Ok(Variant::Nil);
     }
 
     game_data.motion_manager.text_manager.set_text_clear(id);
@@ -70,16 +80,23 @@ pub fn text_color(
 ) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("text_color: invalid id type"),
+        _ => {
+            log::error!("text_color: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..32).contains(&id) {
-        bail!("text_color: id should be in range 0..32");
+        log::error!("text_color: id should be in range 0..32");
+        return Ok(Variant::Nil);
     }
 
     let color1_id = match color1_id {
         Variant::Int(id) => *id,
-        _ => bail!("text_color: invalid color1_id type"),
+        _ => {
+            log::error!("text_color: invalid color1_id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if (0..256).contains(&color1_id) {
@@ -92,7 +109,10 @@ pub fn text_color(
 
     let color2_id = match color2_id {
         Variant::Int(id) => *id,
-        _ => bail!("text_color: invalid color2_id type"),
+        _ => {
+            log::error!("text_color: invalid color2_id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if (0..256).contains(&color2_id) {
@@ -105,7 +125,10 @@ pub fn text_color(
 
     let color3_id = match color3_id {
         Variant::Int(id) => *id,
-        _ => bail!("text_color: invalid color3_id type"),
+        _ => {
+            log::error!("text_color: invalid color3_id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if (0..256).contains(&color3_id) {
@@ -131,16 +154,23 @@ pub fn text_font(
 ) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("text_font: invalid id type"),
+        _ => {
+            log::error!("text_font: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..32).contains(&id) {
-        bail!("text_font: id should be in range 0..32");
+        log::error!("text_font: id should be in range 0..32");
+        return Ok(Variant::Nil);
     }
 
     let font_id = match font_id {
         Variant::Int(id) => *id,
-        _ => bail!("text_font: invalid font_id type"),
+        _ => {
+            log::error!("text_font: invalid font_id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     let max_count = game_data.fontface_manager.get_font_count();
@@ -159,7 +189,10 @@ pub fn text_font(
 
     let font_id2 = match font_id2 {
         Variant::Int(id) => *id,
-        _ => bail!("text_font: invalid font_id2 type"),
+        _ => {
+            log::error!("text_font: invalid font_id2 type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if font_id2 >= -5 && font_id2 < max_count && max_count != 0 {
@@ -190,7 +223,10 @@ pub fn text_font_get(game_data: &GameData) -> Result<Variant> {
 pub fn text_font_name(game_data: &GameData, id: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("text_font_name: invalid id type"),
+        _ => {
+            log::error!("text_font_name: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     match game_data.fontface_manager.get_font_name(id) {
@@ -202,7 +238,10 @@ pub fn text_font_name(game_data: &GameData, id: &Variant) -> Result<Variant> {
 pub fn text_font_set(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("text_set_font: invalid id type"),
+        _ => {
+            log::error!("text_set_font: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if id >= -5 && id < game_data.fontface_manager.get_font_count() {
@@ -240,11 +279,15 @@ pub fn text_format(
 ) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("text_format: invalid id type"),
+        _ => {
+            log::error!("text_format: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..32).contains(&id) {
-        bail!("text_format: id should be in range 0..32");
+        log::error!("text_format: id should be in range 0..32");
+        return Ok(Variant::Nil);
     }
 
     log::warn!("text_format: not implemented");
@@ -261,16 +304,23 @@ pub fn text_function(
 ) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("text_function: invalid id type"),
+        _ => {
+            log::error!("text_function: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..32).contains(&id) {
-        bail!("text_function: id should be in range 0..32");
+        log::error!("text_function: id should be in range 0..32");
+        return Ok(Variant::Nil);
     }
 
     let func1 = match func1 {
         Variant::Int(func1) => *func1,
-        _ => bail!("text_function: invalid func type"),
+        _ => {
+            log::error!("text_function: invalid func type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if (0..=1).contains(&func1) {
@@ -282,7 +332,10 @@ pub fn text_function(
 
     let func2 = match func2 {
         Variant::Int(func2) => *func2,
-        _ => bail!("text_function: invalid func type"),
+        _ => {
+            log::error!("text_function: invalid func type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if (0..=2).contains(&func2) {
@@ -294,7 +347,10 @@ pub fn text_function(
 
     let func3 = match func3 {
         Variant::Int(func3) => *func3,
-        _ => bail!("text_function: invalid func type"),
+        _ => {
+            log::error!("text_function: invalid func type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if (0..=2).contains(&func3) {
@@ -315,16 +371,23 @@ pub fn text_out_size(
 ) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("text_out_size: invalid id type"),
+        _ => {
+            log::error!("text_out_size: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..32).contains(&id) {
-        bail!("text_out_size: id should be in range 0..32");
+        log::error!("text_out_size: id should be in range 0..32");
+        return Ok(Variant::Nil);
     }
 
     let outline = match outline {
         Variant::Int(outline) => *outline,
-        _ => bail!("text_out_size: invalid outline type"),
+        _ => {
+            log::error!("text_out_size: invalid outline type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if (0..=12).contains(&outline) {
@@ -336,7 +399,10 @@ pub fn text_out_size(
 
     let ruby_outline = match ruby_outline {
         Variant::Int(outline) => *outline,
-        _ => bail!("text_out_size: invalid ruby_outline type"),
+        _ => {
+            log::error!("text_out_size: invalid ruby_outline type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if (0..=8).contains(&ruby_outline) {
@@ -352,11 +418,15 @@ pub fn text_out_size(
 pub fn text_pause(game_data: &mut GameData, id: &Variant, pause: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("text_pause: invalid id type"),
+        _ => {
+            log::error!("text_pause: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..32).contains(&id) {
-        bail!("text_pause: id should be in range 0..32");
+        log::error!("text_pause: id should be in range 0..32");
+        return Ok(Variant::Nil);
     }
 
     match pause {
@@ -377,7 +447,10 @@ pub fn text_pause(game_data: &mut GameData, id: &Variant, pause: &Variant) -> Re
                 return Ok(Variant::Int(0));
             }
         }
-        _ => bail!("text_pause: invalid pause type"),
+        _ => {
+            log::error!("text_pause: invalid pause type");
+            return Ok(Variant::Nil);
+        },
     };
 
     Ok(Variant::Nil)
@@ -391,23 +464,33 @@ pub fn text_pos(
 ) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("text_pos: invalid id type"),
+        _ => {
+            log::error!("text_pos: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..32).contains(&id) {
-        bail!("text_pos: id should be in range 0..32");
+        log::error!("text_pos: id should be in range 0..32");
+        return Ok(Variant::Nil);
     }
 
     let x = match x {
         Variant::Int(x) => *x,
-        _ => bail!("text_pos: invalid x type"),
+        _ => {
+            log::error!("text_pos: invalid x type");
+            return Ok(Variant::Nil);
+        },
     };
 
     game_data.motion_manager.text_manager.set_text_pos_x(id, x);
 
     let y = match y {
         Variant::Int(y) => *y,
-        _ => bail!("text_pos: invalid y type"),
+        _ => {
+            log::error!("text_pos: invalid y type");
+            return Ok(Variant::Nil);
+        },
     };
 
     game_data.motion_manager.text_manager.set_text_pos_y(id, y);
@@ -418,11 +501,15 @@ pub fn text_pos(
 pub fn text_print(game_data: &mut GameData, id: &Variant, content: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("text_print: invalid id type"),
+        _ => {
+            log::error!("text_print: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..32).contains(&id) {
-        bail!("text_print: id should be in range 0..32");
+        log::error!("text_print: id should be in range 0..32");
+        return Ok(Variant::Nil);
     }
 
     match content {
@@ -436,7 +523,10 @@ pub fn text_print(game_data: &mut GameData, id: &Variant, content: &Variant) -> 
             let addr = *addr;
             game_data.motion_manager.text_manager.set_readed_text(addr);
         }
-        _ => bail!("text_print: invalid content type"),
+        _ => {
+            log::error!("text_print: invalid content type");
+            return Ok(Variant::Nil);
+        },
     }
 
     Ok(Variant::Nil)
@@ -450,11 +540,15 @@ pub fn text_reprint(game_data: &mut GameData) -> Result<Variant> {
 pub fn text_shadow_dist(game_data: &mut GameData, id: &Variant, dist: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("text_shadow_dist: invalid id type"),
+        _ => {
+            log::error!("text_shadow_dist: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..32).contains(&id) {
-        bail!("text_shadow_dist: id should be in range 0..32");
+        log::error!("text_shadow_dist: id should be in range 0..32");
+        return Ok(Variant::Nil);
     }
 
     let dist = match dist {
@@ -469,7 +563,10 @@ pub fn text_shadow_dist(game_data: &mut GameData, id: &Variant, dist: &Variant) 
                 *dist
             }
         }
-        _ => bail!("text_shadow_dist: invalid dist type"),
+        _ => {
+            log::error!("text_shadow_dist: invalid dist type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if (0..=12).contains(&dist) {
@@ -490,16 +587,23 @@ pub fn text_size(
 ) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("text_size: invalid id type"),
+        _ => {
+            log::error!("text_size: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..32).contains(&id) {
-        bail!("text_size: id should be in range 0..32");
+        log::error!("text_size: id should be in range 0..32");
+        return Ok(Variant::Nil);
     }
 
     let size = match size {
         Variant::Int(size) => *size,
-        _ => bail!("text_size: invalid size type"),
+        _ => {
+            log::error!("text_size: invalid size type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if (12..=64).contains(&size) {
@@ -511,7 +615,10 @@ pub fn text_size(
 
     let ruby_size = match ruby_size {
         Variant::Int(size) => *size,
-        _ => bail!("text_size: invalid ruby_size type"),
+        _ => {
+            log::error!("text_size: invalid ruby_size type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if (8..=32).contains(&ruby_size) {
@@ -527,16 +634,23 @@ pub fn text_size(
 pub fn text_skip(game_data: &mut GameData, id: &Variant, skip: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("text_skip: invalid id type"),
+        _ => {
+            log::error!("text_skip: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..32).contains(&id) {
-        bail!("text_skip: id should be in range 0..32");
+        log::error!("text_skip: id should be in range 0..32");
+        return Ok(Variant::Nil);
     }
 
     let skip = match skip {
         Variant::Int(skip) => *skip,
-        _ => bail!("text_skip: invalid skip type"),
+        _ => {
+            log::error!("text_skip: invalid skip type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if (0..=3).contains(&skip) {
@@ -557,21 +671,31 @@ pub fn text_space(
 ) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("text_space: invalid id type"),
+        _ => {
+            log::error!("text_space: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..32).contains(&id) {
-        bail!("text_space: id should be in range 0..32");
+        log::error!("text_space: id should be in range 0..32");
+        return Ok(Variant::Nil);
     }
 
     let space_vertical = match space_vertical {
         Variant::Int(space) => *space,
-        _ => bail!("text_space: invalid space_vertical type"),
+        _ => {
+            log::error!("text_space: invalid space_vertical type");
+            return Ok(Variant::Nil);
+        },
     };
 
     let space_horizon = match space_horizon {
         Variant::Int(space) => *space,
-        _ => bail!("text_space: invalid space_horizon type"),
+        _ => {
+            log::error!("text_space: invalid space_horizon type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if (-32..=32).contains(&space_vertical) {
@@ -596,20 +720,28 @@ pub fn text_space(
 pub fn text_speed(game_data: &mut GameData, id: &Variant, speed: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("text_speed: invalid id type"),
+        _ => {
+            log::error!("text_speed: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..32).contains(&id) {
-        bail!("text_speed: id should be in range 0..32");
+        log::error!("text_speed: id should be in range 0..32");
+        return Ok(Variant::Nil);
     }
 
     let speed = match speed {
         Variant::Int(speed) => *speed,
-        _ => bail!("text_speed: invalid speed type"),
+        _ => {
+            log::error!("text_speed: invalid speed type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..=300000).contains(&speed) {
-        bail!("text_speed: speed should be in range 0..300000");
+        log::error!("text_speed: speed should be in range 0..300000");
+        return Ok(Variant::Nil);
     }
 
     game_data
@@ -623,16 +755,23 @@ pub fn text_speed(game_data: &mut GameData, id: &Variant, speed: &Variant) -> Re
 pub fn text_suspend_chr(game_data: &mut GameData, id: &Variant, chrs: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("text_suspend_chr: invalid id type"),
+        _ => {
+            log::error!("text_suspend_chr: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..32).contains(&id) {
-        bail!("text_suspend_chr: id should be in range 0..32");
+        log::error!("text_suspend_chr: id should be in range 0..32");
+        return Ok(Variant::Nil);
     }
 
     let chrs = match chrs {
         Variant::String(chrs) | Variant::ConstString(chrs, _) => chrs.clone(),
-        _ => bail!("text_suspend_chr: invalid chrs type"),
+        _ => {
+            log::error!("text_suspend_chr: invalid chrs type");
+            return Ok(Variant::Nil);
+        },
     };
 
     game_data

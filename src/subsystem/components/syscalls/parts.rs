@@ -8,21 +8,31 @@ use super::{get_var, Syscaller};
 pub fn parts_load(game_data: &mut GameData, id: &Variant, path: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("parts_load: invalid id type"),
+        _ => {
+            log::error!("parts_load: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..64).contains(&id) {
-        bail!("parts_load: id should be in range 0..64");
+        log::error!("parts_load: id should be in range 0..64");
+        return Ok(Variant::Nil);
     }
 
     let path = match path {
         Variant::String(path) | Variant::ConstString(path, _) => path,
-        _ => bail!("parts_load: invalid path type"),
+        _ => {
+            log::error!("parts_load: invalid path type");
+            return Ok(Variant::Nil);
+        },
     };
 
     let buff = match game_data.vfs_load_file(path) {
         Ok(buff) => buff,
-        Err(e) => bail!("parts_load: failed to load file: {}", e),
+        Err(e) => {
+            log::error!("parts_load: failed to load file: {}", e);
+            return Ok(Variant::Nil);
+        },
     };
 
     game_data
@@ -43,11 +53,15 @@ pub fn parts_rgb(
 ) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("parts_rgb: invalid id type"),
+        _ => {
+            log::error!("parts_rgb: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..64).contains(&id) {
-        bail!("parts_rgb: id should be in range 0..64");
+        log::error!("parts_rgb: id should be in range 0..64");
+        return Ok(Variant::Nil);
     }
 
     let r = match r {
@@ -58,7 +72,10 @@ pub fn parts_rgb(
                 100
             }
         }
-        _ => bail!("parts_rgb: invalid r type"),
+        _ => {
+            log::error!("parts_rgb: invalid r type");
+            return Ok(Variant::Nil);
+        },
     };
 
     let g = match g {
@@ -69,7 +86,10 @@ pub fn parts_rgb(
                 100
             }
         }
-        _ => bail!("parts_rgb: invalid g type"),
+        _ => {
+            log::error!("parts_rgb: invalid g type");
+            return Ok(Variant::Nil);
+        },
     };
 
     let b = match b {
@@ -80,7 +100,10 @@ pub fn parts_rgb(
                 100
             }
         }
-        _ => bail!("parts_rgb: invalid b type"),
+        _ => {
+            log::error!("parts_rgb: invalid b type");
+            return Ok(Variant::Nil);
+        },
     };
 
     game_data
@@ -94,16 +117,23 @@ pub fn parts_rgb(
 pub fn parts_select(game_data: &mut GameData, id: &Variant, entry_id: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("parts_select: invalid id type"),
+        _ => {
+            log::error!("parts_select: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..64).contains(&id) {
-        bail!("parts_select: id should be in range 0..64");
+        log::error!("parts_select: id should be in range 0..64");
+        return Ok(Variant::Nil);
     }
 
     let entry_id = match entry_id {
         Variant::Int(entry_id) => *entry_id as u32,
-        _ => bail!("parts_select: invalid entry_id type"),
+        _ => {
+            log::error!("parts_select: invalid entry_id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..256).contains(&entry_id) {
@@ -112,7 +142,8 @@ pub fn parts_select(game_data: &mut GameData, id: &Variant, entry_id: &Variant) 
             .parts_manager
             .get_mut()
             .next_free_id(id as u8);
-        bail!("parts_select: entry_id should be in range 0..256");
+        log::error!("parts_select: entry_id should be in range 0..256");
+        return Ok(Variant::Nil);
     }
 
     if let Err(e) = game_data
@@ -120,6 +151,7 @@ pub fn parts_select(game_data: &mut GameData, id: &Variant, entry_id: &Variant) 
         .draw_parts_to_texture(id as u8, entry_id)
     {
         log::error!("failed to draw parts to primitive: {:?}", e);
+        return Ok(Variant::Nil);
     }
 
     let _ = game_data
@@ -138,20 +170,28 @@ pub fn parts_assign(
 ) -> Result<Variant> {
     let parts_id = match parts_id {
         Variant::Int(parts_id) => *parts_id,
-        _ => bail!("parts_assign: invalid parts_id type"),
+        _ => {
+            log::error!("parts_assign: invalid parts_id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..64).contains(&parts_id) {
-        bail!("parts_assign: parts_id should be in range 0..64");
+        log::error!("parts_assign: parts_id should be in range 0..64");
+        return Ok(Variant::Nil);
     }
 
     let prim_id = match prim_id {
         Variant::Int(prim_id) => *prim_id as u16,
-        _ => bail!("parts_assign: invalid prim_id type"),
+        _ => {
+            log::error!("parts_assign: invalid prim_id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..4096).contains(&prim_id) {
-        bail!("parts_assign: prim_id should be in range 0..256");
+        log::error!("parts_assign: prim_id should be in range 0..256");
+        return Ok(Variant::Nil);
     }
 
     game_data
@@ -172,29 +212,41 @@ pub fn parts_motion(
 ) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("parts_motion: invalid id type"),
+        _ => {
+            log::error!("parts_motion: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..64).contains(&id) {
-        bail!("parts_motion: id should be in range 0..64");
+        log::error!("parts_motion: id should be in range 0..64");
+        return Ok(Variant::Nil);
     }
 
     let entry_id = match entry_id {
         Variant::Int(entry_id) => *entry_id as u32,
-        _ => bail!("parts_motion: invalid entry_id type"),
+        _ => {
+            log::error!("parts_motion: invalid entry_id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..256).contains(&entry_id) {
-        bail!("parts_motion: entry_id should be in range 0..256");
+        log::error!("parts_motion: entry_id should be in range 0..256");
+        return Ok(Variant::Nil);
     }
 
     let duration = match duration {
         Variant::Int(duration) => *duration as u32,
-        _ => bail!("parts_motion: invalid duration type"),
+        _ => {
+            log::error!("parts_motion: invalid duration type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..=300000).contains(&duration) {
-        bail!("parts_motion: duration should be in range 1..300000");
+        log::error!("parts_motion: duration should be in range 1..300000");
+        return Ok(Variant::Nil);
     }
 
     game_data
@@ -207,20 +259,28 @@ pub fn parts_motion(
 pub fn parts_motion_pause(game_data: &mut GameData, id: &Variant, on: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("parts_motion_pause: invalid id type"),
+        _ => {
+            log::error!("parts_motion_pause: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..64).contains(&id) {
-        bail!("parts_motion_pause: id should be in range 0..64");
+        log::error!("parts_motion_pause: id should be in range 0..64");
+        return Ok(Variant::Nil);
     }
 
     let on = match on {
         Variant::Int(on) => *on,
-        _ => bail!("parts_motion_pause: invalid on type"),
+        _ => {
+            log::error!("parts_motion_pause: invalid on type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if on != 0 && on != 1 {
-        bail!("parts_motion_pause: on should be 0 or 1");
+        log::error!("parts_motion_pause: on should be 0 or 1");
+        return Ok(Variant::Nil);
     }
 
     let parts = game_data
@@ -237,11 +297,15 @@ pub fn parts_motion_pause(game_data: &mut GameData, id: &Variant, on: &Variant) 
 pub fn parts_motion_stop(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("parts_motion_stop: invalid id type"),
+        _ => {
+            log::error!("parts_motion_stop: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..64).contains(&id) {
-        bail!("parts_motion_stop: id should be in range 0..64");
+        log::error!("parts_motion_stop: id should be in range 0..64");
+        return Ok(Variant::Nil);
     }
 
     game_data.motion_manager.stop_parts_motion(id as u8)?;
@@ -252,11 +316,15 @@ pub fn parts_motion_stop(game_data: &mut GameData, id: &Variant) -> Result<Varia
 pub fn parts_motion_test(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("parts_motion_test: invalid id type"),
+        _ => {
+            log::error!("parts_motion_test: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..64).contains(&id) {
-        bail!("parts_motion_test: id should be in range 0..64");
+        log::error!("parts_motion_test: id should be in range 0..64");
+        return Ok(Variant::Nil);
     }
 
     Ok(Variant::Int(
