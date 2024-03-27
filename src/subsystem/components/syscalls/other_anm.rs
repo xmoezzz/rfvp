@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 
 use crate::script::Variant;
 use crate::subsystem::resources::{graph_buff::GraphBuff, motion_manager::DissolveType};
@@ -49,11 +49,15 @@ pub fn dissolve(
 ) -> Result<Variant> {
     let duration = match duration {
         Variant::Int(duration) => *duration,
-        _ => bail!("dissolve: invalid duration type"),
+        _ => {
+            log::error!("dissolve: invalid duration type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..=300000).contains(&duration) {
-        bail!("dissolve: duration should be in range 1..300000");
+        log::error!("dissolve: duration should be in range 1..300000");
+        return Ok(Variant::Nil);
     }
 
     let game_width = game_data.get_width() as i16;
@@ -142,155 +146,223 @@ pub fn snow(
 
     let width = match width {
         Variant::Int(width) => *width,
-        _ => bail!("snow: invalid width type"),
+        _ => {
+            log::error!("snow: invalid width type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..=4096).contains(&width) {
-        bail!("snow: width should be in range 0..4096");
+        log::error!("snow: width should be in range 0..4096");
+        return Ok(Variant::Nil);
     }
 
     let height = match height {
         Variant::Int(height) => *height,
-        _ => bail!("snow: invalid height type"),
+        _ => {
+            log::error!("snow: invalid height type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..=4096).contains(&height) {
-        bail!("snow: height should be in range 0..4096");
+        log::error!("snow: height should be in range 0..4096");
+        return Ok(Variant::Nil);
     }
 
     let arg3 = match arg3 {
         Variant::Int(arg3) => *arg3,
-        _ => bail!("snow: invalid arg3 type"),
+        _ => {
+            log::error!("snow: invalid arg3 type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..=4095).contains(&arg3) {
-        bail!("snow: arg3 should be in range 0..4095");
+        log::error!("snow: arg3 should be in range 0..4095");
+        return Ok(Variant::Nil);
     }
 
     let arg4 = match arg4 {
         Variant::Int(arg4) => *arg4,
-        _ => bail!("snow: invalid arg4 type"),
+        _ => {
+            log::error!("snow: invalid arg4 type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(2..=64).contains(&arg4) {
-        bail!("snow: arg4 should be in range 2..64");
+        log::error!("snow: arg4 should be in range 2..64");
+        return Ok(Variant::Nil);
     }
 
     let arg5 = match arg5 {
         Variant::Int(arg5) => *arg5,
-        _ => bail!("snow: invalid speed type"),
+        _ => {
+            log::error!("snow: invalid speed type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(2..=64).contains(&arg5) {
-        bail!("snow: arg5 should be in range 2..64");
+        log::error!("snow: arg5 should be in range 2..64");
+        return Ok(Variant::Nil);
     }
 
     let arg6 = match arg6 {
         Variant::Int(arg6) => *arg6,
-        _ => bail!("snow: invalid arg6 type"),
+        _ => {
+            log::error!("snow: invalid arg6 type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..=16).contains(&arg6) {
-        bail!("snow: arg6 should be in range 1..16");
+        log::error!("snow: arg6 should be in range 1..16");
+        return Ok(Variant::Nil);
     }
 
     let arg7 = match arg7 {
         Variant::Int(arg7) => *arg7,
-        _ => bail!("snow: invalid arg7 type"),
+        _ => {
+            log::error!("snow: invalid arg7 type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(10..=10000).contains(&arg7) {
-        bail!("snow: arg7 should be in range 10..10000");
+        log::error!("snow: arg7 should be in range 10..10000");
+        return Ok(Variant::Nil);
     }
 
     let arg8 = match arg8 {
         Variant::Int(arg8) => *arg8,
-        _ => bail!("snow: invalid arg8 type"),
+        _ => {
+            log::error!("snow: invalid arg8 type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(10..=10000).contains(&arg8) {
-        bail!("snow: arg8 should be in range 10..10000");
+        log::error!("snow: arg8 should be in range 10..10000");
+        return Ok(Variant::Nil);
     }
 
     let arg9 = match arg9 {
         Variant::Int(arg9) => *arg9,
-        _ => bail!("snow: invalid arg9 type"),
+        _ => {
+            log::error!("snow: invalid arg9 type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..=1024).contains(&arg9) {
-        bail!("snow: arg9 should be in range 1..1024");
+        log::error!("snow: arg9 should be in range 1..1024");
+        return Ok(Variant::Nil);
     }
 
     let arg10 = match arg10 {
         Variant::Int(arg10) => *arg10,
-        _ => bail!("snow: invalid arg10 type"),
+        _ => {
+            log::error!("snow: invalid arg10 type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(1..=1024).contains(&arg10) {
-        bail!("snow: arg10 should be in range 1..1024");
+        log::error!("snow: arg10 should be in range 1..1024");
+        return Ok(Variant::Nil);
     }
 
     let arg11 = match arg11 {
         Variant::Int(arg11) => *arg11,
-        _ => bail!("snow: invalid arg11 type"),
+        _ => {
+            log::error!("snow: invalid arg11 type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(-4096..=4096).contains(&arg11) {
-        bail!("snow: arg11 should be in range 0..4096");
+        log::error!("snow: arg11 should be in range 0..4096");
+        return Ok(Variant::Nil);
     }
 
     let arg12 = match arg12 {
         Variant::Int(arg12) => *arg12,
-        _ => bail!("snow: invalid arg12 type"),
+        _ => {
+            log::error!("snow: invalid arg12 type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(-4096..=4096).contains(&arg12) {
-        bail!("snow: arg12 should be in range -4096..4096");
+        log::error!("snow: arg12 should be in range -4096..4096");
+        return Ok(Variant::Nil);
     }
 
     let arg13 = match arg13 {
         Variant::Int(arg13) => *arg13,
-        _ => bail!("snow: invalid arg13 type"),
+        _ => {
+            log::error!("snow: invalid arg13 type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..=1024).contains(&arg13) {
-        bail!("snow: arg13 should be in range 0..1024");
+        log::error!("snow: arg13 should be in range 0..1024");
+        return Ok(Variant::Nil);
     }
 
     let arg14 = match arg14 {
         Variant::Int(arg14) => *arg14,
-        _ => bail!("snow: invalid arg14 type"),
+        _ => {
+            log::error!("snow: invalid arg14 type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..=255).contains(&arg14) {
-        bail!("snow: arg14 should be in range 0..255");
+        log::error!("snow: arg14 should be in range 0..255");
+        return Ok(Variant::Nil);
     }
 
     let arg15 = match arg15 {
         Variant::Int(arg15) => *arg15,
-        _ => bail!("snow: invalid arg15 type"),
+        _ => {
+            log::error!("snow: invalid arg15 type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..=255).contains(&arg15) {
-        bail!("snow: arg15 should be in range 0..255");
+        log::error!("snow: arg15 should be in range 0..255");
+        return Ok(Variant::Nil);
     }
 
     let arg16 = match arg16 {
         Variant::Int(arg16) => *arg16,
-        _ => bail!("snow: invalid arg16 type"),
+        _ => {
+            log::error!("snow: invalid arg16 type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(10..=10000).contains(&arg16) {
-        bail!("snow: arg16 should be in range 10..10000");
+        log::error!("snow: arg16 should be in range 10..10000");
+        return Ok(Variant::Nil);
     }
 
     let arg17 = match arg17 {
         Variant::Int(arg17) => *arg17,
-        _ => bail!("snow: invalid arg17 type"),
+        _ => {
+            log::error!("snow: invalid arg17 type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..=255).contains(&arg17) {
-        bail!("snow: arg17 should be in range 0..255");
+        log::error!("snow: arg17 should be in range 0..255");
+        return Ok(Variant::Nil);
     }
 
     let screen_width = game_data.get_width();
@@ -326,11 +398,15 @@ pub fn snow(
 pub fn snow_start(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("snow_start: invalid id type"),
+        _ => {
+            log::error!("snow_start: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..=1).contains(&id) {
-        bail!("snow_start: id should be in range 0..1");
+        log::error!("snow_start: id should be in range 0..1");
+        return Ok(Variant::Nil);
     }
 
     game_data.motion_manager.start_snow_motion(id as u32);
@@ -341,11 +417,15 @@ pub fn snow_start(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
 pub fn snow_stop(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => bail!("snow_stop: invalid id type"),
+        _ => {
+            log::error!("snow_stop: invalid id type");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..=1).contains(&id) {
-        bail!("snow_stop: id should be in range 0..1");
+        log::error!("snow_stop: id should be in range 0..1");
+        return Ok(Variant::Nil);
     }
 
     game_data.motion_manager.stop_snow_motion(id as u32);

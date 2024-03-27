@@ -3,7 +3,7 @@ use anyhow::{bail, Result};
 use crate::script::Variant;
 use crate::subsystem::world::GameData;
 
-use super::{get_var, errlog, Syscaller};
+use super::{get_var, Syscaller};
 
 pub fn color_set(
     game_data: &mut GameData,
@@ -15,11 +15,15 @@ pub fn color_set(
 ) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => errlog!("Invalid color id"),
+        _ => {
+            log::error!("Invalid color id");
+            return Ok(Variant::Nil);
+        },
     };
 
     if !(0..256).contains(&id) {
-        errlog!("id must be in range 0..256");
+        log::error!("id must be in range 0..256");
+        return Ok(Variant::Nil);
     }
 
     let color = game_data.color_manager.get_entry_mut(id as u8);

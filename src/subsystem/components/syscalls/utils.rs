@@ -12,7 +12,10 @@ pub fn debug_message(
 ) -> Result<Variant> {
     let msg = match message {
         Variant::String(message) | Variant::ConstString(message, _) => message.clone(),
-        _ => bail!("debug_message: Invalid message type"),
+        _ => {
+            log::error!("debug_message: Invalid message type");
+            return Ok(Variant::Nil);
+        },
     };
 
     log::info!("DEBUG => {}: {:?}", msg, var);
@@ -28,7 +31,8 @@ pub fn float_to_int(_game_data: &mut GameData, value: &Variant) -> Result<Varian
     let value = if let Variant::Int(value) = value {
         *value
     } else {
-        bail!("float_to_int: Invalid value type");
+        log::error!("float_to_int: Invalid value type");
+        return Ok(Variant::Nil);
     };
 
     Ok(Variant::Int(value))
@@ -38,13 +42,15 @@ pub fn int_to_text(_game_data: &mut GameData, value: &Variant, width: &Variant) 
     let value = if let Variant::Int(value) = value {
         *value
     } else {
-        bail!("int_to_text: Invalid value type");
+        log::error!("int_to_text: Invalid value type");
+        return Ok(Variant::Nil);
     };
 
     let width = if let Variant::Int(width) = width {
         *width
     } else {
-        bail!("int_to_text: Invalid width type");
+        log::error!("int_to_text: Invalid width type");
+        return Ok(Variant::Nil);
     };
 
     let value = format!("{:width$}", value, width = width as usize);
@@ -99,7 +105,10 @@ impl TryFrom<i32> for WinMode {
 pub fn window_mode(_game_data: &mut GameData, mode: &Variant) -> Result<Variant> {
     let mode = match mode {
         Variant::Int(mode) => WinMode::try_from(*mode)?,
-        _ => bail!("window_mode: Invalid mode type"),
+        _ => {
+            log::error!("window_mode: Invalid mode type");
+            return Ok(Variant::Nil);
+        },
     };
 
     // emulate the behavior of the original engine
