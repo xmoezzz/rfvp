@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use serde::{Serialize, Deserialize};
 use twofloat::TwoFloat;
+use std::collections::HashMap;
 
 pub mod context;
 pub mod parser;
@@ -12,6 +12,42 @@ struct SavedStackInfo {
     stack_base: usize,
     stack_pos: usize,
     return_addr: usize,
+    args: usize,
+}
+
+
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct Table {
+    table: HashMap<u32, Variant>,
+    count: u32,
+    next_index: u32,
+}
+
+impl Table {
+    pub fn new() -> Self {
+        Table {
+            table: HashMap::new(),
+            count: 0,
+            next_index: 0,
+        }
+    }
+
+    pub fn push(&mut self, value: Variant) {
+        self.table.insert(self.next_index, value);
+        self.count += 1;
+        self.next_index += 1;
+    }
+
+    pub fn insert(&mut self, key: u32, value: Variant) {
+        self.table.insert(key, value);
+        self.count += 1;
+        self.next_index += 1;
+    }
+
+
+    pub fn get(&self, key: u32) -> Option<&Variant> {
+        self.table.get(&key)
+    }
 }
 
 /// Represents a value that can be stored in the VM
@@ -24,7 +60,7 @@ pub enum Variant {
     Float(f32),
     String(String),
     ConstString(String, u32),
-    Table(HashMap<i32, Variant>),
+    Table(Table),
 
     /// used to store the stack info when calling a function
     /// for internal use only
@@ -68,6 +104,10 @@ impl Variant {
         !matches!(self, Variant::Nil)
     }
 
+    pub fn cast_table(&mut self) {
+        *self = Variant::Table(Table::new());
+    }
+
     pub fn as_int(&self) -> Option<i32> {
         match self {
             Variant::Int(i) => Some(*i),
@@ -90,14 +130,7 @@ impl Variant {
         }
     }
 
-    pub fn as_table(&self) -> Option<&HashMap<i32, Variant>> {
-        match self {
-            Variant::Table(t) => Some(t),
-            _ => None,
-        }
-    }
-
-    pub fn as_table_mut(&mut self) -> Option<&mut HashMap<i32, Variant>> {
+    pub fn as_table(&mut self) -> Option<&mut Table> {
         match self {
             Variant::Table(t) => Some(t),
             _ => None,
@@ -105,6 +138,13 @@ impl Variant {
     }
 
     pub fn as_saved_stack_info(&self) -> Option<&SavedStackInfo> {
+        match self {
+            Variant::SavedStackInfo(info) => Some(info),
+            _ => None,
+        }
+    }
+
+    pub fn as_saved_stack_info_mut(&mut self) -> Option<&mut SavedStackInfo> {
         match self {
             Variant::SavedStackInfo(info) => Some(info),
             _ => None,

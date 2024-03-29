@@ -8,6 +8,7 @@ use crate::script::opcode::Opcode;
 use crate::script::global::Global;
 
 use anyhow::{bail, Result};
+use wgpu::core::device::global;
 
 static MAX_STACK_SIZE: usize = 0x100;
 
@@ -57,7 +58,7 @@ pub struct Context {
 
 impl Context {
     pub fn new(start_addr: u32) -> Self {
-        Context {
+        let mut ctx = Context {
             id: 0,
             stack: vec![Variant::Nil; MAX_STACK_SIZE],
             cursor: start_addr as usize,
@@ -69,7 +70,22 @@ impl Context {
             wait_ms: 0,
             should_exit: false,
             should_break: false,
-        }
+        };
+
+        // the initial stack frame
+        ctx.push(Variant::SavedStackInfo(
+            super::SavedStackInfo { 
+                stack_base: 0, 
+                stack_pos: 0, 
+                return_addr: 0,
+                args: 0,
+            }
+        )).unwrap();
+
+        ctx.cur_stack_base = ctx.cur_stack_pos;
+        ctx.cur_stack_pos = 0;
+
+        ctx
     }
 
     pub fn set_should_break(&mut self, should_break: bool) {
@@ -134,7 +150,10 @@ impl Context {
     }
 
     fn top(&mut self) -> Result<Variant> {
-        self.get_local(self.cur_stack_pos as i8)
+        if self.cur_stack_pos == 0 {
+            bail!("no top of the stack")
+        }
+        self.get_local((self.cur_stack_pos - 1) as i8)
     }
 
     fn get_local(&self, offset: i8) -> Result<Variant> {
@@ -204,6 +223,15 @@ impl Context {
         Ok(())
     }
 
+    fn print_stack(&self) {
+        log::error!("thread id : {}", self.id);
+        log::error!("pc: {:x}", self.cursor);
+        if let Ok(offset) = self.to_global_offset() {
+            let slice = &self.stack[0..offset];
+            log::error!("stack: {:?}", slice);
+        }
+    }
+
     /// 0x00 nop instruction
     /// nop, no operation
     pub fn nop(&mut self) -> Result<()> {
@@ -231,8 +259,19 @@ impl Context {
             bail!("locals count is negative");
         }
 
-        for i in 0..locals_count {
-            self.set_local(i,Variant::Nil)?;
+        log::info!("init_stack: args: {} locals: {}", args_count, locals_count);
+
+        let frame = self.get_local_mut(-1)?;
+        if let Some(frame) = frame.as_saved_stack_info_mut() {
+            frame.args = args_count as usize;
+        } else {
+            self.print_stack();
+            bail!("init_stack: invalid stack frame");
+        }
+
+        for _ in 0..locals_count {
+            // we must allocate the space for the locals
+            self.push(Variant::Nil)?;
         }
         
         Ok(())
@@ -249,11 +288,14 @@ impl Context {
             bail!("call: address is not in the code area");
         }
 
+        log::info!("call: {:x}", addr);
+
         let frame = Variant::SavedStackInfo(
             super::SavedStackInfo { 
                 stack_base: self.cur_stack_base, 
                 stack_pos: self.cur_stack_pos, 
-                return_addr: self.cursor
+                return_addr: self.cursor,
+                args: 0, // the field will be updated in the init_stack instruction
             }
         );
 
@@ -263,6 +305,8 @@ impl Context {
         self.cur_stack_pos = 0;
         // update the program counter
         self.cursor = addr as usize;
+
+        self.print_stack();
 
         Ok(())
     }
@@ -297,14 +341,21 @@ impl Context {
     /// return from a routine
     pub fn ret(&mut self) -> Result<()> {
         self.cursor += 1;
+        self.return_value = Variant::Nil;
         let frame = self.get_local(-1)?;
         if let Some(frame) = frame.as_saved_stack_info() {
             self.cur_stack_pos = frame.stack_pos;
             self.cur_stack_base = frame.stack_base;
             self.cursor = frame.return_addr;
             self.return_value.set_nil();
+
+            // pop the arguments
+            for _ in 0..frame.args {
+                self.pop()?;
+            }
         } else {
-            bail!("ret: invalid stack frame");
+            self.print_stack();
+            bail!("ret: invalid stack frame: {:?}", &frame);
         }
         Ok(())
     }
@@ -313,12 +364,19 @@ impl Context {
     /// return from a routine with a value
     pub fn retv(&mut self) -> Result<()> {
         self.cursor += 1;
+        self.return_value = self.pop()?;
         let frame = self.get_local(-1)?;
         if let Some(frame) = frame.as_saved_stack_info() {
             self.cur_stack_pos = frame.stack_pos;
             self.cur_stack_base = frame.stack_base;
             self.cursor = frame.return_addr;
+
+            // pop the arguments
+            for _ in 0..frame.args {
+                self.pop()?;
+            }
         } else {
+            self.print_stack();
             bail!("retv: invalid stack frame");
         }
         Ok(())
@@ -330,6 +388,7 @@ impl Context {
         self.cursor += 1;
         let addr = parser.read_u32(self.cursor)?;
         self.cursor += size_of::<u32>();
+        log::info!("jmp: {:x}", addr);
 
         self.cursor = addr as usize;
         Ok(())
@@ -343,6 +402,7 @@ impl Context {
         self.cursor += size_of::<u32>();
 
         let top = self.pop()?;
+        log::info!("jz: {:?}", &top);
 
         if !top.canbe_true() {
             self.cursor = addr as usize;
@@ -355,6 +415,8 @@ impl Context {
     pub fn push_nil(&mut self) -> Result<()> {
         self.cursor += 1;
         self.push(Variant::Nil)?;
+
+        log::info!("push_nil");
         Ok(())
     }
 
@@ -363,6 +425,8 @@ impl Context {
     pub fn push_true(&mut self) -> Result<()> {
         self.cursor += 1;
         self.push(Variant::True)?;
+
+        log::info!("push_true");
         Ok(())
     }
 
@@ -372,6 +436,8 @@ impl Context {
         self.cursor += 1;
         let value = parser.read_i32(self.cursor)?;
         self.cursor += size_of::<i32>();
+
+        log::info!("push_i32: {}", value);
 
         self.push(Variant::Int(value))?;
         Ok(())
@@ -384,6 +450,8 @@ impl Context {
         let value = parser.read_i16(self.cursor)?;
         self.cursor += size_of::<i16>();
 
+        log::info!("push_i16: {}", value);
+
         self.push(Variant::Int(value as i32))?;
         Ok(())
     }
@@ -395,6 +463,8 @@ impl Context {
         let value = parser.read_i8(self.cursor)?;
         self.cursor += size_of::<i8>();
 
+        log::info!("push_i8: {}", value);
+
         self.push(Variant::Int(value as i32))?;
         Ok(())
     }
@@ -405,6 +475,8 @@ impl Context {
         self.cursor += 1;
         let value = parser.read_i32(self.cursor)?;
         self.cursor += size_of::<f32>();
+
+        log::info!("push_f32: {}", value);
 
         self.push(Variant::Float(value as f32))?;
         Ok(())
@@ -420,6 +492,8 @@ impl Context {
         let s = parser.read_cstring(self.cursor, len)?;
         self.cursor += len;
 
+        log::info!("push_string: {}", &s);
+
         self.push(Variant::String(s))?;
         Ok(())
     }
@@ -431,8 +505,11 @@ impl Context {
         let key = parser.read_u16(self.cursor)?;
         self.cursor += size_of::<u16>();
 
+        log::info!("push_global: {:x}", key);
+
         if let Some(value) = global.get(key) {
             self.push(value.clone())?;
+            log::info!("global: {:?}", &value);
         } else {
             bail!("global variable not found");
         }
@@ -447,6 +524,7 @@ impl Context {
         self.cursor += size_of::<i8>();
 
         let local = self.get_local(offset)?;
+        log::info!("push stack: {} {:?}", offset, &local);
         self.push(local)?;
 
         Ok(())
@@ -462,10 +540,11 @@ impl Context {
         self.cursor += size_of::<u16>();
 
         let top = self.pop()?;
+        log::info!("push_global_table: {:x} {:?}", key, &top);
         if let Some(table) = global.get_mut(key) {
-            if let Some(table) = table.as_table_mut() {
+            if let Some(table) = table.as_table() {
                 if let Some(table_key) = top.as_int() {
-                    if let Some(value) = table.get(&table_key) {
+                    if let Some(value) = table.get(table_key as u32) {
                         self.push(value.clone())?;
                     } else {
                         self.push(Variant::Nil)?;
@@ -497,10 +576,10 @@ impl Context {
 
         let key = self.pop()?.as_int();
 
-        let local = self.get_local(idx)?;
+        let mut local = self.get_local(idx)?;
         if let Some(table) = local.as_table() {
             if let Some(table_key) = key {
-                if let Some(value) = table.get(&table_key) {
+                if let Some(value) = table.get(table_key as u32) {
                     self.push(value.clone())?;
                 } else {
                     self.push(Variant::Nil)?;
@@ -555,6 +634,7 @@ impl Context {
         self.cursor += size_of::<i8>();
 
         let value = self.pop()?;
+        log::info!("local_copy: {} {:?}", idx, &value);
         self.set_local(idx, value)?;
         Ok(())
     }
@@ -566,13 +646,18 @@ impl Context {
         let key = parser.read_u16(self.cursor)?;
         self.cursor += size_of::<u16>();
 
-        let top = self.pop()?;
         let value = self.pop()?;
+        let mkey = self.pop()?;
 
         if let Some(table) = global.get_mut(key) {
-            if let Some(table) = table.as_table_mut() {
-                if let Some(table_key) = top.as_int() {
-                    table.insert(table_key, value);
+            // cast to table if it is not
+            if !table.is_table() {
+                table.cast_table();
+            }
+
+            if let Some(table) = table.as_table() {
+                if let Some(mkey) = mkey.as_int() {
+                    table.insert(mkey as u32, value);
                 } else {
                     log::warn!("top of the stack is not an integer");
                 }
@@ -596,9 +681,12 @@ impl Context {
         let key = self.pop()?.as_int();
 
         let local = self.get_local_mut(idx)?;
-        if let Some(table) = local.as_table_mut() {
+        if !local.is_table() {
+            local.cast_table();
+        }
+        if let Some(table) = local.as_table() {
             if let Some(table_key) = key {
-                table.insert(table_key, value);
+                table.insert(table_key as u32, value);
             } else {
                 log::warn!("key is not an integer");
             }

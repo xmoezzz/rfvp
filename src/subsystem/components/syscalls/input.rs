@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 
-use crate::script::Variant;
+use crate::script::{Table, Variant};
 use crate::subsystem::world::GameData;
 
 use super::{get_var, Syscaller};
@@ -38,8 +38,8 @@ pub fn input_get_down(game_data: &GameData) -> Result<Variant> {
 
 pub fn input_get_event(game_data: &mut GameData) -> Result<Variant> {
     if let Some(event) = game_data.inputs_manager.get_event() {
-        let mut table = HashMap::new();
-        table.insert(0i32, Variant::Int(event.get_keycode() as i32));
+        let mut table = Table::new();
+        table.insert(0, Variant::Int(event.get_keycode() as i32));
         table.insert(1, Variant::Int(event.get_x()));
         table.insert(2, Variant::Int(event.get_y()));
 

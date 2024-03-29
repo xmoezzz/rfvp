@@ -13,12 +13,25 @@ use anyhow::Result;
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Global {
     global_table: HashMap<u16, Variant>,
+    // tables: HashMap<u8, Table>,
+    // cur_table_count: u32,
+    // table_allocation: Vec<bool>,
 }
+
 
 impl Global {
     pub fn new() -> Self {
+        // initialize 256 tables
+        // let mut tables = HashMap::new();
+        // for i in 0..256 {
+        //     tables.insert(i, Table::new());
+        // }
+
         Global {
             global_table: HashMap::new(),
+            // tables,
+            // cur_table_count: 0,
+            // table_allocation: vec![false; 256],
         }
     }
 
@@ -45,6 +58,19 @@ impl Global {
     pub fn get_mut(&mut self, key: u16) -> Option<&mut Variant> {
         self.global_table.get_mut(&key)
     }
+
+    // pub fn alloc_table(&mut self) -> Result<(&mut Table, u32)> {
+    //     if self.cur_table_count >= 256 {
+    //         bail!("table count exceeded");
+    //     }
+
+    //     let table = self.tables.entry(self.cur_table_count as u8).or_insert(Table::new());
+    //     self.table_allocation[self.cur_table_count as usize] = true;
+    //     let value = self.cur_table_count;
+    //     self.cur_table_count += 1;
+
+    //     Ok((table, value))
+    // }
 
     pub fn set(&mut self, key: u16, value: Variant) {
         self.global_table.insert(key, value);
