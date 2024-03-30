@@ -123,12 +123,12 @@ impl Context {
     }
 
     fn pop(&mut self) -> Result<Variant> {
+        if self.cur_stack_pos == 0 {
+            bail!("no top of the stack")
+        }
+
         let pos = self.to_global_offset();
-        let result = if let Ok(mut pos) = pos {
-            if pos == 0 {
-                bail!("pop: stack pointer underflow");
-            }
-            pos -= 1;
+        let result = if let Ok(pos) = pos {
             if pos >= self.stack.len() {
                 let msg = format!("pop: stack pointer out of bounds: {:x}", self.cursor);
                 bail!(msg);
@@ -141,11 +141,7 @@ impl Context {
             bail!("stack pointer out of bounds");
         };
 
-        match self.cur_stack_pos.checked_sub(1) {
-            Some(pos) => self.cur_stack_pos = pos,
-            None => bail!("stack pointer underflow"),
-        }
-
+        self.cur_stack_pos -= 1;
         Ok(result)
     }
 
@@ -153,15 +149,16 @@ impl Context {
         if self.cur_stack_pos == 0 {
             bail!("no top of the stack")
         }
-        self.get_local((self.cur_stack_pos - 1) as i8)
+        self.get_local(self.cur_stack_pos as i8)
     }
 
     fn get_local(&self, offset: i8) -> Result<Variant> {
-        let base = self.to_global_offset()? as isize;
+        let base = self.cur_stack_base as isize;
         let off = match base.checked_add(offset as isize) {
             Some(off) => off,
             None => bail!("stack pointer out of bounds"),
         };
+        // off += 1;
 
         if off < 0 {
             bail!("stack pointer is negative");
@@ -181,11 +178,12 @@ impl Context {
     }
 
     fn get_local_mut(&mut self, offset: i8) -> Result<&mut Variant> {
-        let base = self.to_global_offset()? as isize;
-        let off = match base.checked_add(offset as isize) {
+        let base = self.cur_stack_base as isize;
+        let mut off = match base.checked_add(offset as isize) {
             Some(off) => off,
             None => bail!("stack pointer out of bounds"),
         };
+        // off += 1;
 
         if off < 0 {
             bail!("stack pointer is negative");
@@ -204,11 +202,12 @@ impl Context {
     }
 
     fn set_local(&mut self, offset: i8, value: Variant) -> Result<()> {
-        let base = self.to_global_offset()? as isize;
-        let off = match base.checked_add(offset as isize) {
+        let base = self.cur_stack_base as isize;
+        let mut off = match base.checked_add(offset as isize) {
             Some(off) => off,
             None => bail!("stack pointer out of bounds"),
         };
+        // off += 1;
 
         if off < 0 {
             bail!("stack pointer is negative");
@@ -227,7 +226,7 @@ impl Context {
         log::error!("thread id : {}", self.id);
         log::error!("pc: {:x}", self.cursor);
         if let Ok(offset) = self.to_global_offset() {
-            let slice = &self.stack[0..offset];
+            let slice = &self.stack[0..offset + 1];
             log::error!("stack: {:?}", slice);
         }
     }
@@ -301,7 +300,7 @@ impl Context {
 
         self.push(frame)?;
 
-        self.cur_stack_base = self.cur_stack_pos;
+        self.cur_stack_base += self.cur_stack_pos;
         self.cur_stack_pos = 0;
         // update the program counter
         self.cursor = addr as usize;
@@ -347,7 +346,6 @@ impl Context {
             self.cur_stack_pos = frame.stack_pos;
             self.cur_stack_base = frame.stack_base;
             self.cursor = frame.return_addr;
-            self.return_value.set_nil();
 
             // pop the arguments
             for _ in 0..frame.args {
