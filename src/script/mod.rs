@@ -554,10 +554,8 @@ pub fn vm_sub(a: Variant, b: Variant) -> Variant {
 pub fn vm_mul(a: Variant, b: Variant) -> Variant {
     match (a, b) {
         (Variant::Int(a), Variant::Int(b)) => {
-            let wrapped_a = TwoFloat::from(a);
-            let wrapped_b = TwoFloat::from(b);
-            let result = wrapped_a * wrapped_b;
-            Variant::Float(result.into())
+            let result = a * b;
+            Variant::Int(result)
         },
         (Variant::Float(a), Variant::Float(b)) => {
             let wrapped_a = TwoFloat::from(a);

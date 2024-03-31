@@ -140,6 +140,7 @@ impl FontEnumerator {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct TextItem {
     offset_x: u16,
     offset_y: u16,
@@ -178,6 +179,45 @@ pub struct TextItem {
 }
 
 impl TextItem {
+    pub fn new() -> Self {
+        Self {
+            offset_x: 0,
+            offset_y: 0,
+            suspend_chrs: vec![],
+            text_content: String::new(),
+            content_text: String::new(),
+            font_name_id: 0,
+            font_text_id: 0,
+            main_text_size: 0,
+            ruby_text_size: 0,
+            main_text_outline: 0,
+            ruby_text_outline: 0,
+            distance: 0,
+            color1: ColorItem::new(),
+            color2: ColorItem::new(),
+            color3: ColorItem::new(),
+            func1: 0,
+            func2: 0,
+            func3: 0,
+            space_vertical: 0,
+            space_horizon: 0,
+            text_start_horizon: 0,
+            text_start_vertical: 0,
+            ruby_vertical: 0,
+            ruby_horizon: 0,
+            skip_mode: 0,
+            is_suspended: false,
+            x: 0,
+            y: 0,
+            w: 0,
+            h: 0,
+            speed: 0,
+            loaded: false,
+            pixel_buffer: vec![],
+            elapsed: 0,
+        }
+    }
+
     pub fn set_w(&mut self, w: u16) {
         self.w = w;
     }
@@ -338,7 +378,7 @@ impl Default for TextManager {
 impl TextManager {
     pub fn new() -> Self {
         Self { 
-            items: Vec::new(),
+            items: vec![TextItem::new(); 32],
             readed_text: vec![0; 0x100000],
         }
     }

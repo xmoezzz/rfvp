@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use crate::script::parser::Nls;
 use crate::utils::file::app_base_path;
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 
 #[derive(Debug, Clone)]
 pub struct VfsEntry {
@@ -130,6 +130,7 @@ impl VfsFile {
         Ok(entries)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn extract_all(&self, output_dir: impl AsRef<Path>) -> Result<()> {
         println!("Extracting {} entries", self.entries.len());
         for (name, entry) in &self.entries {
@@ -213,14 +214,6 @@ impl Vfs {
         Ok(vfs)
     }
 
-    fn add_vfs_file(&mut self, folder_name: &str, nls: Nls) -> Result<()> {
-        let bin_name = folder_name.to_owned() + ".bin";
-        let path = app_base_path().join(&bin_name);
-        let vfs = VfsFile::new(path.get_path(), folder_name, nls)?;
-        self.files.insert(folder_name.to_string(), vfs);
-        Ok(())
-    }
-
     fn read_vfs_file(&self, folder_name: &str, name: &str) -> Result<Vec<u8>> {
         let vfs = self.files.get(folder_name).ok_or_else(|| {
             anyhow::anyhow!("VFS not found: {}", folder_name)
@@ -240,8 +233,10 @@ impl Vfs {
             }
         } 
         
+        // otherwise, we assume the file is present in the filesystem
         let path = app_base_path().join(path);
-        let content = std::fs::read(path.get_path())?;
+        let path = path.get_path();
+        let content = std::fs::read(path).context(format!("unable to load : {}", path.display()))?;
         Ok(content)
     }
 }

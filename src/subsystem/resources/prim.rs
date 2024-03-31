@@ -48,7 +48,13 @@ pub struct Prim {
 
 impl Prim {
     pub fn new() -> Self {
-        Self::default()
+        let mut prim = Prim::default();
+        prim.parent = INVAILD_PRIM_HANDLE;
+        prim.attr = 0;
+        prim.factor_x = 1000;
+        prim.factor_y = 1000;
+        
+        prim
     }
 
     pub fn set_type(&mut self, typ: PrimType) {
@@ -292,6 +298,7 @@ impl PrimManager {
     }
 
     pub fn get_prim(&self, id: i16) -> RefMut<'_, Prim> {
+        println!("id: {}", id as usize);
         self.prims[id as usize].borrow_mut()
     }
 
