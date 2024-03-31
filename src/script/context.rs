@@ -8,7 +8,6 @@ use crate::script::opcode::Opcode;
 use crate::script::global::Global;
 
 use anyhow::{bail, Result};
-use wgpu::core::device::global;
 
 static MAX_STACK_SIZE: usize = 0x100;
 
@@ -128,7 +127,9 @@ impl Context {
         }
 
         let pos = self.to_global_offset();
-        let result = if let Ok(pos) = pos {
+        let result = if let Ok(mut pos) = pos {
+            // be aware of the offset, we should always decrement the position first
+            pos -= 1;
             if pos >= self.stack.len() {
                 let msg = format!("pop: stack pointer out of bounds: {:x}", self.cursor);
                 bail!(msg);
@@ -304,8 +305,6 @@ impl Context {
         self.cur_stack_pos = 0;
         // update the program counter
         self.cursor = addr as usize;
-
-        self.print_stack();
 
         Ok(())
     }
@@ -699,6 +698,8 @@ impl Context {
     pub fn neg(&mut self) -> Result<()> {
         self.cursor += 1;
         let mut top = self.pop()?;
+
+        log::info!("neg: {:?}", &top);
         top.neg();
         self.push(top)?;
 
@@ -711,6 +712,8 @@ impl Context {
         self.cursor += 1;
         let b = self.pop()?;
         let mut a = self.pop()?;
+
+        log::info!("add: {:?} {:?}", &a, &b);
         a.vadd(&b);
         self.push(a)?;
         Ok(())
@@ -722,6 +725,8 @@ impl Context {
         self.cursor += 1;
         let b = self.pop()?;
         let mut a = self.pop()?;
+
+        log::info!("sub: {:?} {:?}", &a, &b);
         a.vsub(&b);
         self.push(a)?;
         Ok(())
@@ -733,6 +738,8 @@ impl Context {
         self.cursor += 1;
         let b = self.pop()?;
         let mut a = self.pop()?;
+
+        log::info!("mul: {:?} {:?}", &a, &b);
         a.vmul(&b);
         self.push(a)?;
         Ok(())
@@ -744,6 +751,8 @@ impl Context {
         self.cursor += 1;
         let b = self.pop()?;
         let mut a = self.pop()?;
+
+        log::info!("div: {:?} {:?}", &a, &b);
         a.vdiv(&b);
         self.push(a)?;
         Ok(())
@@ -755,6 +764,8 @@ impl Context {
         self.cursor += 1;
         let b = self.pop()?;
         let mut a = self.pop()?;
+
+        log::info!("mod: {:?} {:?}", &a, &b);
         a.vmod(&b);
         self.push(a)?;
         Ok(())
@@ -766,6 +777,8 @@ impl Context {
         self.cursor += 1;
         let b = self.pop()?;
         let a = self.pop()?;
+
+        log::info!("bittest: {:?} {:?}", &a, &b);
         if let (Some(a), Some(b)) = (a.as_int(), b.as_int()) {
             self.push(Variant::Int(a & (1 << b)))?;
         } else {
@@ -781,6 +794,8 @@ impl Context {
         self.cursor += 1;
         let b = self.pop()?;
         let mut a = self.pop()?;
+
+        log::info!("and: {:?} {:?}", &a, &b);
         a.and(&b);
         self.push(a)?;
         Ok(())
@@ -792,6 +807,8 @@ impl Context {
         self.cursor += 1;
         let b = self.pop()?;
         let mut a = self.pop()?;
+
+        log::info!("or: {:?} {:?}", &a, &b);
         a.or(&b);
         self.push(a)?;
         Ok(())
@@ -803,6 +820,8 @@ impl Context {
         self.cursor += 1;
         let b = self.pop()?;
         let mut a = self.pop()?;
+
+        log::info!("sete: {:?} {:?}", &a, &b);
         a.equal(&b);
         self.push(a)?;
         Ok(())
@@ -814,6 +833,8 @@ impl Context {
         self.cursor += 1;
         let b = self.pop()?;
         let mut a = self.pop()?;
+
+        log::info!("setne: {:?} {:?}", &a, &b);
         a.not_equal(&b);
         self.push(a)?;
         Ok(())
@@ -825,6 +846,8 @@ impl Context {
         self.cursor += 1;
         let b = self.pop()?;
         let mut a = self.pop()?;
+
+        log::info!("setg: {:?} {:?}", &a, &b);
         a.greater(&b);
         self.push(a)?;
         Ok(())
@@ -836,6 +859,8 @@ impl Context {
         self.cursor += 1;
         let b = self.pop()?;
         let mut a = self.pop()?;
+
+        log::info!("setle: {:?} {:?}", &a, &b);
         a.less_equal(&b);
         self.push(a)?;
         Ok(())
@@ -847,6 +872,8 @@ impl Context {
         self.cursor += 1;
         let b = self.pop()?;
         let mut a = self.pop()?;
+
+        log::info!("setl: {:?} {:?}", &a, &b);
         a.less(&b);
         self.push(a)?;
         Ok(())
@@ -858,6 +885,8 @@ impl Context {
         self.cursor += 1;
         let b = self.pop()?;
         let mut a = self.pop()?;
+
+        log::info!("setge: {:?} {:?}", &a, &b);
         a.greater_equal(&b);
         self.push(a)?;
         Ok(())
