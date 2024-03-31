@@ -77,10 +77,7 @@ impl Global {
     }
     
     pub fn init_with(&mut self, none_volatile: u16, volatile: u16) {
-        for i in 0..none_volatile {
-            self.global_table.insert(i, Variant::Nil);
-        }
-        for i in 0..volatile {
+        for i in 0..none_volatile + volatile {
             self.global_table.insert(i, Variant::Nil);
         }
     }
