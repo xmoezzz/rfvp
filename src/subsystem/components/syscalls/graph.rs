@@ -1002,7 +1002,7 @@ pub fn graph_rgb(game_data: &mut GameData, id: &Variant, r: &Variant, g: &Varian
 }
 
 
-pub fn gaiji_load(game_data: &mut GameData, fname: &Variant, size: &Variant, code: &Variant) -> Result<Variant> {
+pub fn gaiji_load(game_data: &mut GameData, code: &Variant, size: &Variant, fname: &Variant) -> Result<Variant> {
     let fname = match fname.as_string() {
         Some(fname) => fname,
         None => {
