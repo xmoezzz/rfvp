@@ -1,5 +1,7 @@
 use std::cell::{Ref, RefCell, RefMut};
 
+use ffmpeg_next::codec::id;
+
 use super::graph_buff::GraphBuff;
 
 pub const INVAILD_PRIM_HANDLE: i16 = -1;
@@ -48,13 +50,18 @@ pub struct Prim {
 
 impl Prim {
     pub fn new() -> Self {
-        let mut prim = Prim::default();
-        prim.parent = INVAILD_PRIM_HANDLE;
-        prim.attr = 0;
-        prim.factor_x = 1000;
-        prim.factor_y = 1000;
-        
-        prim
+        Prim {
+            parent: INVAILD_PRIM_HANDLE,
+            attr: 0,
+            factor_x: 1000,
+            factor_y: 1000,
+            sprt: INVAILD_PRIM_HANDLE,
+            grand_parent: INVAILD_PRIM_HANDLE,
+            grand_son: INVAILD_PRIM_HANDLE,
+            child: INVAILD_PRIM_HANDLE,
+            group_args2: INVAILD_PRIM_HANDLE,
+            ..Default::default()
+        }
     }
 
     pub fn set_type(&mut self, typ: PrimType) {
@@ -298,16 +305,11 @@ impl PrimManager {
     }
 
     pub fn get_prim(&self, id: i16) -> RefMut<'_, Prim> {
-        println!("id: {}", id as usize);
         self.prims[id as usize].borrow_mut()
     }
 
     pub fn get_prim_immutable(&self, id: i16) -> Ref<'_, Prim> {
         self.prims[id as usize].borrow()
-    }
-
-    pub fn get_prims(&self) -> &Vec<RefCell<Prim>> {
-        &self.prims
     }
 
     pub fn get_prims_mut(&mut self) -> &mut Vec<RefCell<Prim>> {
@@ -335,7 +337,7 @@ impl PrimManager {
             }
         }
 
-        // prim.m_Attribute |= 0x40;
+        self.get_prim(id).apply_attr(0x40);
         self.get_prim(id).set_sprt(-1);
     }
 
@@ -358,10 +360,10 @@ impl PrimManager {
                 let parent = self.get_prim(id).get_parent();
                 self.get_prim(parent).set_group_args2(grand_parent);
             } else {
-                self.get_prim(grand_parent).set_grand_parent(grand_parent);
+                self.get_prim(grand_son).set_grand_parent(grand_parent);
             }
 
-            // self.prim_slots[idx].m_Attribute |= 0x40;
+            self.get_prim(id).apply_attr(0x40);
             self.get_prim(id).set_parent(INVAILD_PRIM_HANDLE);
         }
     }
@@ -396,22 +398,21 @@ impl PrimManager {
 
         //let mut prim = self.get_prim(id as i16);
         self.get_prim(id as i16).set_parent(new_root as i16);
-        self.get_prim(id as i16).set_grand_son(INVAILD_PRIM_HANDLE);
+        self.get_prim(id as i16).set_grand_parent(INVAILD_PRIM_HANDLE);
 
-        //let mut root_prim = self.get_prim(new_root as i16);
         if self.get_prim(new_root as i16).get_child() == INVAILD_PRIM_HANDLE {
-            self.get_prim(id as i16).set_grand_parent(INVAILD_PRIM_HANDLE);
+            self.get_prim(id as i16)
+                .set_grand_parent(INVAILD_PRIM_HANDLE);
             self.get_prim(new_root as i16).set_child(id as i16);
         } else {
             let arg2 = self.get_prim(new_root as i16).get_group_args2();
             self.get_prim(id as i16).set_grand_parent(arg2);
 
-            let arg2 = self.get_prim(arg2).get_group_args2();
-            //let mut prim2 = self.get_prim(arg2);
-            self.get_prim(arg2).set_grand_son(id as i16);
+            let id2 = self.get_prim(new_root as i16).get_group_args2();
+            self.get_prim(id2).set_grand_son(id as i16);
         }
         self.get_prim(new_root as i16).set_group_args2(id as i16);
-        // self.prim_slots[idx].m_Attribute |= 0x40;
+        self.get_prim(id as i16).apply_attr(0x40);
     }
 
     pub fn prim_set_op(&mut self, id: i32, opx: i32, opy: i32) {
