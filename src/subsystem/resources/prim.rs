@@ -315,28 +315,28 @@ impl PrimManager {
     }
 
     pub fn prim_init_with_type(&mut self, id: i16, typ: PrimType) {
-        let mut prim = self.get_prim(id);
-        if prim.get_type() != typ {
-            if prim.get_type() == PrimType::PrimTypeGroup {
-                let mut child = prim.get_child();
+        //let mut prim = self.get_prim(id);
+        if self.get_prim(id).get_type() != typ {
+            if self.get_prim(id).get_type() == PrimType::PrimTypeGroup {
+                let mut child = self.get_prim(id).get_child();
                 while child != INVAILD_PRIM_HANDLE {
                     self.unlink_prim(child);
                     child = self.get_prim(child).get_grand_son();
                 }
             }
 
-            prim.set_type(typ);
-            prim.set_draw_flag(true);
+            self.get_prim(id).set_type(typ);
+            self.get_prim(id).set_draw_flag(true);
             if typ == PrimType::PrimTypeGroup {
-                prim.set_child(INVAILD_PRIM_HANDLE);
-                prim.set_group_args2(INVAILD_PRIM_HANDLE);
-                prim.set_x(0);
-                prim.set_y(0);
+                self.get_prim(id).set_child(INVAILD_PRIM_HANDLE);
+                self.get_prim(id).set_group_args2(INVAILD_PRIM_HANDLE);
+                self.get_prim(id).set_x(0);
+                self.get_prim(id).set_y(0);
             }
         }
 
         // prim.m_Attribute |= 0x40;
-        prim.set_sprt(-1);
+        self.get_prim(id).set_sprt(-1);
     }
 
     pub fn unlink_prim(&self, id: i16) {
@@ -371,20 +371,20 @@ impl PrimManager {
         let parent_id = self.get_prim(new_root as i16).get_parent();
 
         if parent_id != INVAILD_PRIM_HANDLE {
-            let mut prim = self.get_prim(id as i16);
-            prim.set_parent(parent_id);
-            prim.set_grand_parent(new_root as i16);
-            let mut root_prim = self.get_prim(new_root as i16);
-            if root_prim.get_grand_son() == INVAILD_PRIM_HANDLE {
-                prim.set_grand_son(INVAILD_PRIM_HANDLE);
-                root_prim.set_grand_son(id as i16);
-                let parent_id = root_prim.get_parent();
-                let mut prim2 = self.get_prim(parent_id);
-                prim2.set_group_args2(id as i16);
+            //let mut prim = self.get_prim(id as i16);
+            self.get_prim(id as i16).set_parent(parent_id);
+            self.get_prim(id as i16).set_grand_parent(new_root as i16);
+            //let mut root_prim = self.get_prim(new_root as i16);
+            if self.get_prim(new_root as i16).get_grand_son() == INVAILD_PRIM_HANDLE {
+                self.get_prim(id as i16).set_grand_son(INVAILD_PRIM_HANDLE);
+                self.get_prim(new_root as i16).set_grand_son(id as i16);
+                let parent_id = self.get_prim(new_root as i16).get_parent();
+                //let mut prim2 = self.get_prim(parent_id);
+                self.get_prim(parent_id).set_group_args2(id as i16);
             } else {
-                let grand_son = root_prim.get_grand_son();
-                prim.set_grand_son(grand_son);
-                root_prim.set_grand_son(id as i16);
+                let grand_son = self.get_prim(parent_id).get_grand_son();
+                self.get_prim(id as i16).set_grand_son(grand_son);
+                self.get_prim(new_root as i16).set_grand_son(id as i16);
             }
             // self.prim_slots[idx].m_Attribute |= 0x40;
         }
@@ -394,23 +394,23 @@ impl PrimManager {
         self.prim_init_with_type(new_root as i16, PrimType::PrimTypeGroup);
         self.unlink_prim(id as i16);
 
-        let mut prim = self.get_prim(id as i16);
-        prim.set_parent(new_root as i16);
-        prim.set_grand_son(INVAILD_PRIM_HANDLE);
+        //let mut prim = self.get_prim(id as i16);
+        self.get_prim(id as i16).set_parent(new_root as i16);
+        self.get_prim(id as i16).set_grand_son(INVAILD_PRIM_HANDLE);
 
-        let mut root_prim = self.get_prim(new_root as i16);
-        if root_prim.get_child() == INVAILD_PRIM_HANDLE {
-            prim.set_grand_parent(INVAILD_PRIM_HANDLE);
-            root_prim.set_child(id as i16);
+        //let mut root_prim = self.get_prim(new_root as i16);
+        if self.get_prim(new_root as i16).get_child() == INVAILD_PRIM_HANDLE {
+            self.get_prim(id as i16).set_grand_parent(INVAILD_PRIM_HANDLE);
+            self.get_prim(new_root as i16).set_child(id as i16);
         } else {
-            let arg2 = root_prim.get_group_args2();
-            prim.set_grand_parent(arg2);
+            let arg2 = self.get_prim(new_root as i16).get_group_args2();
+            self.get_prim(id as i16).set_grand_parent(arg2);
 
             let arg2 = self.get_prim(arg2).get_group_args2();
-            let mut prim2 = self.get_prim(arg2);
-            prim2.set_grand_son(id as i16);
+            //let mut prim2 = self.get_prim(arg2);
+            self.get_prim(arg2).set_grand_son(id as i16);
         }
-        root_prim.set_group_args2(id as i16);
+        self.get_prim(new_root as i16).set_group_args2(id as i16);
         // self.prim_slots[idx].m_Attribute |= 0x40;
     }
 
