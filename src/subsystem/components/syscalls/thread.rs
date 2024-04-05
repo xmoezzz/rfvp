@@ -8,60 +8,56 @@ use super::Syscaller;
 /// exit thread by id
 pub fn thread_exit(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     let id = if let Variant::Int(id) = id {
-        *id
+        if !(0..32).contains(id) {
+            log::error!("thread_exit: invalid id");
+            return Ok(Variant::Nil);
+        }
+        Some(*id as u32)
     } else {
-        log::error!("thread_exit: invalid id type");
-        return Ok(Variant::Nil);
+        None
     };
 
-    if !(0..32).contains(&id) {
-        log::error!("thread_exit: invalid id");
-        return Ok(Variant::Nil);
-    }
     game_data
-        .script_scheduler
-        .borrow_mut()
-        .thread_exit(id as u32)?;
+        .thread_manager
+        .thread_exit(id);
     Ok(Variant::Nil)
 }
 
 /// yield to the next thread
 pub fn thread_next(game_data: &mut GameData) -> Result<Variant> {
-    game_data.script_scheduler.borrow_mut().thread_yield()?;
+    game_data.thread_manager.thread_next();
     Ok(Variant::Nil)
 }
 
 /// raise the thread
-pub fn thread_raise(_game_data: &mut GameData, id: &Variant) -> Result<Variant> {
-    let id = if let Variant::Int(id) = id {
-        *id
+pub fn thread_raise(game_data: &mut GameData, time: &Variant) -> Result<Variant> {
+    let time = if let Variant::Int(time) = time {
+        *time as u32
     } else {
         log::error!("thread_raise: invalid id type");
         return Ok(Variant::Nil);
     };
 
-    if !(0..32).contains(&id) {
-        log::error!("thread_raise: invalid id");
-        return Ok(Variant::Nil);
-    }
-    log::warn!("thread_raise is not implemented");
+    game_data
+        .thread_manager
+        .thread_raise(time);
+
     Ok(Variant::Nil)
 }
 
 /// sleep the thread
-pub fn thread_sleep(_game_data: &mut GameData, id: &Variant) -> Result<Variant> {
-    let id = if let Variant::Int(id) = id {
-        *id
+pub fn thread_sleep(game_data: &mut GameData, time: &Variant) -> Result<Variant> {
+    let time = if let Variant::Int(time) = time {
+        *time as u32
     } else {
         log::error!("thread_sleep: invalid id type");
         return Ok(Variant::Nil);
     };
 
-    if !(0..32).contains(&id) {
-        log::error!("thread_sleep: invalid id");
-        return Ok(Variant::Nil);
-    }
-    log::warn!("thread_sleep is not implemented");
+    game_data
+        .thread_manager
+        .thread_sleep(time);
+
     Ok(Variant::Nil)
 }
 
@@ -85,10 +81,11 @@ pub fn thread_start(game_data: &mut GameData, id: &Variant, addr: &Variant) -> R
         log::error!("thread_exit: invalid id");
         return Ok(Variant::Nil);
     }
+
     game_data
-        .script_scheduler
-        .borrow_mut()
-        .thread_start(id as u32, addr as u32)?;
+        .thread_manager
+        .thread_start(id as u32, addr as u32);
+    
     Ok(Variant::Nil)
 }
 
@@ -107,9 +104,8 @@ pub fn thread_wait(game_data: &mut GameData, time: &Variant) -> Result<Variant> 
     }
 
     game_data
-        .script_scheduler
-        .borrow_mut()
-        .thread_wait(time as u32)?;
+        .thread_manager
+        .thread_wait(time as u32);
     Ok(Variant::Nil)
 }
 

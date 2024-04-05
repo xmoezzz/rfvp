@@ -95,6 +95,7 @@ use super::resources::input_manager::InputManager;
 use super::resources::save_manager::SaveManager;
 use super::resources::text_manager::FontEnumerator;
 use super::resources::scripter::ScriptScheduler;
+use super::resources::thread_manager::ThreadManager;
 use super::resources::timer_manager::TimerManager;
 use super::resources::vfs::Vfs;
 use super::resources::color_manager::ColorManager;
@@ -126,7 +127,8 @@ pub struct GameData {
     pub(crate) subworld: SubWorld,
     pub(crate) resources: Resources,
     pub(crate) vfs: Vfs,
-    pub(crate) script_scheduler: Rc<RefCell<ScriptScheduler>>,
+    pub(crate) script_scheduler: ScriptScheduler,
+    pub(crate) thread_manager: ThreadManager,
     pub(crate) history_manager: HistoryManager,
     pub(crate) flag_manager: FlagManager,
     pub(crate) motion_manager: MotionManager,
@@ -260,13 +262,6 @@ impl GameData {
 
     pub fn get_cache(&self) -> Vec<u8> {
         self.memory_cache.clone()
-    }
-
-    pub fn break_current_thread(&mut self) {
-        let mut ss = self.script_scheduler.borrow_mut();
-        if let Some(th) = ss.get_current_thread() {
-            th.set_should_break(true);
-        }
     }
 }
 

@@ -17,14 +17,6 @@ pub struct StackFrame {
     pub locals_count: u16,
 }
 
-#[derive(Debug, PartialEq, Clone, Default)]
-pub enum ContextState {
-    #[default]
-    Running,
-    Suspended,
-    Yielded,
-}
-
 /// implementation of the virtual machine
 /// stack layout:
 /// |-----------------|
@@ -35,6 +27,7 @@ pub enum ContextState {
 /// |-----------------|
 /// | local(0)        | <- cur_stack_base
 ///
+#[derive(Debug, Clone)]
 pub struct Context {
     /// the context id
     id: u64,
@@ -48,12 +41,17 @@ pub struct Context {
     cur_stack_base: usize,
     start_addr: u32,
     return_value: Variant,
-    state: ContextState,
+    state: u32,
     wait_ms: u64,
     should_exit: bool,
     should_break: bool,
 }
 
+pub const CONTEXT_STATUS_NONE: u32 = 0;
+pub const CONTEXT_STATUS_RUNNING: u32 = 1;
+pub const CONTEXT_STATUS_WAIT: u32 = 2;
+pub const CONTEXT_STATUS_SLEEP: u32 = 4;
+pub const CONTEXT_STATUS_DISSOLVE_WAIT: u32 = 16;
 
 impl Context {
     pub fn new(start_addr: u32) -> Self {
@@ -65,7 +63,7 @@ impl Context {
             cur_stack_base: 0,
             start_addr,
             return_value: Variant::Nil,
-            state: ContextState::Running,
+            state: CONTEXT_STATUS_NONE,
             wait_ms: 0,
             should_exit: false,
             should_break: false,
@@ -89,6 +87,10 @@ impl Context {
 
     pub fn set_should_break(&mut self, should_break: bool) {
         self.should_break = should_break;
+    }
+
+    pub fn should_break(&self) -> bool {
+        self.should_break
     }
 
     fn to_global_offset(&self) -> Result<usize> {
@@ -907,56 +909,19 @@ impl Context {
         self.wait_ms = wait_ms;
     }
 
+    pub fn get_status(&self) -> u32 {
+        self.state
+    }
+
+    pub fn set_status(&mut self, state: u32) {
+        self.state = state;
+    }
+
     /// is the main context
     pub fn is_main(&self) -> bool {
         self.id == 0
     }
-
-    /// how many time have been escaped
-    pub fn elapsed(&mut self, escaped_ms: u64) {
-        if self.wait_ms >= escaped_ms {
-            self.wait_ms -= escaped_ms;
-        } else {
-            self.wait_ms == 0;
-        }
-
-        // If the context is waiting and the waiting time is over, then it is ready to run
-        if self.wait_ms == 0 && self.is_suspended() {
-            self.state = ContextState::Running;
-        }
-    }
-
-    /// the context is ready to be scheduled
-    pub fn is_running(&self) -> bool {
-        self.state == ContextState::Running
-    }
-
-    /// the context is suspended
-    pub fn is_suspended(&self) -> bool {
-        self.state == ContextState::Suspended
-    }
-
-    /// set the context to suspended
-    pub fn set_suspended(&mut self, wait_ms: u64) {
-        self.state = ContextState::Suspended;
-        self.wait_ms = wait_ms;
-    }
-
-    /// the context is yielded
-    pub fn is_yielded(&self) -> bool {
-        self.state == ContextState::Yielded
-    }
-
-    /// set the context to yield
-    pub fn set_yielded(&mut self) {
-        self.state = ContextState::Yielded;
-    }
-
-    /// set the context to run
-    pub fn set_running(&mut self) {
-        self.state = ContextState::Running;
-    }
-
+    
     pub fn set_exited(&mut self) {
         self.should_exit = true;
     }

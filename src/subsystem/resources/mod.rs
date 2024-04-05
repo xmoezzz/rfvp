@@ -21,3 +21,4 @@ pub mod parts_manager;
 pub mod videoplayer;
 pub mod gaiji_manager;
 pub mod save_manager;
+pub mod thread_manager;

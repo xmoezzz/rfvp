@@ -1,16 +1,23 @@
 use anyhow::Result;
 use std::{
-    cell::RefCell, path::{Path, PathBuf}, process::exit, rc::Rc, sync::Arc
+    cell::{RefCell, RefMut},
+    path::{Path, PathBuf},
+    process::exit,
+    rc::Rc,
+    sync::Arc,
 };
-
 
 use crate::{
     rendering,
     script::{
-        global::Global,
-        parser::{Nls, Parser},
+        context::{
+            Context, CONTEXT_STATUS_DISSOLVE_WAIT, CONTEXT_STATUS_RUNNING, CONTEXT_STATUS_WAIT,
+        }, global::Global, opcode::Opcode, parser::{Nls, Parser}, VmSyscall
     },
-    subsystem::resources::scripter::ScriptScheduler,
+    subsystem::{
+        components::syscalls::other_anm::Dissolve,
+        resources::{motion_manager::DissolveType, scripter::ScriptScheduler},
+    },
 };
 use winit::dpi::{PhysicalSize, Size};
 use winit::{
@@ -40,7 +47,6 @@ pub struct App {
     renderer: Option<RendererState>,
     parser: Parser,
     global: Global,
-    script_engine: Rc<RefCell<ScriptScheduler>>,
 }
 
 impl App {
@@ -126,9 +132,170 @@ impl App {
         });
     }
 
-    #[inline]
-    fn sixty_fps_time() -> u64 {
-        16
+    // #[inline]
+    // fn dispatch_opcode(mut ctx: RefMut<'_, Context>, syscaller: &mut impl VmSyscall, parser: &mut Parser, global: &mut Global) -> Result<()> {
+    //     let opcode = parser.read_u8(ctx.get_pc())? as i32;
+        
+    //     match opcode.try_into() {
+    //         Ok(Opcode::Nop) => {
+    //             ctx.nop()?;
+    //         }
+    //         Ok(Opcode::InitStack) => {
+    //             ctx.init_stack(&mut self.parser)?;
+    //         }
+    //         Ok(Opcode::Call) => {
+    //             ctx.call(&mut self.parser)?;
+    //         }
+    //         Ok(Opcode::Syscall) => {
+    //             ctx.syscall(syscaller, parser)?;
+    //         }
+    //         Ok(Opcode::Ret) => {
+    //             ctx.ret()?;
+    //         }
+    //         Ok(Opcode::RetV) => {
+    //             ctx.retv()?;
+    //         }
+    //         Ok(Opcode::Jmp) => {
+    //             ctx.jmp(&mut self.parser)?;
+    //         }
+    //         Ok(Opcode::Jz) => {
+    //             ctx.jz(&mut self.parser)?;
+    //         }
+    //         Ok(Opcode::PushNil) => {
+    //             ctx.push_nil()?;
+    //         }
+    //         Ok(Opcode::PushTrue) => {
+    //             ctx.push_true()?;
+    //         }
+    //         Ok(Opcode::PushI32) => {
+    //             ctx.push_i32(&mut self.parser)?;
+    //         }
+    //         Ok(Opcode::PushI16) => {
+    //             ctx.push_i16(&mut self.parser)?;
+    //         }
+    //         Ok(Opcode::PushI8) => {
+    //             ctx.push_i8(&mut self.parser)?;
+    //         }
+    //         Ok(Opcode::PushF32) => {
+    //             ctx.push_f32(&mut self.parser)?;
+    //         }
+    //         Ok(Opcode::PushString) => {
+    //             ctx.push_string(&mut self.parser)?;
+    //         }
+    //         Ok(Opcode::PushGlobal) => {
+    //             ctx.push_global(parser, global)?;
+    //         }
+    //         Ok(Opcode::PushStack) => {
+    //             ctx.push_stack(&mut self.parser)?;
+    //         }
+    //         Ok(Opcode::PushGlobalTable) => {
+    //             ctx.push_global_table(parser, global)?;
+    //         }
+    //         Ok(Opcode::PushLocalTable) => {
+    //             ctx.push_local_table(&mut self.parser)?;
+    //         }
+    //         Ok(Opcode::PushTop) => {
+    //             ctx.push_top()?;
+    //         }
+    //         Ok(Opcode::PushReturn) => {
+    //             ctx.push_return_value()?;
+    //         }
+    //         Ok(Opcode::PopGlobal) => {
+    //             ctx.pop_global(parser, global)?;
+    //         }
+    //         Ok(Opcode::PopStack) => {
+    //             ctx.local_copy(&mut self.parser)?;
+    //         }
+    //         Ok(Opcode::PopGlobalTable) => {
+    //             ctx.pop_global_table(parser, global)?;
+    //         }
+    //         Ok(Opcode::PopLocalTable) => {
+    //             ctx.pop_local_table(&mut self.parser)?;
+    //         }
+    //         Ok(Opcode::Neg) => {
+    //             ctx.neg()?;
+    //         }
+    //         Ok(Opcode::Add) => {
+    //             ctx.add()?;
+    //         }
+    //         Ok(Opcode::Sub) => {
+    //             ctx.sub()?;
+    //         }
+    //         Ok(Opcode::Mul) => {
+    //             ctx.mul()?;
+    //         }
+    //         Ok(Opcode::Div) => {
+    //             ctx.div()?;
+    //         }
+    //         Ok(Opcode::Mod) => {
+    //             ctx.modulo()?;
+    //         }
+    //         Ok(Opcode::BitTest) => {
+    //             ctx.bittest()?;
+    //         }
+    //         Ok(Opcode::And) => {
+    //             ctx.and()?;
+    //         }
+    //         Ok(Opcode::Or) => {
+    //             ctx.or()?;
+    //         }
+    //         Ok(Opcode::SetE) => {
+    //             ctx.sete()?;
+    //         }
+    //         Ok(Opcode::SetNE) => {
+    //             ctx.setne()?;
+    //         }
+    //         Ok(Opcode::SetG) => {
+    //             ctx.setg()?;
+    //         }
+    //         Ok(Opcode::SetLE) => {
+    //             ctx.setle()?;
+    //         }
+    //         Ok(Opcode::SetL) => {
+    //             ctx.setl()?;
+    //         }
+    //         Ok(Opcode::SetGE) => {
+    //             ctx.setge()?;
+    //         }
+    //         _ => {
+    //             ctx.nop()?;
+    //             log::error!("unknown opcode: {}", opcode);
+    //         }
+    //     };
+
+    //     Ok(())
+    // }
+
+    fn exec_script_bytecode(&mut self, id: u32, frame_time: u64) {
+        // let ctx = self.game_data.thread_manager.get_thread(id);
+        let dissolve_type = self.game_data.motion_manager.get_dissolve_type();
+        let status = self.game_data.thread_manager.get_thread(id).get_status();
+        if status & CONTEXT_STATUS_WAIT != 0 {
+            let wait_time = self.game_data.thread_manager.get_thread(id).get_waiting_time();
+            if wait_time > frame_time {
+                self.game_data.thread_manager.get_thread(id).set_waiting_time(wait_time - frame_time);
+            } else {
+                self.game_data.thread_manager.get_thread(id).set_waiting_time(0);
+                self.game_data.thread_manager.get_thread(id).set_status(status & 0xFFFFFFFD);
+            }
+        }
+
+        // dissolve wait
+        if status & CONTEXT_STATUS_DISSOLVE_WAIT != 0
+            && (dissolve_type == DissolveType::None || dissolve_type == DissolveType::Static)
+        {
+            self.game_data.thread_manager.get_thread(id).set_status(status & 0xFFFFFFEF);
+        }
+
+        if status & CONTEXT_STATUS_RUNNING != 0 {
+            self.game_data.thread_manager.get_thread(id).set_should_break(false);
+            while !self.game_data.thread_manager.get_thread(id).should_break() {
+                let mut ctx = self.game_data.thread_manager.get_thread(id);
+                let result = ctx.dispatch_opcode(&mut self.game_data, &mut self.parser, &mut self.global); // Pass game_data instead of self.game_data
+                
+            }
+        }
+
     }
 
     fn next_frame(&mut self) {
@@ -139,30 +306,20 @@ impl App {
             .frame();
         self.game_data.timers().add_delta_duration(frame_duration);
 
-        let rendering_time = std::time::Instant::now();
         self.layer_machine
             .apply_scene_action(SceneAction::Update, &mut self.game_data);
         self.scheduler.execute(&mut self.game_data);
         self.layer_machine
             .apply_scene_action(SceneAction::LateUpdate, &mut self.game_data);
 
-        let rendering_time = rendering_time.elapsed().as_millis() as u64;
-        let script_time = if rendering_time < Self::sixty_fps_time() {
-            Self::sixty_fps_time() - rendering_time
-        } else {
-            5 // 5ms is the minimum time we want to give to the script engine
-        };
-
-        if let Err(e) = self.script_engine.borrow_mut().execute(
-            rendering_time,
-            script_time,
-            &mut self.game_data,
-            &mut self.parser,
-            &mut self.global,
-        ) {
-            log::error!("script error: {:?}", e);
-            exit(1);
+        for i in 0..self.game_data.thread_manager.total_contexts() {
+            if !self.game_data.thread_manager.get_should_break() {
+                self.game_data.thread_manager.set_current_id(i as u32);
+                self.exec_script_bytecode(i as u32, frame_duration.as_micros() as u64);
+            }
         }
+        self.game_data.thread_manager.set_current_id(0);
+
         self.update_cursor();
         // self.game_data.inputs().reset_inputs();
         self.game_data.events().cleanup();
@@ -313,13 +470,13 @@ impl AppBuilder {
         let renderer_state =
             futures::executor::block_on(RendererState::new(window.clone(), renderer));
 
-        let script_engine = Rc::new(RefCell::new(self.script_engine));
-        self.world.script_scheduler = script_engine.clone();
+        self.world.script_scheduler = self.script_engine;
         let entry_point = self.parser.get_entry_point();
         let non_volatile_global_count = self.parser.get_non_volatile_global_count();
         let volatile_global_count = self.parser.get_volatile_global_count();
-        self.global.init_with(non_volatile_global_count, volatile_global_count);
-        self.world.script_scheduler.borrow_mut().start_main(entry_point);
+        self.global
+            .init_with(non_volatile_global_count, volatile_global_count);
+        self.world.thread_manager.start_main(entry_point);
         self.world.nls = self.parser.nls.clone();
 
         let mut app = App {
@@ -333,15 +490,13 @@ impl AppBuilder {
             renderer: Some(renderer_state),
             parser: self.parser,
             global: self.global,
-            script_engine,
         };
 
         app.setup();
         app.run(event_loop);
     }
 
-    fn add_late_internal_systems_to_schedule(&mut self) {
-    }
+    fn add_late_internal_systems_to_schedule(&mut self) {}
 }
 
 #[cfg(test)]
