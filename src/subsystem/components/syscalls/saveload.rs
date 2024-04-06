@@ -288,7 +288,7 @@ pub fn load(game_data: &mut GameData, slot: &Variant) -> Result<Variant> {
         if (0..1000).contains(&slot) {
             game_data.save_manager.set_current_save_slot(slot);
             game_data.save_manager.set_should_load(true);
-            game_data.thread_manager.set_should_break(true);
+            game_data.thread_wrapper.should_break();
         }
     }
 

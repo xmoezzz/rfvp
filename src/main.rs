@@ -7,7 +7,7 @@ mod config;
 
 
 use script::{global::Global, parser::{Nls, Parser}};
-use subsystem::{resources::scripter::ScriptScheduler, world::World};
+use subsystem::{resources::thread_manager::ThreadManager, world::World};
 
 use crate::{
     config::{
@@ -60,7 +60,7 @@ fn main() -> Result<()> {
     let parser = load_script(Nls::ShiftJIS)?;
     let title  = parser.get_title();
     let size = parser.get_screen_size();
-    let script_engine = ScriptScheduler::new();
+    let script_engine = ThreadManager::new();
 
     App::app_with_config(app_config(&title, size))
         .with_scene::<MainScene>()

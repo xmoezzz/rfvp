@@ -94,8 +94,8 @@ use super::resources::history_manager::HistoryManager;
 use super::resources::input_manager::InputManager;
 use super::resources::save_manager::SaveManager;
 use super::resources::text_manager::FontEnumerator;
-use super::resources::scripter::ScriptScheduler;
 use super::resources::thread_manager::ThreadManager;
+use super::resources::thread_wrapper::ThreadWrapper;
 use super::resources::timer_manager::TimerManager;
 use super::resources::vfs::Vfs;
 use super::resources::color_manager::ColorManager;
@@ -127,8 +127,7 @@ pub struct GameData {
     pub(crate) subworld: SubWorld,
     pub(crate) resources: Resources,
     pub(crate) vfs: Vfs,
-    pub(crate) script_scheduler: ScriptScheduler,
-    pub(crate) thread_manager: ThreadManager,
+    pub(crate) thread_wrapper: ThreadWrapper,
     pub(crate) history_manager: HistoryManager,
     pub(crate) flag_manager: FlagManager,
     pub(crate) motion_manager: MotionManager,
@@ -430,7 +429,7 @@ impl Resources {
         let type_id = &ResourceTypeId::of::<T>();
         self.internal_resources
             .storage
-            .get(&type_id)
+            .get(type_id)
             .map(|x| x.get::<T>())
     }
 
@@ -438,7 +437,7 @@ impl Resources {
         let type_id = &ResourceTypeId::of::<T>();
         self.internal_resources
             .storage
-            .get(&type_id)
+            .get(type_id)
             .map(|x| x.get_mut::<T>())
     }
 
