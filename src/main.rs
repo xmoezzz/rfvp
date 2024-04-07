@@ -6,15 +6,14 @@ mod rendering;
 mod config;
 
 
-use script::{global::Global, parser::{Nls, Parser}};
-use subsystem::{resources::thread_manager::ThreadManager, world::World};
+use script::parser::{Nls, Parser};
+use subsystem::{anzu_scene::AnzuScene, resources::thread_manager::ThreadManager};
 
 use crate::{
     config::{
         logger_config::LoggerConfig, app_config::{AppConfigBuilder, AppConfig},
         window_config::WindowConfigBuilder,
     },
-    subsystem::scene::Scene,
     app::App,
     utils::file::app_base_path,
 };
@@ -24,16 +23,6 @@ use crate::subsystem::world::GameData;
 use anyhow::Result;
 use log::LevelFilter;
 
-
-#[derive(Default)]
-pub struct MainScene {
-}
-
-impl Scene for MainScene {
-    fn on_start(&mut self, data: &mut GameData) {
-        data.add_default_camera();
-    }
-}
 
 fn app_config(title: &str, size: (u32, u32)) -> AppConfig {
     AppConfigBuilder::new()
@@ -63,11 +52,10 @@ fn main() -> Result<()> {
     let script_engine = ThreadManager::new();
 
     App::app_with_config(app_config(&title, size))
-        .with_scene::<MainScene>()
+        .with_scene::<AnzuScene>()
         .with_script_engine(script_engine)
         .with_window_title(&title)
         .with_window_size(size)
-        .with_global(Global::new())
         .with_parser(parser)
         .with_vfs(Nls::ShiftJIS)?
         .run();

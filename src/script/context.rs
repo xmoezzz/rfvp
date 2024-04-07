@@ -1,6 +1,7 @@
 
 use std::mem::size_of;
 
+use crate::script::global::GLOBAL;
 use crate::script::parser::Parser;
 use crate::script::Variant;
 use crate::script::VmSyscall;
@@ -499,14 +500,14 @@ impl Context {
 
     /// 0x0F push global
     /// push a global variable onto the stack
-    pub fn push_global(&mut self, parser: &mut Parser, global: &mut Global) -> Result<()> {
+    pub fn push_global(&mut self, parser: &mut Parser) -> Result<()> {
         self.cursor += 1;
         let key = parser.read_u16(self.cursor)?;
         self.cursor += size_of::<u16>();
 
         log::info!("push_global: {:x}", key);
 
-        if let Some(value) = global.get(key) {
+        if let Some(value) = GLOBAL.lock().unwrap().get(key) {
             self.push(value.clone())?;
             log::info!("global: {:?}", &value);
         } else {
@@ -533,14 +534,14 @@ impl Context {
     /// push a value than stored in the global table by immediate key onto the stack
     /// we assume that if any failure occurs, such as the key not found, 
     /// we will push a nil value onto the stack for compatibility reasons.
-    pub fn push_global_table(&mut self, parser: &mut Parser, global: &mut Global) -> Result<()> {
+    pub fn push_global_table(&mut self, parser: &mut Parser) -> Result<()> {
         self.cursor += 1;
         let key = parser.read_u16(self.cursor)?;
         self.cursor += size_of::<u16>();
 
         let top = self.pop()?;
         log::info!("push_global_table: {:x} {:?}", key, &top);
-        if let Some(table) = global.get_mut(key) {
+        if let Some(table) = GLOBAL.lock().unwrap().get_mut(key) {
             if let Some(table) = table.as_table() {
                 if let Some(table_key) = top.as_int() {
                     if let Some(value) = table.get(table_key as u32) {
@@ -615,13 +616,13 @@ impl Context {
 
     /// 0x15 pop global
     /// pop the top of the stack and store it in the global table
-    pub fn pop_global(&mut self, parser: &mut Parser, global: &mut Global) -> Result<()> {
+    pub fn pop_global(&mut self, parser: &mut Parser) -> Result<()> {
         self.cursor += 1;
         let key = parser.read_u16(self.cursor)?;
         self.cursor += size_of::<u16>();
 
         let value = self.pop()?;
-        global.set(key, value);
+        GLOBAL.lock().unwrap().set(key, value);
         Ok(())
     }
 
@@ -640,7 +641,7 @@ impl Context {
 
     /// 0x17 pop global table
     /// pop the top of the stack and store it in the global table by key
-    pub fn pop_global_table(&mut self, parser: &mut Parser, global: &mut Global) -> Result<()> {
+    pub fn pop_global_table(&mut self, parser: &mut Parser) -> Result<()> {
         self.cursor += 1;
         let key = parser.read_u16(self.cursor)?;
         self.cursor += size_of::<u16>();
@@ -648,7 +649,7 @@ impl Context {
         let value = self.pop()?;
         let mkey = self.pop()?;
 
-        if let Some(table) = global.get_mut(key) {
+        if let Some(table) = GLOBAL.lock().unwrap().get_mut(key) {
             // cast to table if it is not
             if !table.is_table() {
                 table.cast_table();
@@ -931,7 +932,7 @@ impl Context {
     }
 
     #[inline]
-    pub fn dispatch_opcode(&mut self, syscaller: &mut impl VmSyscall, parser: &mut Parser, global: &mut Global) -> Result<()> {
+    pub fn dispatch_opcode(&mut self, syscaller: &mut impl VmSyscall, parser: &mut Parser) -> Result<()> {
         let opcode = parser.read_u8(self.get_pc())? as i32;
         
         match opcode.try_into() {
@@ -981,13 +982,13 @@ impl Context {
                 self.push_string(parser)?;
             }
             Ok(Opcode::PushGlobal) => {
-                self.push_global(parser, global)?;
+                self.push_global(parser)?;
             }
             Ok(Opcode::PushStack) => {
                 self.push_stack(parser)?;
             }
             Ok(Opcode::PushGlobalTable) => {
-                self.push_global_table(parser, global)?;
+                self.push_global_table(parser)?;
             }
             Ok(Opcode::PushLocalTable) => {
                 self.push_local_table(parser)?;
@@ -999,13 +1000,13 @@ impl Context {
                 self.push_return_value()?;
             }
             Ok(Opcode::PopGlobal) => {
-                self.pop_global(parser, global)?;
+                self.pop_global(parser)?;
             }
             Ok(Opcode::PopStack) => {
                 self.local_copy(parser)?;
             }
             Ok(Opcode::PopGlobalTable) => {
-                self.pop_global_table(parser, global)?;
+                self.pop_global_table(parser)?;
             }
             Ok(Opcode::PopLocalTable) => {
                 self.pop_local_table(parser)?;

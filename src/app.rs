@@ -8,7 +8,7 @@ use crate::{
     script::{
         context::{
             CONTEXT_STATUS_DISSOLVE_WAIT, CONTEXT_STATUS_RUNNING, CONTEXT_STATUS_WAIT,
-        }, global::Global,parser::{Nls, Parser}, 
+        }, global::{Global, GLOBAL},parser::{Nls, Parser}, 
     },
     subsystem::resources::{motion_manager::DissolveType, thread_manager::ThreadManager, thread_wrapper::ThreadRequest},
 };
@@ -39,7 +39,6 @@ pub struct App {
     window: Option<Arc<Window>>,
     renderer: Option<RendererState>,
     parser: Parser,
-    global: Global,
     thread_manager: ThreadManager,
 }
 
@@ -151,7 +150,7 @@ impl App {
             self.thread_manager.get_thread(id).set_should_break(false);
             while !self.thread_manager.get_thread(id).should_break() {
                 // let mut ctx = self.thread_manager.get_thread(id);
-                let result = self.thread_manager.get_thread(id).dispatch_opcode(&mut self.game_data, &mut self.parser, &mut self.global);
+                let result = self.thread_manager.get_thread(id).dispatch_opcode(&mut self.game_data, &mut self.parser);
                 if let Err(e) = result {
                     log::error!("Error while executing the script {:?}", e);
                     std::process::exit(1);
@@ -262,7 +261,6 @@ pub struct AppBuilder {
     title: String,
     size: (u32, u32),
     parser: Parser,
-    global: Global,
     script_engine: ThreadManager,
 }
 
@@ -277,7 +275,6 @@ impl AppBuilder {
             title: Default::default(),
             size: Default::default(),
             parser: Default::default(),
-            global: Default::default(),
             script_engine: Default::default(),
         };
         builder.with_package(InternalPackage)
@@ -332,11 +329,6 @@ impl AppBuilder {
         self
     }
 
-    pub fn with_global(mut self, global: Global) -> Self {
-        self.global = global;
-        self
-    }
-
     /// Builds, setups and runs the Scion application, must be called at the end of the building process.
     pub fn run(mut self) {
         let event_loop = EventLoop::new().expect("Event loop could not be created");
@@ -363,8 +355,7 @@ impl AppBuilder {
         let entry_point = self.parser.get_entry_point();
         let non_volatile_global_count = self.parser.get_non_volatile_global_count();
         let volatile_global_count = self.parser.get_volatile_global_count();
-        self.global
-            .init_with(non_volatile_global_count, volatile_global_count);
+        GLOBAL.lock().unwrap().init_with(non_volatile_global_count, volatile_global_count);
         self.script_engine.start_main(entry_point);
         self.world.nls = self.parser.nls.clone();
 
@@ -378,7 +369,6 @@ impl AppBuilder {
             window: Some(window.clone()),
             renderer: Some(renderer_state),
             parser: self.parser,
-            global: self.global,
             thread_manager: self.script_engine,
         };
 

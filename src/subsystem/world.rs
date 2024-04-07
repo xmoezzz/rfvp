@@ -1,10 +1,8 @@
 use std::any::TypeId;
 
-use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::hash::Hasher;
-use std::rc::Rc;
 
 use crate::script::parser::Nls;
 use crate::script::{Variant, VmSyscall};
@@ -175,7 +173,7 @@ impl GameData {
         self.resources
             .internal_resources
             .storage
-            .get(&type_id)
+            .get(type_id)
             .map(|x| x.get::<T>())
     }
 
@@ -184,7 +182,7 @@ impl GameData {
         self.resources
             .internal_resources
             .storage
-            .get(&type_id)
+            .get(type_id)
             .map(|x| x.get_mut::<T>())
     }
 
