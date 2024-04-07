@@ -5,14 +5,14 @@ use log::debug;
 
 use crate::config::logger_config::LoggerConfig;
 
-/// Logging utility provided by Scion
+/// Logging utility
 pub(crate) struct Logger;
 
 #[allow(clippy::format_in_format_args)]
 impl Logger {
     /// This will create and apply a logging dispatcher based upon fern.
     /// If None is provided, LoggerConfig::Default will be used.
-    /// In every case, will be called at `Scion` app init, and this will try to
+    /// In every case, will be called at app init, and this will try to
     /// apply a logging config. If one already exists, it won't replace it.
     pub fn init_logging(config: Option<LoggerConfig>) {
         let config = config.unwrap_or_default();

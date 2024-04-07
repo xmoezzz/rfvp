@@ -8,7 +8,7 @@ use crate::{
     script::{
         context::{
             CONTEXT_STATUS_DISSOLVE_WAIT, CONTEXT_STATUS_RUNNING, CONTEXT_STATUS_WAIT,
-        }, global::{Global, GLOBAL},parser::{Nls, Parser}, 
+        }, global::GLOBAL, parser::{Nls, Parser}, 
     },
     subsystem::resources::{motion_manager::DissolveType, thread_manager::ThreadManager, thread_wrapper::ThreadRequest},
 };
@@ -286,7 +286,7 @@ impl AppBuilder {
         self
     }
 
-    /// Specify which render type you want to use. Note that by default if not set, `Scion` will use [`crate::rendering::RendererType::Scion2D`].
+    /// Specify which render type you want to use.
     pub fn with_renderer(mut self, renderer_type: RendererType) -> Self {
         self.renderer = renderer_type;
         self
@@ -329,7 +329,7 @@ impl AppBuilder {
         self
     }
 
-    /// Builds, setups and runs the Scion application, must be called at the end of the building process.
+    /// Builds, setups and runs the application, must be called at the end of the building process.
     pub fn run(mut self) {
         let event_loop = EventLoop::new().expect("Event loop could not be created");
         event_loop.set_control_flow(ControlFlow::Poll);

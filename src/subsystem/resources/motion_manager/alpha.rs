@@ -127,7 +127,7 @@ impl AlphaMotion {
 
     pub fn update(
         &mut self,
-        prim_manager: &AtomicRefCell<PrimManager>,
+        prim_manager: &PrimManager,
         flag: bool,
         elapsed: i32,
     ) -> bool {
@@ -135,7 +135,6 @@ impl AlphaMotion {
             return true;
         }
 
-        let mut prim_manager = prim_manager.borrow_mut();
         let mut prim = prim_manager.get_prim(self.prim_id as i16);
         let custom_root_id = prim_manager.get_custom_root_prim_id();
         if flag {
@@ -303,7 +302,7 @@ impl AlphaMotionContainer {
 
     pub fn exec_alpha_motion(
         &mut self,
-        prim_manager: &AtomicRefCell<PrimManager>,
+        prim_manager: &PrimManager,
         flag: bool,
         elapsed: i32,
     ) {

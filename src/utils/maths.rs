@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// The standard way to communicate a position in 3 dimensions in `Scion`
+/// The standard way to communicate a position in 3 dimensions
 #[derive(Eq, PartialEq, Hash, Clone, Debug, Serialize, Deserialize)]
 pub struct Position {
     x: usize,
@@ -26,7 +26,7 @@ impl Position {
     }
 }
 
-/// The standard way to communicate 3D sizes in `Scion`
+/// The standard way to communicate 3D sizes
 pub struct Dimensions {
     width: usize,
     height: usize,
@@ -51,7 +51,7 @@ impl Dimensions {
     }
 }
 
-/// Struct used in all `Scion` to specify any 2D movement.
+/// Struct used to specify any 2D movement.
 #[derive(Default, Debug, Copy, Clone)]
 pub struct Vector {
     pub(crate) x: f32,

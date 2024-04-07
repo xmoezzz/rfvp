@@ -11,7 +11,7 @@ use crate::{
         material::{Material, Texture},
         maths::{camera::Camera, transform::Transform},
         tiles::sprite::Sprite,
-        ui::{ui_image::UiImage, ui_text::UiTextImage, UiComponent},
+        ui::{ui_image::UiImage, UiComponent},
         Hide, HidePropagated,
     },
     rendering::{
@@ -86,7 +86,6 @@ impl Renderer for Shinku2D {
         self.texture_bind_group_layout = Some(texture_bind_group_layout);
         self.insert_components_pipelines::<Sprite>(&device, &surface_config);
         self.insert_components_pipelines::<UiImage>(&device, &surface_config);
-        self.insert_components_pipelines::<UiTextImage>(&device, &surface_config);
     }
 
     fn update(
@@ -101,7 +100,6 @@ impl Renderer for Shinku2D {
             self.update_transforms(data, &device, queue);
             self.upsert_component_buffers::<Sprite>(data, &device);
             self.upsert_ui_component_buffers::<UiImage>(data, &device, &surface_config, queue);
-            self.upsert_ui_component_buffers::<UiTextImage>(data, &device, &surface_config, queue);
         } else {
             log::warn!("No camera has been found in resources");
         }
@@ -119,7 +117,6 @@ impl Renderer for Shinku2D {
             let mut rendering_infos = Vec::new();
             rendering_infos.append(&mut self.pre_render_component::<Sprite>(data));
             rendering_infos.append(&mut self.pre_render_ui_component::<UiImage>(data));
-            rendering_infos.append(&mut self.pre_render_ui_component::<UiTextImage>(data));
 
             rendering_infos.sort_by(|a, b| b.layer.cmp(&a.layer));
 
@@ -310,7 +307,6 @@ impl Shinku2D {
     fn update_transforms(&mut self, data: &mut GameData, device: &&Device, queue: &mut Queue) {
         self.update_transforms_for_type::<Sprite>(data, &device, queue);
         self.update_transforms_for_type::<UiImage>(data, &device, queue);
-        self.update_transforms_for_type::<UiTextImage>(data, &device, queue);
     }
 
     fn update_transforms_for_type<T: Component + Renderable2D>(
@@ -413,20 +409,20 @@ impl Shinku2D {
                         }
 
                         // Check if this is an in_memory_texture from font_atlas
-                        let loaded_texture = match data.font_atlas().get_texture_from_path(texture_path){
-                            Some(t) => t.take_texture(),
-                            None => Texture::from_png(path)
-                        };
+                        // let loaded_texture = match data.font_atlas().get_texture_from_path(texture_path){
+                        //     Some(t) => t.take_texture(),
+                        //     None => Texture::from_png(path)
+                        // };
 
-                        self.diffuse_bind_groups.insert(
-                            texture_path.clone(),
-                            load_texture_to_queue(
-                                &loaded_texture,
-                                queue,
-                                device,
-                                self.texture_bind_group_layout.as_ref().unwrap(),
-                            ),
-                        );
+                        // self.diffuse_bind_groups.insert(
+                        //     texture_path.clone(),
+                        //     load_texture_to_queue(
+                        //         &loaded_texture,
+                        //         queue,
+                        //         device,
+                        //         self.texture_bind_group_layout.as_ref().unwrap(),
+                        //     ),
+                        // );
 
                         if let Some(Ok(timestamp)) = new_timestamp {
                             self.assets_timestamps.insert(texture_path.clone(), timestamp);

@@ -6,7 +6,6 @@ use crate::script::parser::Parser;
 use crate::script::Variant;
 use crate::script::VmSyscall;
 use crate::script::opcode::Opcode;
-use crate::script::global::Global;
 
 use anyhow::{bail, Result};
 
@@ -207,7 +206,7 @@ impl Context {
 
     fn set_local(&mut self, offset: i8, value: Variant) -> Result<()> {
         let base = self.cur_stack_base as isize;
-        let mut off = match base.checked_add(offset as isize) {
+        let off = match base.checked_add(offset as isize) {
             Some(off) => off,
             None => bail!("stack pointer out of bounds"),
         };

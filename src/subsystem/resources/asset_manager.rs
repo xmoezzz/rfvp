@@ -1,13 +1,11 @@
 use std::{collections::HashMap, marker::PhantomData};
 
 use crate::subsystem::components::material::Material;
-use crate::subsystem::components::ui::font::Font;
 
 /// `AssetManager` is resource that will link assets to an asset ref to allow reusability of assets
 #[derive(Default)]
 pub struct AssetManager {
     materials: HashMap<usize, Material>,
-    fonts: HashMap<usize, Font>,
 }
 
 impl AssetManager {
@@ -18,22 +16,9 @@ impl AssetManager {
             .clone()
     }
 
-    pub(crate) fn get_font_for_ref(&self, asset_ref: &AssetRef<Font>) -> Font {
-        self.fonts
-            .get(&asset_ref.0)
-            .expect("An asset has been requested but does not exist")
-            .clone()
-    }
-
     pub fn register_material(&mut self, material: Material) -> AssetRef<Material> {
         let next_ref = AssetRef(self.materials.keys().count(), PhantomData::default());
         self.materials.insert(next_ref.0, material);
-        next_ref
-    }
-
-    pub fn register_font(&mut self, font: Font) -> AssetRef<Font> {
-        let next_ref = AssetRef(self.fonts.keys().count(), PhantomData::default());
-        self.fonts.insert(next_ref.0, font);
         next_ref
     }
 }

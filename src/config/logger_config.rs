@@ -1,7 +1,7 @@
 use log::LevelFilter;
 use serde::{Deserialize, Serialize};
 
-/// Logger configuration used by Scion.
+/// Logger configuration
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LoggerConfig {
     pub app_level_filter: LevelFilter,

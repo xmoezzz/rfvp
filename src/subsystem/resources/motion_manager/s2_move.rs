@@ -1,6 +1,5 @@
 use anyhow::Result;
 use atomic_refcell::AtomicRefCell;
-use std::{cell::RefCell, sync::Arc};
 
 use crate::subsystem::resources::prim::{PrimManager, INVAILD_PRIM_HANDLE};
 
@@ -174,7 +173,7 @@ impl ScaleMotion {
             }
 
             while next as u16 != custom_root_id {
-                next = prim_manager.get_prim(next as i16).get_parent();
+                next = prim_manager.get_prim(next).get_parent();
                 if next == INVAILD_PRIM_HANDLE {
                     return true;
                 }
@@ -190,7 +189,7 @@ impl ScaleMotion {
                 if next == INVAILD_PRIM_HANDLE {
                     break;
                 }
-                prim = prim_manager.get_prim(next as i16);
+                prim = prim_manager.get_prim(next);
                 if !prim.get_paused() {
                     return true;
                 }
@@ -341,7 +340,7 @@ impl ScaleMotionContainer {
         if self.current_id > 0 {
             self.current_id -= 1;
         }
-        self.allocation_pool[self.current_id as usize] = self.motions[i].get_id() as u16;
+        self.allocation_pool[self.current_id as usize] = self.motions[i].get_id();
         Some(self.current_id)
     }
 

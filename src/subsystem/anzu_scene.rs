@@ -1,5 +1,5 @@
-use super::{resources::{prim::{PrimType, INVAILD_PRIM_HANDLE}, time::Time}, scene::Scene, world::World};
-use crate::GameData;
+use super::{resources::{color_manager::ColorItem, prim::{PrimType, INVAILD_PRIM_HANDLE}, time::Time}, scene::Scene, world::World};
+use crate::{script::global::get_int_var, GameData};
 
 
 #[derive(Default)]
@@ -15,14 +15,20 @@ impl Scene for AnzuScene {
         let frame_duration = game_data
             .get_resource_mut::<Time>()
             .expect("Time is an internal resource and can't be missing")
-            .frame();
+            .frame()
+            .as_millis() as i64;
         
+        self.update_alpha_motions(game_data, frame_duration);
     }
 }
 
 impl AnzuScene {
     pub fn new() -> Self {
         Self {}
+    }
+
+    fn update_alpha_motions(&mut self, game_data: &mut GameData, elapsed: i64) {
+        game_data.motion_manager.update_alpha_motions(elapsed, true);
     }
 
     fn update_prim(&mut self, game_data: &mut GameData, elapsed: u64) {
@@ -125,7 +131,19 @@ impl AnzuScene {
                     .get_prim(prim_id)
                     .get_tile();
                 
-                
+                let mut color = ColorItem::new();
+                color.set_r(get_int_var(5) as u8);
+                color.set_g(get_int_var(6) as u8);
+                color.set_b(get_int_var(7) as u8);
+                color.set_a(get_int_var(8) as u8);
+
+                if tile != -1 {
+                    color = game_data
+                        .color_manager
+                        .get_entry(tile as u8)
+                        .clone();
+                }
+
             },
             PrimType::PrimTypeSprt => {},
             PrimType::PrimTypeText => {},

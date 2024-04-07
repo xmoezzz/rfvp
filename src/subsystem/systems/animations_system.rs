@@ -1,4 +1,3 @@
-use crate::subsystem::components::ui::ui_text::UiText;
 use crate::subsystem::world::{GameData, World};
 use crate::subsystem::{
     components::{
@@ -29,13 +28,12 @@ pub(crate) fn animation_executer_system(data: &mut GameData) {
     let mut timers = resources.timers();
     let mut remove_blink = Vec::new();
     let mut add_blink = Vec::new();
-    for (entity, (animations, mut transform, mut sprite, mut material, mut text, hide)) in subworld
+    for (entity, (animations, mut transform, mut sprite, mut material, hide)) in subworld
         .query_mut::<(
             &mut Animations,
             Option<&mut Transform>,
             Option<&mut Sprite>,
             Option<&mut Material>,
-            Option<&mut UiText>,
             Option<&Hide>,
         )>()
     {
@@ -104,9 +102,6 @@ pub(crate) fn animation_executer_system(data: &mut GameData) {
                                     }
                                     _ => {}
                                 }
-                            }
-                            AnimationModifierType::Text { content: _ } => {
-                                apply_text_modifier(modifier, text.as_mut())
                             }
                         }
                         modifier.current_keyframe += timer_cycle;
@@ -258,20 +253,3 @@ fn apply_blink_modifier(
     None
 }
 
-fn apply_text_modifier(modifier: &mut AnimationModifier, mut text: Option<&mut &mut UiText>) {
-    let mut next_cursor = 0;
-    if let ComputedKeyframeModifier::Text { cursor } = modifier.retrieve_keyframe_modifier() {
-        if let Some(ref mut uitext) = text {
-            if let AnimationModifierType::Text { content } = modifier.modifier_type() {
-                let res = content.as_str()[..*cursor].to_string();
-                uitext.set_text(res);
-                next_cursor = if *cursor < content.len() { cursor + 1 } else { 0 };
-            }
-        }
-    }
-    if let ComputedKeyframeModifier::Text { ref mut cursor } =
-        modifier.retrieve_keyframe_modifier_mut()
-    {
-        *cursor = next_cursor;
-    }
-}

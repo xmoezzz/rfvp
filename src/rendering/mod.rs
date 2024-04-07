@@ -14,7 +14,7 @@ pub(crate) mod renderer_state;
 pub(crate) mod shinku2d;
 pub(crate) mod shaders;
 
-/// Trait to implement in order to create a renderer to use in a `Scion` application
+/// Trait to implement in order to create a renderer to use in the application
 pub trait Renderer {
     fn start(&mut self, device: &Device, surface_config: &SurfaceConfiguration);
 
@@ -42,7 +42,7 @@ pub trait Renderer {
 pub enum RendererType {
     /// Internal 2D Renderer. Will render everything that is in [`bidimensional`]
     #[default]
-    Scion2D,
+    R2D,
     /// Provide your own renderer
     Custom(Box<dyn Renderer>),
 }
@@ -51,7 +51,7 @@ pub enum RendererType {
 impl RendererType {
     pub(crate) fn into_boxed_renderer(self) -> Box<dyn Renderer> {
         match self {
-            RendererType::Scion2D => Box::<Shinku2D>::default(),
+            RendererType::R2D => Box::<Shinku2D>::default(),
             RendererType::Custom(boxed) => boxed,
         }
     }

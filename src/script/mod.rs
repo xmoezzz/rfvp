@@ -80,14 +80,17 @@ impl Variant {
         matches!(self, Variant::Int(_))
     }
 
+    #[allow(dead_code)]
     pub fn is_float(&self) -> bool {
         matches!(self, Variant::Float(_))
     }
 
+    #[allow(dead_code)]
     pub fn is_string(&self) -> bool {
         matches!(self, Variant::String(_)) || matches!(self, Variant::ConstString(_, _))
     }
 
+    #[allow(dead_code)]
     pub fn is_const_string(&self) -> bool {
         matches!(self, Variant::ConstString(_, _))
     }
@@ -96,6 +99,7 @@ impl Variant {
         matches!(self, Variant::Table(_))
     }
 
+    #[allow(dead_code)]
     pub fn is_saved_stack_info(&self) -> bool {
         matches!(self, Variant::SavedStackInfo(_))
     }

@@ -10,11 +10,11 @@ pub(crate) struct RendererState {
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: SurfaceConfiguration,
-    scion_renderer: Box<dyn Renderer>,
+    renderer: Box<dyn Renderer>,
 }
 
 impl RendererState {
-    pub(crate) async fn new(window: Arc<Window>, mut scion_renderer: Box<dyn Renderer>) -> Self {
+    pub(crate) async fn new(window: Arc<Window>, mut renderer: Box<dyn Renderer>) -> Self {
         let _size = window.inner_size();
 
         let backend = wgpu::util::backend_bits_from_env().unwrap_or_else(wgpu::Backends::all);
@@ -65,9 +65,9 @@ impl RendererState {
         };
         surface.configure(&device, &config);
 
-        scion_renderer.start(&device, &config);
+        renderer.start(&device, &config);
 
-        Self { surface, device, queue, config, scion_renderer }
+        Self { surface, device, queue, config, renderer }
     }
 
     pub(crate) fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>, scale_factor: f64) {
@@ -82,7 +82,7 @@ impl RendererState {
     }
 
     pub(crate) fn update(&mut self, data: &mut GameData) {
-        self.scion_renderer.update(data, &self.device, &self.config, &mut self.queue);
+        self.renderer.update(data, &self.device, &self.config, &mut self.queue);
     }
 
     pub(crate) fn render(
@@ -96,7 +96,7 @@ impl RendererState {
         let mut encoder =
             self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-        self.scion_renderer.render(data, config, &view, &mut encoder);
+        self.renderer.render(data, config, &view, &mut encoder);
 
         self.queue.submit(Some(encoder.finish()));
 

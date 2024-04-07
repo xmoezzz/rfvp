@@ -76,7 +76,6 @@ use crate::subsystem::resources::audio::Audio;
 use crate::subsystem::resources::events::Events;
 use crate::subsystem::resources::focus_manager::FocusManager;
 use crate::subsystem::resources::motion_manager::MotionManager;
-use crate::subsystem::resources::font_atlas::FontAtlas;
 use crate::subsystem::resources::time::Timers;
 use crate::subsystem::resources::window::Window;
 use crate::subsystem::scene::SceneController;
@@ -226,12 +225,6 @@ impl GameData {
     pub fn scene_controller(&self) -> AtomicRefMut<SceneController> {
         self.get_resource_mut::<SceneController>()
             .expect("The engine is missing the mandatory scene controller resource")
-    }
-
-    /// retrieves the font_atlas from the resources.
-    pub(crate) fn font_atlas(&self) -> AtomicRefMut<FontAtlas> {
-        self.get_resource_mut::<FontAtlas>()
-            .expect("The engine is missing the mandatory font_atlas resource")
     }
 
     /// retrieves the focus manager from the resources.
@@ -479,12 +472,6 @@ impl Resources {
     pub fn scene_controller(&self) -> AtomicRefMut<SceneController> {
         self.get_resource_mut::<SceneController>()
             .expect("The engine is missing the mandatory scene controller resource")
-    }
-
-    /// retrieves the font_atlas from the resources.
-    pub(crate) fn font_atlas(&self) -> AtomicRefMut<FontAtlas> {
-        self.get_resource_mut::<FontAtlas>()
-            .expect("The engine is missing the mandatory font_atlas resource")
     }
 
     /// retrieves the focus manager from the resources.

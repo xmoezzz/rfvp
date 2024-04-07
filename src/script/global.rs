@@ -1,7 +1,6 @@
 use std::{collections::HashMap, sync::Mutex};
 
 use crate::script::Variant;
-use atomic_refcell::AtomicRefCell;
 use serde::{Serialize, Deserialize};
 
 /// Global variables

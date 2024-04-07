@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::{logger_config::LoggerConfig, window_config::WindowConfig};
 
-/// Main configuration used by `crate::Scion` to configure the game.
+/// Main configuration used to configure the game.
 /// Please use [`AppConfigBuilder`] if you want to build if from code.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -35,7 +35,7 @@ impl AppConfigBuilder {
         Self { config: Default::default() }
     }
 
-    /// Sets the app name for scion. Will also be used for the window name
+    /// Sets the app name. Will also be used for the window name
     pub fn with_app_name(mut self, app_name: String) -> Self {
         self.config.app_name = app_name;
         self

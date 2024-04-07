@@ -86,6 +86,14 @@ impl MotionManager {
         }
     }
 
+    pub fn update_alpha_motions(
+        &mut self,
+        elapsed: i64,
+        flag: bool,
+    ) {
+        self.alpha_motion_container.exec_alpha_motion(&self.prim_manager, flag, elapsed as i32);
+    }
+
     pub fn set_alpha_motion(
         &mut self,
         prim_id: u32,

@@ -263,11 +263,6 @@ impl AnimationModifier {
         AnimationModifier::new(number_of_blinks * 2, AnimationModifierType::Blink)
     }
 
-    /// Convenience function to create a text animation.
-    pub fn text(content: String) -> Self {
-        AnimationModifier::new(content.len(), AnimationModifierType::Text { content })
-    }
-
     pub(crate) fn retrieve_keyframe_modifier(&self) -> &ComputedKeyframeModifier {
         self.single_keyframe_modifier
             .as_ref()
@@ -324,9 +319,6 @@ pub enum AnimationModifierType {
     Color {
         target: Color,
     },
-    Text {
-        content: String,
-    },
     Blink,
 }
 
@@ -354,9 +346,6 @@ impl Display for AnimationModifier {
                 AnimationModifierType::Blink => {
                     "Blink"
                 }
-                AnimationModifierType::Text { .. } => {
-                    "Text"
-                }
             }
         )
     }
@@ -374,7 +363,6 @@ fn compute_animation_keyframe_modifier(modifier: &mut AnimationModifier) {
                 rotation: rotation.map_or(None, |rotation| Some(rotation / keyframe_nb)),
             })
         }
-        AnimationModifierType::Text { .. } => Some(ComputedKeyframeModifier::Text { cursor: 0 }),
         _ => None,
     };
 }
