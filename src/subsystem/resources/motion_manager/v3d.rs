@@ -1,6 +1,4 @@
 use anyhow::Result;
-use std::{cell::RefCell, sync::Arc};
-
 use crate::subsystem::resources::prim::PrimManager;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -241,11 +239,10 @@ impl V3dMotionContainer {
 
     pub fn exec_v3d_update(
         &mut self,
-        prim_manager: &Arc<RefCell<PrimManager>>,
+        prim_manager: &PrimManager,
         flag: bool,
         elapsed: i32,
     ) -> bool {
-        let prim_manager = prim_manager.borrow_mut();
         if self.motion.typ != V3dMotionType::None && !self.motion.paused && flag {
             let mut i = 1i16;
             while i < prim_manager.get_custom_root_prim_id() as i16 {

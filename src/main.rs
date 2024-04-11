@@ -7,7 +7,7 @@ mod config;
 
 
 use script::parser::{Nls, Parser};
-use subsystem::{anzu_scene::AnzuScene, resources::thread_manager::ThreadManager};
+use subsystem::{anzu_scene::AnzuScene, components::color::Color, resources::thread_manager::ThreadManager};
 
 use crate::{
     config::{
@@ -32,6 +32,7 @@ fn app_config(title: &str, size: (u32, u32)) -> AppConfig {
             WindowConfigBuilder::new()
                 .with_dimensions(size)
                 .with_resizable(false)
+                .with_default_background_color(Some(Color::color_black()))
                 .get(),
         )
         .get()

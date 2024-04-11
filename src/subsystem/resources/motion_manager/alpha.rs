@@ -1,7 +1,4 @@
-use std::{cell::RefCell, sync::Arc};
 use anyhow::Result;
-use atomic_refcell::AtomicRefCell;
-
 use crate::subsystem::resources::prim::{PrimManager, INVAILD_PRIM_HANDLE};
 
 
@@ -147,7 +144,7 @@ impl AlphaMotion {
             }
 
             while next as u16 != custom_root_id {
-                next = prim_manager.get_prim(next as i16).get_parent();
+                next = prim_manager.get_prim(next).get_parent();
                 if next == INVAILD_PRIM_HANDLE {
                     return true;
                 }
@@ -228,16 +225,8 @@ impl AlphaMotionContainer {
         if self.current_id > 0 {
             self.current_id -= 1;
         }
-        self.allocation_pool[self.current_id as usize] = self.motions[i].get_id() as u16;
+        self.allocation_pool[self.current_id as usize] = self.motions[i].get_id();
         Some(self.current_id)
-    }
-
-    pub fn get_motions(&self) -> &Vec<AlphaMotion> {
-        &self.motions
-    }
-
-    pub fn get_motions_mut(&mut self) -> &mut Vec<AlphaMotion> {
-        &mut self.motions
     }
 
     pub fn push_motion(
@@ -316,7 +305,7 @@ impl AlphaMotionContainer {
                 if self.current_id > 0 {
                     self.current_id -= 1;
                 }
-                self.allocation_pool[self.current_id as usize] = self.motions[i].get_id() as u16;
+                self.allocation_pool[self.current_id as usize] = self.motions[i].get_id();
             }
         }
     }

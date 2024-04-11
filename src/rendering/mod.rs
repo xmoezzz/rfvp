@@ -1,7 +1,6 @@
 //! Everything that is relative to rendering to the window (Like renderable components, camera, transforms..)
 use std::ops::Range;
 
-use shinku2d::Shinku2D;
 use wgpu::{
     util::BufferInitDescriptor, CommandEncoder, Device, Queue, SurfaceConfiguration, TextureView,
 };
@@ -35,26 +34,6 @@ pub trait Renderer {
         texture_view: &TextureView,
         encoder: &mut CommandEncoder,
     );
-}
-
-/// Type of renderer to use to render the game.
-#[derive(Default)]
-pub enum RendererType {
-    /// Internal 2D Renderer. Will render everything that is in [`bidimensional`]
-    #[default]
-    R2D,
-    /// Provide your own renderer
-    Custom(Box<dyn Renderer>),
-}
-
-
-impl RendererType {
-    pub(crate) fn into_boxed_renderer(self) -> Box<dyn Renderer> {
-        match self {
-            RendererType::R2D => Box::<Shinku2D>::default(),
-            RendererType::Custom(boxed) => boxed,
-        }
-    }
 }
 
 pub(crate) trait Renderable2D {

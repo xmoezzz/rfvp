@@ -1,4 +1,3 @@
-pub mod animations;
 pub mod color;
 pub mod material;
 pub mod maths;

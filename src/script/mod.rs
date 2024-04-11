@@ -141,6 +141,7 @@ impl Variant {
         }
     }
 
+    #[allow(dead_code)]
     pub fn as_saved_stack_info(&self) -> Option<&SavedStackInfo> {
         match self {
             Variant::SavedStackInfo(info) => Some(info),
@@ -148,6 +149,7 @@ impl Variant {
         }
     }
 
+    #[allow(dead_code)]
     pub fn as_saved_stack_info_mut(&mut self) -> Option<&mut SavedStackInfo> {
         match self {
             Variant::SavedStackInfo(info) => Some(info),

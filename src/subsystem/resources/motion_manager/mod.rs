@@ -94,6 +94,46 @@ impl MotionManager {
         self.alpha_motion_container.exec_alpha_motion(&self.prim_manager, flag, elapsed as i32);
     }
 
+    pub fn update_move_motions(
+        &mut self,
+        elapsed: i64,
+        flag: bool,
+    ) {
+        self.move_motion_container.exec_move_motion(&self.prim_manager, flag, elapsed as i32);
+    }
+
+    pub fn update_s2_move_motions(
+        &mut self,
+        elapsed: i64,
+        flag: bool,
+    ) {
+        self.scale_motion_container.exec_s2_motion(&self.prim_manager, flag, elapsed as i32);
+    }
+
+    pub fn update_rotation_motions(
+        &mut self,
+        elapsed: i64,
+        flag: bool,
+    ) {
+        self.rotation_motion_container.exec_rotation_motion(&self.prim_manager, flag, elapsed as i32);
+    }
+
+    pub fn update_z_motions(
+        &mut self,
+        elapsed: i64,
+        flag: bool,
+    ) {
+        self.z_motion_container.exec_z_motion(&self.prim_manager, flag, elapsed as i32);
+    }
+
+    pub fn update_v3d_motions(
+        &mut self,
+        elapsed: i64,
+        flag: bool,
+    ) {
+        self.v3d_motion_container.exec_v3d_update(&self.prim_manager, flag, elapsed as i32);
+    }
+
     pub fn set_alpha_motion(
         &mut self,
         prim_id: u32,

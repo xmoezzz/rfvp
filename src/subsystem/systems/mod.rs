@@ -11,23 +11,13 @@ use crate::subsystem::resources::audio::Audio;
 use crate::subsystem::resources::focus_manager::FocusManager;
 use crate::subsystem::scene::SceneController;
 use crate::subsystem::state::GameState;
-use crate::subsystem::systems::animations_system::animation_executer_system;
 use crate::subsystem::systems::default_camera_system::camera_dpi_system;
 use crate::subsystem::systems::default_camera_system::default_camera_system;
-use crate::subsystem::systems::hide_propagation_system::{
-    hide_propagated_deletion_system, hide_propagation_system,
-};
-use crate::subsystem::systems::hierarchy_system::children_manager_system;
-use crate::subsystem::systems::parent_transform_system::{dirty_child_system, dirty_transform_system};
 use crate::subsystem::world::GameData;
 
 use crate::app::AppBuilder;
 
-pub(crate) mod animations_system;
 pub(crate) mod default_camera_system;
-pub(crate) mod hide_propagation_system;
-pub(crate) mod hierarchy_system;
-pub(crate) mod parent_transform_system;
 
 pub(crate) struct InternalPackage;
 impl Package for InternalPackage {
@@ -57,11 +47,5 @@ impl Package for InternalPackage {
         builder
             .with_system(default_camera_system)
             .with_system(camera_dpi_system)
-            .with_system(children_manager_system)
-            .with_system(hide_propagated_deletion_system)
-            .with_system(hide_propagation_system)
-            .with_system(animation_executer_system)
-            .with_system(dirty_child_system)
-            .with_system(dirty_transform_system)
     }
 }

@@ -5,12 +5,11 @@ use std::{
 };
 
 use crate::{
-    script::{
+    rendering::shinku2d::Shinku2D, script::{
         context::{
             CONTEXT_STATUS_DISSOLVE_WAIT, CONTEXT_STATUS_RUNNING, CONTEXT_STATUS_WAIT,
         }, global::GLOBAL, parser::{Nls, Parser}, 
-    },
-    subsystem::resources::{motion_manager::DissolveType, thread_manager::ThreadManager, thread_wrapper::ThreadRequest},
+    }, subsystem::resources::{motion_manager::DissolveType, thread_manager::ThreadManager, thread_wrapper::ThreadRequest}
 };
 use winit::dpi::{PhysicalSize, Size};
 use winit::{
@@ -27,7 +26,7 @@ use crate::subsystem::systems::InternalPackage;
 use crate::subsystem::world::GameData;
 use crate::{
     config::app_config::AppConfig,
-    rendering::{renderer_state::RendererState, RendererType},
+    rendering::renderer_state::RendererState,
     subsystem::event_handler::update_input_events,
 };
 
@@ -43,6 +42,7 @@ pub struct App {
 }
 
 impl App {
+    #[allow(dead_code)]
     pub fn app() -> AppBuilder {
         let app_config = AppConfig::default();
         App::app_with_config(app_config)
@@ -255,7 +255,6 @@ impl App {
 pub struct AppBuilder {
     config: AppConfig,
     scheduler: Scheduler,
-    renderer: RendererType,
     scene: Option<Box<dyn Scene>>,
     world: GameData,
     title: String,
@@ -269,7 +268,6 @@ impl AppBuilder {
         let builder = Self {
             config,
             scheduler: Default::default(),
-            renderer: Default::default(),
             scene: Default::default(),
             world: Default::default(),
             title: Default::default(),
@@ -283,12 +281,6 @@ impl AppBuilder {
     /// Specify a system to add to the scheduler.
     pub fn with_system(mut self, system: fn(&mut GameData)) -> Self {
         self.scheduler.add_system(system);
-        self
-    }
-
-    /// Specify which render type you want to use.
-    pub fn with_renderer(mut self, renderer_type: RendererType) -> Self {
-        self.renderer = renderer_type;
         self
     }
 
@@ -348,7 +340,7 @@ impl AppBuilder {
 
         self.add_late_internal_systems_to_schedule();
 
-        let renderer = self.renderer.into_boxed_renderer();
+        let renderer = Box::<Shinku2D>::default();
         let renderer_state =
             futures::executor::block_on(RendererState::new(window.clone(), renderer));
 

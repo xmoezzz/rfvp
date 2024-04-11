@@ -1,7 +1,4 @@
 use anyhow::Result;
-use atomic_refcell::AtomicRefCell;
-use std::{cell::RefCell, sync::Arc};
-
 use crate::subsystem::resources::prim::{PrimManager, INVAILD_PRIM_HANDLE};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -132,7 +129,7 @@ impl RotationMotion {
 
     pub fn update(
         &mut self,
-        prim_manager: &AtomicRefCell<PrimManager>,
+        prim_manager: &PrimManager,
         flag: bool,
         elapsed: i32,
     ) -> bool {
@@ -141,7 +138,6 @@ impl RotationMotion {
             return true;
         }
 
-        let prim_manager = prim_manager.borrow_mut();
         let mut prim = prim_manager.get_prim(self.prim_id as i16);
         let custom_root_id = prim_manager.get_custom_root_prim_id();
         if flag {
@@ -207,7 +203,7 @@ impl RotationMotion {
             RotationMotionType::Decelerate => {
                 let r = dst_r
                     - delta_r
-                        * (self.duration as i64 - self.elapsed as i64) as i64
+                        * (self.duration as i64 - self.elapsed as i64)
                         * (self.duration as i64 - self.elapsed as i64)
                         / (self.duration as i64 * self.duration as i64);
                 prim.set_rotation(r as i16);
@@ -298,14 +294,6 @@ impl RotationMotionContainer {
         Some(self.current_id)
     }
 
-    pub fn get_motions(&self) -> &Vec<RotationMotion> {
-        &self.motions
-    }
-
-    pub fn get_motions_mut(&mut self) -> &mut Vec<RotationMotion> {
-        &mut self.motions
-    }
-
     pub fn push_motion(
         &mut self,
         prim_id: u32,
@@ -371,7 +359,7 @@ impl RotationMotionContainer {
 
     pub fn exec_rotation_motion(
         &mut self,
-        prim_manager: &AtomicRefCell<PrimManager>,
+        prim_manager: &PrimManager,
         flag: bool,
         elapsed: i32,
     ) {

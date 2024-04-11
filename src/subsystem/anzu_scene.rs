@@ -19,6 +19,11 @@ impl Scene for AnzuScene {
             .as_millis() as i64;
         
         self.update_alpha_motions(game_data, frame_duration);
+        self.update_move_motions(game_data, frame_duration);
+        self.update_rotation_motions(game_data, frame_duration);
+        self.update_scale_motions(game_data, frame_duration);
+        self.update_z_motions(game_data, frame_duration);
+        self.update_v3d_motions(game_data, frame_duration);
     }
 }
 
@@ -29,6 +34,26 @@ impl AnzuScene {
 
     fn update_alpha_motions(&mut self, game_data: &mut GameData, elapsed: i64) {
         game_data.motion_manager.update_alpha_motions(elapsed, true);
+    }
+
+    fn update_move_motions(&mut self, game_data: &mut GameData, elapsed: i64) {
+        game_data.motion_manager.update_move_motions(elapsed, true);
+    }
+
+    fn update_scale_motions(&mut self, game_data: &mut GameData, elapsed: i64) {
+        game_data.motion_manager.update_s2_move_motions(elapsed, true);
+    }
+
+    fn update_rotation_motions(&mut self, game_data: &mut GameData, elapsed: i64) {
+        game_data.motion_manager.update_rotation_motions(elapsed, true);
+    }
+
+    fn update_z_motions(&mut self, game_data: &mut GameData, elapsed: i64) {
+        game_data.motion_manager.update_z_motions(elapsed, true);
+    }
+
+    fn update_v3d_motions(&mut self, game_data: &mut GameData, elapsed: i64) {
+        game_data.motion_manager.update_v3d_motions(elapsed, true);
     }
 
     fn update_prim(&mut self, game_data: &mut GameData, elapsed: u64) {

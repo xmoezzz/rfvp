@@ -1,6 +1,4 @@
 use anyhow::Result;
-use atomic_refcell::AtomicRefCell;
-
 use crate::subsystem::resources::prim::{PrimManager, INVAILD_PRIM_HANDLE};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -131,7 +129,7 @@ impl ZMotion {
 
     pub fn update(
         &mut self,
-        prim_manager: &AtomicRefCell<PrimManager>,
+        prim_manager: &PrimManager,
         flag: bool,
         elapsed: i32,
     ) -> bool {
@@ -140,7 +138,6 @@ impl ZMotion {
             return true;
         }
 
-        let mut prim_manager = prim_manager.borrow_mut();
         let mut prim = prim_manager.get_prim(self.prim_id as i16);
         let custom_root_id = prim_manager.get_custom_root_prim_id();
         if flag {
@@ -153,7 +150,7 @@ impl ZMotion {
             }
 
             while next as u16 != custom_root_id {
-                next = prim_manager.get_prim(next as i16).get_parent();
+                next = prim_manager.get_prim(next).get_parent();
                 if next == INVAILD_PRIM_HANDLE {
                     return true;
                 }
@@ -206,7 +203,7 @@ impl ZMotion {
             ZMotionType::Decelerate => {
                 let r = dst_z
                     - delta_z
-                        * (self.duration as i64 - self.elapsed as i64) as i64
+                        * (self.duration as i64 - self.elapsed as i64)
                         * (self.duration as i64 - self.elapsed as i64)
                         / (self.duration as i64 * self.duration as i64);
                 prim.set_z(r as i16);
@@ -293,16 +290,8 @@ impl ZMotionContainer {
         if self.current_id > 0 {
             self.current_id -= 1;
         }
-        self.allocation_pool[self.current_id as usize] = self.motions[i].get_id() as u16;
+        self.allocation_pool[self.current_id as usize] = self.motions[i].get_id();
         Some(self.current_id)
-    }
-
-    pub fn get_motions(&self) -> &Vec<ZMotion> {
-        &self.motions
-    }
-
-    pub fn get_motions_mut(&mut self) -> &mut Vec<ZMotion> {
-        &mut self.motions
     }
 
     pub fn push_motion(
@@ -349,7 +338,7 @@ impl ZMotionContainer {
         if self.current_id > 0 {
             self.current_id -= 1;
         }
-        self.allocation_pool[self.current_id as usize] = self.motions[i].get_id() as u16;
+        self.allocation_pool[self.current_id as usize] = self.motions[i].get_id();
 
         Ok(())
     }
@@ -370,7 +359,7 @@ impl ZMotionContainer {
 
     pub fn exec_z_motion(
         &mut self,
-        prim_manager: &AtomicRefCell<PrimManager>,
+        prim_manager: &PrimManager,
         flag: bool,
         elapsed: i32,
     ) {
