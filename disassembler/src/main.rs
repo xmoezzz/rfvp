@@ -192,6 +192,8 @@ impl Disassembler {
         self.cursor += size_of::<i16>();
 
         let inst = PushI16Inst::new(addr, value);
+        self.inst_contents.push(inst.disassemble());
+        
         Ok(())
     }
 
@@ -384,6 +386,7 @@ impl Disassembler {
         self.cursor += 1;
 
         let inst = NegInst::new(addr);
+        self.inst_contents.push(inst.disassemble());
         Ok(())
     }
 
