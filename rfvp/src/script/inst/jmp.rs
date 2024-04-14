@@ -13,6 +13,10 @@ impl JmpInst {
             target,
         }
     }
+
+    pub fn get_target(&self) -> u32 {
+        self.target
+    }
 }
 
 impl OpcodeBase for JmpInst {

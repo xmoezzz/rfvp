@@ -13,6 +13,10 @@ impl PushI16Inst {
             value,
         }
     }
+
+    pub fn get_value(&self) -> i16 {
+        self.value
+    }
 }
 
 impl OpcodeBase for PushI16Inst {

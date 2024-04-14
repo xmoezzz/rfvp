@@ -1,5 +1,6 @@
 use anyhow::{bail, Result};
 use clap::Parser as ClapParser;
+use serde::{Deserialize, Serialize};
 use rfvp::script::inst::nop::NopInst;
 use std::mem::size_of;
 use std::path::{PathBuf, Path};
@@ -9,10 +10,366 @@ use rfvp::script::parser::{Nls, Parser};
 
 use std::io::Write;
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Function {
+    address: u32,
+    args_count: u8,
+    locals_count: u8,
+    insts: Vec<Inst>
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Inst {
+    address: u32,
+    mnemonic: String,
+    operands: Vec<String>,
+}
+
+impl Inst {
+    pub fn from_nop(inst: NopInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: Vec::new(),
+        }
+    }
+
+    pub fn from_init_stack(inst: InitStackInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: vec![inst.get_arg_count().to_string(), inst.get_local_count().to_string()],
+        }
+    }
+
+    pub fn from_call(inst: CallInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: vec![inst.get_target().to_string()],
+        }
+    }
+
+    pub fn from_syscall(inst: SyscallInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: vec![inst.get_syscall_name().to_string()],
+        }
+    }
+
+    pub fn from_ret(inst: RetInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: Vec::new(),
+        }
+    }
+
+    pub fn from_ret_value(inst: RetValueInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: Vec::new(),
+        }
+    }
+
+    pub fn from_jmp(inst: JmpInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: vec![inst.get_target().to_string()],
+        }
+    }
+
+    pub fn from_jz(inst: JzInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: vec![inst.get_target().to_string()],
+        }
+    }
+
+    pub fn from_push_nil(inst: PushNilInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: Vec::new(),
+        }
+    }
+
+    pub fn from_push_true(inst: PushTrueInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: Vec::new(),
+        }
+    }
+
+    pub fn from_push_i32(inst: PushI32Inst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: vec![inst.get_value().to_string()],
+        }
+    }
+
+    pub fn from_push_i16(inst: PushI16Inst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: vec![inst.get_value().to_string()],
+        }
+    }
+
+    pub fn from_push_i8(inst: PushI8Inst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: vec![inst.get_value().to_string()],
+        }
+    }
+
+    pub fn from_push_f32(inst: PushF32Inst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: vec![inst.get_value().to_string()],
+        }
+    }
+
+    pub fn from_push_string(inst: PushStringInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: vec![inst.get_value().to_string()],
+        }
+    }
+
+    pub fn from_push_global(inst: PushGlobalInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: vec![inst.get_idx().to_string()],
+        }
+    }
+
+    pub fn from_push_stack(inst: PushStackInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: vec![inst.get_idx().to_string()],
+        }
+    }
+
+    pub fn from_push_global_table(inst: PushGlobalTableInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: vec![inst.get_idx().to_string()],
+        }
+    }
+
+    pub fn from_push_local_table(inst: PushLocalTableInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: vec![inst.get_idx().to_string()],
+        }
+    }
+
+    pub fn from_push_top(inst: PushTopInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: Vec::new(),
+        }
+    }
+
+    pub fn from_push_return(inst: PushReturnInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: Vec::new(),
+        }
+    }
+    
+    pub fn from_pop_global(inst: PopGlobalInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: vec![inst.get_idx().to_string()],
+        }
+    }
+
+    pub fn from_pop_stack(inst: PopStackInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: vec![inst.get_idx().to_string()],
+        }
+    }
+
+    pub fn from_pop_global_table(inst: PopGlobalTableInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: vec![inst.get_idx().to_string()],
+        }
+    }
+
+    pub fn from_pop_local_table(inst: PopLocalTableInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: vec![inst.get_idx().to_string()],
+        }
+    }
+
+    pub fn from_neg(inst: NegInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: Vec::new(),
+        }
+    }
+
+    pub fn from_add(inst: AddInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: Vec::new(),
+        }
+    }
+
+    pub fn from_sub(inst: SubInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: Vec::new(),
+        }
+    }
+
+    pub fn from_mul(inst: MulInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: Vec::new(),
+        }
+    }
+
+    pub fn from_div(inst: DivInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: Vec::new(),
+        }
+    }
+
+    pub fn from_mod(inst: ModInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: Vec::new(),
+        }
+    }
+
+    pub fn from_bittest(inst: BitTestInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: Vec::new(),
+        }
+    }
+
+    pub fn from_and(inst: AndInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: Vec::new(),
+        }
+    }
+
+    pub fn from_or(inst: OrInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: Vec::new(),
+        }
+    }
+
+    pub fn from_sete(inst: SeteInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: Vec::new(),
+        }
+    }
+
+    pub fn from_setne(inst: SetneInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: Vec::new(),
+        }
+    }
+
+    pub fn from_setg(inst: SetgInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: Vec::new(),
+        }
+    }
+
+    pub fn from_setle(inst: SetleInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: Vec::new(),
+        }
+    }
+
+    pub fn from_setl(inst: SetlInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: Vec::new(),
+        }
+    }
+
+    pub fn from_setge(inst: SetgeInst) -> Self {
+        Self {
+            address: inst.address(),
+            mnemonic: inst.opcode().to_string(),
+            operands: Vec::new(),
+        }
+    }
+
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SyscallEntry {
+    id: u32,
+    name: String,
+    args_count: u8,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ProjectConfig {
+    entry_point: u32,
+    non_volatile_global_count: u16,
+    volatile_global_count: u16,
+    game_mode: u16,
+    game_title: String,
+    syscalls: Vec<SyscallEntry>,
+    custom_syscall_count: u16,
+}
+
 pub struct Disassembler {
     parser: Parser,
     cursor: usize,
-    inst_contents: Vec<String>,
+    functions: Vec<Function>,
 }
 
 impl Disassembler {
@@ -21,8 +378,12 @@ impl Disassembler {
         Ok(Self {
             parser,
             cursor: 4,
-            inst_contents: Vec::new(),
+            functions: Vec::new(),
         })
+    }
+
+    pub fn get_parser(&self) -> &Parser {
+        &self.parser
     }
 
     pub fn get_pc(&self) -> usize {
@@ -35,7 +396,9 @@ impl Disassembler {
         let addr = self.get_pc() as u32;
         self.cursor += 1;
         let inst = NopInst::new(addr);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_nop(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
+
         Ok(())
     }
 
@@ -54,8 +417,16 @@ impl Disassembler {
         let locals_count = parser.read_i8(self.cursor)?;
         self.cursor += size_of::<i8>();
 
+        self.functions.push(Function {
+            address: addr,
+            args_count: args_count as u8,
+            locals_count: locals_count as u8,
+            insts: Vec::new(),
+        });
+
         let inst = InitStackInst::new(addr, args_count as u8, locals_count as u8);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_init_stack(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
         
         Ok(())
     }
@@ -70,7 +441,8 @@ impl Disassembler {
         self.cursor += size_of::<u32>();
 
         let inst = CallInst::new(addr, target);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_call(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -85,7 +457,8 @@ impl Disassembler {
 
         if let Some(syscall) = parser.get_syscall(id) {
             let inst = SyscallInst::new(addr, syscall.name.clone());
-            self.inst_contents.push(inst.disassemble());
+            let inst = Inst::from_syscall(inst);
+            self.functions.last_mut().unwrap().insts.push(inst);
 
         } else {
             bail!("syscall not found: {}", id);
@@ -101,7 +474,8 @@ impl Disassembler {
         self.cursor += 1;
 
         let inst = RetInst::new(addr);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_ret(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
         
         Ok(())
     }
@@ -113,7 +487,8 @@ impl Disassembler {
         self.cursor += 1;
 
         let inst = RetValueInst::new(addr);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_ret_value(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
         
         Ok(())
     }
@@ -126,7 +501,8 @@ impl Disassembler {
         self.cursor += size_of::<u32>();
 
         let inst = JmpInst::new(self.get_pc() as u32, addr);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_jmp(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -140,7 +516,8 @@ impl Disassembler {
         self.cursor += size_of::<u32>();
 
         let inst = JzInst::new(addr, target);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_jz(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -152,7 +529,8 @@ impl Disassembler {
         self.cursor += 1;
 
         let inst = PushNilInst::new(addr);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_push_nil(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -164,7 +542,8 @@ impl Disassembler {
         self.cursor += 1;
 
         let inst = PushTrueInst::new(addr);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_push_true(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -179,7 +558,9 @@ impl Disassembler {
         self.cursor += size_of::<i32>();
 
         let inst = PushI32Inst::new(addr, value);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_push_i32(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
+
         Ok(())
     }
 
@@ -192,7 +573,8 @@ impl Disassembler {
         self.cursor += size_of::<i16>();
 
         let inst = PushI16Inst::new(addr, value);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_push_i16(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
         
         Ok(())
     }
@@ -206,7 +588,8 @@ impl Disassembler {
         self.cursor += size_of::<i8>();
 
         let inst = PushI8Inst::new(addr, value);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_push_i8(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -220,7 +603,8 @@ impl Disassembler {
         self.cursor += size_of::<f32>();
 
         let inst = PushF32Inst::new(addr, value);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_push_f32(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -237,7 +621,8 @@ impl Disassembler {
         self.cursor += len;
 
         let inst = PushStringInst::new(addr, s);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_push_string(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -251,7 +636,8 @@ impl Disassembler {
         self.cursor += size_of::<u16>();
 
         let inst = PushGlobalInst::new(addr, key as u32);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_push_global(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -265,7 +651,8 @@ impl Disassembler {
         self.cursor += size_of::<i8>();
 
         let inst = PushStackInst::new(addr, offset);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_push_stack(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -281,7 +668,8 @@ impl Disassembler {
         self.cursor += size_of::<u16>();
 
         let inst = PushGlobalTableInst::new(addr, key as u32);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_push_global_table(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -294,7 +682,8 @@ impl Disassembler {
         self.cursor += size_of::<i8>();
 
         let inst = PushLocalTableInst::new(self.get_pc() as u32, idx);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_push_local_table(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -306,7 +695,8 @@ impl Disassembler {
         self.cursor += 1;
 
         let inst = PushTopInst::new(addr);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_push_top(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -318,7 +708,8 @@ impl Disassembler {
         self.cursor += 1;
 
         let inst = PushReturnInst::new(addr);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_push_return(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -332,7 +723,8 @@ impl Disassembler {
         self.cursor += size_of::<u16>();
 
         let inst = PopGlobalInst::new(addr, key as u32);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_pop_global(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -346,7 +738,8 @@ impl Disassembler {
         self.cursor += size_of::<i8>();
 
         let inst = PopStackInst::new(addr, idx);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_pop_stack(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -360,7 +753,8 @@ impl Disassembler {
         self.cursor += size_of::<u16>();
 
         let inst = PopGlobalTableInst::new(addr, key as u32);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_pop_global_table(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -374,7 +768,8 @@ impl Disassembler {
         self.cursor += size_of::<i8>();
 
         let inst = PopLocalTableInst::new(addr, idx);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_pop_local_table(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -386,7 +781,9 @@ impl Disassembler {
         self.cursor += 1;
 
         let inst = NegInst::new(addr);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_neg(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
+
         Ok(())
     }
 
@@ -397,7 +794,8 @@ impl Disassembler {
         self.cursor += 1;
 
         let inst = AddInst::new(addr);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_add(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -409,7 +807,8 @@ impl Disassembler {
         self.cursor += 1;
 
         let inst = SubInst::new(addr);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_sub(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -421,7 +820,8 @@ impl Disassembler {
         self.cursor += 1;
 
         let inst = MulInst::new(addr);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_mul(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -433,7 +833,8 @@ impl Disassembler {
         self.cursor += 1;
 
         let inst = DivInst::new(addr);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_div(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -445,7 +846,9 @@ impl Disassembler {
         self.cursor += 1;
 
         let inst = ModInst::new(addr);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_mod(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
+
         Ok(())
     }
 
@@ -456,7 +859,8 @@ impl Disassembler {
         self.cursor += 1;
 
         let inst = BitTestInst::new(addr);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_bittest(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -468,7 +872,8 @@ impl Disassembler {
         self.cursor += 1;
 
         let inst = AndInst::new(addr);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_and(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -480,7 +885,8 @@ impl Disassembler {
         self.cursor += 1;
 
         let inst = OrInst::new(addr);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_or(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -492,7 +898,8 @@ impl Disassembler {
         self.cursor += 1;
 
         let inst = SeteInst::new(addr);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_sete(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -504,7 +911,8 @@ impl Disassembler {
         self.cursor += 1;
 
         let inst = SetneInst::new(addr);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_setne(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -516,7 +924,8 @@ impl Disassembler {
         self.cursor += 1;
 
         let inst = SetgInst::new(addr);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_setg(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -528,7 +937,8 @@ impl Disassembler {
         self.cursor += 1;
 
         let inst = SetleInst::new(addr);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_setle(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -540,7 +950,8 @@ impl Disassembler {
         self.cursor += 1;
 
         let inst = SetlInst::new(addr);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_setl(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -552,7 +963,8 @@ impl Disassembler {
         self.cursor += 1;
 
         let inst = SetgeInst::new(addr);
-        self.inst_contents.push(inst.disassemble());
+        let inst = Inst::from_setge(inst);
+        self.functions.last_mut().unwrap().insts.push(inst);
 
         Ok(())
     }
@@ -700,13 +1112,55 @@ impl Disassembler {
     }
 
     pub fn write_insts(&self, path: impl AsRef<Path>) -> Result<()> {
-        let mut file = std::fs::File::create(path)?;
-        for inst in &self.inst_contents {
-            writeln!(file, "{}", inst)?;
+        // create a new directory
+        let output = path.as_ref();
+        if !output.exists() {
+            std::fs::create_dir_all(output)?;
         }
+
+        let disassembly_path = output.join("disassembly.yaml");
+        let mut writer = std::fs::File::create(disassembly_path)?;
+        serde_yaml::to_writer(&mut writer, &self.functions)?;
+
+        let config = ProjectConfig {
+            entry_point: self.get_parser().get_entry_point(),
+            non_volatile_global_count: self.get_parser().get_non_volatile_global_count(),
+            volatile_global_count: self.get_parser().get_volatile_global_count(),
+            game_mode: self.get_parser().get_game_mode(),
+            game_title: self.get_parser().get_title(),
+            syscalls: self.get_parser().get_all_syscalls().iter().map(|(id, sys)| {
+                SyscallEntry {
+                    id: *id as u32,
+                    name: sys.name.clone(),
+                    args_count: sys.args,
+                }
+            }).collect(),
+            custom_syscall_count: self.get_parser().get_custom_syscall_count(),
+        };
+
+        let yaml_config = output.join("config.yaml");
+        let mut writer = std::fs::File::create(yaml_config)?;
+        serde_yaml::to_writer(&mut writer, &config)?;
+
+        let project = FVPProject {
+            config_file: PathBuf::from("config.yaml"),
+            disassembly_file: PathBuf::from("disassembly.yaml"),
+        };
+
+        let toml_project = output.join("project.toml");
+        let mut writer = std::fs::File::create(toml_project)?;
+        let serialized_string = toml::to_string_pretty(&project)?;
+        writer.write_all(serialized_string.as_bytes())?;
 
         Ok(())
     }
+}
+
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FVPProject {
+    config_file: PathBuf,
+    disassembly_file: PathBuf,
 }
 
 /// Simple program to greet a person
@@ -741,7 +1195,7 @@ mod tests {
     #[test]
     fn test_disassembler() -> Result<()> {
         let input = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/testcase/Snow.hcb"));
-        let output = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/testcase/Snow.txt"));
+        let output = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/testcase/Snow"));
         let mut disassembler = Disassembler::new(input, Nls::ShiftJIS)?;
         disassembler.disassemble()?;
         disassembler.write_insts(output)?;

@@ -92,6 +92,53 @@ impl TryFrom<i32> for Opcode {
     }
 }
 
+impl ToString for Opcode {
+    fn to_string(&self) -> String {
+        match self {
+            Opcode::Nop => "nop",
+            Opcode::InitStack => "init_stack",
+            Opcode::Call => "call",
+            Opcode::Syscall => "syscall",
+            Opcode::Ret => "ret",
+            Opcode::RetV => "retv",
+            Opcode::Jmp => "jmp",
+            Opcode::Jz => "jz",
+            Opcode::PushNil => "push_nil",
+            Opcode::PushTrue => "push_true",
+            Opcode::PushI32 => "push_i32",
+            Opcode::PushI16 => "push_i16",
+            Opcode::PushI8 => "push_i8",
+            Opcode::PushF32 => "push_f32",
+            Opcode::PushString => "push_string",
+            Opcode::PushGlobal => "push_global",
+            Opcode::PushStack => "push_stack",
+            Opcode::PushGlobalTable => "push_global_table",
+            Opcode::PushLocalTable => "push_local_table",
+            Opcode::PushTop => "push_top",
+            Opcode::PushReturn => "push_return",
+            Opcode::PopGlobal => "pop_global",
+            Opcode::PopStack => "pop_stack",
+            Opcode::PopGlobalTable => "pop_global_table",
+            Opcode::PopLocalTable => "pop_local_table",
+            Opcode::Neg => "neg",
+            Opcode::Add => "add",
+            Opcode::Sub => "sub",
+            Opcode::Mul => "mul",
+            Opcode::Div => "div",
+            Opcode::Mod => "mod",
+            Opcode::BitTest => "bit_test",
+            Opcode::And => "and",
+            Opcode::Or => "or",
+            Opcode::SetE => "set_e",
+            Opcode::SetNE => "set_ne",
+            Opcode::SetG => "set_g",
+            Opcode::SetLE => "set_le",
+            Opcode::SetL => "set_l",
+            Opcode::SetGE => "set_ge",
+        }.to_string()
+    }
+}
+
 pub trait OpcodeBase {
     fn opcode(&self) -> Opcode;
     fn address(&self) -> u32;

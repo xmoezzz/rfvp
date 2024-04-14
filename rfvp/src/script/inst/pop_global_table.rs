@@ -13,6 +13,10 @@ impl PopGlobalTableInst {
             idx,
         }
     }
+
+    pub fn get_idx(&self) -> u32 {
+        self.idx
+    }
 }
 
 impl OpcodeBase for PopGlobalTableInst {

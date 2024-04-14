@@ -1,9 +1,13 @@
+use std::thread::sleep;
+use std::time::Duration;
 use std::{io::BufReader, path::Path, time::Instant};
 
+use rodio::OutputStream;
+use rodio::Sink;
 use futures::executor::block_on;
 use rfvp::subsystem::resources::videoplayer::MpegAacDecoder;
 use wgpu::{CompositeAlphaMode, SamplerBindingType, SurfaceConfiguration, TextureFormat};
-use winit::event::{Event, WindowEvent};
+use winit::{event::{Event, WindowEvent}, event_loop::ControlFlow};
 
 struct VideoPlayerTest {
     decoder: MpegAacDecoder<BufReader<std::fs::File>>,
@@ -20,7 +24,9 @@ impl VideoPlayerTest {
 
         let decoder = MpegAacDecoder::new(buf, size).unwrap();
 
-        Self { decoder }
+        Self { 
+            decoder,
+        }
     }
 
     fn run(&mut self) {
@@ -46,7 +52,7 @@ impl VideoPlayerTest {
 
         let (size, surface) = unsafe {
             let size = window.inner_size();
-            let surface = instance.create_surface(window).expect("Surface unsupported by adapter");
+            let surface = instance.create_surface(&window).expect("Surface unsupported by adapter");
             (size, surface)
         };
 
@@ -66,17 +72,6 @@ impl VideoPlayerTest {
         let needed_limits =
             wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits());
         let trace_dir = std::env::var("WGPU_TRACE");
-        // let (device, queue) = adapter
-        //     .request_device(
-        //         &wgpu::DeviceDescriptor {
-        //             label: None,
-        //             required_features: wgpu::Features::empty(),
-        //             required_limits: needed_limits,
-        //         },
-        //         trace_dir.ok().as_ref().map(std::path::Path::new),
-        //     )
-        //     .await
-        //     .expect("Unable to find a suitable GPU adapter!");
 
         let (device, queue) = block_on(async {
             let (device, queue) = adapter
@@ -104,6 +99,8 @@ impl VideoPlayerTest {
             desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &config);
+
+        // self.window = Some(window);
 
         let uniform_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -143,7 +140,17 @@ impl VideoPlayerTest {
                     label: Some("texture_bind_group_layout"),
                 });
 
+        let output_stream = OutputStream::try_default();
+        let (_stream, handle) = output_stream.expect("Error creating output stream");
+        let sink = Sink::try_new(&handle).expect("Error creating sink");
+
+        // sink.append(self.decoder);
+        // sink.play();
+        // sink.set_volume(0.5);
+        // sink.sleep_until_end();
+
         let now = Instant::now();
+        let window = &window;
 
         //render video
         event_loop
@@ -151,6 +158,8 @@ impl VideoPlayerTest {
                 // Have the closure take ownership of the resources.
                 // `event_loop.run` never returns, therefore we must do this to ensure
                 // the resources are properly cleaned up.
+
+                target.set_control_flow(ControlFlow::Poll);
 
                 if let Event::WindowEvent { window_id, event } = event {
                     match event {
@@ -161,6 +170,7 @@ impl VideoPlayerTest {
                             if self.decoder.update(elapsed).is_ok() {
                                 // render frame
                                 if let Some(image) = self.decoder.take_frame() {
+                                    println!("frame");
                                     // render to surface
                                     let frame = surface.get_current_texture().unwrap();
                                     let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -171,6 +181,7 @@ impl VideoPlayerTest {
                                     let image = image::DynamicImage::ImageRgb8(image);
                                     let rbga8 = image.to_rgba8();
                                     let buffer = image.as_bytes();
+                                    println!("width: {}, height: {}", rbga8.width(), rbga8.height());
 
                                     //     encoder.write_texture(
                                     //         wgpu::ImageCopyBuffer {
@@ -223,9 +234,14 @@ impl VideoPlayerTest {
                             }
                         }
                         WindowEvent::CloseRequested => {
+                            target.exit();
                         }
                         _ => {}
                     }
+                }
+                else if event == Event::AboutToWait {
+                    sleep(Duration::from_millis(10));
+                    window.request_redraw();
                 }
             })
             .unwrap();

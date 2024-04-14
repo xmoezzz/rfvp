@@ -1,5 +1,6 @@
 use anyhow::Result;
 use fdk_aac::dec::{Decoder, DecoderError, Transport};
+use mp4::TrackType;
 use openh264::{
     decoder::{Decoder as OpenH264Decoder, DecoderConfig},
     nal_units,
@@ -70,7 +71,7 @@ where
                 if media_type == mp4::MediaType::AAC && track_id.is_none() {
                     track_id = Some(track.track_id());
                     continue;
-                } else if media_type == mp4::MediaType::H264 && video_track_id.is_none() {
+                } else if track.track_type().unwrap() == TrackType::Video && media_type == mp4::MediaType::H264 && video_track_id.is_none() {
                     video_track_id = Some(track.track_id());
                     width = track.width();
                     height = track.height();
@@ -115,6 +116,7 @@ where
                                 height,
                             };
                             if let Ok(mut queue) = next_frame_rgb8.lock() {
+                                print!("Queue len: {}", queue.len());
                                 queue.push_back(frame);
                             }
                         }
@@ -184,6 +186,8 @@ where
                 }
                 queue.push_back(frame);
             }
+        } else if let Err(e) = self.video_decoder.decode(&sample.bytes) {
+            log::error!("Error decoding video: {}", e);
         }
 
         Ok(())

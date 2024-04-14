@@ -1,6 +1,6 @@
 [workspace]
 
-members = [ "disassembler",
+members = [ "decompiler", "disassembler",
     "rfvp", 
     "video_player",
 ]

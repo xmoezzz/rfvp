@@ -15,6 +15,14 @@ impl InitStackInst {
             local_count,
         }
     }
+
+    pub fn get_arg_count(&self) -> u8 {
+        self.arg_count
+    }
+
+    pub fn get_local_count(&self) -> u8 {
+        self.local_count
+    }
 }
 
 impl OpcodeBase for InitStackInst {

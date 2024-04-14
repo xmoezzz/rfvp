@@ -13,6 +13,10 @@ impl PushStringInst {
             value,
         }
     }
+
+    pub fn get_value(&self) -> &String {
+        &self.value
+    }
 }
 
 impl OpcodeBase for PushStringInst {

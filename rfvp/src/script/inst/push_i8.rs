@@ -13,6 +13,10 @@ impl PushI8Inst {
             value,
         }
     }
+
+    pub fn get_value(&self) -> i8 {
+        self.value
+    }
 }
 
 impl OpcodeBase for PushI8Inst {

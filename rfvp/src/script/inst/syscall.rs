@@ -14,6 +14,10 @@ impl SyscallInst {
             syscall_name,
         }
     }
+
+    pub fn get_syscall_name(&self) -> &String {
+        &self.syscall_name
+    }
 }
 
 impl OpcodeBase for SyscallInst {

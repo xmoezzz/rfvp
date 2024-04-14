@@ -1,0 +1,2 @@
+config_file = "config.yaml"
+disassembly_file = "disassembly.yaml"

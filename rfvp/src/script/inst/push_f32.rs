@@ -13,6 +13,10 @@ impl PushF32Inst {
             value,
         }
     }
+
+    pub fn get_value(&self) -> f32 {
+        self.value
+    }
 }
 
 impl OpcodeBase for PushF32Inst {

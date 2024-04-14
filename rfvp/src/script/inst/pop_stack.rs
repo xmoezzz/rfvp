@@ -13,6 +13,10 @@ impl PopStackInst {
             idx,
         }
     }
+
+    pub fn get_idx(&self) -> i8 {
+        self.idx
+    }
 }
 
 impl OpcodeBase for PopStackInst {

@@ -253,6 +253,10 @@ impl Parser {
         self.syscalls.get(&(id as usize))
     }
 
+    pub fn get_all_syscalls(&self) -> &HashMap<usize, Syscall> {
+        &self.syscalls
+    }
+
     pub fn get_title(&self) -> String {
         self.game_title.clone()
     }
@@ -290,8 +294,16 @@ impl Parser {
         }
     }
 
+    pub fn get_game_mode(&self) -> u16 {
+        self.game_mode
+    }
+
     pub fn get_entry_point(&self) -> u32 {
         self.entry_point
+    }
+
+    pub fn get_custom_syscall_count(&self) -> u16 {
+        self.custom_syscall_count
     }
 
     // the upper bound of the code area
