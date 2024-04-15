@@ -1,4 +1,6 @@
 use anyhow::Result;
+use byteorder::{BigEndian, ByteOrder};
+use bytes::{Buf, BytesMut};
 use fdk_aac::dec::{Decoder, DecoderError, Transport};
 use mp4::TrackType;
 use openh264::{
@@ -46,6 +48,8 @@ where
     
     duration: Duration,
     video_decoder: OpenH264Decoder,
+    video_sps: Option<Vec<u8>>,
+    video_pps: Option<Vec<u8>>,
 }
 
 impl<R> MpegAacDecoder<R>
@@ -62,6 +66,10 @@ where
         let mut height = 720;
         let mut frame_count = 0;
         let mut frame_time = 0.0;
+
+        let mut sps = None;
+        let mut pps = None;
+
         {
             for (_, track) in mp4.tracks().iter() {
                 let media_type = match track.media_type() {
@@ -77,6 +85,8 @@ where
                     height = track.height();
                     frame_count = track.sample_count();
                     frame_time = track.frame_rate() as f32;
+                    sps = track.sequence_parameter_set().ok().map(|v| v.to_vec());
+                    pps = track.picture_parameter_set().ok().map(|v| v.to_vec());
                     continue;
                 }
             }
@@ -149,6 +159,8 @@ where
                     render_target: image::RgbImage::new(width as u32, height as u32),
                     duration,
                     video_decoder,
+                    video_sps: sps,
+                    video_pps: pps,
                 })
             }
             _ => {
@@ -169,25 +181,47 @@ where
         let sample_result = self.mp4_reader.read_sample(self.video_track_id, frame_id)?;
         let sample = sample_result.ok_or_else(|| anyhow::anyhow!("Error reading sample"))?;
 
-        if let Ok(result) = self.video_decoder.decode(&sample.bytes) {
-            let decoded_yuv = result.ok_or_else(|| anyhow::anyhow!("Error decoding video"))?;
-            let (width, height) = decoded_yuv.dimension_rgb();
-            let mut buffer = vec![0; width * height * 3];
-            decoded_yuv.write_rgb8(buffer.as_mut_slice());
-            let frame = VideoFrame {
-                buffer,
-                width,
-                height,
-            };
-            if let Ok(mut queue) = self.next_frame_rgb8.lock() {
-                if queue.len() >= BUF_SIZE {
-                    // flush old frames
-                    queue.pop_front();
+        let mut sample_bytes = sample.bytes.clone();
+        let mut annexb_sample_bytes = BytesMut::new();
+
+        if let (Some(sps), Some(pps)) = (self.video_sps.take(), self.video_pps.take()) {
+            dbg!(&sps, &pps);
+            annexb_sample_bytes.extend_from_slice(&[0, 0, 0, 1]);
+            annexb_sample_bytes.extend_from_slice(&sps);
+            annexb_sample_bytes.extend_from_slice(&[0, 0, 0, 1]);
+            annexb_sample_bytes.extend_from_slice(&pps);
+        }
+
+        while !sample_bytes.is_empty() {
+            let length = BigEndian::read_u32(&sample_bytes[0..4]) as usize;
+            sample_bytes.advance(4);
+            let avcc_nal_unit = sample_bytes.split_to(length);
+            annexb_sample_bytes.extend_from_slice(&[0, 0, 0, 1]);
+            annexb_sample_bytes.extend_from_slice(&avcc_nal_unit);
+        }
+
+        match self.video_decoder.decode(&annexb_sample_bytes) {
+            Ok(result) => {
+                let decoded_yuv = result.ok_or_else(|| anyhow::anyhow!("Error decoding video"))?;
+                let (width, height) = decoded_yuv.dimension_rgb();
+                let mut buffer = vec![0; width * height * 3];
+                decoded_yuv.write_rgb8(buffer.as_mut_slice());
+                let frame = VideoFrame {
+                    buffer,
+                    width,
+                    height,
+                };
+                if let Ok(mut queue) = self.next_frame_rgb8.lock() {
+                    if queue.len() >= BUF_SIZE {
+                        // flush old frames
+                        queue.pop_front();
+                    }
+                    queue.push_back(frame);
                 }
-                queue.push_back(frame);
             }
-        } else if let Err(e) = self.video_decoder.decode(&sample.bytes) {
-            log::error!("Error decoding video: {}", e);
+            Err(e) => {
+                log::error!("Error decoding video: {}", e);
+            }
         }
 
         Ok(())

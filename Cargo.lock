@@ -209,6 +209,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "assembler"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "env_logger",
+ "log",
+ "rfvp",
+ "serde",
+ "serde_yaml",
+ "toml",
+]
+
+[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2125,6 +2139,7 @@ dependencies = [
  "bincode",
  "bytemuck",
  "byteorder",
+ "bytes",
  "chrono",
  "downcast-rs",
  "encoding_rs",
