@@ -496,11 +496,12 @@ impl Disassembler {
     /// 0x06 jmp instruction
     /// jump to the address
     pub fn jmp(&mut self, parser: &mut Parser) -> Result<()> {
+        let addr = self.get_pc() as u32;
         self.cursor += 1;
-        let addr = parser.read_u32(self.cursor)?;
+        let target = parser.read_u32(self.cursor)?;
         self.cursor += size_of::<u32>();
 
-        let inst = JmpInst::new(self.get_pc() as u32, addr);
+        let inst = JmpInst::new(addr, target);
         let inst = Inst::from_jmp(inst);
         self.functions.last_mut().unwrap().insts.push(inst);
 
@@ -677,11 +678,12 @@ impl Disassembler {
     /// 0x12 push local table
     /// push a value than stored in the local table by key onto the stack
     pub fn push_local_table(&mut self, parser: &mut Parser) -> Result<()> {
+        let addr = self.get_pc() as u32;
         self.cursor += 1;
         let idx = parser.read_i8(self.cursor)?;
         self.cursor += size_of::<i8>();
 
-        let inst = PushLocalTableInst::new(self.get_pc() as u32, idx);
+        let inst = PushLocalTableInst::new(addr, idx);
         let inst = Inst::from_push_local_table(inst);
         self.functions.last_mut().unwrap().insts.push(inst);
 

@@ -92,6 +92,56 @@ impl TryFrom<i32> for Opcode {
     }
 }
 
+impl TryFrom<&str> for Opcode {
+    type Error = ();
+
+    fn try_from(v: &str) -> core::result::Result<Self, Self::Error> {
+        match v {
+            x if x == "nop" => Ok(Opcode::Nop),
+            x if x == "init_stack" => Ok(Opcode::InitStack),
+            x if x == "call" => Ok(Opcode::Call),
+            x if x == "syscall" => Ok(Opcode::Syscall),
+            x if x == "ret" => Ok(Opcode::Ret),
+            x if x == "retv" => Ok(Opcode::RetV),
+            x if x == "jmp" => Ok(Opcode::Jmp),
+            x if x == "jz" => Ok(Opcode::Jz),
+            x if x == "push_nil" => Ok(Opcode::PushNil),
+            x if x == "push_true" => Ok(Opcode::PushTrue),
+            x if x == "push_i32" => Ok(Opcode::PushI32),
+            x if x == "push_i16" => Ok(Opcode::PushI16),
+            x if x == "push_i8" => Ok(Opcode::PushI8),
+            x if x == "push_f32" => Ok(Opcode::PushF32),
+            x if x == "push_string" => Ok(Opcode::PushString),
+            x if x == "push_global" => Ok(Opcode::PushGlobal),
+            x if x == "push_stack" => Ok(Opcode::PushStack),
+            x if x == "push_global_table" => Ok(Opcode::PushGlobalTable),
+            x if x == "push_local_table" => Ok(Opcode::PushLocalTable),
+            x if x == "push_top" => Ok(Opcode::PushTop),
+            x if x == "push_return" => Ok(Opcode::PushReturn),
+            x if x == "pop_global" => Ok(Opcode::PopGlobal),
+            x if x == "pop_stack" => Ok(Opcode::PopStack),
+            x if x == "pop_global_table" => Ok(Opcode::PopGlobalTable),
+            x if x == "pop_local_table" => Ok(Opcode::PopLocalTable),
+            x if x == "neg" => Ok(Opcode::Neg),
+            x if x == "add" => Ok(Opcode::Add),
+            x if x == "sub" => Ok(Opcode::Sub),
+            x if x == "mul" => Ok(Opcode::Mul),
+            x if x == "div" => Ok(Opcode::Div),
+            x if x == "mod" => Ok(Opcode::Mod),
+            x if x == "bit_test" => Ok(Opcode::BitTest),
+            x if x == "and" => Ok(Opcode::And),
+            x if x == "or" => Ok(Opcode::Or),
+            x if x == "set_e" => Ok(Opcode::SetE),
+            x if x == "set_ne" => Ok(Opcode::SetNE),
+            x if x == "set_g" => Ok(Opcode::SetG),
+            x if x == "set_le" => Ok(Opcode::SetLE),
+            x if x == "set_l" => Ok(Opcode::SetL),
+            x if x == "set_ge" => Ok(Opcode::SetGE),
+            _ => Err(()),
+        }
+    }
+}
+
 impl ToString for Opcode {
     fn to_string(&self) -> String {
         match self {
