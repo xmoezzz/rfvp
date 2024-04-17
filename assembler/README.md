@@ -1,5 +1,5 @@
 # FVP assembler
-A Non-offical assembler for the FVP Engine.
+A Non-official assembler for the FVP Engine.
 
 ## Usage
 ```bash
@@ -35,6 +35,6 @@ cargo build --release -p assembler
 * This tool is generally used for game translation purposes and does not provide SDK-level editing capabilities.
 * This tool is unofficial, and the FVP engine is not authorized for the 3rd-party game development.
 * 💣💣💣This assembler not only restores translated strings back into the file, but also performs **complete instruction assembly operations**. If you're not familiar with FVP instructions, please refrain from modifying those instructions and their corresponding parameters casually.
-* Please do not use this tool for re-editing or re-creation of offical games.
+* Please do not use this tool for re-editing or re-creation of official games.
 * This is a part of the rfvp project, and the The rfvp project is developed based on independent reverse engineering of the original engine. All rfvp code is unrelated to the original engine code.
 

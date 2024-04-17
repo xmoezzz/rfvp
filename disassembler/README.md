@@ -1,5 +1,5 @@
 # FVP disassembler
-A Non-offical disassembler for the FVP Engine.
+A Non-official disassembler for the FVP Engine.
 
 ## Usage
 ```bash
@@ -36,5 +36,5 @@ cargo build --release -p disassembler
 ## Warning
 * This tool is generally used for game translation purposes and does not provide SDK-level editing capabilities.
 * This tool is unofficial, and the FVP engine is not authorized for the 3rd-party game development.
-* Please do not use this tool for re-editing or re-creation of offical games.
+* Please do not use this tool for re-editing or re-creation of official games.
 * This is a part of the rfvp project, and the The rfvp project is developed based on independent reverse engineering of the original engine. All rfvp code is unrelated to the original engine code.
