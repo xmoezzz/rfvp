@@ -2,13 +2,8 @@ use anyhow::Result;
 use byteorder::{BigEndian, ByteOrder};
 use bytes::{Buf, BytesMut};
 use fdk_aac::dec::{Decoder, DecoderError, Transport};
-use mp4::TrackType;
-use openh264::{
-    decoder::{Decoder as OpenH264Decoder, DecoderConfig},
-    nal_units,
-};
+use mp4::{Mp4Track, TrackType};
 use rodio::{OutputStream, Sink, Source};
-use std::collections::VecDeque;
 use std::io::{BufReader, Read, Seek};
 use std::ops::Range;
 use std::path::Path;
@@ -29,27 +24,7 @@ where
     current_pcm_index: usize,
     current_pcm: Vec<i16>,
     track_id: u32,
-    video_track_id: u32,
     position: u32,
-    frame_time: f32, // 1.0 / 60.0 for 60 FPS
-    render_target: image::RgbImage,
-
-    next_frame_id: u32,
-    frame_count: u32,
-
-    frame_idx: usize,
-    current_frame_time: f32,
-
-    sender: Mutex<Sender<DecoderMessage>>,
-    next_frame_rgb8: Arc<Mutex<VecDeque<VideoFrame>>>,
-
-    frame_width: u32,
-    frame_height: u32,
-    
-    duration: Duration,
-    video_decoder: OpenH264Decoder,
-    video_sps: Option<Vec<u8>>,
-    video_pps: Option<Vec<u8>>,
 }
 
 impl<R> MpegAacDecoder<R>
@@ -61,14 +36,6 @@ where
 
         let mp4 = mp4::Mp4Reader::read_header(reader, size).or(Err("Error reading MPEG header"))?;
         let mut track_id: Option<u32> = None;
-        let mut video_track_id: Option<u32> = None;
-        let mut width = 1280;
-        let mut height = 720;
-        let mut frame_count = 0;
-        let mut frame_time = 0.0;
-
-        let mut sps = None;
-        let mut pps = None;
 
         {
             for (_, track) in mp4.tracks().iter() {
@@ -79,191 +46,24 @@ where
                 if media_type == mp4::MediaType::AAC && track_id.is_none() {
                     track_id = Some(track.track_id());
                     continue;
-                } else if track.track_type().unwrap() == TrackType::Video && media_type == mp4::MediaType::H264 && video_track_id.is_none() {
-                    video_track_id = Some(track.track_id());
-                    width = track.width();
-                    height = track.height();
-                    frame_count = track.sample_count();
-                    frame_time = track.frame_rate() as f32;
-                    sps = track.sequence_parameter_set().ok().map(|v| v.to_vec());
-                    pps = track.picture_parameter_set().ok().map(|v| v.to_vec());
-                    continue;
                 }
             }
         }
-        match (track_id, video_track_id) {
-            (Some(track_id), Some(video_track_id)) => {
-                let (sender, receiver) = channel::<DecoderMessage>();
-                let next_frame_rgb8 = Arc::new(Mutex::new(VecDeque::<VideoFrame>::with_capacity(
-                    BUF_SIZE + 1,
-                )));
-                std::thread::spawn({
-                    let next_frame_rgb8 = next_frame_rgb8.clone();
-                    move || {
-                        let cfg = DecoderConfig::new();
-                        let mut decoder =
-                            OpenH264Decoder::with_config(cfg).expect("Failed to create decoder");
-                        while let Ok(video_packet) = receiver.recv() {
-                            let video_packet = match video_packet {
-                                DecoderMessage::Frame(vp) => vp,
-                                DecoderMessage::Stop => return,
-                            };
-                            let decoded_yuv = decoder.decode(video_packet.as_slice());
-                            let decoded_yuv = match decoded_yuv {
-                                Ok(decoded) => decoded,
-                                Err(_) => continue,
-                            };
-                            let Some(decoded_yuv) = decoded_yuv else {
-                                continue;
-                            };
-
-                            let (width, height) = decoded_yuv.dimension_rgb();
-                            let mut buffer = vec![0; width * height * 3];
-                            decoded_yuv.write_rgb8(buffer.as_mut_slice());
-                            let frame = VideoFrame {
-                                buffer,
-                                width,
-                                height,
-                            };
-                            if let Ok(mut queue) = next_frame_rgb8.lock() {
-                                print!("Queue len: {}", queue.len());
-                                queue.push_back(frame);
-                            }
-                        }
-                    }
-                });
-
-                let duration = mp4.duration();
-                let video_decoder = match OpenH264Decoder::new() {
-                    Ok(decoder) => decoder,
-                    Err(_) => return Err("Failed to create video decoder"),
-                };
-
-                Ok(MpegAacDecoder {
-                    mp4_reader: mp4,
-                    decoder,
-                    current_pcm_index: 0,
-                    current_pcm: Vec::new(),
-                    track_id,
-                    video_track_id,
-                    position: 1,
-                    frame_time,
-                    next_frame_id: 0,
-                    frame_count,
-                    frame_idx: 0,
-                    current_frame_time: frame_time + 1.0,
-                    sender: Mutex::new(sender),
-                    next_frame_rgb8,
-                    frame_width: width as u32,
-                    frame_height: height as u32,
-                    render_target: image::RgbImage::new(width as u32, height as u32),
-                    duration,
-                    video_decoder,
-                    video_sps: sps,
-                    video_pps: pps,
-                })
-            }
+        match track_id {
+            Some(track_id) => Ok(MpegAacDecoder {
+                mp4_reader: mp4,
+                decoder,
+                current_pcm_index: 0,
+                current_pcm: Vec::new(),
+                track_id,
+                position: 1,
+            }),
             _ => {
-                let msg = format!("No AAC or H264 track found, AAC: {:?}, H264: {:?}", track_id, video_track_id);
+                let msg = format!("No AAC track found, AAC: {:?}", track_id);
                 log::error!("{}", msg);
-                return Err("No AAC or H264 track found");
-            },
-        }
-    }
-
-    pub fn update(&mut self, elapsed: u64) -> anyhow::Result<()> {
-        // calculate the next frame id
-        let frame_id = (elapsed as f32 / self.frame_time).floor() as u32;
-        if frame_id >= self.frame_count {
-            return Ok(());
-        }
-
-        let sample_result = self.mp4_reader.read_sample(self.video_track_id, frame_id)?;
-        let sample = sample_result.ok_or_else(|| anyhow::anyhow!("Error reading sample"))?;
-
-        let mut sample_bytes = sample.bytes.clone();
-        let mut annexb_sample_bytes = BytesMut::new();
-
-        if let (Some(sps), Some(pps)) = (self.video_sps.take(), self.video_pps.take()) {
-            dbg!(&sps, &pps);
-            annexb_sample_bytes.extend_from_slice(&[0, 0, 0, 1]);
-            annexb_sample_bytes.extend_from_slice(&sps);
-            annexb_sample_bytes.extend_from_slice(&[0, 0, 0, 1]);
-            annexb_sample_bytes.extend_from_slice(&pps);
-        }
-
-        while !sample_bytes.is_empty() {
-            let length = BigEndian::read_u32(&sample_bytes[0..4]) as usize;
-            sample_bytes.advance(4);
-            let avcc_nal_unit = sample_bytes.split_to(length);
-            annexb_sample_bytes.extend_from_slice(&[0, 0, 0, 1]);
-            annexb_sample_bytes.extend_from_slice(&avcc_nal_unit);
-        }
-
-        match self.video_decoder.decode(&annexb_sample_bytes) {
-            Ok(result) => {
-                let decoded_yuv = result.ok_or_else(|| anyhow::anyhow!("Error decoding video"))?;
-                let (width, height) = decoded_yuv.dimension_rgb();
-                let mut buffer = vec![0; width * height * 3];
-                decoded_yuv.write_rgb8(buffer.as_mut_slice());
-                let frame = VideoFrame {
-                    buffer,
-                    width,
-                    height,
-                };
-                if let Ok(mut queue) = self.next_frame_rgb8.lock() {
-                    if queue.len() >= BUF_SIZE {
-                        // flush old frames
-                        queue.pop_front();
-                    }
-                    queue.push_back(frame);
-                }
-            }
-            Err(e) => {
-                log::error!("Error decoding video: {}", e);
+                Err("No AAC track found")
             }
         }
-
-        Ok(())
-    }
-
-    pub fn get_render_target(&self) -> image::RgbImage {
-        self.render_target.clone()
-    }
-
-    fn add_video_packet(&self, video_packet: Vec<u8>) {
-        self.sender
-            .lock()
-            .expect("Could not get lock on sender")
-            .send(DecoderMessage::Frame(video_packet))
-            .expect("Could not send packet to decoder");
-    }
-
-    pub fn take_frame(&mut self) -> Option<image::RgbImage> {
-        if let Ok(mut queue) = self.next_frame_rgb8.lock() {
-            if let Some(frame) = queue.pop_front() {
-                let mut image = image::RgbImage::new(frame.width  as u32, frame.height as u32);
-                image.copy_from_slice(&frame.buffer);
-                Some(image)
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }
-}
-
-impl<R> Drop for MpegAacDecoder<R>
-where
-    R: Read + Seek,
-{
-    fn drop(&mut self) {
-        self.sender
-            .lock()
-            .expect("Could not get lock on sender")
-            .send(DecoderMessage::Stop)
-            .expect("Could not send end packet to decoder");
     }
 }
 
@@ -294,7 +94,6 @@ where
                 val => val,
             };
             if let Err(err) = result {
-                println!("DecoderError: {}", err);
                 return None;
             }
             let decoded_fram_size = self.decoder.decoded_frame_size();
@@ -449,6 +248,363 @@ struct VideoFrame {
     height: usize,
 }
 
+/// Network abstraction layer type for H264 pocket we might find.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NalType {
+    Unspecified = 0,
+    Slice = 1,
+    Dpa = 2,
+    Dpb = 3,
+    Dpc = 4,
+    IdrSlice = 5,
+    Sei = 6,
+    Sps = 7,
+    Pps = 8,
+    Aud = 9,
+    EndSequence = 10,
+    EndStream = 11,
+    FillerData = 12,
+    SpsExt = 13,
+    Prefix = 14,
+    SubSps = 15,
+    DPS = 16,
+    Reserved17 = 17,
+    Reserved18 = 18,
+    AuxiliarySlice = 19,
+    ExtenSlice = 20,
+    DepthExtenSlice = 21,
+    Reserved22 = 22,
+    Reserved23 = 23,
+    Unspecified24 = 24,
+    Unspecified25 = 25,
+    Unspecified26 = 26,
+    Unspecified27 = 27,
+    Unspecified28 = 28,
+    Unspecified29 = 29,
+    Unspecified30 = 30,
+    Unspecified31 = 31,
+}
+
+impl From<u8> for NalType {
+    /// Reads NAL from header byte.
+    fn from(value: u8) -> Self {
+        use NalType::{
+            Aud, AuxiliarySlice, DepthExtenSlice, Dpa, Dpb, Dpc, EndSequence, EndStream,
+            ExtenSlice, FillerData, IdrSlice, Pps, Prefix, Reserved17, Reserved18, Reserved22,
+            Reserved23, Sei, Slice, Sps, SpsExt, SubSps, Unspecified, Unspecified24, Unspecified25,
+            Unspecified26, Unspecified27, Unspecified28, Unspecified29, Unspecified30,
+            Unspecified31, DPS,
+        };
+
+        match value {
+            0 => Unspecified,
+            1 => Slice,
+            2 => Dpa,
+            3 => Dpb,
+            4 => Dpc,
+            5 => IdrSlice,
+            6 => Sei,
+            7 => Sps,
+            8 => Pps,
+            9 => Aud,
+            10 => EndSequence,
+            11 => EndStream,
+            12 => FillerData,
+            13 => SpsExt,
+            14 => Prefix,
+            15 => SubSps,
+            16 => DPS,
+            17 => Reserved17,
+            18 => Reserved18,
+            19 => AuxiliarySlice,
+            20 => ExtenSlice,
+            21 => DepthExtenSlice,
+            22 => Reserved22,
+            23 => Reserved23,
+            24 => Unspecified24,
+            25 => Unspecified25,
+            26 => Unspecified26,
+            27 => Unspecified27,
+            28 => Unspecified28,
+            29 => Unspecified29,
+            30 => Unspecified30,
+            31 => Unspecified31,
+            _ => panic!("Invalid NAL type"),
+        }
+    }
+}
+
+/// A NAL unit in a bitstream.
+struct NalUnit<'a> {
+    nal_type: NalType,
+    bytes: &'a [u8],
+}
+
+impl<'a> NalUnit<'a> {
+    /// Reads a NAL unit from a slice of bytes in MP4, returning the unit, and the remaining stream after that slice.
+    fn from_stream(mut stream: &'a [u8], length_size: u8) -> Option<(Self, &[u8])> {
+        let mut nal_size = 0;
+
+        // Construct nal_size from first bytes in MP4 stream.
+        for _ in 0..length_size {
+            nal_size = (nal_size << 8) | u32::from(stream[0]);
+            stream = &stream[1..];
+        }
+
+        if nal_size == 0 {
+            return None;
+        }
+
+        let packet = &stream[..nal_size as usize];
+        let nal_type = NalType::from(packet[0] & 0x1F);
+        let unit = NalUnit {
+            nal_type,
+            bytes: packet,
+        };
+
+        stream = &stream[nal_size as usize..];
+
+        Some((unit, stream))
+    }
+
+    #[allow(unused)]
+    fn nal_type(&self) -> NalType {
+        self.nal_type
+    }
+
+    #[allow(unused)]
+    fn bytes(&self) -> &'a [u8] {
+        self.bytes
+    }
+}
+
+/// Converter from NAL units from the MP4 to the Annex B format expected by openh264.
+///
+/// It also inserts SPS and PPS units from the MP4 header into the stream.
+/// They are also required for Annex B format to be decodable, but are not present in the MP4 bitstream,
+/// as they are stored in the headers.
+pub struct Mp4BitstreamConverter {
+    length_size: u8,
+    sps: Vec<Vec<u8>>,
+    pps: Vec<Vec<u8>>,
+    new_idr: bool,
+    sps_seen: bool,
+    pps_seen: bool,
+}
+
+impl Mp4BitstreamConverter {
+    /// Create a new converter for the given track.
+    ///
+    /// The track must contain an AVC1 configuration.
+    /// The track must contain an AVC1 configuration.
+    pub fn for_mp4_track(track: &Mp4Track) -> Result<Self, anyhow::Error> {
+        let avcc_config = &track
+            .trak
+            .mdia
+            .minf
+            .stbl
+            .stsd
+            .avc1
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Track does not contain AVC1 config"))?
+            .avcc;
+
+        Ok(Self {
+            length_size: avcc_config.length_size_minus_one + 1,
+            sps: avcc_config
+                .sequence_parameter_sets
+                .iter()
+                .cloned()
+                .map(|v| v.bytes)
+                .collect(),
+            pps: avcc_config
+                .picture_parameter_sets
+                .iter()
+                .cloned()
+                .map(|v| v.bytes)
+                .collect(),
+            new_idr: true,
+            sps_seen: false,
+            pps_seen: false,
+        })
+    }
+
+    /// Convert a single packet from the MP4 format to the Annex B format.
+    ///
+    /// It clears the `out` vector and appends the converted packet to it.
+    pub fn convert_packet(&mut self, packet: &[u8], out: &mut Vec<u8>) {
+        let mut stream = packet;
+        out.clear();
+
+        while !stream.is_empty() {
+            let Some((unit, remaining_stream)) = NalUnit::from_stream(stream, self.length_size)
+            else {
+                continue;
+            };
+
+            stream = remaining_stream;
+
+            match unit.nal_type {
+                NalType::Sps => self.sps_seen = true,
+                NalType::Pps => self.pps_seen = true,
+                NalType::IdrSlice => {
+                    // If this is a new IDR picture following an IDR picture, reset the idr flag.
+                    // Just check first_mb_in_slice to be 1
+                    if !self.new_idr && unit.bytes[1] & 0x80 != 0 {
+                        self.new_idr = true;
+                    }
+                    // insert SPS & PPS NAL units if they were not seen
+                    if self.new_idr && !self.sps_seen && !self.pps_seen {
+                        self.new_idr = false;
+                        for sps in self.sps.iter() {
+                            out.extend([0, 0, 1]);
+                            out.extend(sps);
+                        }
+                        for pps in self.pps.iter() {
+                            out.extend([0, 0, 1]);
+                            out.extend(pps);
+                        }
+                    }
+                    // insert only PPS if SPS was seen
+                    if self.new_idr && self.sps_seen && !self.pps_seen {
+                        for pps in self.pps.iter() {
+                            out.extend([0, 0, 1]);
+                            out.extend(pps);
+                        }
+                    }
+                }
+                _ => {}
+            }
+
+            out.extend([0, 0, 1]);
+            out.extend(unit.bytes);
+
+            if !self.new_idr && unit.nal_type == NalType::Slice {
+                self.new_idr = true;
+                self.sps_seen = false;
+                self.pps_seen = false;
+            }
+        }
+    }
+}
+
+pub struct MpegVideoDecoder {
+    audio_decoder: MpegAacDecoder<BufReader<std::fs::File>>,
+    video_decoder: openh264::decoder::Decoder,
+    bitstream_converter: Mp4BitstreamConverter,
+    mp4: mp4::Mp4Reader<BufReader<std::fs::File>>,
+    width: u16,
+    height: u16,
+    track_id: u32,
+    frame_rate: f64,
+}
+
+impl MpegVideoDecoder {
+    pub fn new(path: impl AsRef<Path>) -> Result<Self> {
+        let file = std::fs::File::open(&path)?;
+        let metadata = file.metadata()?;
+        let size = metadata.len();
+        let reader = BufReader::new(file);
+        let audio_decoder = match MpegAacDecoder::new(reader, size) {
+            Ok(decoder) => decoder,
+            Err(e) => {
+                log::error!("Error creating audio decoder: {:?}", e);
+                return Err(anyhow::anyhow!("Error creating audio decoder"));
+            }
+        };
+
+        let (mp4, track_id) = Self::read_mp4_video(&path)?;
+        let tracks = mp4.tracks();
+        let track = tracks.get(&track_id).expect("No video track ID");
+        let bitstream_converter = Mp4BitstreamConverter::for_mp4_track(track)?;
+        let decoder = openh264::decoder::Decoder::new()?;
+        let width = track.width();
+        let height = track.height();
+        let track_id = track.track_id();
+        let frame_rate = track.frame_rate();
+
+        Ok(Self {
+            audio_decoder,
+            video_decoder: decoder,
+            bitstream_converter,
+            mp4,
+            width,
+            height,
+            track_id,
+            frame_rate,
+        })
+    }
+
+    fn read_mp4_video(
+        path: impl AsRef<Path>,
+    ) -> Result<(mp4::Mp4Reader<BufReader<std::fs::File>>, u32)> {
+        let file = std::fs::File::open(&path)?;
+        let metadata = file.metadata()?;
+        let size = metadata.len();
+        let reader = BufReader::new(file);
+        let mp4 = mp4::Mp4Reader::read_header(reader, size)?;
+
+        let track = mp4
+            .tracks()
+            .iter()
+            .find(|(_, t)| t.media_type().unwrap() == mp4::MediaType::H264)
+            .ok_or_else(|| anyhow::anyhow!("No avc1 track"))?
+            .1;
+
+        let track_id = track.track_id();
+
+        Ok((mp4, track_id))
+    }
+
+    pub fn take_frame(
+        &mut self,
+        elapsed: u64,
+    ) -> anyhow::Result<Option<image::ImageBuffer<image::Rgba<u8>, std::vec::Vec<u8>>>> {
+        // calculate the frame index based on the elapsed time
+        let frame_index = (elapsed as f64 * self.frame_rate) as u32 + 1;
+        let frame_index = 1;
+
+        let sample = match self.mp4.read_sample(self.track_id, frame_index) {
+            Ok(Some(sample)) => sample,
+            Ok(None) => {
+                println!("No sample found");
+                return Ok(None);
+            }
+            Err(e) => {
+                log::error!("Error reading sample: {}", e);
+                return Err(anyhow::anyhow!("Error reading sample"));
+            }
+        };
+
+        let mut buffer = Vec::new();
+        // convert the packet from mp4 representation to one that openh264 can decode
+        self.bitstream_converter
+            .convert_packet(&sample.bytes, &mut buffer);
+
+        match self.video_decoder.decode(&buffer) {
+            Ok(Some(mut image)) => {
+                let mut rgb = vec![0; self.width as usize * self.height as usize * 3];
+                image.write_rgb8(&mut rgb);
+                let mut image = image::RgbImage::new(self.width as u32, self.height as u32);
+                image.copy_from_slice(&rgb);
+                let image = image::DynamicImage::ImageRgb8(image);
+                let rbga8 = image.to_rgba8();
+                return Ok(Some(rbga8));
+            },
+            Ok(None) => {
+                println!("No frame found");
+                return Ok(None);
+            },
+            Err(e) => {
+                log::error!("Error decoding frame: {}", e);
+                return Err(anyhow::anyhow!("Error decoding frame"));
+            }
+        }
+
+        Ok(None)
+    }
+}
+
 pub struct VideoPlayer {
     pub width: u32,
     pub height: u32,
@@ -595,7 +751,10 @@ mod tests {
     #[test]
     fn test_play_audio() {
         env_logger::init();
-        let path = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/testcase/01.mp4"));
+        let path = Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../video_player/testcase/01.mp4"
+        ));
         let file = std::fs::File::open(path).expect("Error opening file");
 
         let metadata = file.metadata().unwrap();
@@ -612,239 +771,5 @@ mod tests {
         sink.play();
         sink.set_volume(0.5);
         sink.sleep_until_end();
-    }
-
-    struct VideoPlayerTest {
-        decoder: MpegAacDecoder<BufReader<std::fs::File>>,
-    }
-
-    impl VideoPlayerTest {
-        fn new() -> Self {
-            let path = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/testcase/01.mp4"));
-            let file = std::fs::File::open(path).expect("Error opening file");
-
-            let metadata = file.metadata().unwrap();
-            let size = metadata.len();
-            let buf = BufReader::new(file);
-
-            let decoder = MpegAacDecoder::new(buf, size).unwrap();
-
-            Self { decoder }
-        }
-
-        fn run(&mut self) {
-            let event_loop = winit::event_loop::EventLoop::new().expect("Event loop could not be created");
-            event_loop.set_control_flow(winit::event_loop::ControlFlow::Poll);
-
-            let window_builder: winit::window::WindowBuilder = winit::window::WindowBuilder::new()
-                .with_title("app".to_string())
-                .with_inner_size(winit::dpi::LogicalSize::new(1024, 640));
-
-            let window = window_builder
-                .build(&event_loop)
-                .expect("An error occured while building the main game window");
-
-            // init wgpu
-            let backend = wgpu::util::backend_bits_from_env().unwrap_or_else(wgpu::Backends::all);
-            let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-                backends: backend,
-                dx12_shader_compiler: wgpu::Dx12Compiler::Fxc,
-                flags: wgpu::InstanceFlags::default(),
-                gles_minor_version: wgpu::Gles3MinorVersion::Automatic
-            });
-
-            let (size, surface) = unsafe {
-                let size = window.inner_size();
-                let surface = instance.create_surface(window).expect("Surface unsupported by adapter");
-                (size, surface)
-            };
-
-            // let adapter =
-            //     wgpu::util::initialize_adapter_from_env_or_default(&instance, Some(&surface))
-            //         .await
-            //         .expect("No suitable GPU adapters found on the system!");
-
-            let adapter = block_on(async {
-                let adapter =
-                    wgpu::util::initialize_adapter_from_env_or_default(&instance, Some(&surface))
-                        .await
-                        .expect("No suitable GPU adapters found on the system!");
-                adapter
-            });
-
-            let needed_limits =
-                wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits());
-            let trace_dir = std::env::var("WGPU_TRACE");
-            // let (device, queue) = adapter
-            //     .request_device(
-            //         &wgpu::DeviceDescriptor {
-            //             label: None,
-            //             required_features: wgpu::Features::empty(),
-            //             required_limits: needed_limits,
-            //         },
-            //         trace_dir.ok().as_ref().map(std::path::Path::new),
-            //     )
-            //     .await
-            //     .expect("Unable to find a suitable GPU adapter!");
-
-            let (device, queue) = block_on(async {
-                let (device, queue) = adapter
-                    .request_device(
-                        &wgpu::DeviceDescriptor {
-                            label: None,
-                            required_features: wgpu::Features::empty(),
-                            required_limits: needed_limits,
-                        },
-                        trace_dir.ok().as_ref().map(std::path::Path::new),
-                    )
-                    .await
-                    .expect("Unable to find a suitable GPU adapter!");
-                (device, queue)
-            });
-
-            let config = SurfaceConfiguration {
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                format: surface.get_capabilities(&adapter).formats[0],
-                width: size.width as u32,
-                height: size.height as u32,
-                present_mode: wgpu::PresentMode::Fifo,
-                alpha_mode: CompositeAlphaMode::Auto,
-                view_formats: vec![TextureFormat::Bgra8UnormSrgb],
-                desired_maximum_frame_latency: 2,
-            };
-            surface.configure(&device, &config);
-
-            let uniform_bind_group_layout =
-                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    entries: &[wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    }],
-                    label: Some("uniform_bind_group_layout"),
-                });
-
-                let texture_bind_group_layout =
-                    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                        entries: &[
-                            wgpu::BindGroupLayoutEntry {
-                                binding: 0,
-                                visibility: wgpu::ShaderStages::FRAGMENT,
-                                ty: wgpu::BindingType::Texture {
-                                    multisampled: false,
-                                    view_dimension: wgpu::TextureViewDimension::D2,
-                                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                                },
-                                count: None,
-                            },
-                            wgpu::BindGroupLayoutEntry {
-                                binding: 1,
-                                visibility: wgpu::ShaderStages::FRAGMENT,
-                                ty: wgpu::BindingType::Sampler(SamplerBindingType::Filtering),
-                                count: None,
-                            },
-                        ],
-                        label: Some("texture_bind_group_layout"),
-                    });
-
-            let now = Instant::now();
-
-            //render video
-            event_loop
-                .run(move |event, target| {
-                    // Have the closure take ownership of the resources.
-                    // `event_loop.run` never returns, therefore we must do this to ensure
-                    // the resources are properly cleaned up.
-
-                    if let Event::WindowEvent { window_id, event } = event {
-                        match event {
-                            WindowEvent::Resized(new_size) => {
-                            }
-                            WindowEvent::RedrawRequested => {
-                                let elapsed = now.elapsed().as_millis() as u64;
-                                if self.decoder.update(elapsed).is_ok() {
-                                    // render frame
-                                    if let Some(image) = self.decoder.take_frame() {
-                                        // render to surface
-                                        let frame = surface.get_current_texture().unwrap();
-                                        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
-                                
-                                        let mut encoder =
-                                            device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-
-                                        let image = image::DynamicImage::ImageRgb8(image);
-                                        let rbga8 = image.to_rgba8();
-                                        let buffer = image.as_bytes();
-
-                                        //     encoder.write_texture(
-                                        //         wgpu::ImageCopyBuffer {
-                                        //             buffer,
-                                        //             layout: wgpu::ImageDataLayout {
-                                        //                 offset: 0,
-                                        //                 bytes_per_row: Some(rbga8.width() * 4),
-                                        //                 rows_per_image: Some(rbga8.height()),
-                                        //             },
-                                        //         },
-                                        //         wgpu::ImageCopyTexture {
-                                        //             texture: &frame.texture,
-                                        //             mip_level: 0,
-                                        //             origin: wgpu::Origin3d::ZERO,
-                                        //             aspect: wgpu::TextureAspect::All,
-                                        //         },
-                                        //         wgpu::Extent3d {
-                                        //             width: rbga8.width(),
-                                        //             height: rbga8.height(),
-                                        //             depth_or_array_layers: 1,
-                                        //         },
-                                        //     );
-                                        
-                                        // queue.submit(Some(encoder.finish()));
-
-                                        queue.write_texture(
-                                            // Tells wgpu where to copy the pixel data
-                                            wgpu::ImageCopyTexture {
-                                                texture: &frame.texture,
-                                                mip_level: 0,
-                                                origin: wgpu::Origin3d::ZERO,
-                                                aspect: wgpu::TextureAspect::All,
-                                            },
-                                            // The actual pixel data
-                                            buffer,
-                                            // The layout of the texture
-                                            wgpu::ImageDataLayout {
-                                                offset: 0,
-                                                bytes_per_row: Some(rbga8.width() * 4),
-                                                rows_per_image: Some(rbga8.height()),
-                                            },
-                                            wgpu::Extent3d {
-                                                width: rbga8.width(),
-                                                height: rbga8.height(),
-                                                depth_or_array_layers: 1,
-                                            },
-                                        );
-                                        frame.present();
-                                    }
-                                }
-                            }
-                            WindowEvent::CloseRequested => {
-                            }
-                            _ => {}
-                        }
-                    }
-                })
-                .unwrap();
-        }
-    }
-
-    #[test]
-    fn test_video_player() {
-        // env_logger::init();
-        let mut player = VideoPlayerTest::new();
-        player.run();
     }
 }

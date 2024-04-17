@@ -1,3 +1,4 @@
+use std::io::Read;
 use std::thread::sleep;
 use std::time::Duration;
 use std::{io::BufReader, path::Path, time::Instant};
@@ -5,24 +6,19 @@ use std::{io::BufReader, path::Path, time::Instant};
 use rodio::OutputStream;
 use rodio::Sink;
 use futures::executor::block_on;
-use rfvp::subsystem::resources::videoplayer::MpegAacDecoder;
-use wgpu::{CompositeAlphaMode, SamplerBindingType, SurfaceConfiguration, TextureFormat};
+use rfvp::subsystem::resources::videoplayer::MpegVideoDecoder;
+use wgpu::{CompositeAlphaMode, SamplerBindingType, SurfaceConfiguration, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages};
 use winit::{event::{Event, WindowEvent}, event_loop::ControlFlow};
 
 struct VideoPlayerTest {
-    decoder: MpegAacDecoder<BufReader<std::fs::File>>,
+    decoder: MpegVideoDecoder,
 }
 
 impl VideoPlayerTest {
     fn new() -> Self {
         let path = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/testcase/01.mp4"));
-        let file = std::fs::File::open(path).expect("Error opening file");
 
-        let metadata = file.metadata().unwrap();
-        let size = metadata.len();
-        let buf = BufReader::new(file);
-
-        let decoder = MpegAacDecoder::new(buf, size).unwrap();
+        let decoder = MpegVideoDecoder::new(path).unwrap();
 
         Self { 
             decoder,
@@ -100,6 +96,23 @@ impl VideoPlayerTest {
         };
         surface.configure(&device, &config);
 
+        let texture = device.create_texture(&TextureDescriptor {
+            label: Some("Post-Processing Frame Texture"),
+            size: wgpu::Extent3d {
+                width: size.width,
+                height: size.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: TextureDimension::D2,
+            format: config.format,
+            usage: TextureUsages::TEXTURE_BINDING
+                | TextureUsages::COPY_DST // Added as part of wgpu 0.12 migration
+                | TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+
         // self.window = Some(window);
 
         let uniform_bind_group_layout =
@@ -143,10 +156,6 @@ impl VideoPlayerTest {
         let output_stream = OutputStream::try_default();
         let (_stream, handle) = output_stream.expect("Error creating output stream");
         let sink = Sink::try_new(&handle).expect("Error creating sink");
-
-        // sink.append(self.decoder);
-        // sink.play();
-        // sink.set_volume(0.5);
         // sink.sleep_until_end();
 
         let now = Instant::now();
@@ -167,70 +176,40 @@ impl VideoPlayerTest {
                         }
                         WindowEvent::RedrawRequested => {
                             let elapsed = now.elapsed().as_millis() as u64;
-                            if self.decoder.update(elapsed).is_ok() {
-                                // render frame
-                                if let Some(image) = self.decoder.take_frame() {
-                                    println!("frame");
-                                    // render to surface
-                                    let frame = surface.get_current_texture().unwrap();
-                                    let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
-                            
-                                    let mut encoder =
-                                        device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+                            let image = self.decoder.take_frame(elapsed);
+                            if let Ok(Some(image)) = image {
+                                let frame = surface.get_current_texture().unwrap();
+                                let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+                        
+                                let mut encoder =
+                                    device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-                                    let image = image::DynamicImage::ImageRgb8(image);
-                                    let rbga8 = image.to_rgba8();
-                                    let buffer = image.as_bytes();
-                                    println!("width: {}, height: {}", rbga8.width(), rbga8.height());
+                                let buffer = image.to_vec();
+                                println!("width: {}, height: {}", image.width(), image.height());
 
-                                    //     encoder.write_texture(
-                                    //         wgpu::ImageCopyBuffer {
-                                    //             buffer,
-                                    //             layout: wgpu::ImageDataLayout {
-                                    //                 offset: 0,
-                                    //                 bytes_per_row: Some(rbga8.width() * 4),
-                                    //                 rows_per_image: Some(rbga8.height()),
-                                    //             },
-                                    //         },
-                                    //         wgpu::ImageCopyTexture {
-                                    //             texture: &frame.texture,
-                                    //             mip_level: 0,
-                                    //             origin: wgpu::Origin3d::ZERO,
-                                    //             aspect: wgpu::TextureAspect::All,
-                                    //         },
-                                    //         wgpu::Extent3d {
-                                    //             width: rbga8.width(),
-                                    //             height: rbga8.height(),
-                                    //             depth_or_array_layers: 1,
-                                    //         },
-                                    //     );
-                                    
-                                    // queue.submit(Some(encoder.finish()));
-
-                                    queue.write_texture(
-                                        // Tells wgpu where to copy the pixel data
-                                        wgpu::ImageCopyTexture {
-                                            texture: &frame.texture,
-                                            mip_level: 0,
-                                            origin: wgpu::Origin3d::ZERO,
-                                            aspect: wgpu::TextureAspect::All,
-                                        },
-                                        // The actual pixel data
-                                        buffer,
-                                        // The layout of the texture
-                                        wgpu::ImageDataLayout {
-                                            offset: 0,
-                                            bytes_per_row: Some(rbga8.width() * 4),
-                                            rows_per_image: Some(rbga8.height()),
-                                        },
-                                        wgpu::Extent3d {
-                                            width: rbga8.width(),
-                                            height: rbga8.height(),
-                                            depth_or_array_layers: 1,
-                                        },
-                                    );
-                                    frame.present();
-                                }
+                                queue.write_texture(
+                                    // Tells wgpu where to copy the pixel data
+                                    wgpu::ImageCopyTexture {
+                                        texture: &texture,
+                                        mip_level: 0,
+                                        origin: wgpu::Origin3d::ZERO,
+                                        aspect: wgpu::TextureAspect::All,
+                                    },
+                                    // The actual pixel data
+                                    &buffer,
+                                    // The layout of the texture
+                                    wgpu::ImageDataLayout {
+                                        offset: 0,
+                                        bytes_per_row: Some(image.width() * 4),
+                                        rows_per_image: Some(image.height()),
+                                    },
+                                    wgpu::Extent3d {
+                                        width: image.width(),
+                                        height: image.height(),
+                                        depth_or_array_layers: 1,
+                                    },
+                                );
+                                frame.present();
                             }
                         }
                         WindowEvent::CloseRequested => {
