@@ -1,0 +1,16 @@
+[package]
+name = "rfvp-audio"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+rfvp-core = { path = "../rfvp-core" }
+# shin-tasks = { path = "../shin-tasks" }
+
+anyhow = "*"
+tracing = "0.1.37"
+
+kira = { version = "0.8.5", features = ["cpal"] }
+ringbuf = "0.3.1"

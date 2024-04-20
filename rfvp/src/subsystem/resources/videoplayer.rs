@@ -10,8 +10,8 @@ use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
-use std::thread::{spawn, JoinHandle};
-use std::time::Duration;
+use std::thread::{sleep, spawn, JoinHandle};
+use std::time::{Duration, Instant};
 
 const BUF_SIZE: usize = 3;
 
@@ -497,6 +497,11 @@ pub struct MpegVideoDecoder {
     height: u16,
     track_id: u32,
     frame_rate: f64,
+    sample_count: u32,
+    last_sample: u32,
+    playing: AtomicBool,
+    current_frame: Option<image::RgbaImage>,
+    time_scale: u32,
 }
 
 impl MpegVideoDecoder {
@@ -522,6 +527,8 @@ impl MpegVideoDecoder {
         let height = track.height();
         let track_id = track.track_id();
         let frame_rate = track.frame_rate();
+        let sample_count = track.sample_count() + 1;
+        let time_scale = mp4.timescale();
 
         Ok(Self {
             audio_decoder,
@@ -532,6 +539,11 @@ impl MpegVideoDecoder {
             height,
             track_id,
             frame_rate,
+            sample_count,
+            last_sample: 1,
+            playing: AtomicBool::new(false),
+            current_frame: None,
+            time_scale,
         })
     }
 
@@ -556,52 +568,171 @@ impl MpegVideoDecoder {
         Ok((mp4, track_id))
     }
 
-    pub fn take_frame(
-        &mut self,
-        elapsed: u64,
-    ) -> anyhow::Result<Option<image::ImageBuffer<image::Rgba<u8>, std::vec::Vec<u8>>>> {
-        // calculate the frame index based on the elapsed time
-        let frame_index = (elapsed as f64 * self.frame_rate) as u32 + 1;
-        let frame_index = 1;
+    pub fn width(&self) -> u16 {
+        self.width
+    }
 
-        let sample = match self.mp4.read_sample(self.track_id, frame_index) {
-            Ok(Some(sample)) => sample,
-            Ok(None) => {
-                println!("No sample found");
-                return Ok(None);
-            }
-            Err(e) => {
-                log::error!("Error reading sample: {}", e);
-                return Err(anyhow::anyhow!("Error reading sample"));
-            }
-        };
+    pub fn height(&self) -> u16 {
+        self.height
+    }
+
+    pub fn seek(&mut self, sample: u32) -> Result<Vec<u8>> {
+        if sample >= self.sample_count {
+            return Err(anyhow::anyhow!("Sample out of range"));
+        }
 
         let mut buffer = Vec::new();
-        // convert the packet from mp4 representation to one that openh264 can decode
-        self.bitstream_converter
-            .convert_packet(&sample.bytes, &mut buffer);
+        for i in self.last_sample..sample {
+            let sample = match self.mp4.read_sample(self.track_id, i) {
+                Ok(Some(sample)) => sample,
+                Ok(None) => {
+                    return Ok(vec![]);
+                }
+                Err(e) => {
+                    log::error!("Error reading sample: {}", e);
+                    return Err(anyhow::anyhow!("Error reading sample"));
+                }
+            };
 
-        match self.video_decoder.decode(&buffer) {
-            Ok(Some(mut image)) => {
-                let mut rgb = vec![0; self.width as usize * self.height as usize * 3];
+            buffer.clear();
+            self.bitstream_converter
+                .convert_packet(&sample.bytes, &mut buffer);
+        }
+        self.last_sample = sample;
+
+        Ok(buffer)
+    }
+
+    pub fn test_all_frames(&mut self) -> Result<()> {
+        let width = self.width as usize;
+        let height = self.height as usize;
+        let mut rgb = vec![0; width * height * 3];
+        let basepath = Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../video_player/testcase/image"
+        ));
+
+        if !basepath.exists() {
+            std::fs::create_dir_all(basepath)?;
+        }
+
+        for i in 1..self.sample_count {
+            let Some(sample) = self.mp4.read_sample(self.track_id, i)? else {
+                continue;
+            };
+
+            let mut buffer = Vec::new();
+            // convert the packet from mp4 representation to one that openh264 can decode
+            self.bitstream_converter
+                .convert_packet(&sample.bytes, &mut buffer);
+
+            if let Some(image) = self.video_decoder.decode(&buffer)? {
                 image.write_rgb8(&mut rgb);
                 let mut image = image::RgbImage::new(self.width as u32, self.height as u32);
                 image.copy_from_slice(&rgb);
                 let image = image::DynamicImage::ImageRgb8(image);
-                let rbga8 = image.to_rgba8();
-                return Ok(Some(rbga8));
-            },
-            Ok(None) => {
-                println!("No frame found");
-                return Ok(None);
-            },
-            Err(e) => {
-                log::error!("Error decoding frame: {}", e);
-                return Err(anyhow::anyhow!("Error decoding frame"));
+                let path = basepath.join(format!("{}.png", i));
+                image.save_with_format(path, image::ImageFormat::Png)?;
             }
         }
 
-        Ok(None)
+        Ok(())
+    }
+
+}
+
+pub struct Player {
+    inner: Arc<Mutex<MpegVideoDecoder>>,
+}
+impl Player {
+    pub fn new(path: impl AsRef<Path>) -> Result<Self> {
+        let inner = MpegVideoDecoder::new(path)?;
+        Ok(Self {
+            inner: Arc::new(Mutex::new(inner)),
+        })
+    }
+
+    pub fn width(&self) -> u16 {
+        self.inner.lock().unwrap().width()
+    }
+
+    pub fn height(&self) -> u16 {
+        self.inner.lock().unwrap().height()
+    }
+
+    pub fn playing(&self) -> bool {
+        self.inner.lock().unwrap().playing.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn current_frame(&self) -> Option<image::RgbaImage> {
+        self.inner.lock().unwrap().current_frame.clone()
+    }
+
+    pub fn play(&self) {
+        let width = self.width() as usize;
+        let height = self.height() as usize;
+        let track_id = self.inner.lock().unwrap().track_id;
+        let time_scale = self.inner.lock().unwrap().time_scale;
+        let inner = self.inner.clone();
+        
+        std::thread::spawn({
+            move || {
+                let now = Instant::now();
+                let mut rgb = vec![0; width * height * 3];
+                let mut decoder = openh264::decoder::Decoder::new().unwrap();
+                let count = inner.lock().unwrap().sample_count;
+                let mut last_frame_duration = 0u64;
+                let mut i = 1;
+                while i < count {
+                    let Some(sample) = inner
+                        .lock()
+                        .unwrap()
+                        .mp4
+                        .read_sample(track_id, i)
+                        .unwrap()
+                    else {
+                        i += 1;
+                        continue;
+                    };
+                    
+                    let elapsed = now.elapsed().as_millis() as u64;
+                    let dts = (sample.start_time as i64 * 1_000_000) / time_scale as i64;
+                    let pts = (sample.start_time as i64 + sample.rendering_offset as i64) * 1_000_000
+                        / time_scale as i64;
+                    
+                    // if current_start_time > elapsed {
+                    //     println!("Sleeping for: {}", current_start_time - elapsed);
+                    //     sleep(Duration::from_millis(current_start_time - elapsed));
+                    // }
+
+
+                    let mut buffer = Vec::new();
+                    // convert the packet from mp4 representation to one that openh264 can decode
+                    inner
+                        .lock()
+                        .unwrap()
+                        .bitstream_converter
+                        .convert_packet(&sample.bytes, &mut buffer);
+
+                    if let Some(image) =
+                        decoder.decode(&buffer).unwrap()
+                    {
+                        image.write_rgb8(&mut rgb);
+                        let mut image = image::RgbImage::new(
+                            width as u32,
+                            height as u32,
+                        );
+                        image.copy_from_slice(&rgb);
+                        let image = image::DynamicImage::ImageRgb8(image);
+                        let image = image.to_rgba8();
+                        inner.lock().unwrap().current_frame = Some(image);
+                    }
+                    last_frame_duration = sample.duration as u64;
+                    i += 1;
+                }
+
+            }
+        });
     }
 }
 
@@ -742,10 +873,6 @@ impl Default for VideoPlayerManager {
 mod tests {
     use std::{env, time::Instant};
 
-    use futures::executor::block_on;
-    use wgpu::{CompositeAlphaMode, SamplerBindingType, SurfaceConfiguration, TextureFormat};
-    use winit::event::{Event, WindowEvent};
-
     use super::*;
 
     #[test]
@@ -771,5 +898,21 @@ mod tests {
         sink.play();
         sink.set_volume(0.5);
         sink.sleep_until_end();
+    }
+
+    #[test]
+    fn test_decode_all_frames() {
+        env_logger::init();
+        let path = Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../video_player/testcase/01.mp4"
+        ));
+        let mut decoder = MpegVideoDecoder::new(path).expect("Error creating decoder");
+        let start = Instant::now();
+        decoder
+            .test_all_frames()
+            .expect("Error decoding all frames");
+        let duration = start.elapsed();
+        println!("Decoding all frames took: {:?}", duration);
     }
 }

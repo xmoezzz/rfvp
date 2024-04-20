@@ -1,6 +1,6 @@
 [workspace]
 
 members = [ "assembler", "decompiler", "disassembler",
-    "rfvp", 
+    "rfvp", "rfvp-audio", "rfvp-core", "rfvp-render", "rfvp-tasks", "rfvp-video", "rfvp-wrld", 
     "video_player",
 ]
