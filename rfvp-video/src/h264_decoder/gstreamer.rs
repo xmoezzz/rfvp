@@ -140,7 +140,7 @@ impl super::H264DecoderTrait for GStreamerH264Decoder {
                                 gst::ClockTime::from_useconds(time * 1_000_000 / time_base as u64)
                             };
 
-                            let start_time = mp4_time_to_gst_time(sample.start_time);
+                            let start_time = mp4_time_to_gst_time((sample.start_time as i64 + sample.rendering_offset as i64) as u64);
                             let duration = mp4_time_to_gst_time(sample.duration as u64);
 
                             bitstream_converter.convert_packet(&sample.bytes, &mut vec_buffer);
