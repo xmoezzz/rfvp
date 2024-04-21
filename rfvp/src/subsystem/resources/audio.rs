@@ -49,22 +49,6 @@ impl Audio {
         }
     }
 
-    // pub fn load_audio(
-    //     &mut self,
-    //     buffer: Vec<u8>,
-    //     id: usize,
-    //     config: PlayConfig,
-    // ) -> Result<usize, Error> {
-    //     if let Ok(()) = self.event_sender.send(AudioEvent::LoadAudio {
-    //         buffer,
-    //         config,
-    //         sound_id: id,
-    //     }) {
-    //         return Ok(id);
-    //     }
-    //     return Err(Error::ImpossibleToLoadSound);
-    // }
-
     /// load an audio into memory
     pub fn load_audio(
         &mut self,
@@ -141,13 +125,6 @@ impl Audio {
 
         Ok(())
     }
-
-    // pub fn stop_audio(&mut self, id: usize) -> Result<usize, Error> {
-    //     if let Ok(()) = self.event_sender.send(AudioEvent::StopAudio { sound_id: id }) {
-    //         return Ok(id);
-    //     }
-    //     return Err(Error::ImpossibleToLoadSound);
-    // }
 
     /// Stop the audio identified with `name`
     pub fn stop_audio(&mut self, id: usize, _fadeout: usize) -> anyhow::Result<()> {

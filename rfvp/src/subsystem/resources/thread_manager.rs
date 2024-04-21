@@ -53,7 +53,7 @@ impl ThreadManager {
 
     pub fn thread_start(&mut self, id: u32, addr: u32) {
         if id == 0 {
-            for i in 0..self.total_contexts() {
+            for _i in 0..self.total_contexts() {
                 let mut context = Context::new(0);
                 context.set_status(CONTEXT_STATUS_NONE);
                 context.set_should_break(true);
@@ -104,7 +104,7 @@ impl ThreadManager {
         };
 
         if id == 0 {
-            for i in 0..self.total_contexts() {
+            for _i in 0..self.total_contexts() {
                 let mut ctx = Context::new(0);
                 ctx.set_status(CONTEXT_STATUS_NONE);
                 ctx.set_should_break(true);

@@ -22,7 +22,7 @@ use super::parts_manager::PartsManager;
 use super::prim::{PrimManager, INVAILD_PRIM_HANDLE};
 use anyhow::{bail, Result};
 use atomic_refcell::AtomicRefCell;
-use std::cell::{Ref, RefMut};
+use std::cell::{RefMut};
 use image::GenericImageView;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -476,8 +476,8 @@ impl MotionManager {
             PrimType::PrimTypeSprt => {
                 let texture_id = sprite.get_text_index();
                 let texture = self.get_texture(texture_id as u32);
-                let mut total_x = x + texture.get_offset_x() as i32 + sprite.get_x() as i32;
-                let mut total_y = y + texture.get_offset_y() as i32 + sprite.get_y() as i32;
+                let total_x = x + texture.get_offset_x() as i32 + sprite.get_x() as i32;
+                let total_y = y + texture.get_offset_y() as i32 + sprite.get_y() as i32;
                 let mut u = 0i32;
                 let mut v = 0i32;
                 let mut edge_x = 0i32;

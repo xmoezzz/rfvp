@@ -80,12 +80,12 @@ fn process_wgpu_type(
     });
 }
 
-fn require_repr_c(attrs : &std::vec::Vec<syn::Attribute>) {
+fn require_repr_c(attrs : &[syn::Attribute]) {
     let mut valid = false;
 
-    parse_attrs(&attrs, Box::new(|attr| {
+    parse_attrs(attrs, Box::new(|attr| {
         let repr_attr = attr.attribute.parse_args::<syn::Ident>().unwrap().to_string();
-        if attr.segment.ident.to_string() == "repr" && (repr_attr == "C" || repr_attr == "transparent") {
+        if attr.segment.ident == "repr" && (repr_attr == "C" || repr_attr == "transparent") {
             valid = true;
         }
     }));
@@ -120,7 +120,7 @@ pub fn derive_wrld_desc(item: proc_macro::TokenStream, step_mode: wgpu::VertexSt
 
     for i in entity.fields {
         for attr in i.attrs {
-            if attr.ty == None {
+            if attr.ty.is_none() {
                 let format = convert_type_to_wgpu(&attr.name, attr.data).unwrap();
                 process_wgpu_type(&format, &mut shader_locations, &mut attrs, &offset);
                 offset += format.wgpu_type.offset;
@@ -212,7 +212,7 @@ pub fn derive_wrld_buffer_data(item: proc_macro::TokenStream) -> proc_macro::Tok
     let replace_all = ident_regex_lowercase.replace_all(ident_string.as_str(), "_$M");
     let mut result = replace_all.to_ascii_lowercase();
     
-    if result.chars().nth(0).unwrap() == '_' {
+    if result.starts_with('_') {
         result.remove(0);
     }
 

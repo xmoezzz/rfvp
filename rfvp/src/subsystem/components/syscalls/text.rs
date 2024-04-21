@@ -268,14 +268,14 @@ pub fn text_font_set(game_data: &mut GameData, id: &Variant) -> Result<Variant> 
 //     )
 
 pub fn text_format(
-    game_data: &mut GameData,
+    _game_data: &mut GameData,
     id: &Variant,
-    space_vertical: &Variant,
-    space_horizon: &Variant,
-    text_start_vertical: &Variant,
-    text_start_horizon: &Variant,
-    ruby_vertical: &Variant,
-    ruby_horizon: &Variant,
+    _space_vertical: &Variant,
+    _space_horizon: &Variant,
+    _text_start_vertical: &Variant,
+    _text_start_horizon: &Variant,
+    _ruby_vertical: &Variant,
+    _ruby_horizon: &Variant,
 ) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,

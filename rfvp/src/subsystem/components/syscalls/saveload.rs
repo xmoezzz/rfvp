@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{Result};
 
 use crate::subsystem::world::GameData;
 use crate::{script::Variant, subsystem::resources::save_manager::SaveDataFunction};

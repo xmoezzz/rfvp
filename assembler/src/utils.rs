@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use crate::inst::*;
 use anyhow::Result;
@@ -39,14 +39,13 @@ impl Inst2 {
     }
 }
 
-pub fn to_nop(inst: &Inst2) -> Result<NopInst> {
+pub fn to_nop(_inst: &Inst2) -> Result<NopInst> {
     Ok(NopInst::new())
 }
 
 pub fn to_init_stack(inst: &Inst2) -> Result<InitStackInst> {
     Ok(InitStackInst::new(
-        inst.operands
-            .get(0)
+        inst.operands.first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
         inst.operands
@@ -58,8 +57,7 @@ pub fn to_init_stack(inst: &Inst2) -> Result<InitStackInst> {
 
 pub fn to_call(inst: &Inst2) -> Result<CallInst> {
     Ok(CallInst::new(
-        inst.operands
-            .get(0)
+        inst.operands.first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -67,8 +65,7 @@ pub fn to_call(inst: &Inst2) -> Result<CallInst> {
 
 pub fn to_syscall(inst: &Inst2, syscalls: &BTreeMap<String, u32>) -> Result<SyscallInst> {
     let syscall_name = inst
-        .operands
-        .get(0)
+        .operands.first()
         .ok_or(anyhow::anyhow!("missing operand"))?;
     let id = syscalls
         .get(syscall_name)
@@ -77,18 +74,17 @@ pub fn to_syscall(inst: &Inst2, syscalls: &BTreeMap<String, u32>) -> Result<Sysc
     Ok(SyscallInst::new(id as u16))
 }
 
-pub fn to_ret(inst: &Inst2) -> Result<RetInst> {
+pub fn to_ret(_inst: &Inst2) -> Result<RetInst> {
     Ok(RetInst::new())
 }
 
-pub fn to_ret_v(inst: &Inst2) -> Result<RetVInst> {
+pub fn to_ret_v(_inst: &Inst2) -> Result<RetVInst> {
     Ok(RetVInst::new())
 }
 
 pub fn to_jmp(inst: &Inst2) -> Result<JmpInst> {
     Ok(JmpInst::new(
-        inst.operands
-            .get(0)
+        inst.operands.first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -96,25 +92,23 @@ pub fn to_jmp(inst: &Inst2) -> Result<JmpInst> {
 
 pub fn to_jz(inst: &Inst2) -> Result<JzInst> {
     Ok(JzInst::new(
-        inst.operands
-            .get(0)
+        inst.operands.first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
 }
 
-pub fn to_push_nil(inst: &Inst2) -> Result<PushNilInst> {
+pub fn to_push_nil(_inst: &Inst2) -> Result<PushNilInst> {
     Ok(PushNilInst::new())
 }
 
-pub fn to_push_true(inst: &Inst2) -> Result<PushTrueInst> {
+pub fn to_push_true(_inst: &Inst2) -> Result<PushTrueInst> {
     Ok(PushTrueInst::new())
 }
 
 pub fn to_push_i32(inst: &Inst2) -> Result<PushI32Inst> {
     Ok(PushI32Inst::new(
-        inst.operands
-            .get(0)
+        inst.operands.first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -122,8 +116,7 @@ pub fn to_push_i32(inst: &Inst2) -> Result<PushI32Inst> {
 
 pub fn to_push_i16(inst: &Inst2) -> Result<PushI16Inst> {
     Ok(PushI16Inst::new(
-        inst.operands
-            .get(0)
+        inst.operands.first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -131,8 +124,7 @@ pub fn to_push_i16(inst: &Inst2) -> Result<PushI16Inst> {
 
 pub fn to_push_i8(inst: &Inst2) -> Result<PushI8Inst> {
     Ok(PushI8Inst::new(
-        inst.operands
-            .get(0)
+        inst.operands.first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -140,8 +132,7 @@ pub fn to_push_i8(inst: &Inst2) -> Result<PushI8Inst> {
 
 pub fn to_push_f32(inst: &Inst2) -> Result<PushF32Inst> {
     Ok(PushF32Inst::new(
-        inst.operands
-            .get(0)
+        inst.operands.first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -149,8 +140,7 @@ pub fn to_push_f32(inst: &Inst2) -> Result<PushF32Inst> {
 
 pub fn to_push_string(inst: &Inst2, nls: Nls) -> Result<PushStringInst> {
     Ok(PushStringInst::new(
-        inst.operands
-            .get(0)
+        inst.operands.first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .to_owned(),
         nls,
@@ -159,8 +149,7 @@ pub fn to_push_string(inst: &Inst2, nls: Nls) -> Result<PushStringInst> {
 
 pub fn to_push_global(inst: &Inst2) -> Result<PushGlobalInst> {
     Ok(PushGlobalInst::new(
-        inst.operands
-            .get(0)
+        inst.operands.first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -168,8 +157,7 @@ pub fn to_push_global(inst: &Inst2) -> Result<PushGlobalInst> {
 
 pub fn to_push_stack(inst: &Inst2) -> Result<PushStackInst> {
     Ok(PushStackInst::new(
-        inst.operands
-            .get(0)
+        inst.operands.first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -177,8 +165,7 @@ pub fn to_push_stack(inst: &Inst2) -> Result<PushStackInst> {
 
 pub fn to_push_global_table(inst: &Inst2) -> Result<PushGlobalTableInst> {
     Ok(PushGlobalTableInst::new(
-        inst.operands
-            .get(0)
+        inst.operands.first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -186,25 +173,23 @@ pub fn to_push_global_table(inst: &Inst2) -> Result<PushGlobalTableInst> {
 
 pub fn to_push_local_table(inst: &Inst2) -> Result<PushLocalTableInst> {
     Ok(PushLocalTableInst::new(
-        inst.operands
-            .get(0)
+        inst.operands.first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
 }
 
-pub fn to_push_top(inst: &Inst2) -> Result<PushTopInst> {
+pub fn to_push_top(_inst: &Inst2) -> Result<PushTopInst> {
     Ok(PushTopInst::new())
 }
 
-pub fn to_push_return(inst: &Inst2) -> Result<PushReturnInst> {
+pub fn to_push_return(_inst: &Inst2) -> Result<PushReturnInst> {
     Ok(PushReturnInst::new())
 }
 
 pub fn to_pop_global(inst: &Inst2) -> Result<PopGlobalInst> {
     Ok(PopGlobalInst::new(
-        inst.operands
-            .get(0)
+        inst.operands.first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -212,8 +197,7 @@ pub fn to_pop_global(inst: &Inst2) -> Result<PopGlobalInst> {
 
 pub fn to_pop_stack(inst: &Inst2) -> Result<PopStackInst> {
     Ok(PopStackInst::new(
-        inst.operands
-            .get(0)
+        inst.operands.first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -221,8 +205,7 @@ pub fn to_pop_stack(inst: &Inst2) -> Result<PopStackInst> {
 
 pub fn to_pop_global_table(inst: &Inst2) -> Result<PopGlobalTableInst> {
     Ok(PopGlobalTableInst::new(
-        inst.operands
-            .get(0)
+        inst.operands.first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -230,70 +213,69 @@ pub fn to_pop_global_table(inst: &Inst2) -> Result<PopGlobalTableInst> {
 
 pub fn to_pop_local_table(inst: &Inst2) -> Result<PopLocalTableInst> {
     Ok(PopLocalTableInst::new(
-        inst.operands
-            .get(0)
+        inst.operands.first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
 }
 
-pub fn to_neg(inst: &Inst2) -> Result<NegInst> {
+pub fn to_neg(_inst: &Inst2) -> Result<NegInst> {
     Ok(NegInst::new())
 }
 
-pub fn to_add(inst: &Inst2) -> Result<AddInst> {
+pub fn to_add(_inst: &Inst2) -> Result<AddInst> {
     Ok(AddInst::new())
 }
 
-pub fn to_sub(inst: &Inst2) -> Result<SubInst> {
+pub fn to_sub(_inst: &Inst2) -> Result<SubInst> {
     Ok(SubInst::new())
 }
 
-pub fn to_mul(inst: &Inst2) -> Result<MulInst> {
+pub fn to_mul(_inst: &Inst2) -> Result<MulInst> {
     Ok(MulInst::new())
 }
 
-pub fn to_div(inst: &Inst2) -> Result<DivInst> {
+pub fn to_div(_inst: &Inst2) -> Result<DivInst> {
     Ok(DivInst::new())
 }
 
-pub fn to_mod(inst: &Inst2) -> Result<ModInst> {
+pub fn to_mod(_inst: &Inst2) -> Result<ModInst> {
     Ok(ModInst::new())
 }
 
-pub fn to_bit_test(inst: &Inst2) -> Result<BitTestInst> {
+pub fn to_bit_test(_inst: &Inst2) -> Result<BitTestInst> {
     Ok(BitTestInst::new())
 }
 
-pub fn to_and(inst: &Inst2) -> Result<AndInst> {
+pub fn to_and(_inst: &Inst2) -> Result<AndInst> {
     Ok(AndInst::new())
 }
 
-pub fn to_or(inst: &Inst2) -> Result<OrInst> {
+pub fn to_or(_inst: &Inst2) -> Result<OrInst> {
     Ok(OrInst::new())
 }
 
-pub fn to_set_e(inst: &Inst2) -> Result<SetEInst> {
+pub fn to_set_e(_inst: &Inst2) -> Result<SetEInst> {
     Ok(SetEInst::new())
 }
 
-pub fn to_set_ne(inst: &Inst2) -> Result<SetNEInst> {
+pub fn to_set_ne(_inst: &Inst2) -> Result<SetNEInst> {
     Ok(SetNEInst::new())
 }
 
-pub fn to_set_g(inst: &Inst2) -> Result<SetGInst> {
+pub fn to_set_g(_inst: &Inst2) -> Result<SetGInst> {
     Ok(SetGInst::new())
 }
 
-pub fn to_set_le(inst: &Inst2) -> Result<SetLEInst> {
+pub fn to_set_le(_inst: &Inst2) -> Result<SetLEInst> {
     Ok(SetLEInst::new())
 }
 
-pub fn to_set_l(inst: &Inst2) -> Result<SetLInst> {
+pub fn to_set_l(_inst: &Inst2) -> Result<SetLInst> {
     Ok(SetLInst::new())
 }
 
-pub fn to_set_ge(inst: &Inst2) -> Result<SetGEInst> {
+pub fn to_set_ge(_inst: &Inst2) -> Result<SetGEInst> {
     Ok(SetGEInst::new())
 }
 

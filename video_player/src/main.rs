@@ -28,7 +28,7 @@ async fn run(event_loop: EventLoop<()>, window: Arc<Window>) {
         ..Default::default()
     });
 
-    let surface = unsafe { instance.create_surface(window.as_ref()) }.unwrap();
+    let surface = instance.create_surface(window.as_ref()).unwrap();
 
     let adapter = wgpu::util::initialize_adapter_from_env_or_default(
         &instance,
@@ -169,7 +169,7 @@ async fn run(event_loop: EventLoop<()>, window: Arc<Window>) {
                             view: &view,
                             resolve_target: None,
                             ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(wgpu::Color::BLUE),
+                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                                 store: wgpu::StoreOp::Store,
                             },
                         })],

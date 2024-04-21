@@ -211,7 +211,6 @@ impl App {
 
         self.update_cursor();
         // self.game_data.inputs().reset_inputs();
-        self.game_data.events().cleanup();
     }
 
     fn update_cursor(&mut self) {

@@ -1,7 +1,7 @@
 use std::io::{Read, Seek};
 
 use anyhow::{bail, Context, Result};
-use gst::{prelude::*, ClockTime};
+use gst::prelude::*;
 use once_cell::sync::Lazy;
 use tracing::{debug, error, trace, warn};
 
@@ -76,7 +76,7 @@ impl super::H264DecoderTrait for GStreamerH264Decoder {
 
         let pipeline = gst::Pipeline::default();
         pipeline
-            .add_many(&[
+            .add_many([
                 app_src.upcast_ref(),
                 &decodebin,
                 &queue,
@@ -89,7 +89,7 @@ impl super::H264DecoderTrait for GStreamerH264Decoder {
         app_src
             .link(&decodebin)
             .context("Failed to link app_src to decodebin")?;
-        gst::Element::link_many(&[&queue, &videoconvert, app_sink.upcast_ref()])
+        gst::Element::link_many([&queue, &videoconvert, app_sink.upcast_ref()])
             .context("Failed to link queue, videoconvert and appsink")?;
 
         decodebin.connect_pad_added(move |_decodebin, src_pad| {

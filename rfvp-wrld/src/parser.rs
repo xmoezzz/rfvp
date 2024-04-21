@@ -40,12 +40,12 @@ pub struct AttrData<'a> {
     pub segment: &'a syn::PathSegment
 }
 
-pub fn parse_attrs<'a>(attrs : &'a std::vec::Vec<syn::Attribute>, mut callback: Box<dyn FnMut(AttrData) + 'a>) {
+pub fn parse_attrs<'a>(attrs : &'a [syn::Attribute], mut callback: Box<dyn FnMut(AttrData) + 'a>) {
     attrs.iter().for_each(|a| {
         a.path.segments.iter().for_each(|ps| {
             callback(AttrData {
-                attribute: &a,
-                segment: &ps,
+                attribute: a,
+                segment: ps,
             });
         });
     });

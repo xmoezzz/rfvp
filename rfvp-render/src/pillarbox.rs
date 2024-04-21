@@ -3,7 +3,7 @@ use wgpu::util::DeviceExt;
 
 use crate::{
     vertices::{PosVertex, VertexSource},
-    GpuCommonResources, Renderable, VIRTUAL_HEIGHT, VIRTUAL_WIDTH,
+    GpuCommonResources, Renderable,
 };
 
 pub struct Pillarbox {
@@ -13,15 +13,15 @@ pub struct Pillarbox {
 }
 
 impl Pillarbox {
-    pub fn new(resources: &GpuCommonResources) -> Self {
+    pub fn new(resources: &GpuCommonResources, width: u32, height: u32) -> Self {
         let letterbox_size = 10000000.0;
-        let left = -VIRTUAL_WIDTH / 2.0;
+        let left = -(width as f32) / 2.0;
         let ultra_left = left - letterbox_size;
-        let right = VIRTUAL_WIDTH / 2.0;
+        let right = width as f32 / 2.0;
         let ultra_right = right + letterbox_size;
-        let top = VIRTUAL_HEIGHT / 2.0;
+        let top = height as f32 / 2.0;
         let ultra_top = top + letterbox_size;
-        let bottom = -VIRTUAL_HEIGHT / 2.0;
+        let bottom = -(height as f32) / 2.0;
         let ultra_bottom = bottom - letterbox_size;
 
         // we want to draw 4 rectangles to the sides

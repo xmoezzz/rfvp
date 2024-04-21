@@ -7,13 +7,14 @@ pub trait Inst {
     fn size(&self) -> u32;
 }
 
+#[derive(Default)]
 pub struct NopInst {
     address: u32,
 }
 
 impl NopInst {
     pub fn new() -> Self {
-        Self { address: 0 }
+        Self::default()
     }
 }
 
@@ -145,13 +146,14 @@ impl Inst for SyscallInst {
     }
 }
 
+#[derive(Default)]
 pub struct RetInst {
     address: u32,
 }
 
 impl RetInst {
     pub fn new() -> Self {
-        Self { address: 0 }
+        Self::default()
     }
 }
 
@@ -173,13 +175,14 @@ impl Inst for RetInst {
     }
 }
 
+#[derive(Default)]
 pub struct RetVInst {
     address: u32,
 }
 
 impl RetVInst {
     pub fn new() -> Self {
-        Self { address: 0 }
+        Self::default()
     }
 }
 
@@ -285,13 +288,14 @@ impl Inst for JzInst {
     }
 }
 
+#[derive(Default)]
 pub struct PushNilInst {
     address: u32,
 }
 
 impl PushNilInst {
     pub fn new() -> Self {
-        Self { address: 0 }
+        Self::default()
     }
 }
 
@@ -313,13 +317,14 @@ impl Inst for PushNilInst {
     }
 }
 
+#[derive(Default)]
 pub struct PushTrueInst {
     address: u32,
 }
 
 impl PushTrueInst {
     pub fn new() -> Self {
-        Self { address: 0 }
+        Self::default()
     }
 }
 

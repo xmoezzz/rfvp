@@ -182,7 +182,7 @@ impl Context {
 
     fn get_local_mut(&mut self, offset: i8) -> Result<&mut Variant> {
         let base = self.cur_stack_base as isize;
-        let mut off = match base.checked_add(offset as isize) {
+        let off = match base.checked_add(offset as isize) {
             Some(off) => off,
             None => bail!("stack pointer out of bounds"),
         };

@@ -73,8 +73,6 @@ use crate::subsystem::components::syscalls::other_anm::{
 
 use crate::subsystem::resources::asset_manager::AssetManager;
 use crate::subsystem::resources::audio::Audio;
-use crate::subsystem::resources::events::Events;
-use crate::subsystem::resources::focus_manager::FocusManager;
 use crate::subsystem::resources::motion_manager::MotionManager;
 use crate::subsystem::resources::time::Timers;
 use crate::subsystem::resources::window::Window;
@@ -91,7 +89,7 @@ use super::resources::history_manager::HistoryManager;
 use super::resources::input_manager::InputManager;
 use super::resources::save_manager::SaveManager;
 use super::resources::text_manager::FontEnumerator;
-use super::resources::thread_manager::ThreadManager;
+
 use super::resources::thread_wrapper::ThreadWrapper;
 use super::resources::timer_manager::TimerManager;
 use super::resources::vfs::Vfs;
@@ -203,12 +201,6 @@ impl GameData {
             .expect("The engine is missing the mandatory timers resource")
     }
 
-    /// retrieves the events resource from the resources
-    pub fn events(&self) -> AtomicRefMut<Events> {
-        self.get_resource_mut::<Events>()
-            .expect("The engine is missing the mandatory events resource")
-    }
-
     /// retrieves the audio player from the resources
     pub fn audio(&self) -> AtomicRefMut<Audio> {
         self.get_resource_mut::<Audio>()
@@ -225,13 +217,6 @@ impl GameData {
     pub fn scene_controller(&self) -> AtomicRefMut<SceneController> {
         self.get_resource_mut::<SceneController>()
             .expect("The engine is missing the mandatory scene controller resource")
-    }
-
-    /// retrieves the focus manager from the resources.
-    #[allow(dead_code)]
-    pub(crate) fn focus_manager(&self) -> AtomicRefMut<FocusManager> {
-        self.get_resource_mut::<FocusManager>()
-            .expect("The engine is missing the mandatory focus manager resource")
     }
 
     pub fn vfs_load_file(&self, path: &str) -> anyhow::Result<Vec<u8>> {
@@ -450,12 +435,6 @@ impl Resources {
             .expect("The engine is missing the mandatory timers resource")
     }
 
-    /// retrieves the events resource from the resources
-    pub fn events(&self) -> AtomicRefMut<Events> {
-        self.get_resource_mut::<Events>()
-            .expect("The engine is missing the mandatory events resource")
-    }
-
     /// retrieves the audio player from the resources
     pub fn audio(&self) -> AtomicRefMut<Audio> {
         self.get_resource_mut::<Audio>()
@@ -472,12 +451,6 @@ impl Resources {
     pub fn scene_controller(&self) -> AtomicRefMut<SceneController> {
         self.get_resource_mut::<SceneController>()
             .expect("The engine is missing the mandatory scene controller resource")
-    }
-
-    /// retrieves the focus manager from the resources.
-    pub(crate) fn focus_manager(&self) -> AtomicRefMut<FocusManager> {
-        self.get_resource_mut::<FocusManager>()
-            .expect("The engine is missing the mandatory focus manager resource")
     }
 }
 

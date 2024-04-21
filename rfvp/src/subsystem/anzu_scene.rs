@@ -66,7 +66,7 @@ impl AnzuScene {
         game_data.motion_manager.update_v3d_motions(elapsed, true);
     }
 
-    fn update_prim(&mut self, game_data: &mut GameData, elapsed: u64) {}
+    fn update_prim(&mut self, _game_data: &mut GameData, _elapsed: u64) {}
 
     fn draw_prim_container(&mut self, game_data: &mut GameData, prim_id: i16, x: i32, y: i32) {
         let draw_flag = game_data

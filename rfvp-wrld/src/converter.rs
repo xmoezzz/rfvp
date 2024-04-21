@@ -92,8 +92,8 @@ pub fn convert_mat_type_to_wgou(name: &String, shader_location: u32, ty: &mut St
     wgpu_vec
 }
 
-pub fn convert_type_to_wgpu(name: &String, shader_location: u32) -> Result<WGPUData, String> {
-    let wgpu_type = get_type(name.as_str())?;
+pub fn convert_type_to_wgpu(name: &str, shader_location: u32) -> Result<WGPUData, String> {
+    let wgpu_type = get_type(name)?;
 
     Ok(WGPUData { wgpu_type, shader_location })
 }

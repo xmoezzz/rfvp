@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use chrono::{DateTime, Datelike, Local, Timelike, Weekday};
+use chrono::{Datelike, Local, Timelike};
 use std::mem::size_of;
 use std::{io::Read, path::Path};
 
@@ -481,7 +481,7 @@ impl SaveManager {
     }
 
     pub fn load_savedata(&mut self, slot: u32, nls: Nls) -> Result<()> {
-        let save_item = SaveItem::load_from_file(
+        let _save_item = SaveItem::load_from_file(
             app_base_path()
                 .get_path()
                 .join("save")
