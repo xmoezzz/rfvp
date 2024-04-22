@@ -5,7 +5,7 @@ use winit::window::WindowBuilder;
 use winit::dpi::LogicalSize;
 use winit::window::WindowLevel;
 
-use crate::{config::app_config::AppConfig, subsystem::components::color::Color};
+use crate::config::app_config::AppConfig;
 
 /// Main configuration for the game window
 /// Please use [`WindowConfigBuilder`] if you want to build if from code.
@@ -34,7 +34,7 @@ pub struct WindowConfig {
     /// If the window should be able to be transparent.
     pub(crate) transparent: bool,
     /// Default background color of each frame in the window
-    pub(crate) default_background_color: Option<Color>,
+    pub(crate) default_background_color: Option<wgpu::Color>,
 }
 
 impl Default for WindowConfig {
@@ -107,7 +107,7 @@ impl WindowConfigBuilder {
     }
 
     /// When rendering to the window, which color to use as default
-    pub fn with_default_background_color(mut self, color: Option<Color>) -> Self {
+    pub fn with_default_background_color(mut self, color: Option<wgpu::Color>) -> Self {
         self.config.default_background_color = color;
         self
     }

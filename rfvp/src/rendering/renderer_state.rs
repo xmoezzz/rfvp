@@ -22,19 +22,20 @@ impl RendererState {
             backends: backend,
             dx12_shader_compiler: wgpu::Dx12Compiler::Fxc,
             flags: wgpu::InstanceFlags::default(),
-            gles_minor_version: wgpu::Gles3MinorVersion::Automatic
+            gles_minor_version: wgpu::Gles3MinorVersion::Automatic,
         });
 
-        let (_size, surface) = {
+        let (size, surface) = {
             let size = window.inner_size();
-            let surface = instance.create_surface(window.clone()).expect("Surface unsupported by adapter");
+            let surface = instance
+                .create_surface(window.clone())
+                .expect("Surface unsupported by adapter");
             (size, surface)
         };
 
-        let adapter =
-            wgpu::util::initialize_adapter_from_env_or_default(&instance, Some(&surface))
-                .await
-                .expect("No suitable GPU adapters found on the system!");
+        let adapter = wgpu::util::initialize_adapter_from_env_or_default(&instance, Some(&surface))
+            .await
+            .expect("No suitable GPU adapters found on the system!");
 
         let needed_limits =
             wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits());
@@ -65,9 +66,21 @@ impl RendererState {
         };
         surface.configure(&device, &config);
 
-        renderer.start(&device, &config);
+        renderer.start(
+            &device,
+            &queue,
+            &config,
+            &surface.get_capabilities(&adapter).formats[0],
+            (w.width, w.height),
+        );
 
-        Self { surface, device, queue, config, renderer }
+        Self {
+            surface,
+            device,
+            queue,
+            config,
+            renderer,
+        }
     }
 
     pub(crate) fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>, scale_factor: f64) {
@@ -82,7 +95,8 @@ impl RendererState {
     }
 
     pub(crate) fn update(&mut self, data: &mut GameData) {
-        self.renderer.update(data, &self.device, &self.config, &mut self.queue);
+        self.renderer
+            .update(data, &self.device, &self.config, &mut self.queue);
     }
 
     pub(crate) fn render(
@@ -91,10 +105,13 @@ impl RendererState {
         config: &AppConfig,
     ) -> Result<(), wgpu::SurfaceError> {
         let frame = self.surface.get_current_texture()?;
-        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut encoder =
-            self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         self.renderer.render(data, config, &view, &mut encoder);
 

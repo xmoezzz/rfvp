@@ -1,24 +1,18 @@
 use hecs::{Component, Entity};
+use rfvp_render::{BindGroupLayouts, Camera, GpuCommonResources, Pillarbox, Pipelines, RenderTarget};
+use std::sync::{Arc, RwLock};
 use std::{cfg, collections::HashMap, ops::Range, path::Path, time::SystemTime};
 
-use wgpu::{util::DeviceExt, BindGroup, BindGroupLayout, Buffer, CommandEncoder, Device, Queue, RenderPassColorAttachment, RenderPipeline, SurfaceConfiguration, TextureView, SamplerBindingType, TextureFormat, StoreOp};
+use wgpu::{
+    util::DeviceExt, BindGroup, BindGroupLayout, Buffer, CommandEncoder, Device, Queue,
+    RenderPassColorAttachment, RenderPipeline, SamplerBindingType, StoreOp, SurfaceConfiguration,
+    TextureFormat, TextureView,
+};
 
 use crate::subsystem::world::{GameData, World};
 use crate::{
     config::app_config::AppConfig,
-    subsystem::components::{
-        color::Color,
-        material::{Material, Texture},
-        maths::{camera::Camera, transform::Transform},
-        tiles::sprite::Sprite,
-        ui::{ui_image::UiImage, UiComponent},
-        Hide, HidePropagated,
-    },
-    rendering::{
-        gl_representations::{GlUniform, UniformData},
-        shaders::pipeline::pipeline,
-        Renderable2D, RenderableUi, Renderer,
-    },
+    rendering::Renderer,
     utils::file::{read_file_modification_time, FileReaderError},
 };
 
@@ -43,49 +37,36 @@ struct RenderingInfos {
 }
 
 impl Renderer for Shinku2D {
-    fn start(&mut self, device: &Device, surface_config: &SurfaceConfiguration) {
-        let uniform_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-                label: Some("uniform_bind_group_layout"),
-            });
+    fn start(
+        &mut self,
+        device: &Device,
+        queue: &Queue,
+        surface_config: &SurfaceConfiguration,
+        texture_format: &TextureFormat,
+        window_size: (u32, u32),
+    ) {
+        let bind_group_layouts = BindGroupLayouts::new(&device);
+        let pipelines = Pipelines::new(&device, &bind_group_layouts, texture_format);
 
-        let texture_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-                label: Some("texture_bind_group_layout"),
-            });
+        let camera = Camera::new(window_size);
 
-        self.transform_bind_group_layout = Some(uniform_bind_group_layout);
-        self.texture_bind_group_layout = Some(texture_bind_group_layout);
-        self.insert_components_pipelines::<Sprite>(&device, &surface_config);
-        self.insert_components_pipelines::<UiImage>(&device, &surface_config);
+        let resources = Arc::new(GpuCommonResources {
+            device,
+            queue,
+            render_buffer_size: RwLock::new(camera.render_buffer_size()),
+            bind_group_layouts,
+            pipelines,
+        });
+
+        let overlay = OverlayManager::new(&resources, texture_format);
+
+        let render_target = RenderTarget::new(
+            &resources,
+            camera.render_buffer_size(),
+            Some("Window RenderTarget"),
+        );
+
+        let pillarbox = Pillarbox::new(&resources, window_size.0, window_size.1);
     }
 
     fn update(
@@ -158,48 +139,6 @@ impl Shinku2D {
         }
     }
 
-    fn upsert_ui_component_buffers<T: Component + Renderable2D + RenderableUi>(
-        &mut self,
-        data: &mut GameData,
-        device: &&Device,
-        _surface_config: &&SurfaceConfiguration,
-        _queue: &mut Queue,
-    ) {
-        for (entity, (component, _, m)) in data.query::<(&mut T, &Transform, Option<&Material>)>().iter() {
-            self.vertex_buffers.entry(entity).or_insert_with(|| {
-                let vertex_buffer =
-                    device.create_buffer_init(&component.vertex_buffer_descriptor(m));
-                vertex_buffer
-            });
-
-            self.index_buffers.entry(entity).or_insert_with(|| {
-                let index_buffer =
-                    device.create_buffer_init(&component.indexes_buffer_descriptor());
-                index_buffer
-            });
-        }
-    }
-
-    fn insert_pipeline_if_not_finded<T: Component + Renderable2D>(
-        &mut self,
-        device: &&Device,
-        surface_config: &&SurfaceConfiguration,
-    ) {
-        let type_name = std::any::type_name::<T>();
-        if !self.render_pipelines.contains_key(type_name) {
-            self.render_pipelines.insert(
-                type_name.to_string(),
-                pipeline(
-                    device,
-                    surface_config,
-                    self.texture_bind_group_layout.as_ref().unwrap(),
-                    self.transform_bind_group_layout.as_ref().unwrap(),
-                    T::topology(),
-                ),
-            );
-        }
-    }
-
     fn render_component(
         &mut self,
         config: &AppConfig,
@@ -212,25 +151,40 @@ impl Shinku2D {
             color_attachments: &[get_default_color_attachment(texture_view, config)],
             depth_stencil_attachment: None,
             occlusion_query_set: None,
-            timestamp_writes: None
+            timestamp_writes: None,
         });
 
         while let Some(rendering_infos) = infos.pop() {
             render_pass.set_bind_group(
                 1,
-                &self.transform_uniform_bind_groups.get(&rendering_infos.entity).unwrap().2,
+                &self
+                    .transform_uniform_bind_groups
+                    .get(&rendering_infos.entity)
+                    .unwrap()
+                    .2,
                 &[],
             );
             render_pass.set_vertex_buffer(
                 0,
-                self.vertex_buffers.get(&rendering_infos.entity).as_ref().unwrap().slice(..),
+                self.vertex_buffers
+                    .get(&rendering_infos.entity)
+                    .as_ref()
+                    .unwrap()
+                    .slice(..),
             );
             render_pass.set_index_buffer(
-                self.index_buffers.get(&rendering_infos.entity).as_ref().unwrap().slice(..),
+                self.index_buffers
+                    .get(&rendering_infos.entity)
+                    .as_ref()
+                    .unwrap()
+                    .slice(..),
                 wgpu::IndexFormat::Uint16,
             );
             render_pass.set_pipeline(
-                self.render_pipelines.get(rendering_infos.type_name.as_str()).as_ref().unwrap(),
+                self.render_pipelines
+                    .get(rendering_infos.type_name.as_str())
+                    .as_ref()
+                    .unwrap(),
             );
             if let Some(path) = rendering_infos.texture_path {
                 render_pass.set_bind_group(
@@ -277,18 +231,18 @@ impl Shinku2D {
     ) -> Vec<RenderingInfos> {
         let type_name = std::any::type_name::<T>();
         let mut render_infos = Vec::new();
-        for (entity, (component, transform, material)) in
-            data.query::<(&mut T, &Transform, Option<&Material>)>()
-                .without::<&Hide>()
-                .without::<&HidePropagated>()
-                .iter()
+        for (entity, (component, transform, material)) in data
+            .query::<(&mut T, &Transform, Option<&Material>)>()
+            .without::<&Hide>()
+            .without::<&HidePropagated>()
+            .iter()
         {
             let path = if material.is_some() {
                 match material.unwrap() {
                     Material::Color(color) => Some(get_path_from_color(color)),
                     Material::Texture(p) => Some(p.clone()),
                 }
-            }else{
+            } else {
                 None
             };
 
@@ -327,10 +281,13 @@ impl Shinku2D {
 
         let camera = (&camera1.0, &camera1.1);
 
-        for (entity, (transform, optional_ui_component, _)) in
-            data.query::<(&Transform, Option<&UiComponent>, &T)>().iter()
+        for (entity, (transform, optional_ui_component, _)) in data
+            .query::<(&Transform, Option<&UiComponent>, &T)>()
+            .iter()
         {
-            if let std::collections::hash_map::Entry::Vacant(e) = self.transform_uniform_bind_groups.entry(entity) {
+            if let std::collections::hash_map::Entry::Vacant(e) =
+                self.transform_uniform_bind_groups.entry(entity)
+            {
                 let (uniform, uniform_buffer, group) = create_transform_uniform_bind_group(
                     device,
                     transform,
@@ -378,8 +335,9 @@ impl Shinku2D {
     ) {
         let hot_timer_cycle = if cfg!(feature = "hot-reload") {
             let mut timers = data.timers();
-            let hot_reload_timer =
-                timers.get_timer("hot-reload-timer").expect("Missing mandatory timer : hot_reload");
+            let hot_reload_timer = timers
+                .get_timer("hot-reload-timer")
+                .expect("Missing mandatory timer : hot_reload");
             hot_reload_timer.cycle() > 0
         } else {
             false
@@ -424,7 +382,8 @@ impl Shinku2D {
                         // );
 
                         if let Some(Ok(timestamp)) = new_timestamp {
-                            self.assets_timestamps.insert(texture_path.clone(), timestamp);
+                            self.assets_timestamps
+                                .insert(texture_path.clone(), timestamp);
                         }
                     }
                 }
@@ -450,7 +409,8 @@ impl Shinku2D {
     fn clean_buffers(&mut self, data: &mut GameData) {
         self.vertex_buffers.retain(|&k, _| data.contains(k));
         self.index_buffers.retain(|&k, _| data.contains(k));
-        self.transform_uniform_bind_groups.retain(|&k, _| data.contains(k));
+        self.transform_uniform_bind_groups
+            .retain(|&k, _| data.contains(k));
     }
 }
 
@@ -474,7 +434,7 @@ fn load_texture_to_queue(
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         label: Some("diffuse_texture"),
         format: TextureFormat::Rgba8UnormSrgb,
-        view_formats: &[TextureFormat::Rgba8UnormSrgb]
+        view_formats: &[TextureFormat::Rgba8UnormSrgb],
     });
 
     queue.write_texture(
@@ -528,7 +488,11 @@ fn create_transform_uniform_bind_group(
     is_ui_component: bool,
     uniform_bind_group_layout: &BindGroupLayout,
 ) -> (GlUniform, Buffer, BindGroup) {
-    let uniform = GlUniform::from(UniformData { transform, camera, is_ui_component });
+    let uniform = GlUniform::from(UniformData {
+        transform,
+        camera,
+        is_ui_component,
+    });
     let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Uniform Buffer"),
         contents: bytemuck::cast_slice(&[uniform]),
@@ -569,18 +533,15 @@ fn get_default_color_attachment<'a>(
                         a: color.alpha() as f64,
                     }
                 } else {
-                    wgpu::Color { r: 1., g: 0., b: 0., a: 1.0 }
+                    wgpu::Color {
+                        r: 1.,
+                        g: 0.,
+                        b: 0.,
+                        a: 1.0,
+                    }
                 },
             ),
             store: StoreOp::Store,
         },
     })
-}
-
-fn get_path_from_color(color: &Color) -> String {
-    format!("color-{}-{}-{}-{}", color.red(), color.green(), color.blue(), color.alpha())
-}
-
-fn world_contains_camera(data: &mut GameData) -> bool {
-    data.query::<&Camera>().iter().count() > 0
 }

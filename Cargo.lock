@@ -3060,6 +3060,7 @@ dependencies = [
  "mp4",
  "openh264",
  "rand",
+ "rfvp-render",
  "rodio",
  "serde",
  "serde_json",
