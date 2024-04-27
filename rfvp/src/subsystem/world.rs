@@ -67,11 +67,10 @@ use crate::subsystem::components::syscalls::other_anm::{
 };
 
 use crate::subsystem::resources::motion_manager::MotionManager;
-use crate::subsystem::resources::time::Timers;
+use crate::subsystem::resources::time::Timer;
 use crate::subsystem::resources::window::Window;
 use crate::subsystem::scene::SceneController;
-use atomic_refcell::{AtomicRef, AtomicRefCell, AtomicRefMut};
-use downcast_rs::{impl_downcast, Downcast};
+use atomic_refcell::{AtomicRefCell, AtomicRefMut};
 use hecs::{
     Component, ComponentError, DynamicBundle, Entity, NoSuchEntity, Query, QueryBorrow, QueryMut,
     QueryOne, QueryOneError,
@@ -124,15 +123,15 @@ pub struct GameData {
     pub(crate) save_manager: SaveManager,
     pub(crate) nls: Nls,
     pub(crate) memory_cache: Vec<u8>,
-    timers: AtomicRefCell<Timers>,
+    timer: AtomicRefCell<Timer>,
     scene_controller: AtomicRefCell<SceneController>,
     window: AtomicRefCell<Window>,
 }
 
 impl GameData {
     /// retrieves the timers resource from the resources.
-    pub fn timers(&self) -> AtomicRefMut<Timers> {
-        self.timers.borrow_mut()
+    pub fn timer(&self) -> AtomicRefMut<Timer> {
+        self.timer.borrow_mut()
     }
 
     /// retrieves the window from the resources

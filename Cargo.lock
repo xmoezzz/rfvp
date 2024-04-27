@@ -3153,7 +3153,6 @@ dependencies = [
  "byteorder",
  "bytes",
  "chrono",
- "downcast-rs",
  "egui",
  "egui-wgpu",
  "encoding_rs",
