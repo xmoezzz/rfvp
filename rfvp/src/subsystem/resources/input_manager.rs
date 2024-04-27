@@ -156,6 +156,17 @@ impl InputManager {
         }
     }
 
+    pub fn all_events(&self) -> Vec<PressItem> {
+        let mut events = vec![];
+        for ev in &self.press_items {
+            if ev == PressItem::default() {
+                continue;
+            }
+            events.push(ev.clone());
+        }
+        events
+    }
+
     pub fn get_repeat(&self) -> u32 {
         self.input_repeat
     }

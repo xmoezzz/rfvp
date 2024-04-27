@@ -5,7 +5,6 @@ mod utils;
 mod rendering;
 mod config;
 
-
 use script::parser::{Nls, Parser};
 use subsystem::{anzu_scene::AnzuScene, components::color::Color, resources::thread_manager::ThreadManager};
 

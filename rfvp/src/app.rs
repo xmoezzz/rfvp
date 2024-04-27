@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    rendering::shinku2d::Shinku2D, script::{
+    script::{
         context::{
             CONTEXT_STATUS_DISSOLVE_WAIT, CONTEXT_STATUS_RUNNING, CONTEXT_STATUS_WAIT,
         }, global::GLOBAL, parser::{Nls, Parser}, 
@@ -18,11 +18,9 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-use crate::subsystem::package::Package;
 use crate::subsystem::resources::time::Time;
 use crate::subsystem::scene::{Scene, SceneAction, SceneMachine};
 use crate::subsystem::scheduler::Scheduler;
-use crate::subsystem::systems::InternalPackage;
 use crate::subsystem::world::GameData;
 use crate::{
     config::app_config::AppConfig,
@@ -66,7 +64,7 @@ impl App {
     fn initialize_internal_resources(&mut self) {
         let window = self.window.as_ref().expect("No window found during setup");
         self.game_data
-            .insert_resource(crate::subsystem::resources::window::Window::new(
+            .set_window(crate::subsystem::resources::window::Window::new(
                 (window.inner_size().width, window.inner_size().height),
                 window.scale_factor(),
             ));
@@ -190,8 +188,7 @@ impl App {
     fn next_frame(&mut self) {
         let frame_duration = self
             .game_data
-            .get_resource_mut::<Time>()
-            .expect("Time is an internal resource and can't be missing")
+            .timers()
             .frame();
         self.game_data.timers().add_delta_duration(frame_duration);
 
@@ -274,7 +271,6 @@ impl AppBuilder {
             parser: Default::default(),
             script_engine: Default::default(),
         };
-        builder.with_package(InternalPackage)
     }
 
     /// Specify a system to add to the scheduler.
@@ -287,12 +283,6 @@ impl AppBuilder {
     pub fn with_scene<T: Scene + Default + 'static>(mut self) -> Self {
         self.scene = Some(Box::<T>::default());
         self
-    }
-
-    ///
-    pub fn with_package<P: Package>(mut self, package: P) -> Self {
-        package.prepare(&mut self.world);
-        package.load(self)
     }
 
     pub fn with_vfs(mut self, nls: Nls) -> anyhow::Result<Self> {
@@ -339,9 +329,8 @@ impl AppBuilder {
 
         self.add_late_internal_systems_to_schedule();
 
-        let renderer = Box::<Shinku2D>::default();
         let renderer_state =
-            futures::executor::block_on(RendererState::new(window.clone(), renderer));
+            futures::executor::block_on(RendererState::new(window.clone()));
 
         let entry_point = self.parser.get_entry_point();
         let non_volatile_global_count = self.parser.get_non_volatile_global_count();

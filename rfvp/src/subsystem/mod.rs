@@ -6,6 +6,5 @@ pub mod resources;
 pub mod scene;
 pub(crate) mod scheduler;
 pub mod state;
-pub mod systems;
 pub mod world;
 pub mod anzu_scene;

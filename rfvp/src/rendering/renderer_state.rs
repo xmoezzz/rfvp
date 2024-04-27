@@ -1,20 +1,25 @@
-use std::sync::Arc;
+use rfvp_render::{BindGroupLayouts, Camera, GpuCommonResources, Pillarbox, Pipelines, RenderTarget};
+use std::sync::{Arc, RwLock};
 use wgpu::{CompositeAlphaMode, InstanceDescriptor, SurfaceConfiguration, TextureFormat};
 use winit::{event::WindowEvent, window::Window};
 
 use crate::subsystem::world::GameData;
-use crate::{config::app_config::AppConfig, rendering::Renderer};
+use crate::config::app_config::AppConfig;
+
+use super::overlay::OverlayManager;
 
 pub(crate) struct RendererState {
     surface: wgpu::Surface<'static>,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+    // device: wgpu::Device,
+    // queue: wgpu::Queue,
     config: SurfaceConfiguration,
-    renderer: Box<dyn Renderer>,
+    render_target: RenderTarget,
+    pillarbox: Pillarbox,
+    overlay_manager: OverlayManager,
 }
 
 impl RendererState {
-    pub(crate) async fn new(window: Arc<Window>, mut renderer: Box<dyn Renderer>) -> Self {
+    pub(crate) async fn new(window: Arc<Window>) -> Self {
         let _size = window.inner_size();
 
         let backend = wgpu::util::backend_bits_from_env().unwrap_or_else(wgpu::Backends::all);
@@ -66,20 +71,41 @@ impl RendererState {
         };
         surface.configure(&device, &config);
 
-        renderer.start(
+        let surface_texture_format = surface.get_capabilities(&adapter).formats[0];
+        let bind_group_layouts = BindGroupLayouts::new(&device);
+        let pipelines = Pipelines::new(
             &device,
-            &queue,
-            &config,
-            &surface.get_capabilities(&adapter).formats[0],
-            (w.width, w.height),
+            &bind_group_layouts,
+            surface_texture_format,
         );
+
+        let window_size = (w.width, w.height);
+        let camera = Camera::new(window_size);
+
+        let resources = Arc::new(GpuCommonResources {
+            device,
+            queue,
+            render_buffer_size: RwLock::new(camera.render_buffer_size()),
+            bind_group_layouts,
+            pipelines,
+        });
+
+        let overlay = OverlayManager::new(&resources, surface_texture_format);
+
+        let render_target = RenderTarget::new(
+            &resources,
+            camera.render_buffer_size(),
+            Some("Window RenderTarget"),
+        );
+
+        let pillarbox = Pillarbox::new(&resources, window_size.0, window_size.1);
 
         Self {
             surface,
-            device,
-            queue,
             config,
-            renderer,
+            render_target,
+            pillarbox,
+            overlay_manager: overlay,
         }
     }
 
@@ -90,7 +116,6 @@ impl RendererState {
     }
 
     pub(crate) fn _input(&mut self, _event: &WindowEvent) -> bool {
-        //todo!()
         false
     }
 
