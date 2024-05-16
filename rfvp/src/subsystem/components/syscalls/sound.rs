@@ -1,7 +1,8 @@
 use anyhow::Result;
+use bevy_utils::Duration;
+use kira::tween::Tween;
 
 use crate::script::Variant;
-use crate::subsystem::resources::audio::{PlayConfig, Sound};
 use crate::subsystem::world::GameData;
 
 use super::Syscaller;
@@ -25,7 +26,7 @@ pub fn audio_load(game_data: &mut GameData, channel: &Variant, path: &Variant) -
         Variant::String(path) | Variant::ConstString(path, _) => path.clone(),
         // unload channel
         Variant::Nil => {
-            game_data.audio().stop_audio(channel as usize, 0)?;
+            game_data.bgm_player().stop(channel, Tween::default());
             return Ok(Variant::Nil);
         }
         _ => {
@@ -33,22 +34,6 @@ pub fn audio_load(game_data: &mut GameData, channel: &Variant, path: &Variant) -
             return Ok(Variant::Nil);
         }
     };
-
-    let buffer = game_data.vfs_load_file(&path)?;
-    let config = PlayConfig {
-        volume: 1.0,
-        looped: false,
-        category: Sound::SoundEffect,
-        path: path.to_string(),
-        crossfade: 0,
-    };
-
-    if let Err(e) = game_data
-        .audio()
-        .load_audio(buffer, channel as usize, config)
-    {
-        log::error!("audio_load: {:?}", e);
-    }
 
     Ok(Variant::Nil)
 }
@@ -74,7 +59,13 @@ pub fn audio_play(
 
     let looped = looped.canbe_true();
 
-    if let Err(e) = game_data.audio().play_audio(channel as usize, looped) {
+    if let Err(e) = game_data.bgm_player().play(
+        channel,
+        looped,
+        kira::Volume::Amplitude(1.0),
+        0.5,
+        Tween::default(),
+    ) {
         log::error!("audio_play: {:?}", e);
     }
 
@@ -105,9 +96,12 @@ pub fn audio_stop(
         fadeout = 0;
     }
 
-    game_data
-        .audio()
-        .stop_audio(channel as usize, fadeout as usize)?;
+    let fade_out = Tween {
+        duration: Duration::from_millis(fadeout as u64 / 1000),
+        ..Default::default()
+    };
+
+    game_data.bgm_player().stop(channel, fade_out);
 
     Ok(Variant::Nil)
 }
@@ -127,7 +121,7 @@ pub fn audio_slient_on(game_data: &mut GameData, channel: &Variant) -> Result<Va
         return Ok(Variant::Nil);
     }
 
-    game_data.audio().pause_audio(channel as usize)?;
+    log::error!("audio_pause: Not implemented yet");
 
     Ok(Variant::Nil)
 }
@@ -147,7 +141,7 @@ pub fn audio_state(game_data: &mut GameData, channel: &Variant) -> Result<Varian
         return Ok(Variant::Nil);
     }
 
-    match game_data.audio().audio_is_playing(channel as usize) {
+    match game_data.bgm_player().is_playing(channel) {
         true => Ok(Variant::True),
         false => Ok(Variant::Nil),
     }
@@ -185,9 +179,7 @@ pub fn audio_type(
         return Ok(Variant::Nil);
     }
 
-    game_data
-        .audio()
-        .audio_set_type(channel as usize, sound_type);
+    game_data.bgm_player().set_type(channel, sound_type);
 
     Ok(Variant::Nil)
 }
@@ -225,15 +217,21 @@ pub fn audio_vol(
         return Ok(Variant::Nil);
     }
 
-    let volume = volume as f32 / 100.0;
+    let volume = volume as f64 / 100.0;
 
     let mut crossfade = crossfade.as_int().unwrap_or(0);
     if !(0..=300000).contains(&crossfade) {
         crossfade = 0;
     }
+
+    let cross_fade = Tween {
+        duration: Duration::from_millis(crossfade as u64 / 1000),
+        ..Default::default()
+    };
+
     game_data
-        .audio()
-        .audio_set_volume(channel as usize, volume, crossfade as usize);
+        .bgm_player()
+        .set_volume(channel, kira::Volume::Amplitude(volume), cross_fade);
 
     Ok(Variant::Nil)
 }
@@ -257,7 +255,7 @@ pub fn sound_load(game_data: &mut GameData, channel: &Variant, path: &Variant) -
         Variant::String(path) | Variant::ConstString(path, _) => path.clone(),
         // unload channel
         Variant::Nil => {
-            game_data.audio().stop_sound(channel as usize, 0)?;
+            game_data.se_player().stop(channel, Tween::default());
             return Ok(Variant::Nil);
         }
         _ => {
@@ -267,20 +265,7 @@ pub fn sound_load(game_data: &mut GameData, channel: &Variant, path: &Variant) -
     };
 
     let buffer = game_data.vfs_load_file(&path)?;
-    let config = PlayConfig {
-        volume: 1.0,
-        looped: false,
-        category: Sound::SoundEffect,
-        path: path.to_string(),
-        crossfade: 0,
-    };
-
-    if let Err(e) = game_data
-        .audio()
-        .sound_load(buffer, channel as usize, config)
-    {
-        log::error!("audio_load: {:?}", e);
-    }
+    game_data.se_player().load(channel, buffer);
 
     Ok(Variant::Nil)
 }
@@ -299,7 +284,7 @@ pub fn sound_master_vol(game_data: &mut GameData, volume: &Variant) -> Result<Va
         return Ok(Variant::Nil);
     }
 
-    game_data.audio().set_master_volume(volume as f32 / 100.0);
+    game_data.audio_manager().master_vol(volume as f32 / 100.0);
     Ok(Variant::Nil)
 }
 
@@ -328,10 +313,15 @@ pub fn sound_play(
     }
 
     let looped = looped.canbe_true();
+    let fade_in = Tween {
+        duration: core::time::Duration::from_millis(fadein as u64 / 1000),
+        ..Default::default()
+    };
 
-    if let Err(e) = game_data
-        .audio()
-        .play_sound(channel as usize, looped, fadein as usize)
+    if let Err(e) =
+        game_data
+            .bgm_player()
+            .play(channel, looped, kira::Volume::Amplitude(1.0), 0.5, fade_in)
     {
         log::error!("sound_play: {:?}", e);
     }
@@ -353,7 +343,7 @@ pub fn sound_slient_on(game_data: &mut GameData, channel: &Variant) -> Result<Va
         return Ok(Variant::Nil);
     }
 
-    game_data.audio().pause_sound(channel as usize)?;
+    log::error!("sound_slient_on: Not implemented yet");
 
     Ok(Variant::Nil)
 }
@@ -382,9 +372,12 @@ pub fn sound_stop(
         fadeout = 0;
     }
 
-    game_data
-        .audio()
-        .stop_sound(channel as usize, fadeout as usize)?;
+    let fade_out = Tween {
+        duration: Duration::from_millis(fadeout as u64 / 1000),
+        ..Default::default()
+    };
+
+    game_data.se_player().stop(channel, fade_out);
 
     Ok(Variant::Nil)
 }
@@ -421,9 +414,7 @@ pub fn sound_type(
         return Ok(Variant::Nil);
     }
 
-    game_data
-        .audio()
-        .sound_set_type(channel as usize, sound_type);
+    game_data.se_player().set_type(channel, sound_type);
 
     Ok(Variant::Nil)
 }
@@ -459,9 +450,11 @@ pub fn sound_type_vol(
         return Ok(Variant::Nil);
     }
 
-    game_data
-        .audio()
-        .sound_set_type_volume(sound_type, volume as f32 / 100.0);
+    game_data.se_player().set_type_volume(
+        sound_type,
+        kira::Volume::Amplitude(volume as f64 / 100.0),
+        Tween::default(),
+    );
 
     Ok(Variant::Nil)
 }
@@ -498,16 +491,21 @@ pub fn sound_volume(
         return Ok(Variant::Nil);
     }
 
-    let volume = volume as f32 / 100.0;
+    let volume = volume as f64 / 100.0;
 
     let mut crossfade = crossfade.as_int().unwrap_or(0);
     if !(0..=300000).contains(&crossfade) {
         crossfade = 0;
     }
 
+    let cross_fade = Tween {
+        duration: Duration::from_millis(crossfade as u64 / 1000),
+        ..Default::default()
+    };
+
     game_data
-        .audio()
-        .sound_set_volume(channel as usize, volume, crossfade as usize);
+        .se_player()
+        .set_volume(channel, kira::Volume::Amplitude(volume), cross_fade);
 
     Ok(Variant::Nil)
 }

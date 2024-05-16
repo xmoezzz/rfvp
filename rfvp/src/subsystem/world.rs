@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
+use crate::audio::{BgmPlayer, SePlayer};
 use crate::script::parser::Nls;
 use crate::script::{Variant, VmSyscall};
 use crate::subsystem::components::syscalls::graph::{
@@ -67,7 +69,7 @@ use crate::subsystem::components::syscalls::other_anm::{
 };
 
 use crate::subsystem::resources::motion_manager::MotionManager;
-use crate::subsystem::resources::time::Timer;
+use crate::subsystem::resources::time::Time;
 use crate::subsystem::resources::window::Window;
 use crate::subsystem::scene::SceneController;
 use atomic_refcell::{AtomicRefCell, AtomicRefMut};
@@ -75,6 +77,8 @@ use hecs::{
     Component, ComponentError, DynamicBundle, Entity, NoSuchEntity, Query, QueryBorrow, QueryMut,
     QueryOne, QueryOneError,
 };
+use rfvp_audio::AudioManager;
+
 
 use super::resources::flag_manager::FlagManager;
 use super::resources::history_manager::HistoryManager;
@@ -108,7 +112,7 @@ pub trait World {
     fn contains(&self, entity: Entity) -> bool;
 }
 
-#[derive(Default)]
+
 pub struct GameData {
     pub(crate) vfs: Vfs,
     pub(crate) thread_wrapper: ThreadWrapper,
@@ -123,15 +127,46 @@ pub struct GameData {
     pub(crate) save_manager: SaveManager,
     pub(crate) nls: Nls,
     pub(crate) memory_cache: Vec<u8>,
-    timer: AtomicRefCell<Timer>,
+    time: AtomicRefCell<Time>,
     scene_controller: AtomicRefCell<SceneController>,
     window: AtomicRefCell<Window>,
+    audio_manager: Arc<AudioManager>,
+    se_player: AtomicRefCell<SePlayer>,
+    bgm_player: AtomicRefCell<BgmPlayer>,
+}
+
+impl Default for GameData {
+    fn default() -> Self {
+        let audio_manager = Arc::new(AudioManager::new());
+
+        Self {
+            vfs: Vfs::default(),
+            thread_wrapper: ThreadWrapper::default(),
+            history_manager: HistoryManager::default(),
+            flag_manager: FlagManager::default(),
+            motion_manager: MotionManager::default(),
+            color_manager: ColorManager::default(),
+            fontface_manager: FontEnumerator::default(),
+            inputs_manager: InputManager::default(),
+            timer_manager: TimerManager::default(),
+            video_manager: VideoPlayerManager::default(),
+            save_manager: SaveManager::default(),
+            nls: Nls::default(),
+            memory_cache: Vec::new(),
+            time: AtomicRefCell::new(Time::default()),
+            scene_controller: AtomicRefCell::new(SceneController::default()),
+            window: AtomicRefCell::new(Window::default()),
+            se_player: AtomicRefCell::new(SePlayer::new(audio_manager.clone())),
+            bgm_player: AtomicRefCell::new(BgmPlayer::new(audio_manager.clone())),
+            audio_manager,
+        }
+    }
 }
 
 impl GameData {
     /// retrieves the timers resource from the resources.
-    pub fn timer(&self) -> AtomicRefMut<Timer> {
-        self.timer.borrow_mut()
+    pub fn time(&self) -> AtomicRefMut<Time> {
+        self.time.borrow_mut()
     }
 
     /// retrieves the window from the resources
@@ -166,6 +201,18 @@ impl GameData {
 
     pub fn get_cache(&self) -> Vec<u8> {
         self.memory_cache.clone()
+    }
+
+    pub fn se_player(&self) -> AtomicRefMut<SePlayer> {
+        self.se_player.borrow_mut()
+    }
+
+    pub fn bgm_player(&self) -> AtomicRefMut<BgmPlayer> {
+        self.bgm_player.borrow_mut()
+    }
+
+    pub fn audio_manager(&self) -> Arc<AudioManager> {
+        self.audio_manager.clone()
     }
 }
 

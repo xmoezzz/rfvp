@@ -4,3 +4,4 @@ pub mod app;
 pub mod utils;
 pub mod rendering;
 pub mod config;
+pub mod audio;

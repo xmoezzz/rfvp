@@ -31,4 +31,11 @@ impl AudioManager {
     pub fn kira_manager(&self) -> &Mutex<kira::manager::AudioManager<Backend>> {
         &self.manager
     }
+
+    pub fn master_vol(&self, volume: f32) -> anyhow::Result<()> {
+        let manager = self.manager.lock().unwrap();
+        
+        manager.main_track().set_volume(volume as f64, Default::default())?;
+        Ok(())
+    }
 }

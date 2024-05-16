@@ -13,14 +13,12 @@ use crate::script::global::get_int_var;
 pub struct AnzuScene {}
 
 impl Scene for AnzuScene {
-    fn on_start(&mut self, data: &mut GameData) {
-        data.add_default_camera();
+    fn on_start(&mut self, _data: &mut GameData) {
     }
 
     fn on_update(&mut self, game_data: &mut GameData) {
         let frame_duration = game_data
-            .get_resource_mut::<Time>()
-            .expect("Time is an internal resource and can't be missing")
+            .time()
             .frame()
             .as_millis() as i64;
 

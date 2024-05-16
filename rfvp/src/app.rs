@@ -188,9 +188,9 @@ impl App {
     fn next_frame(&mut self) {
         let frame_duration = self
             .game_data
-            .timers()
+            .time()
             .frame();
-        self.game_data.timers().add_delta_duration(frame_duration);
+        // self.game_data.time().add_delta_duration(frame_duration);
 
         self.layer_machine
             .apply_scene_action(SceneAction::Update, &mut self.game_data);
@@ -271,6 +271,7 @@ impl AppBuilder {
             parser: Default::default(),
             script_engine: Default::default(),
         };
+        builder
     }
 
     /// Specify a system to add to the scheduler.

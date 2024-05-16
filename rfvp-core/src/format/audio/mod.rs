@@ -47,6 +47,10 @@ pub struct AudioFile {
 }
 
 impl AudioFile {
+    pub fn new(info: AudioInfo, data: Vec<u8>) -> Self {
+        Self { info, data }
+    }
+    
     pub fn info(&self) -> &AudioInfo {
         &self.info
     }

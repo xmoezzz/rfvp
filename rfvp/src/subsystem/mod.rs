@@ -1,4 +1,3 @@
-pub(crate) mod audio_controller;
 pub mod components;
 pub(crate) mod event_handler;
 pub mod package;

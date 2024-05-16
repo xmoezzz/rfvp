@@ -140,19 +140,17 @@ impl OverlayManager {
             self.renderer.free_texture(&id);
         }
 
-        let pixels_per_point = 2.0;
-
         let mut events = Vec::new();
 
         let mouse_pos = Pos2::new(
-            raw_input_state.mouse_position.x / ctx.pixels_per_point(),
-            raw_input_state.mouse_position.y / ctx.pixels_per_point(),
+            raw_input_state.get_cursor_x() / ctx.pixels_per_point(),
+            raw_input_state.get_cursor_y() / ctx.pixels_per_point(),
         );
 
         events.push(egui::Event::PointerMoved(mouse_pos));
         events.extend(
             self.prev_input
-                .mouse_buttons
+                .all_events()
                 .iter()
                 .zip(raw_input_state.all_events())
                 .filter_map(|((button, &prev), &new)| {

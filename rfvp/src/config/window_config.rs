@@ -33,8 +33,6 @@ pub struct WindowConfig {
     pub(crate) resizable: bool,
     /// If the window should be able to be transparent.
     pub(crate) transparent: bool,
-    /// Default background color of each frame in the window
-    pub(crate) default_background_color: Option<wgpu::Color>,
 }
 
 impl Default for WindowConfig {
@@ -51,7 +49,6 @@ impl Default for WindowConfig {
             maximized: false,
             resizable: true,
             transparent: false,
-            default_background_color: None,
         }
     }
 }
@@ -103,12 +100,6 @@ impl WindowConfigBuilder {
     /// Whether or not the window should be resizable
     pub fn with_resizable(mut self, resizable: bool) -> Self {
         self.config.resizable = resizable;
-        self
-    }
-
-    /// When rendering to the window, which color to use as default
-    pub fn with_default_background_color(mut self, color: Option<wgpu::Color>) -> Self {
-        self.config.default_background_color = color;
         self
     }
 

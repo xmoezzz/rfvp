@@ -3,7 +3,7 @@ use std::{sync::Mutex, vec};
 use winit::keyboard::NamedKey;
 
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct PressItem {
     keycode: u8,
     in_screen: bool,
@@ -159,7 +159,7 @@ impl InputManager {
     pub fn all_events(&self) -> Vec<PressItem> {
         let mut events = vec![];
         for ev in &self.press_items {
-            if ev == PressItem::default() {
+            if *ev == PressItem::default() {
                 continue;
             }
             events.push(ev.clone());
