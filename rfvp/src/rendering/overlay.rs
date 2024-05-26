@@ -3,16 +3,13 @@ use std::cell::RefCell;
 use bevy_utils::HashMap;
 use egui::{
     style::WidgetVisuals, ClippedPrimitive, CollapsingHeader, Color32, Context, FontFamily, FontId,
-    InnerResponse, Pos2, Rect, Rounding, Stroke, TextureId, Ui,
+    InnerResponse, Rounding, Stroke, TextureId, Ui,
 };
 use egui_wgpu::{ScreenDescriptor, Renderer};
 use glam::vec2;
 use rfvp_render::GpuCommonResources;
 
-use crate::{
-    subsystem::resources::input_manager::InputManager,
-    utils::time::Time,
-};
+use crate::utils::time::Time;
 
 pub struct OverlayManager {
     show_overlays_window: bool,
@@ -20,7 +17,6 @@ pub struct OverlayManager {
     context: Context,
     primitives: Vec<ClippedPrimitive>,
     free_textures: Vec<TextureId>,
-    prev_input: InputManager,
     storage: OverlayStateStorage,
 }
 
@@ -95,7 +91,6 @@ impl OverlayManager {
             context,
             primitives: Vec::new(),
             free_textures: Vec::new(),
-            prev_input: InputManager::new(),
             storage: OverlayStateStorage::new(),
         }
     }
@@ -119,13 +114,10 @@ impl OverlayManager {
 
     pub fn start_update(
         &mut self,
-        time: &Time,
-        // yes, we can mutate the input state
-        // this is needed to consume the mouse events
-        raw_input_state: &InputManager,
-        window_size: (u32, u32),
+        _time: &Time,
+        _window_size: (u32, u32),
     ) {
-        let ctx = &self.context;
+        let _ctx = &self.context;
 
         // self.action_state.update(raw_input_state);
 
@@ -140,57 +132,7 @@ impl OverlayManager {
             self.renderer.free_texture(&id);
         }
 
-        let mut events = Vec::new();
-
-        let mouse_pos = Pos2::new(
-            raw_input_state.get_cursor_x() / ctx.pixels_per_point(),
-            raw_input_state.get_cursor_y() / ctx.pixels_per_point(),
-        );
-
-        events.push(egui::Event::PointerMoved(mouse_pos));
-        events.extend(
-            self.prev_input
-                .all_events()
-                .iter()
-                .zip(raw_input_state.all_events())
-                .filter_map(|((button, &prev), &new)| {
-                    if prev != new {
-                        Some(egui::Event::PointerButton {
-                            pos: mouse_pos,
-                            button: match button {
-                                MouseButton::Left => egui::PointerButton::Primary,
-                                MouseButton::Right => egui::PointerButton::Secondary,
-                                MouseButton::Middle => egui::PointerButton::Middle,
-                                _ => return None,
-                            },
-                            pressed: new,
-                            // TODO: modifiers support
-                            modifiers: Default::default(),
-                        })
-                    } else {
-                        None
-                    }
-                }),
-        );
-
-        let raw_input = egui::RawInput {
-            screen_rect: Some(Rect::from_min_max(
-                Pos2::default(),
-                Pos2::new(window_size.0 as f32, window_size.1 as f32),
-            )),
-            max_texture_side: None,
-            time: Some(time.elapsed_seconds_f64()),
-            predicted_dt: 0.0,
-            modifiers: Default::default(),
-            events,
-            hovered_files: vec![],
-            dropped_files: vec![],
-            focused: false,
-            ..Default::default()
-        };
-
-        self.prev_input = raw_input_state.clone();
-
+        let raw_input = egui::RawInput::default();
         self.context.begin_frame(raw_input);
     }
 
@@ -236,21 +178,9 @@ impl OverlayManager {
     pub fn finish_update(
         &mut self,
         resources: &GpuCommonResources,
-        // yes, we can mutate the input state
-        // this is needed to consume the mouse events
-        raw_input_state: &mut InputManager,
     ) {
         let ctx = &self.context;
         let full_output = self.context.end_frame();
-
-        // consume mouse events if egui wants them
-        if ctx.wants_pointer_input() {
-            raw_input_state
-                .mouse_buttons
-                .values_mut()
-                .for_each(|v| *v = false);
-            raw_input_state.mouse_scroll_amount = 0.0;
-        }
 
         // TODO: handle platform outputs or smth
         

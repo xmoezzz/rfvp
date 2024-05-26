@@ -2,10 +2,9 @@ use super::{
     resources::{
         color_manager::ColorItem,
         prim::{PrimType, INVAILD_PRIM_HANDLE},
-        time::Time,
     },
     scene::Scene,
-    world::{GameData, World},
+    world::{GameData},
 };
 use crate::script::global::get_int_var;
 

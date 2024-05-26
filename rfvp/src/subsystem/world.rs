@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use crate::audio::{BgmPlayer, SePlayer};
+use crate::audio_player::{BgmPlayer, SePlayer};
 use crate::script::parser::Nls;
 use crate::script::{Variant, VmSyscall};
 use crate::subsystem::components::syscalls::graph::{

@@ -1,15 +1,15 @@
 use anyhow::Result;
 
 use bytes::{Buf};
-use mp4::{Mp4Track};
 
-use std::io::{BufReader, Read, Seek};
+
+use std::io::{BufReader, Read};
 use std::path::Path;
 use std::sync::atomic::AtomicBool;
 
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc};
 use std::thread::{spawn, JoinHandle};
-use std::time::{Duration, Instant};
+
 
 const BUF_SIZE: usize = 3;
 

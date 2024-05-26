@@ -1,15 +1,18 @@
 use anyhow::Result;
 use std::{
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, RwLock},
 };
 
 use crate::{
     script::{
-        context::{
-            CONTEXT_STATUS_DISSOLVE_WAIT, CONTEXT_STATUS_RUNNING, CONTEXT_STATUS_WAIT,
-        }, global::GLOBAL, parser::{Nls, Parser}, 
-    }, subsystem::resources::{motion_manager::DissolveType, thread_manager::ThreadManager, thread_wrapper::ThreadRequest}
+        context::{CONTEXT_STATUS_DISSOLVE_WAIT, CONTEXT_STATUS_RUNNING, CONTEXT_STATUS_WAIT},
+        global::GLOBAL,
+        parser::{Nls, Parser},
+    },
+    subsystem::resources::{
+        motion_manager::DissolveType, thread_manager::ThreadManager, thread_wrapper::ThreadRequest,
+    },
 };
 use winit::dpi::{PhysicalSize, Size};
 use winit::{
@@ -18,14 +21,14 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-use crate::subsystem::resources::time::Time;
+
+
 use crate::subsystem::scene::{Scene, SceneAction, SceneMachine};
 use crate::subsystem::scheduler::Scheduler;
 use crate::subsystem::world::GameData;
-use crate::{
-    config::app_config::AppConfig,
-    rendering::renderer_state::RendererState,
-    subsystem::event_handler::update_input_events,
+use crate::{config::app_config::AppConfig, subsystem::event_handler::update_input_events};
+use rfvp_render::{
+    BindGroupLayouts, Camera, GpuCommonResources, Pipelines, RenderTarget,
 };
 
 pub struct App {
@@ -34,9 +37,11 @@ pub struct App {
     scheduler: Scheduler,
     layer_machine: SceneMachine,
     window: Option<Arc<Window>>,
-    renderer: Option<RendererState>,
+    // renderer: Option<RendererState>,
     parser: Parser,
     thread_manager: ThreadManager,
+    render_target: RenderTarget,
+    resources: Arc<GpuCommonResources>,
 }
 
 impl App {
@@ -85,28 +90,28 @@ impl App {
                             self.game_data
                                 .window()
                                 .set_dimensions(physical_size.width, physical_size.height);
-                            self.renderer.as_mut().unwrap().resize(
-                                *physical_size,
-                                self.window.as_ref().expect("Missing window").scale_factor(),
-                            );
+                            // self.renderer.as_mut().unwrap().resize(
+                            //     *physical_size,
+                            //     self.window.as_ref().expect("Missing window").scale_factor(),
+                            // );
                         }
-                        WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                            self.renderer.as_mut().unwrap().resize(
-                                self.window.as_ref().expect("Missing window").inner_size(),
-                                *scale_factor,
-                            );
+                        WindowEvent::ScaleFactorChanged {  .. } => {
+                            // self.renderer.as_mut().unwrap().resize(
+                            //     self.window.as_ref().expect("Missing window").inner_size(),
+                            //     *scale_factor,
+                            // );
                         }
                         WindowEvent::RedrawRequested => {
-                            self.renderer.as_mut().unwrap().update(&mut self.game_data);
-                            match self
-                                .renderer
-                                .as_mut()
-                                .unwrap()
-                                .render(&mut self.game_data, &self.config)
-                            {
-                                Ok(_) => {}
-                                Err(e) => log::error!("{:?}", e),
-                            }
+                            // self.renderer.as_mut().unwrap().update(&mut self.game_data);
+                            // match self
+                            //     .renderer
+                            //     .as_mut()
+                            //     .unwrap()
+                            //     .render(&mut self.game_data, &self.config)
+                            // {
+                            //     Ok(_) => {}
+                            //     Err(e) => log::error!("{:?}", e),
+                            // }
                         }
                         _ => {}
                     }
@@ -130,10 +135,14 @@ impl App {
         if status & CONTEXT_STATUS_WAIT != 0 {
             let wait_time = self.thread_manager.get_thread(id).get_waiting_time();
             if wait_time > frame_time {
-                self.thread_manager.get_thread(id).set_waiting_time(wait_time - frame_time);
+                self.thread_manager
+                    .get_thread(id)
+                    .set_waiting_time(wait_time - frame_time);
             } else {
                 self.thread_manager.get_thread(id).set_waiting_time(0);
-                self.thread_manager.get_thread(id).set_status(status & 0xFFFFFFFD);
+                self.thread_manager
+                    .get_thread(id)
+                    .set_status(status & 0xFFFFFFFD);
             }
         }
 
@@ -141,14 +150,19 @@ impl App {
         if status & CONTEXT_STATUS_DISSOLVE_WAIT != 0
             && (dissolve_type == DissolveType::None || dissolve_type == DissolveType::Static)
         {
-            self.thread_manager.get_thread(id).set_status(status & 0xFFFFFFEF);
+            self.thread_manager
+                .get_thread(id)
+                .set_status(status & 0xFFFFFFEF);
         }
 
         if status & CONTEXT_STATUS_RUNNING != 0 {
             self.thread_manager.get_thread(id).set_should_break(false);
             while !self.thread_manager.get_thread(id).should_break() {
                 // let mut ctx = self.thread_manager.get_thread(id);
-                let result = self.thread_manager.get_thread(id).dispatch_opcode(&mut self.game_data, &mut self.parser);
+                let result = self
+                    .thread_manager
+                    .get_thread(id)
+                    .dispatch_opcode(&mut self.game_data, &mut self.parser);
                 if let Err(e) = result {
                     log::error!("Error while executing the script {:?}", e);
                     std::process::exit(1);
@@ -178,18 +192,13 @@ impl App {
                             self.thread_manager.set_should_break(true);
                         }
                     }
-                
                 }
             }
         }
-
     }
 
     fn next_frame(&mut self) {
-        let frame_duration = self
-            .game_data
-            .time()
-            .frame();
+        let frame_duration = self.game_data.time().frame();
         // self.game_data.time().add_delta_duration(frame_duration);
 
         self.layer_machine
@@ -311,6 +320,82 @@ impl AppBuilder {
         self
     }
 
+    async fn init_render(window: Arc<Window>) -> (Arc<GpuCommonResources>, RenderTarget) {
+        let size = window.inner_size();
+        let backends = wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::all());
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends,
+            ..Default::default()
+        });
+
+        let surface = instance.create_surface(window.as_ref()).unwrap();
+
+        let adapter = wgpu::util::initialize_adapter_from_env_or_default(
+            &instance,
+            // NOTE: this select the low-power GPU by default
+            // it's fine, but if we want to use the high-perf one in the future we will have to ditch this function
+            Some(&surface),
+        )
+        .await
+        .unwrap();
+
+        // Create the logical device and command queue
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: None,
+                    required_features: wgpu::Features::PUSH_CONSTANTS,
+                    // Make sure we use the texture resolution limits from the adapter, so we can support images the size of the swapchain.
+                    required_limits: wgpu::Limits {
+                        max_push_constant_size: 256,
+                        ..wgpu::Limits::downlevel_webgl2_defaults()
+                            .using_resolution(adapter.limits())
+                    },
+                },
+                Some(Path::new("wgpu_trace")),
+            )
+            .await
+            .expect("Failed to create device");
+
+        let swapchain_capabilities = surface.get_capabilities(&adapter);
+        let swapchain_format = swapchain_capabilities.formats[0];
+
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: swapchain_format,
+            width: size.width,
+            height: size.height,
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: swapchain_capabilities.alpha_modes[0],
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+
+        surface.configure(&device, &config);
+
+        let bind_group_layouts = BindGroupLayouts::new(&device);
+        let pipelines = Pipelines::new(&device, &bind_group_layouts, swapchain_format);
+
+        let window_size = (window.inner_size().width, window.inner_size().height);
+        let camera = Camera::new(window_size);
+
+        let resources = Arc::new(GpuCommonResources {
+            device,
+            queue,
+            render_buffer_size: RwLock::new(camera.render_buffer_size()),
+            bind_group_layouts,
+            pipelines,
+        });
+
+        let render_target = RenderTarget::new(
+            &resources,
+            camera.render_buffer_size(),
+            Some("Window RenderTarget"),
+        );
+
+        (resources, render_target)
+    }
+
     /// Builds, setups and runs the application, must be called at the end of the building process.
     pub fn run(mut self) {
         let event_loop = EventLoop::new().expect("Event loop could not be created");
@@ -330,13 +415,19 @@ impl AppBuilder {
 
         self.add_late_internal_systems_to_schedule();
 
-        let renderer_state =
-            futures::executor::block_on(RendererState::new(window.clone()));
+        // let renderer_state =
+        //     futures::executor::block_on(RendererState::new(window.clone()));
+
+        let (resources, render_target) =
+            futures::executor::block_on(AppBuilder::init_render(window.clone()));
 
         let entry_point = self.parser.get_entry_point();
         let non_volatile_global_count = self.parser.get_non_volatile_global_count();
         let volatile_global_count = self.parser.get_volatile_global_count();
-        GLOBAL.lock().unwrap().init_with(non_volatile_global_count, volatile_global_count);
+        GLOBAL
+            .lock()
+            .unwrap()
+            .init_with(non_volatile_global_count, volatile_global_count);
         self.script_engine.start_main(entry_point);
         self.world.nls = self.parser.nls.clone();
 
@@ -348,9 +439,11 @@ impl AppBuilder {
                 current_scene: self.scene,
             },
             window: Some(window.clone()),
-            renderer: Some(renderer_state),
+            // renderer: Some(renderer_state),
             parser: self.parser,
             thread_manager: self.script_engine,
+            render_target,
+            resources,
         };
 
         app.setup();

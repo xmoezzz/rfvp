@@ -22,7 +22,7 @@ pub fn audio_load(game_data: &mut GameData, channel: &Variant, path: &Variant) -
         return Ok(Variant::Nil);
     }
 
-    let path = match path {
+    let _path = match path {
         Variant::String(path) | Variant::ConstString(path, _) => path.clone(),
         // unload channel
         Variant::Nil => {
@@ -107,7 +107,7 @@ pub fn audio_stop(
 }
 
 /// pause audio on a specific channel
-pub fn audio_slient_on(game_data: &mut GameData, channel: &Variant) -> Result<Variant> {
+pub fn audio_slient_on(_game_data: &mut GameData, channel: &Variant) -> Result<Variant> {
     let channel = match channel {
         Variant::Int(channel) => *channel,
         _ => {
@@ -329,7 +329,7 @@ pub fn sound_play(
     Ok(Variant::Nil)
 }
 
-pub fn sound_slient_on(game_data: &mut GameData, channel: &Variant) -> Result<Variant> {
+pub fn sound_slient_on(_game_data: &mut GameData, channel: &Variant) -> Result<Variant> {
     let channel = match channel {
         Variant::Int(channel) => *channel,
         _ => {
