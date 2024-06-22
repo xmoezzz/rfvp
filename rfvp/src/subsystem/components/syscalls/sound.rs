@@ -22,8 +22,12 @@ pub fn audio_load(game_data: &mut GameData, channel: &Variant, path: &Variant) -
         return Ok(Variant::Nil);
     }
 
-    let _path = match path {
-        Variant::String(path) | Variant::ConstString(path, _) => path.clone(),
+    match path {
+        Variant::String(path) | Variant::ConstString(path, _) => {
+            let path = path.clone();
+            game_data.bgm_player().load(channel, game_data.vfs_load_file(&path)?);
+            return Ok(Variant::Nil);
+        },
         // unload channel
         Variant::Nil => {
             game_data.bgm_player().stop(channel, Tween::default());
@@ -34,8 +38,6 @@ pub fn audio_load(game_data: &mut GameData, channel: &Variant, path: &Variant) -
             return Ok(Variant::Nil);
         }
     };
-
-    Ok(Variant::Nil)
 }
 
 /// play audio on a specific channel, and loop it if needed
@@ -251,8 +253,12 @@ pub fn sound_load(game_data: &mut GameData, channel: &Variant, path: &Variant) -
         return Ok(Variant::Nil);
     }
 
-    let path = match path {
-        Variant::String(path) | Variant::ConstString(path, _) => path.clone(),
+    match path {
+        Variant::String(path) | Variant::ConstString(path, _) => {
+            let path = path.clone();
+            game_data.se_player().load(channel, game_data.vfs_load_file(&path)?);
+            return Ok(Variant::Nil);
+        },
         // unload channel
         Variant::Nil => {
             game_data.se_player().stop(channel, Tween::default());
@@ -263,11 +269,6 @@ pub fn sound_load(game_data: &mut GameData, channel: &Variant, path: &Variant) -
             return Ok(Variant::Nil);
         }
     };
-
-    let buffer = game_data.vfs_load_file(&path)?;
-    game_data.se_player().load(channel, buffer);
-
-    Ok(Variant::Nil)
 }
 
 pub fn sound_master_vol(game_data: &mut GameData, volume: &Variant) -> Result<Variant> {
@@ -320,7 +321,7 @@ pub fn sound_play(
 
     if let Err(e) =
         game_data
-            .bgm_player()
+            .se_player()
             .play(channel, looped, kira::Volume::Amplitude(1.0), 0.5, fade_in)
     {
         log::error!("sound_play: {:?}", e);

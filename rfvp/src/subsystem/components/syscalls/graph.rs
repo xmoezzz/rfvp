@@ -1142,8 +1142,8 @@ impl Syscaller for PrimSetDraw {
 unsafe impl Send for PrimSetDraw {}
 unsafe impl Sync for PrimSetDraw {}
 
-pub struct PrimSetOp;
-impl Syscaller for PrimSetOp {
+pub struct PrimSetOP;
+impl Syscaller for PrimSetOP {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
         prim_set_op(
             game_data,
@@ -1154,8 +1154,8 @@ impl Syscaller for PrimSetOp {
     }
 }
 
-unsafe impl Send for PrimSetOp {}
-unsafe impl Sync for PrimSetOp {}
+unsafe impl Send for PrimSetOP {}
+unsafe impl Sync for PrimSetOP {}
 
 pub struct PrimSetRS;
 impl Syscaller for PrimSetRS {

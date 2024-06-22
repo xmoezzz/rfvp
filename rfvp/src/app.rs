@@ -8,7 +8,7 @@ use crate::{
     script::{
         context::{CONTEXT_STATUS_DISSOLVE_WAIT, CONTEXT_STATUS_RUNNING, CONTEXT_STATUS_WAIT},
         global::GLOBAL,
-        parser::{Nls, Parser},
+        parser::{Nls, Parser}, Variant,
     },
     subsystem::resources::{
         motion_manager::DissolveType, thread_manager::ThreadManager, thread_wrapper::ThreadRequest,
@@ -159,6 +159,7 @@ impl App {
             self.thread_manager.get_thread(id).set_should_break(false);
             while !self.thread_manager.get_thread(id).should_break() {
                 // let mut ctx = self.thread_manager.get_thread(id);
+                log::info!("tid: {}", id);
                 let result = self
                     .thread_manager
                     .get_thread(id)
@@ -213,7 +214,7 @@ impl App {
                 self.exec_script_bytecode(i as u32, frame_duration.as_micros() as u64);
             }
         }
-        self.thread_manager.set_current_id(0);
+        // self.thread_manager.set_current_id(0);
 
         self.update_cursor();
         // self.game_data.inputs().reset_inputs();
@@ -428,6 +429,7 @@ impl AppBuilder {
             .lock()
             .unwrap()
             .init_with(non_volatile_global_count, volatile_global_count);
+        
         self.script_engine.start_main(entry_point);
         self.world.nls = self.parser.nls.clone();
 

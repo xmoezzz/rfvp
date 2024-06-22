@@ -6,7 +6,7 @@ use crate::script::parser::Nls;
 use crate::script::{Variant, VmSyscall};
 use crate::subsystem::components::syscalls::graph::{
     PrimExitGroup, PrimGroupIn, PrimGroupMove, PrimGroupOut, PrimSetAlpha, PrimSetBlend,
-    PrimSetDraw, PrimSetNull, PrimSetOp, PrimSetRS, PrimSetRS2, PrimSetSnow, PrimSetSprt,
+    PrimSetDraw, PrimSetNull, PrimSetOP, PrimSetRS, PrimSetRS2, PrimSetSnow, PrimSetSprt,
     PrimSetText, PrimSetTile, PrimSetUV, PrimSetWH, PrimSetXY, PrimSetZ, PrimHit,
     GraphLoad, GraphRGB, GaijiLoad,
 };
@@ -27,7 +27,7 @@ use crate::subsystem::components::syscalls::thread::{
 use crate::subsystem::components::syscalls::sound::{
     SoundPlay, SoundStop, SoundLoad, SoundMasterVol, SoundSlientOn, SoundType,
     SoundTypeVol, SoundVolume, AudioLoad, AudioPlay, AudioSlientOn, AudioStop,
-    AudioState, AudioType
+    AudioState, AudioType, AudioVol
 };
 use crate::subsystem::components::syscalls::motion::{
     MotionAlpha, MotionAlphaStop, MotionAlphaTest,
@@ -249,6 +249,7 @@ lazy_static::lazy_static! {
         m.insert("AudioStop".into(), Box::new(AudioStop));
         m.insert("AudioState".into(), Box::new(AudioState));
         m.insert("AudioType".into(), Box::new(AudioType));
+        m.insert("AudioVol".into(), Box::new(AudioVol));
 
         // utils apis
         m.insert("IntToText".into(), Box::new(IntToText));
@@ -284,7 +285,7 @@ lazy_static::lazy_static! {
         m.insert("PrimSetAlpha".into(), Box::new(PrimSetAlpha));
         m.insert("PrimSetBlend".into(), Box::new(PrimSetBlend));
         m.insert("PrimSetDraw".into(), Box::new(PrimSetDraw));
-        m.insert("PrimSetOp".into(), Box::new(PrimSetOp));
+        m.insert("PrimSetOP".into(), Box::new(PrimSetOP));
         m.insert("PrimSetRS".into(), Box::new(PrimSetRS));
         m.insert("PrimSetRS2".into(), Box::new(PrimSetRS2));
         m.insert("PrimSetSnow".into(), Box::new(PrimSetSnow));

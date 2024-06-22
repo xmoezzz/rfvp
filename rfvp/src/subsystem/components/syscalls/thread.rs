@@ -78,7 +78,7 @@ pub fn thread_start(game_data: &mut GameData, id: &Variant, addr: &Variant) -> R
     };
 
     if !(0..32).contains(&id) {
-        log::error!("thread_exit: invalid id");
+        log::error!("thread_start: invalid id");
         return Ok(Variant::Nil);
     }
 

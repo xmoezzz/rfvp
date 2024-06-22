@@ -212,6 +212,8 @@ impl Variant {
 
     pub fn equal(&mut self, other: &Variant) {
         let result = match (self.clone(), other) {
+            (Variant::Nil, Variant::Nil) => Variant::True,
+            (Variant::True, Variant::True) => Variant::True,
             (Variant::Int(a), Variant::Int(b)) => {
                 if a == *b {
                     Variant::True
@@ -278,6 +280,8 @@ impl Variant {
 
     pub fn not_equal(&mut self, other: &Variant) {
         let result = match (self.clone(), other) {
+            (Variant::Nil, Variant::Nil) => Variant::Nil,
+            (Variant::True, Variant::True) => Variant::Nil,
             (Variant::Int(a), Variant::Int(b)) => {
                 if a != *b {
                     Variant::True

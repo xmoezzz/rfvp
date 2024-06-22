@@ -62,6 +62,8 @@ impl BgmPlayer {
             }
         };
 
+        log::info!("Playing BGM slot {}", slot);
+
         let cursor = std::io::Cursor::new(bgm_data);
         let loop_region = repeat.then_some(Region::default());
         let settings = StaticSoundSettings::new()

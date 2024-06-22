@@ -261,7 +261,7 @@ impl Context {
             bail!("locals count is negative");
         }
 
-        log::info!("init_stack: args: {} locals: {}", args_count, locals_count);
+        // log::info!("init_stack: args: {} locals: {}", args_count, locals_count);
 
         let frame = self.get_local_mut(-1)?;
         if let Some(frame) = frame.as_saved_stack_info_mut() {
@@ -290,7 +290,7 @@ impl Context {
             bail!("call: address is not in the code area");
         }
 
-        log::info!("call: {:x}", addr);
+        // log::info!("call: {:x}", addr);
 
         let frame = Variant::SavedStackInfo(
             super::SavedStackInfo { 
@@ -387,7 +387,7 @@ impl Context {
         self.cursor += 1;
         let addr = parser.read_u32(self.cursor)?;
         self.cursor += size_of::<u32>();
-        log::info!("jmp: {:x}", addr);
+        // log::info!("jmp: {:x}", addr);
 
         self.cursor = addr as usize;
         Ok(())
@@ -401,7 +401,7 @@ impl Context {
         self.cursor += size_of::<u32>();
 
         let top = self.pop()?;
-        log::info!("jz: {:?}", &top);
+        // log::info!("jz: {:?}", &top);
 
         if !top.canbe_true() {
             self.cursor = addr as usize;
@@ -415,7 +415,7 @@ impl Context {
         self.cursor += 1;
         self.push(Variant::Nil)?;
 
-        log::info!("push_nil");
+        // log::info!("push_nil");
         Ok(())
     }
 
@@ -425,7 +425,7 @@ impl Context {
         self.cursor += 1;
         self.push(Variant::True)?;
 
-        log::info!("push_true");
+        // log::info!("push_true");
         Ok(())
     }
 
@@ -436,7 +436,7 @@ impl Context {
         let value = parser.read_i32(self.cursor)?;
         self.cursor += size_of::<i32>();
 
-        log::info!("push_i32: {}", value);
+        // log::info!("push_i32: {}", value);
 
         self.push(Variant::Int(value))?;
         Ok(())
@@ -449,7 +449,7 @@ impl Context {
         let value = parser.read_i16(self.cursor)?;
         self.cursor += size_of::<i16>();
 
-        log::info!("push_i16: {}", value);
+        // log::info!("push_i16: {}", value);
 
         self.push(Variant::Int(value as i32))?;
         Ok(())
@@ -462,7 +462,7 @@ impl Context {
         let value = parser.read_i8(self.cursor)?;
         self.cursor += size_of::<i8>();
 
-        log::info!("push_i8: {}", value);
+        // log::info!("push_i8: {}", value);
 
         self.push(Variant::Int(value as i32))?;
         Ok(())
@@ -475,7 +475,7 @@ impl Context {
         let value = parser.read_f32(self.cursor)?;
         self.cursor += size_of::<f32>();
 
-        log::info!("push_f32: {}", value);
+        // log::info!("push_f32: {}", value);
 
         self.push(Variant::Float(value))?;
         Ok(())
@@ -491,7 +491,7 @@ impl Context {
         let s = parser.read_cstring(self.cursor, len)?;
         self.cursor += len;
 
-        log::info!("push_string: {}", &s);
+        // log::info!("push_string: {}", &s);
 
         self.push(Variant::String(s))?;
         Ok(())
@@ -504,11 +504,11 @@ impl Context {
         let key = parser.read_u16(self.cursor)?;
         self.cursor += size_of::<u16>();
 
-        log::info!("push_global: {:x}", key);
+        // log::info!("push_global: {:x}", key);
 
         if let Some(value) = GLOBAL.lock().unwrap().get(key) {
             self.push(value.clone())?;
-            log::info!("global: {:?}", &value);
+            // log::info!("global: {:?}", &value);
         } else {
             bail!("global variable not found");
         }
@@ -523,7 +523,7 @@ impl Context {
         self.cursor += size_of::<i8>();
 
         let local = self.get_local(offset)?;
-        log::info!("push stack: {} {:?}", offset, &local);
+        // log::info!("push stack: {} {:?}", offset, &local);
         self.push(local)?;
 
         Ok(())
@@ -539,7 +539,7 @@ impl Context {
         self.cursor += size_of::<u16>();
 
         let top = self.pop()?;
-        log::info!("push_global_table: {:x} {:?}", key, &top);
+        // log::info!("push_global_table: {:x} {:?}", key, &top);
         if let Some(table) = GLOBAL.lock().unwrap().get_mut(key) {
             if let Some(table) = table.as_table() {
                 if let Some(table_key) = top.as_int() {
@@ -633,7 +633,7 @@ impl Context {
         self.cursor += size_of::<i8>();
 
         let value = self.pop()?;
-        log::info!("local_copy: {} {:?}", idx, &value);
+        // log::info!("local_copy: {} {:?}", idx, &value);
         self.set_local(idx, value)?;
         Ok(())
     }
@@ -701,7 +701,7 @@ impl Context {
         self.cursor += 1;
         let mut top = self.pop()?;
 
-        log::info!("neg: {:?}", &top);
+        // log::info!("neg: {:?}", &top);
         top.neg();
         self.push(top)?;
 
@@ -715,7 +715,7 @@ impl Context {
         let b = self.pop()?;
         let mut a = self.pop()?;
 
-        log::info!("add: {:?} {:?}", &a, &b);
+        // log::info!("add: {:?} {:?}", &a, &b);
         a.vadd(&b);
         self.push(a)?;
         Ok(())
@@ -728,7 +728,7 @@ impl Context {
         let b = self.pop()?;
         let mut a = self.pop()?;
 
-        log::info!("sub: {:?} {:?}", &a, &b);
+        // log::info!("sub: {:?} {:?}", &a, &b);
         a.vsub(&b);
         self.push(a)?;
         Ok(())
@@ -741,7 +741,7 @@ impl Context {
         let b = self.pop()?;
         let mut a = self.pop()?;
 
-        log::info!("mul: {:?} {:?}", &a, &b);
+        // log::info!("mul: {:?} {:?}", &a, &b);
         a.vmul(&b);
         self.push(a)?;
         Ok(())
@@ -754,7 +754,7 @@ impl Context {
         let b = self.pop()?;
         let mut a = self.pop()?;
 
-        log::info!("div: {:?} {:?}", &a, &b);
+        // log::info!("div: {:?} {:?}", &a, &b);
         a.vdiv(&b);
         self.push(a)?;
         Ok(())
@@ -767,7 +767,7 @@ impl Context {
         let b = self.pop()?;
         let mut a = self.pop()?;
 
-        log::info!("mod: {:?} {:?}", &a, &b);
+        // log::info!("mod: {:?} {:?}", &a, &b);
         a.vmod(&b);
         self.push(a)?;
         Ok(())
@@ -780,7 +780,7 @@ impl Context {
         let b = self.pop()?;
         let a = self.pop()?;
 
-        log::info!("bittest: {:?} {:?}", &a, &b);
+        // log::info!("bittest: {:?} {:?}", &a, &b);
         if let (Some(a), Some(b)) = (a.as_int(), b.as_int()) {
             self.push(Variant::Int(a & (1 << b)))?;
         } else {
@@ -797,7 +797,7 @@ impl Context {
         let b = self.pop()?;
         let mut a = self.pop()?;
 
-        log::info!("and: {:?} {:?}", &a, &b);
+        // log::info!("and: {:?} {:?}", &a, &b);
         a.and(&b);
         self.push(a)?;
         Ok(())
@@ -810,7 +810,7 @@ impl Context {
         let b = self.pop()?;
         let mut a = self.pop()?;
 
-        log::info!("or: {:?} {:?}", &a, &b);
+        // log::info!("or: {:?} {:?}", &a, &b);
         a.or(&b);
         self.push(a)?;
         Ok(())
@@ -823,7 +823,7 @@ impl Context {
         let b = self.pop()?;
         let mut a = self.pop()?;
 
-        log::info!("sete: {:?} {:?}", &a, &b);
+        // log::info!("sete: {:?} {:?}", &a, &b);
         a.equal(&b);
         self.push(a)?;
         Ok(())
@@ -836,7 +836,7 @@ impl Context {
         let b = self.pop()?;
         let mut a = self.pop()?;
 
-        log::info!("setne: {:?} {:?}", &a, &b);
+        // log::info!("setne: {:?} {:?}", &a, &b);
         a.not_equal(&b);
         self.push(a)?;
         Ok(())
@@ -849,7 +849,7 @@ impl Context {
         let b = self.pop()?;
         let mut a = self.pop()?;
 
-        log::info!("setg: {:?} {:?}", &a, &b);
+        // log::info!("setg: {:?} {:?}", &a, &b);
         a.greater(&b);
         self.push(a)?;
         Ok(())
@@ -862,7 +862,7 @@ impl Context {
         let b = self.pop()?;
         let mut a = self.pop()?;
 
-        log::info!("setle: {:?} {:?}", &a, &b);
+        // log::info!("setle: {:?} {:?}", &a, &b);
         a.less_equal(&b);
         self.push(a)?;
         Ok(())
@@ -875,7 +875,7 @@ impl Context {
         let b = self.pop()?;
         let mut a = self.pop()?;
 
-        log::info!("setl: {:?} {:?}", &a, &b);
+        // log::info!("setl: {:?} {:?}", &a, &b);
         a.less(&b);
         self.push(a)?;
         Ok(())
@@ -888,7 +888,7 @@ impl Context {
         let b = self.pop()?;
         let mut a = self.pop()?;
 
-        log::info!("setge: {:?} {:?}", &a, &b);
+        // log::info!("setge: {:?} {:?}", &a, &b);
         a.greater_equal(&b);
         self.push(a)?;
         Ok(())
