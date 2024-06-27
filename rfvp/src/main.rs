@@ -4,7 +4,6 @@ mod app;
 mod utils;
 mod rendering;
 mod config;
-mod window;
 mod audio_player;
 
 use script::parser::{Nls, Parser};

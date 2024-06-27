@@ -1,18 +1,18 @@
 use anyhow::Result;
+use glam::Mat4;
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
 };
 
 use crate::{
-    script::{
+    rendering::overlay::OverlayManager, script::{
         context::{CONTEXT_STATUS_DISSOLVE_WAIT, CONTEXT_STATUS_RUNNING, CONTEXT_STATUS_WAIT},
         global::GLOBAL,
         parser::{Nls, Parser}, Variant,
-    },
-    subsystem::resources::{
+    }, subsystem::resources::{
         motion_manager::DissolveType, thread_manager::ThreadManager, thread_wrapper::ThreadRequest,
-    },
+    }
 };
 use winit::dpi::{PhysicalSize, Size};
 use winit::{
@@ -28,23 +28,21 @@ use crate::subsystem::scheduler::Scheduler;
 use crate::subsystem::world::GameData;
 use crate::{config::app_config::AppConfig, subsystem::event_handler::update_input_events};
 use rfvp_render::{
-    BindGroupLayouts, Camera, GpuCommonResources, Pipelines, RenderTarget,
+    BindGroupLayouts, Camera, GpuCommonResources, Pillarbox, Pipelines, RenderTarget, Renderable
 };
 
-pub struct App {
+pub struct App<'a> {
     config: AppConfig,
     game_data: GameData,
     scheduler: Scheduler,
     layer_machine: SceneMachine,
     window: Option<Arc<Window>>,
-    // renderer: Option<RendererState>,
     parser: Parser,
     thread_manager: ThreadManager,
-    render_target: RenderTarget,
-    resources: Arc<GpuCommonResources>,
+    renderer: Renderer<'a>,
 }
 
-impl App {
+impl<'a> App<'a> {
     #[allow(dead_code)]
     pub fn app() -> AppBuilder {
         let app_config = AppConfig::default();
@@ -90,35 +88,35 @@ impl App {
                             self.game_data
                                 .window()
                                 .set_dimensions(physical_size.width, physical_size.height);
-                            // self.renderer.as_mut().unwrap().resize(
-                            //     *physical_size,
-                            //     self.window.as_ref().expect("Missing window").scale_factor(),
-                            // );
+                            self.renderer.resize(
+                                (physical_size.width, physical_size.height),
+                            );
                         }
                         WindowEvent::ScaleFactorChanged {  .. } => {
-                            // self.renderer.as_mut().unwrap().resize(
-                            //     self.window.as_ref().expect("Missing window").inner_size(),
-                            //     *scale_factor,
-                            // );
+                            self.renderer.resize(
+                                self.window.as_ref().expect("Missing window").inner_size().into(),
+                            );
                         }
                         WindowEvent::RedrawRequested => {
-                            // self.renderer.as_mut().unwrap().update(&mut self.game_data);
-                            // match self
-                            //     .renderer
-                            //     .as_mut()
-                            //     .unwrap()
-                            //     .render(&mut self.game_data, &self.config)
-                            // {
-                            //     Ok(_) => {}
-                            //     Err(e) => log::error!("{:?}", e),
-                            // }
+                            self.next_frame();
+                            self.renderer.update(&mut self.game_data);
+                            match self.renderer.render() {
+                                Ok(_) => {}
+                                // Reconfigure the surface if it's lost or outdated
+                                Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                                    self.renderer.reconfigure_surface();
+                                }
+                                // The system is out of memory, we should probably quit
+                                Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
+            
+                                Err(wgpu::SurfaceError::Timeout) => log::warn!("Surface timeout"),
+                            }
                         }
                         _ => {}
                     }
                     update_input_events(event, &mut self.game_data);
                 }
                 Event::AboutToWait => {
-                    self.next_frame();
                     self.layer_machine
                         .apply_scene_action(SceneAction::EndFrame, &mut self.game_data);
                     self.window.as_mut().unwrap().request_redraw();
@@ -258,6 +256,225 @@ impl App {
     }
 }
 
+pub struct Renderer<'a> {
+    resources: Arc<GpuCommonResources>,
+    pillarbox: Pillarbox,
+    surface_config: wgpu::SurfaceConfiguration,
+    surface: wgpu::Surface<'a>,
+    camera: Camera,
+    render_target: RenderTarget,
+    window_size: (u32, u32),
+    overlay_manager: OverlayManager,
+}
+
+impl<'a> Renderer<'a> {
+    async fn new(window: Arc<Window>) -> Self {
+        let size = window.inner_size();
+        let backends = wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::all());
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends,
+            ..Default::default()
+        });
+
+        let surface = instance.create_surface(window.clone()).unwrap();
+
+        let adapter = wgpu::util::initialize_adapter_from_env_or_default(
+            &instance,
+            // NOTE: this select the low-power GPU by default
+            // it's fine, but if we want to use the high-perf one in the future we will have to ditch this function
+            Some(&surface),
+        )
+        .await
+        .unwrap();
+
+        // Create the logical device and command queue
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: None,
+                    required_features: wgpu::Features::PUSH_CONSTANTS,
+                    // Make sure we use the texture resolution limits from the adapter, so we can support images the size of the swapchain.
+                    required_limits: wgpu::Limits {
+                        max_push_constant_size: 256,
+                        ..wgpu::Limits::downlevel_webgl2_defaults()
+                            .using_resolution(adapter.limits())
+                    },
+                },
+                Some(Path::new("wgpu_trace")),
+            )
+            .await
+            .expect("Failed to create device");
+
+        let swapchain_capabilities = surface.get_capabilities(&adapter);
+        let swapchain_format = swapchain_capabilities.formats[0];
+
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: swapchain_format,
+            width: size.width,
+            height: size.height,
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: swapchain_capabilities.alpha_modes[0],
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+
+        surface.configure(&device, &config);
+
+        let bind_group_layouts = BindGroupLayouts::new(&device);
+        let pipelines = Pipelines::new(&device, &bind_group_layouts, swapchain_format);
+
+        let window_size = (window.inner_size().width, window.inner_size().height);
+        let camera = Camera::new(window_size);
+
+        let resources = Arc::new(GpuCommonResources {
+            device,
+            queue,
+            render_buffer_size: RwLock::new(camera.render_buffer_size()),
+            bind_group_layouts,
+            pipelines,
+        });
+
+        let overlay = OverlayManager::new(&resources, swapchain_format);
+
+        let render_target = RenderTarget::new(
+            &resources,
+            camera.render_buffer_size(),
+            Some("Window RenderTarget"),
+        );
+
+        let pillarbox = Pillarbox::new(&resources, window_size.0, window_size.1);
+
+        Self {
+            resources,
+            pillarbox,
+            surface_config: config,
+            surface,
+            camera,
+            render_target,
+            window_size,
+            overlay_manager: overlay,
+        }
+    }
+
+    pub fn resize(&mut self, new_size: (u32, u32)) {
+        if new_size.0 > 0 && new_size.1 > 0 {
+            self.window_size = new_size;
+            self.surface_config.width = new_size.0;
+            self.surface_config.height = new_size.1;
+            self.surface
+                .configure(&self.resources.device, &self.surface_config);
+
+            self.camera.resize(new_size);
+            self.render_target
+                .resize(&self.resources, self.camera.render_buffer_size());
+
+            log::debug!(
+                "Window resized to {:?}, new render buffer size is {:?}",
+                new_size,
+                self.camera.render_buffer_size()
+            );
+
+            *self.resources.render_buffer_size.write().unwrap() = self.camera.render_buffer_size();
+
+            self.pillarbox.resize(&self.resources);
+        }
+    }
+
+    fn update(&mut self, game_data: &mut GameData) {
+        self.time.update();
+
+        let mut input = self.input.clone();
+
+        self.overlay_manager
+            .start_update(&self.time, &input, self.window_size);
+        self.overlay_manager.visit_overlays(|collector| {
+            self.fps_counter.visit_overlay(collector);
+            input.visit_overlay(collector);
+            self.adv.visit_overlay(collector);
+        });
+        self.overlay_manager
+            .finish_update(&self.resources, &mut input);
+
+        let update_context = UpdateContext {
+            time: &self.time,
+            gpu_resources: &self.resources,
+            asset_server: &self.asset_server,
+            raw_input_state: &input,
+        };
+
+        self.adv.update(&update_context);
+
+        // NOTE: it's important that the input is updated after everything else, as it clears some state after it should have been handled
+        self.input.update();
+    }
+
+    fn reconfigure_surface(&mut self) {
+        self.surface
+            .configure(&self.resources.device, &self.surface_config);
+    }
+
+    fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+        // render everything to the render target
+        {
+            let mut encoder = self.resources.start_encoder();
+            let mut render_pass = self
+                .render_target
+                .begin_srgb_render_pass(&mut encoder, Some("Screen RenderPass"));
+
+            // self.adv.render(
+            //     &self.resources,
+            //     &mut render_pass,
+            //     Mat4::IDENTITY,
+            //     self.render_target.projection_matrix(),
+            // );
+        }
+
+        let output = self.surface.get_current_texture()?;
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        {
+            let mut encoder = self.resources.start_encoder();
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Final RenderPass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLUE),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None
+            });
+
+            self.resources.pipelines.sprite_screen.draw(
+                &mut render_pass,
+                self.render_target.vertex_source(),
+                self.render_target.bind_group(),
+                self.camera.screen_projection_matrix(),
+            );
+            self.pillarbox.render(
+                &self.resources,
+                &mut render_pass,
+                Mat4::IDENTITY,
+                self.camera.screen_projection_matrix(),
+            );
+
+            self.overlay_manager
+                .render(&self.resources, &mut render_pass);
+        }
+
+        output.present();
+
+        Ok(())
+    }
+}
+
 pub struct AppBuilder {
     config: AppConfig,
     scheduler: Scheduler,
@@ -321,82 +538,6 @@ impl AppBuilder {
         self
     }
 
-    async fn init_render(window: Arc<Window>) -> (Arc<GpuCommonResources>, RenderTarget) {
-        let size = window.inner_size();
-        let backends = wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::all());
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends,
-            ..Default::default()
-        });
-
-        let surface = instance.create_surface(window.as_ref()).unwrap();
-
-        let adapter = wgpu::util::initialize_adapter_from_env_or_default(
-            &instance,
-            // NOTE: this select the low-power GPU by default
-            // it's fine, but if we want to use the high-perf one in the future we will have to ditch this function
-            Some(&surface),
-        )
-        .await
-        .unwrap();
-
-        // Create the logical device and command queue
-        let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: None,
-                    required_features: wgpu::Features::PUSH_CONSTANTS,
-                    // Make sure we use the texture resolution limits from the adapter, so we can support images the size of the swapchain.
-                    required_limits: wgpu::Limits {
-                        max_push_constant_size: 256,
-                        ..wgpu::Limits::downlevel_webgl2_defaults()
-                            .using_resolution(adapter.limits())
-                    },
-                },
-                Some(Path::new("wgpu_trace")),
-            )
-            .await
-            .expect("Failed to create device");
-
-        let swapchain_capabilities = surface.get_capabilities(&adapter);
-        let swapchain_format = swapchain_capabilities.formats[0];
-
-        let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: swapchain_format,
-            width: size.width,
-            height: size.height,
-            present_mode: wgpu::PresentMode::Fifo,
-            alpha_mode: swapchain_capabilities.alpha_modes[0],
-            view_formats: vec![],
-            desired_maximum_frame_latency: 2,
-        };
-
-        surface.configure(&device, &config);
-
-        let bind_group_layouts = BindGroupLayouts::new(&device);
-        let pipelines = Pipelines::new(&device, &bind_group_layouts, swapchain_format);
-
-        let window_size = (window.inner_size().width, window.inner_size().height);
-        let camera = Camera::new(window_size);
-
-        let resources = Arc::new(GpuCommonResources {
-            device,
-            queue,
-            render_buffer_size: RwLock::new(camera.render_buffer_size()),
-            bind_group_layouts,
-            pipelines,
-        });
-
-        let render_target = RenderTarget::new(
-            &resources,
-            camera.render_buffer_size(),
-            Some("Window RenderTarget"),
-        );
-
-        (resources, render_target)
-    }
-
     /// Builds, setups and runs the application, must be called at the end of the building process.
     pub fn run(mut self) {
         let event_loop = EventLoop::new().expect("Event loop could not be created");
@@ -419,8 +560,8 @@ impl AppBuilder {
         // let renderer_state =
         //     futures::executor::block_on(RendererState::new(window.clone()));
 
-        let (resources, render_target) =
-            futures::executor::block_on(AppBuilder::init_render(window.clone()));
+        let renderer =
+            futures::executor::block_on(Renderer::new(window.clone()));
 
         let entry_point = self.parser.get_entry_point();
         let non_volatile_global_count = self.parser.get_non_volatile_global_count();
@@ -444,8 +585,7 @@ impl AppBuilder {
             // renderer: Some(renderer_state),
             parser: self.parser,
             thread_manager: self.script_engine,
-            render_target,
-            resources,
+            renderer,
         };
 
         app.setup();
