@@ -1,0 +1,5 @@
+---
+source: rfvp-core/src/format/save/crypto.rs
+expression: "decode_once(&data, key)"
+---
+"9f8670f6fb5c9e7ec6e8317b4a4440"

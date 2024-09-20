@@ -1,12 +1,11 @@
 use anyhow::{bail, Result};
 use clap::Parser as ClapParser;
 use serde::{Deserialize, Serialize};
-use rfvp::script::inst::nop::NopInst;
 use std::mem::size_of;
 use std::path::{PathBuf, Path};
-use rfvp::script::inst::*;
-use rfvp::script::opcode::*;
-use rfvp::script::parser::{Nls, Parser};
+use rfvp_core::format::scenario::instructions::{inst::*, Opcode, OpcodeBase};
+use rfvp_core::format::scenario::{Nls, Scenario};
+use bytes::Bytes;
 
 use std::io::Write;
 
@@ -367,23 +366,25 @@ pub struct ProjectConfig {
 }
 
 pub struct Disassembler {
-    parser: Parser,
+    scenario: Scenario,
     cursor: usize,
     functions: Vec<Function>,
 }
 
 impl Disassembler {
     pub fn new(path: impl AsRef<Path>, nls: Nls) -> Result<Self> {
-        let parser = Parser::new(path, nls.clone())?;
+        let data = std::fs::read(path.as_ref())?;
+        let data = Bytes::from(data);
+        let scenario = Scenario::new(data, Some(nls))?;
         Ok(Self {
-            parser,
+            scenario,
             cursor: 4,
             functions: Vec::new(),
         })
     }
 
-    pub fn get_parser(&self) -> &Parser {
-        &self.parser
+    pub fn get_scenario(&self) -> &Scenario {
+        &self.scenario
     }
 
     pub fn get_pc(&self) -> usize {
@@ -405,16 +406,16 @@ impl Disassembler {
     /// 0x01 init stack instruction
     /// initialize the local routine stack, as well as
     /// the post-phase of perforimg call instruction or launching a new routine
-    pub fn init_stack(&mut self, parser: &mut Parser) -> Result<()> {
+    pub fn init_stack(&mut self, scenario: &Scenario) -> Result<()> {
         let addr = self.get_pc() as u32;
         self.cursor += 1;
 
         // how many arguments are passed to the routine
-        let args_count = parser.read_i8(self.cursor)?;
+        let args_count = scenario.read_i8(self.cursor)?;
         self.cursor += size_of::<i8>();
 
         // how many locals are declared in the routine
-        let locals_count = parser.read_i8(self.cursor)?;
+        let locals_count = scenario.read_i8(self.cursor)?;
         self.cursor += size_of::<i8>();
 
         self.functions.push(Function {
@@ -434,10 +435,10 @@ impl Disassembler {
 
     /// 0x02 call instruction
     /// call a routine
-    pub fn call(&mut self, parser: &mut Parser) -> Result<()> {
+    pub fn call(&mut self, scenario: &Scenario) -> Result<()> {
         let addr = self.get_pc() as u32;
         self.cursor += 1;
-        let target = parser.read_u32(self.cursor)?;
+        let target = scenario.read_u32(self.cursor)?;
         self.cursor += size_of::<u32>();
 
         let inst = CallInst::new(addr, target);
@@ -449,13 +450,13 @@ impl Disassembler {
 
     /// 0x03 syscall
     /// call a system call
-    pub fn syscall(&mut self, parser: &mut Parser) -> Result<()> {
+    pub fn syscall(&mut self, scenario: &Scenario) -> Result<()> {
         let addr = self.get_pc() as u32;
         self.cursor += 1;
-        let id = parser.read_u16(self.cursor)?;
+        let id = scenario.read_u16(self.cursor)?;
         self.cursor += size_of::<u16>();
 
-        if let Some(syscall) = parser.get_syscall(id) {
+        if let Some(syscall) = scenario.get_syscall(id) {
             let inst = SyscallInst::new(addr, syscall.name.clone());
             let inst = Inst::from_syscall(inst);
             self.functions.last_mut().unwrap().insts.push(inst);
@@ -495,10 +496,10 @@ impl Disassembler {
 
     /// 0x06 jmp instruction
     /// jump to the address
-    pub fn jmp(&mut self, parser: &mut Parser) -> Result<()> {
+    pub fn jmp(&mut self, scenario: &Scenario) -> Result<()> {
         let addr = self.get_pc() as u32;
         self.cursor += 1;
-        let target = parser.read_u32(self.cursor)?;
+        let target = scenario.read_u32(self.cursor)?;
         self.cursor += size_of::<u32>();
 
         let inst = JmpInst::new(addr, target);
@@ -510,10 +511,10 @@ impl Disassembler {
 
     /// 0x07 jz instruction
     /// jump to the address if the top of the stack is zero
-    pub fn jz(&mut self, parser: &mut Parser) -> Result<()> {
+    pub fn jz(&mut self, scenario: &Scenario) -> Result<()> {
         let addr = self.get_pc() as u32;
         self.cursor += 1;
-        let target = parser.read_u32(self.cursor)?;
+        let target = scenario.read_u32(self.cursor)?;
         self.cursor += size_of::<u32>();
 
         let inst = JzInst::new(addr, target);
@@ -551,11 +552,11 @@ impl Disassembler {
 
     /// 0x0A push i32
     /// push an i32 value onto the stack
-    pub fn push_i32(&mut self, parser: &mut Parser) -> Result<()> {
+    pub fn push_i32(&mut self, scenario: &Scenario) -> Result<()> {
         let addr = self.get_pc() as u32;
         self.cursor += 1;
 
-        let value = parser.read_i32(self.cursor)?;
+        let value = scenario.read_i32(self.cursor)?;
         self.cursor += size_of::<i32>();
 
         let inst = PushI32Inst::new(addr, value);
@@ -567,10 +568,10 @@ impl Disassembler {
 
     /// 0x0B push i16
     /// push an i16 value onto the stack
-    pub fn push_i16(&mut self, parser: &mut Parser) -> Result<()> {
+    pub fn push_i16(&mut self, scenario: &Scenario) -> Result<()> {
         let addr = self.get_pc() as u32;
         self.cursor += 1;
-        let value = parser.read_i16(self.cursor)?;
+        let value = scenario.read_i16(self.cursor)?;
         self.cursor += size_of::<i16>();
 
         let inst = PushI16Inst::new(addr, value);
@@ -582,10 +583,10 @@ impl Disassembler {
 
     /// 0x0C push i8
     /// push an i8 value onto the stack
-    pub fn push_i8(&mut self, parser: &mut Parser) -> Result<()> {
+    pub fn push_i8(&mut self, scenario: &Scenario) -> Result<()> {
         let addr = self.get_pc() as u32;
         self.cursor += 1;
-        let value = parser.read_i8(self.cursor)?;
+        let value = scenario.read_i8(self.cursor)?;
         self.cursor += size_of::<i8>();
 
         let inst = PushI8Inst::new(addr, value);
@@ -597,10 +598,10 @@ impl Disassembler {
 
     /// 0x0D push f32
     /// push an f32 value onto the stack
-    pub fn push_f32(&mut self, parser: &mut Parser) -> Result<()> {
+    pub fn push_f32(&mut self, scenario: &Scenario) -> Result<()> {
         let addr = self.get_pc() as u32;
         self.cursor += 1;
-        let value = parser.read_f32(self.cursor)?;
+        let value = scenario.read_f32(self.cursor)?;
         self.cursor += size_of::<f32>();
 
         let inst = PushF32Inst::new(addr, value);
@@ -612,13 +613,13 @@ impl Disassembler {
 
     /// 0x0E push string
     /// push a string onto the stack
-    pub fn push_string(&mut self, parser: &mut Parser) -> Result<()> {
+    pub fn push_string(&mut self, scenario: &Scenario) -> Result<()> {
         let addr = self.get_pc() as u32;
         self.cursor += 1;
-        let len = parser.read_u8(self.cursor)? as usize;
+        let len = scenario.read_u8(self.cursor)? as usize;
         self.cursor += size_of::<u8>();
 
-        let s = parser.read_cstring(self.cursor, len)?;
+        let s = scenario.read_cstring(self.cursor, len)?;
         self.cursor += len;
 
         let inst = PushStringInst::new(addr, s);
@@ -630,10 +631,10 @@ impl Disassembler {
 
     /// 0x0F push global
     /// push a global variable onto the stack
-    pub fn push_global(&mut self, parser: &mut Parser) -> Result<()> {
+    pub fn push_global(&mut self, scenario: &Scenario) -> Result<()> {
         let addr = self.get_pc() as u32;
         self.cursor += 1;
-        let key = parser.read_u16(self.cursor)?;
+        let key = scenario.read_u16(self.cursor)?;
         self.cursor += size_of::<u16>();
 
         let inst = PushGlobalInst::new(addr, key as u32);
@@ -645,10 +646,10 @@ impl Disassembler {
 
     /// 0x10 push stack
     /// push a stack variable onto the stack
-    pub fn push_stack(&mut self, parser: &mut Parser) -> Result<()> {
+    pub fn push_stack(&mut self, scenario: &Scenario) -> Result<()> {
         let addr = self.get_pc() as u32;
         self.cursor += 1;
-        let offset = parser.read_i8(self.cursor)?;
+        let offset = scenario.read_i8(self.cursor)?;
         self.cursor += size_of::<i8>();
 
         let inst = PushStackInst::new(addr, offset);
@@ -662,10 +663,10 @@ impl Disassembler {
     /// push a value than stored in the global table by immediate key onto the stack
     /// we assume that if any failure occurs, such as the key not found, 
     /// we will push a nil value onto the stack for compatibility reasons.
-    pub fn push_global_table(&mut self, parser: &mut Parser) -> Result<()> {
+    pub fn push_global_table(&mut self, scenario: &Scenario) -> Result<()> {
         let addr = self.get_pc() as u32;
         self.cursor += 1;
-        let key = parser.read_u16(self.cursor)?;
+        let key = scenario.read_u16(self.cursor)?;
         self.cursor += size_of::<u16>();
 
         let inst = PushGlobalTableInst::new(addr, key as u32);
@@ -677,10 +678,10 @@ impl Disassembler {
 
     /// 0x12 push local table
     /// push a value than stored in the local table by key onto the stack
-    pub fn push_local_table(&mut self, parser: &mut Parser) -> Result<()> {
+    pub fn push_local_table(&mut self, scenario: &Scenario) -> Result<()> {
         let addr = self.get_pc() as u32;
         self.cursor += 1;
-        let idx = parser.read_i8(self.cursor)?;
+        let idx = scenario.read_i8(self.cursor)?;
         self.cursor += size_of::<i8>();
 
         let inst = PushLocalTableInst::new(addr, idx);
@@ -718,10 +719,10 @@ impl Disassembler {
 
     /// 0x15 pop global
     /// pop the top of the stack and store it in the global table
-    pub fn pop_global(&mut self, parser: &mut Parser) -> Result<()> {
+    pub fn pop_global(&mut self, scenario: &Scenario) -> Result<()> {
         let addr = self.get_pc() as u32;
         self.cursor += 1;
-        let key = parser.read_u16(self.cursor)?;
+        let key = scenario.read_u16(self.cursor)?;
         self.cursor += size_of::<u16>();
 
         let inst = PopGlobalInst::new(addr, key as u32);
@@ -733,10 +734,10 @@ impl Disassembler {
 
     /// 0x16 local copy
     /// copy the top of the stack to the local variable
-    pub fn local_copy(&mut self, parser: &mut Parser) -> Result<()> {
+    pub fn local_copy(&mut self, scenario: &Scenario) -> Result<()> {
         let addr = self.get_pc() as u32;
         self.cursor += 1;
-        let idx = parser.read_i8(self.cursor)?;
+        let idx = scenario.read_i8(self.cursor)?;
         self.cursor += size_of::<i8>();
 
         let inst = PopStackInst::new(addr, idx);
@@ -748,10 +749,10 @@ impl Disassembler {
 
     /// 0x17 pop global table
     /// pop the top of the stack and store it in the global table by key
-    pub fn pop_global_table(&mut self, parser: &mut Parser) -> Result<()> {
+    pub fn pop_global_table(&mut self, scenario: &Scenario) -> Result<()> {
         let addr = self.get_pc() as u32;
         self.cursor += 1;
-        let key = parser.read_u16(self.cursor)?;
+        let key = scenario.read_u16(self.cursor)?;
         self.cursor += size_of::<u16>();
 
         let inst = PopGlobalTableInst::new(addr, key as u32);
@@ -763,10 +764,10 @@ impl Disassembler {
 
     /// 0x18 pop local table 
     /// pop the top of the stack and store it in the local table by key
-    pub fn pop_local_table(&mut self, parser: &mut Parser) -> Result<()> {
+    pub fn pop_local_table(&mut self, scenario: &Scenario) -> Result<()> {
         let addr = self.get_pc() as u32;
         self.cursor += 1;
-        let idx = parser.read_i8(self.cursor)?;
+        let idx = scenario.read_i8(self.cursor)?;
         self.cursor += size_of::<i8>();
 
         let inst = PopLocalTableInst::new(addr, idx);
@@ -971,21 +972,21 @@ impl Disassembler {
         Ok(())
     }
 
-    fn disassemble_opcode(&mut self, parser: &mut Parser) -> Result<()> {
-        let opcode = parser.read_u8(self.get_pc())? as i32;
+    fn disassemble_opcode(&mut self, scenario: &Scenario) -> Result<()> {
+        let opcode = scenario.read_u8(self.get_pc())? as i32;
         
         match opcode.try_into() {
             Ok(Opcode::Nop) => {
                 self.nop()?;
             }
             Ok(Opcode::InitStack) => {
-                self.init_stack(parser)?;
+                self.init_stack(scenario)?;
             }
             Ok(Opcode::Call) => {
-                self.call(parser)?;
+                self.call(scenario)?;
             }
             Ok(Opcode::Syscall) => {
-                self.syscall(parser)?;
+                self.syscall(scenario)?;
             }
             Ok(Opcode::Ret) => {
                 self.ret()?;
@@ -994,10 +995,10 @@ impl Disassembler {
                 self.retv()?;
             }
             Ok(Opcode::Jmp) => {
-                self.jmp(parser)?;
+                self.jmp(scenario)?;
             }
             Ok(Opcode::Jz) => {
-                self.jz(parser)?;
+                self.jz(scenario)?;
             }
             Ok(Opcode::PushNil) => {
                 self.push_nil()?;
@@ -1006,31 +1007,31 @@ impl Disassembler {
                 self.push_true()?;
             }
             Ok(Opcode::PushI32) => {
-                self.push_i32(parser)?;
+                self.push_i32(scenario)?;
             }
             Ok(Opcode::PushI16) => {
-                self.push_i16(parser)?;
+                self.push_i16(scenario)?;
             }
             Ok(Opcode::PushI8) => {
-                self.push_i8(parser)?;
+                self.push_i8(scenario)?;
             }
             Ok(Opcode::PushF32) => {
-                self.push_f32(parser)?;
+                self.push_f32(scenario)?;
             }
             Ok(Opcode::PushString) => {
-                self.push_string(parser)?;
+                self.push_string(scenario)?;
             }
             Ok(Opcode::PushGlobal) => {
-                self.push_global(parser)?;
+                self.push_global(scenario)?;
             }
             Ok(Opcode::PushStack) => {
-                self.push_stack(parser)?;
+                self.push_stack(scenario)?;
             }
             Ok(Opcode::PushGlobalTable) => {
-                self.push_global_table(parser)?;
+                self.push_global_table(scenario)?;
             }
             Ok(Opcode::PushLocalTable) => {
-                self.push_local_table(parser)?;
+                self.push_local_table(scenario)?;
             }
             Ok(Opcode::PushTop) => {
                 self.push_top()?;
@@ -1039,16 +1040,16 @@ impl Disassembler {
                 self.push_return_value()?;
             }
             Ok(Opcode::PopGlobal) => {
-                self.pop_global(parser)?;
+                self.pop_global(scenario)?;
             }
             Ok(Opcode::PopStack) => {
-                self.local_copy(parser)?;
+                self.local_copy(scenario)?;
             }
             Ok(Opcode::PopGlobalTable) => {
-                self.pop_global_table(parser)?;
+                self.pop_global_table(scenario)?;
             }
             Ok(Opcode::PopLocalTable) => {
-                self.pop_local_table(parser)?;
+                self.pop_local_table(scenario)?;
             }
             Ok(Opcode::Neg) => {
                 self.neg()?;
@@ -1105,9 +1106,9 @@ impl Disassembler {
     }
 
     pub fn disassemble(&mut self) -> Result<()> {
-        let mut parser = self.parser.clone();
-        while self.get_pc() < parser.get_sys_desc_offset() as usize {
-            self.disassemble_opcode(&mut parser)?;
+        let mut scenario = self.scenario.clone();
+        while self.get_pc() < scenario.get_sys_desc_offset() as usize {
+            self.disassemble_opcode(&mut scenario)?;
         }
 
         Ok(())
@@ -1125,19 +1126,19 @@ impl Disassembler {
         serde_yaml::to_writer(&mut writer, &self.functions)?;
 
         let config = ProjectConfig {
-            entry_point: self.get_parser().get_entry_point(),
-            non_volatile_global_count: self.get_parser().get_non_volatile_global_count(),
-            volatile_global_count: self.get_parser().get_volatile_global_count(),
-            game_mode: self.get_parser().get_game_mode(),
-            game_title: self.get_parser().get_title(),
-            syscalls: self.get_parser().get_all_syscalls().iter().map(|(id, sys)| {
+            entry_point: self.get_scenario().get_entry_point(),
+            non_volatile_global_count: self.get_scenario().get_non_volatile_global_count(),
+            volatile_global_count: self.get_scenario().get_volatile_global_count(),
+            game_mode: self.get_scenario().get_game_mode(),
+            game_title: self.get_scenario().get_title(),
+            syscalls: self.get_scenario().get_all_syscalls().iter().map(|(id, sys)| {
                 SyscallEntry {
                     id: *id as u32,
                     name: sys.name.clone(),
                     args_count: sys.args,
                 }
             }).collect(),
-            custom_syscall_count: self.get_parser().get_custom_syscall_count(),
+            custom_syscall_count: self.get_scenario().get_custom_syscall_count(),
         };
 
         let yaml_config = output.join("config.yaml");

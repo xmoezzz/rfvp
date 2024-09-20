@@ -1,0 +1,60 @@
+{
+    "app-id": "com.dcnick3.Shin",
+    "runtime": "org.freedesktop.Platform",
+    "runtime-version": "22.08",
+    "sdk": "org.freedesktop.Sdk",
+    "sdk-extensions" : [
+        "org.freedesktop.Sdk.Extension.rust-stable",
+        "org.freedesktop.Sdk.Extension.llvm15"
+    ],
+    "command": "/app/shin",
+    "finish-args": [
+        "--share=ipc",
+        "--socket=fallback-x11",
+        "--socket=wayland",
+        "--device=dri",
+        "--socket=pulseaudio"
+    ],
+    "build-options": {
+        "append-path" : "/usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/llvm15/bin",
+        "env" : {
+            "CARGO_HOME" : "/run/build/shin/cargo",
+            "RUSTFLAGS": "-C link-arg=-fuse-ld=/usr/lib/sdk/rust-stable/bin/mold"
+        }
+    },
+    "modules": [
+        {
+            "name": "shin",
+            "buildsystem": "simple",
+            "build-commands": [
+                "cargo --offline fetch --manifest-path Cargo.toml",
+                "cargo --offline build --profile dist -p shin",
+                "install -Dm755 ./target/dist/shin -t /app/"
+            ],
+            "sources": [
+                {
+                    "type": "git",
+                    "path": "../"
+                },
+                "generated-sources.json"
+            ]
+        },
+        {
+            "name": "umineko-data",
+            "buildsystem": "simple",
+            "build-commands": [
+                "mkdir -p /app/assets",
+                "mv data.rom /app/assets/data.rom",
+                "chmod 644 /app/assets/data.rom"
+            ],
+            "sources": [
+                {
+                    "type": "file",
+                    "path": "../shin/assets/data.rom",
+                    "sha1": "5ad51dfaa59c7ea1b497dc3fe8e262b0538f6358"
+                }
+            ]
+        }
+    ]
+}
+

@@ -1,0 +1,5 @@
+---
+source: rfvp-core/src/format/save/crc32.rs
+expression: "crc32(&data, init)"
+---
+3307346369

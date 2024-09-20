@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use kira::sound::{Sound, SoundData};
-use ringbuf::HeapRb;
+use ringbuf::{traits::Split as _, HeapRb};
 use rfvp_core::format::audio::{AudioDecoder, AudioFile, AudioFrameSource};
 
 use super::AudioSettings;

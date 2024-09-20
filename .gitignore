@@ -1,2 +1,5 @@
 /target
-/video_player/testcase/image
+.idea
+heaptrack.*.zst
+.flatpak-builder
+*.snr
