@@ -173,12 +173,12 @@ impl<S: AudioFrameSource> AudioSource<S> {
     /// Return the position of the next sample to be read
     pub fn current_samples_position(&self) -> u32 {
         self.source.current_sample_position()
+            // these samples will be skipped
+            + self.skip_left
             // take into account the samples not yet read from the buffer (but read from the source)
             - self.reader.remaining()
             // remove the pre-skip
             - self.source.pre_skip()
-            // these samples will be skipped
-            + self.skip_left
     }
 
     pub fn inner(&self) -> &S {

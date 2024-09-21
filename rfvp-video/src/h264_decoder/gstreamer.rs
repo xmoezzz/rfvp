@@ -16,8 +16,8 @@ use crate::{
 
 static INIT_ONCE: Lazy<()> = Lazy::new(|| {
     tracing_gstreamer::integrate_events();
-    gst::debug_remove_default_log_function();
-    gst::debug_set_default_threshold(gst::DebugLevel::Memdump);
+    gst::log::remove_default_log_function();
+    gst::log::set_default_threshold(gst::DebugLevel::Memdump);
     gst::init().expect("Failed to initialize GStreamer");
 });
 fn init() {
@@ -76,7 +76,7 @@ impl super::H264DecoderTrait for GStreamerH264Decoder {
 
         let pipeline = gst::Pipeline::default();
         pipeline
-            .add_many([
+            .add_many(&[
                 app_src.upcast_ref(),
                 &decodebin,
                 &queue,
@@ -89,7 +89,7 @@ impl super::H264DecoderTrait for GStreamerH264Decoder {
         app_src
             .link(&decodebin)
             .context("Failed to link app_src to decodebin")?;
-        gst::Element::link_many([&queue, &videoconvert, app_sink.upcast_ref()])
+        gst::Element::link_many(&[&queue, &videoconvert, app_sink.upcast_ref()])
             .context("Failed to link queue, videoconvert and appsink")?;
 
         decodebin.connect_pad_added(move |_decodebin, src_pad| {
@@ -140,7 +140,9 @@ impl super::H264DecoderTrait for GStreamerH264Decoder {
                                 gst::ClockTime::from_useconds(time * 1_000_000 / time_base as u64)
                             };
 
-                            let start_time = mp4_time_to_gst_time((sample.start_time as i64 + sample.rendering_offset as i64) as u64);
+                            let start_time = mp4_time_to_gst_time(
+                                (sample.start_time as i64 + sample.rendering_offset as i64) as u64,
+                            );
                             let duration = mp4_time_to_gst_time(sample.duration as u64);
 
                             bitstream_converter.convert_packet(&sample.bytes, &mut vec_buffer);
@@ -187,6 +189,7 @@ impl super::H264DecoderTrait for GStreamerH264Decoder {
                     video_info.interlace_mode()
                 )
             }
+            // when doing hardware decoding with nvidia this is set to unknown... whatever
             // if video_info.chroma_site() != gst_video::VideoChromaSite::MPEG2 {
             //     bail!("Unsupported chroma site: {:?}", video_info.chroma_site())
             // }
@@ -235,7 +238,7 @@ impl super::H264DecoderTrait for GStreamerH264Decoder {
         let gst_time_to_mp4_time =
             |time: gst::ClockTime| (time.useconds() * self.time_base as u64 / 1_000_000);
         let start_time = gst_time_to_mp4_time(buffer.pts().unwrap());
-        let duration = gst_time_to_mp4_time(buffer.duration().unwrap_or_default())
+        let duration = gst_time_to_mp4_time(buffer.duration().unwrap())
             .try_into()
             .unwrap();
 

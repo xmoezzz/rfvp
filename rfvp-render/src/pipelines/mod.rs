@@ -28,6 +28,7 @@ fn make_pipeline(
         vertex: wgpu::VertexState {
             module: &shader_module,
             entry_point: "vertex_main",
+            compilation_options: Default::default(),
             buffers: &[vertex_buffer_layout],
         },
         primitive: wgpu::PrimitiveState {
@@ -44,6 +45,7 @@ fn make_pipeline(
         fragment: Some(wgpu::FragmentState {
             module: &shader_module,
             entry_point: "fragment_main",
+            compilation_options: Default::default(),
             targets: &[Some(wgpu::ColorTargetState {
                 format: texture_format,
                 blend,

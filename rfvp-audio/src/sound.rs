@@ -7,17 +7,16 @@ use std::{
 };
 
 use kira::{
-    clock::clock_info::ClockInfoProvider, dsp::Frame,
-    modulator::value_provider::ModulatorValueProvider, sound::Sound, track::TrackId,
-    OutputDestination,
+    clock::clock_info::ClockInfoProvider, modulator::value_provider::ModulatorValueProvider,
+    sound::Sound, track::TrackId, Frame, OutputDestination,
 };
-use ringbuf::HeapConsumer;
+use ringbuf::{traits::Consumer as _, HeapCons};
 use rfvp_core::{
     format::audio::{AudioFrameSource, AudioSource},
     time::{Ticks, Tween, Tweener},
-    types::{AudioWaitStatus, Pan, Volume},
+    vm::command::types::{AudioWaitStatus, Pan, Volume},
 };
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::{resampler::Resampler, AudioData};
 
@@ -115,7 +114,7 @@ impl<S: AudioFrameSource + Send> SampleProvider<S> {
 
 pub struct AudioSound<S: AudioFrameSource + Send> {
     track_id: TrackId,
-    command_consumer: HeapConsumer<Command>,
+    command_consumer: HeapCons<Command>,
     shared: Arc<Shared>,
     state: PlaybackState,
     volume: Tweener,
@@ -125,7 +124,7 @@ pub struct AudioSound<S: AudioFrameSource + Send> {
 }
 
 impl<S: AudioFrameSource + Send> AudioSound<S> {
-    pub fn new(data: AudioData<S>, command_consumer: HeapConsumer<Command>) -> Self {
+    pub fn new(data: AudioData<S>, command_consumer: HeapCons<Command>) -> Self {
         debug!("Creating audio sound for track {:?}", data.settings.track);
 
         let mut volume_fade = Tweener::new(0.0);
@@ -181,7 +180,7 @@ impl<S: AudioFrameSource + Send> Sound for AudioSound<S> {
     }
 
     fn on_start_processing(&mut self) {
-        while let Some(command) = self.command_consumer.pop() {
+        while let Some(command) = self.command_consumer.try_pop() {
             match command {
                 // note: unlike in the layer props, we do the "enqueue_now" thing here
                 // bacause we don't want to wait for previous audio changes to be applied
@@ -224,7 +223,7 @@ impl<S: AudioFrameSource + Send> Sound for AudioSound<S> {
 
         let mut f = self.sample_provider.next(dt);
 
-        if self.sample_provider.reached_eof {
+        if self.sample_provider.reached_eof && self.sample_provider.resampler.outputting_silence() {
             self.state = PlaybackState::Stopped;
         }
 
@@ -240,6 +239,20 @@ impl<S: AudioFrameSource + Send> Sound for AudioSound<S> {
     }
 
     fn finished(&self) -> bool {
-        self.state == PlaybackState::Stopped && self.sample_provider.resampler.outputting_silence()
+        let result = self.state == PlaybackState::Stopped;
+        if result {
+            debug!(
+                "Track {:?} is finished, we are gonna get dropped soon",
+                &self.track_id
+            );
+            // make sure that before we get dropped, the wait status is updated
+            // otherwise SEWAIT can hand forever
+            self.shared.wait_status.store(
+                self.wait_status().bits(),
+                std::sync::atomic::Ordering::SeqCst,
+            );
+        }
+
+        result
     }
 }

@@ -6,7 +6,7 @@ use kira::track::TrackId;
 use rfvp_audio::{AudioData, AudioManager, AudioSettings};
 use rfvp_core::{
     time::{Ticks, Tween},
-    types::{Pan, Volume},
+    vm::command::types::{Pan, Volume},
 };
 use rfvp_render::{GpuCommonResources, Renderable, SpriteVertexBuffer};
 use tracing::{error, info, trace, warn};
@@ -44,11 +44,13 @@ impl VideoPlayer {
         let duration = start.elapsed();
 
         info!("H264Decoder::new took {:?}", duration);
-        let frame_size = video_decoder
-            .frame_size()
-            .context("Getting H264 frame size")?;
 
-        let video_texture = YuvTexture::new(resources, frame_size.clone());
+        let video_texture = YuvTexture::new(
+            resources,
+            video_decoder
+                .frame_size()
+                .context("Getting H264 frame size")?,
+        );
 
         // TODO: use the audio track
         // if we are using audio the timer should be tracking the audio playback
@@ -73,12 +75,7 @@ impl VideoPlayer {
             None => Timer::new_independent(time_base),
         };
 
-        // TODO :
-        let vertex_buffer = SpriteVertexBuffer::new_fullscreen(
-            resources,
-            frame_size.plane_sizes[0].width,
-            frame_size.plane_sizes[0].height,
-        );
+        let vertex_buffer = SpriteVertexBuffer::new_fullscreen(resources);
 
         Ok(VideoPlayer {
             timer,

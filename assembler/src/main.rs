@@ -1,8 +1,10 @@
 use anyhow::{bail, Result};
 use clap::Parser;
+use bytes::Bytes;
 use inst::Inst;
-use rfvp::script::{opcode::Opcode, parser::Nls};
-use serde::{de::value, Deserialize, Serialize};
+use rfvp_core::format::scenario::instructions::Opcode;
+use rfvp_core::format::scenario::Nls;
+use serde::{Deserialize, Serialize};
 use std::{
     cell::RefCell,
     collections::BTreeMap,
@@ -550,6 +552,8 @@ fn main() {
 
 #[cfg(test)]
 mod tests {
+    use rfvp_core::format::scenario::Scenario;
+
     use super::*;
 
     #[test]
@@ -564,6 +568,8 @@ mod tests {
         ));
         let nls = Nls::ShiftJIS;
         compile(input, output, nls.clone()).unwrap();
-        let _parser = rfvp::script::parser::Parser::new(output, nls).unwrap();
+        let outdata = std::fs::read(output).unwrap();
+        let outdata = Bytes::from(outdata);
+        let _parser = Scenario::new(outdata, Some(nls)).unwrap();
     }
 }

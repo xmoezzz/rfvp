@@ -36,6 +36,7 @@ pub struct SpawnFfmpegH264Decoder {
     frame_size: Option<FrameSize>,
 }
 
+// const FFMPEG_LOG_LEVEL: &str = "debug";
 const FFMPEG_LOG_LEVEL: &str = "info";
 
 impl super::H264DecoderTrait for SpawnFfmpegH264Decoder {

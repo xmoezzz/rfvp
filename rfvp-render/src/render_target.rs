@@ -6,7 +6,7 @@ use super::TextureBindGroup;
 use crate::{
     common_resources::GpuCommonResources,
     vertices::{PosColTexVertex, VertexSource},
-    SpriteVertexBuffer, 
+    SpriteVertexBuffer, VIRTUAL_HEIGHT, VIRTUAL_WIDTH,
 };
 
 /// Describes a fullscreen intermediate render target.
@@ -18,7 +18,6 @@ pub struct RenderTarget {
     bind_group: TextureBindGroup,
     vertices: SpriteVertexBuffer,
     label: Cow<'static, str>,
-    size: (u32, u32),
 }
 
 impl RenderTarget {
@@ -70,7 +69,7 @@ impl RenderTarget {
             &sampler,
             Some(&format!("{} TextureBindGroup", label)),
         );
-        let vertices = SpriteVertexBuffer::new_fullscreen(resources, size.0, size.1);
+        let vertices = SpriteVertexBuffer::new_fullscreen(resources);
         Self {
             texture,
             srgb_view,
@@ -79,7 +78,6 @@ impl RenderTarget {
             bind_group,
             vertices,
             label,
-            size,
         }
     }
 
@@ -112,8 +110,8 @@ impl RenderTarget {
 
     pub fn projection_matrix(&self) -> Mat4 {
         let mut projection = Mat4::IDENTITY;
-        projection.x_axis.x = 2.0 / self.size.0 as f32;
-        projection.y_axis.y = -2.0 / self.size.1 as f32; // in wgpu y is up, so we need to flip the y axis
+        projection.x_axis.x = 2.0 / VIRTUAL_WIDTH;
+        projection.y_axis.y = -2.0 / VIRTUAL_HEIGHT; // in wgpu y is up, so we need to flip the y axis
         projection.z_axis.z = 1.0 / 1000.0;
         projection.w_axis.w = 1.0;
 
@@ -140,8 +138,8 @@ impl RenderTarget {
                 },
             })],
             depth_stencil_attachment: None,
+            timestamp_writes: None,
             occlusion_query_set: None,
-            timestamp_writes: None
         })
     }
 
@@ -161,8 +159,8 @@ impl RenderTarget {
                 },
             })],
             depth_stencil_attachment: None,
+            timestamp_writes: None,
             occlusion_query_set: None,
-            timestamp_writes: None
         })
     }
 
