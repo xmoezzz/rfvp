@@ -1,6 +1,11 @@
 use num_derive::FromPrimitive;
 use bitflags::bitflags;
-use proc_bitfield::bitfield;
+
+mod id;
+
+pub use id::{
+    LayerId, LayerIdOpt, VLayerId, VLayerIdRepr, LAYERBANKS_COUNT, LAYERS_COUNT, PLANES_COUNT,
+};
 
 #[derive(FromPrimitive, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Hash)]
 pub enum MessageTextLayout {
@@ -43,3 +48,21 @@ impl PartialEq for Pan {
 
 impl Eq for Pan {}
 
+
+/// A volume value, in the range [0.0, 1.0].
+#[derive(Debug, Copy, Clone)]
+pub struct Volume(pub f32);
+
+impl Default for Volume {
+    fn default() -> Self {
+        Self(1.0)
+    }
+}
+
+impl PartialEq for Volume {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.total_cmp(&other.0) == std::cmp::Ordering::Equal
+    }
+}
+
+impl Eq for Volume {}
