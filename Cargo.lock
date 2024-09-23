@@ -2952,6 +2952,7 @@ dependencies = [
  "etagere",
  "futures",
  "glam",
+ "glob",
  "image",
  "itertools 0.13.0",
  "kira",

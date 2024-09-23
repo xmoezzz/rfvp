@@ -30,6 +30,30 @@ bitflags! {
     }
 }
 
+#[derive(FromPrimitive, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Hash)]
+pub enum MessageboxType {
+    Neutral = 0,
+    WitchSpace = 1,
+    Ushiromiya = 2,
+    Transparent = 3,
+    Novel = 4,
+    NoText = 5,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Hash)]
+pub struct MessageboxStyle {
+    pub messagebox_type: MessageboxType,
+    pub text_layout: MessageTextLayout,
+}
+
+impl Default for MessageboxStyle {
+    fn default() -> Self {
+        Self {
+            messagebox_type: MessageboxType::Neutral,
+            text_layout: MessageTextLayout::Left,
+        }
+    }
+}
 
 #[derive(Debug, Copy, Clone)]
 pub struct Pan(pub f32);

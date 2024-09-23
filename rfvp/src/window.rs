@@ -3,7 +3,6 @@ use std::sync::{Arc, RwLock};
 use anyhow::{Context, Result};
 use glam::Mat4;
 use rfvp_audio::AudioManager;
-use rfvp_core::format::scenario::instruction_elements::CodeAddress;
 use rfvp_render::{
     BindGroupLayouts, Camera, GpuCommonResources, Pillarbox, Pipelines, RenderTarget, Renderable,
 };
@@ -19,8 +18,8 @@ use winit::{
 };
 
 use crate::{
-    adv::{assets::AdvAssets, Adv},
-    asset::{locate_assets, AnyAssetServer},
+    adv::{self, assets::AdvAssets, Adv},
+    asset::{locate_assets, AnyAssetIo, AnyAssetServer, AssetServer},
     cli::Cli,
     fps_counter::FpsCounter,
     input::RawInputState,
@@ -46,7 +45,12 @@ struct State<'window> {
 }
 
 impl<'state> State<'state> {
-    async fn new(window: &'state Window, cli: &Cli) -> Result<Self> {
+    async fn new(
+        window: &'state Window,
+        adv_assets: AdvAssets,
+        asset_server: Arc<AssetServer<AnyAssetIo>>,
+        cli: &Cli,
+    ) -> Result<Self> {
         let window_size = window.inner_size();
         let window_size = (window_size.width, window_size.height);
 
@@ -135,21 +139,7 @@ impl<'state> State<'state> {
 
         let audio_manager = Arc::new(AudioManager::new());
 
-        let asset_io = locate_assets(cli.assets_dir.as_deref()).context("Failed to locate assets. Consult the README for instructions on how to set up the game.")?;
-
-        debug!("Asset IO: {:#?}", asset_io);
-
-        let asset_server = Arc::new(AnyAssetServer::new(asset_io.into()));
-
-        let adv_assets =
-            pollster::block_on(AdvAssets::load(&asset_server)).expect("Loading assets failed");
-
         let mut adv = Adv::new(&resources, audio_manager, adv_assets, 0, 42);
-
-        if let Some(addr) = cli.fast_forward_to {
-            debug!("Fast forwarding to {}", addr);
-            adv.fast_forward_to(CodeAddress(addr));
-        }
 
         Ok(Self {
             surface,
@@ -307,11 +297,25 @@ pub async fn run(cli: Cli) {
 
     rfvp_tasks::create_task_pools();
 
+    let asset_io = locate_assets(cli.assets_dir.as_deref())
+        .context("Failed to locate assets. Consult the README for instructions on how to set up the game.")
+        .unwrap();
+
+    debug!("Asset IO: {:#?}", asset_io);
+
+    let asset_server = Arc::new(AnyAssetServer::new(asset_io.into()));
+
+    let adv_assets =
+        pollster::block_on(AdvAssets::load(&asset_server)).expect("Loading assets failed");
+    
+    let (width, height) = adv_assets.scenario.get_screen_size();
+
     let event_loop = EventLoop::new().unwrap();
     let window = WindowBuilder::new()
-        .with_inner_size(LogicalSize::new(1920, 1080))
+        .with_inner_size(LogicalSize::new(width, height))
         .with_maximized(false)
-        .with_position(LogicalPosition::new(1080, 0))
+        .with_position(LogicalPosition::new(width, 0))
+        .with_title(adv_assets.scenario.get_title())
         .build(&event_loop)
         .unwrap();
 
@@ -335,7 +339,7 @@ pub async fn run(cli: Cli) {
     }
 
     // State::new uses async code, so we're going to wait for it to finish
-    let mut state = State::new(&window, &cli)
+    let mut state = State::new(&window, adv_assets, asset_server, &cli)
         .await
         .expect("Failed to initialize the game"); // TODO: report error in a better way
 

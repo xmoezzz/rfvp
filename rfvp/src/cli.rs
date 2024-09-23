@@ -13,7 +13,4 @@ pub struct Cli {
     /// Consult the README for more information.
     #[clap(short, long)]
     pub assets_dir: Option<PathBuf>,
-    /// Automatically fast-forward the scenario to the specified address (useful for debugging)
-    #[clap(long, value_parser=maybe_hex::<u32>)]
-    pub fast_forward_to: Option<u32>,
 }
