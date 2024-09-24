@@ -49,7 +49,7 @@ impl<'state> State<'state> {
         window: &'state Window,
         adv_assets: AdvAssets,
         asset_server: Arc<AssetServer<AnyAssetIo>>,
-        cli: &Cli,
+        _cli: &Cli,
     ) -> Result<Self> {
         let window_size = window.inner_size();
         let window_size = (window_size.width, window_size.height);

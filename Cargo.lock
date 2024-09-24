@@ -3008,6 +3008,7 @@ dependencies = [
  "enum-map",
  "float-ord",
  "glam",
+ "glob",
  "hex",
  "image",
  "insta",

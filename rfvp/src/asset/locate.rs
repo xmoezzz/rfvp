@@ -62,7 +62,7 @@ fn try_assets_directory(path: &Path) -> anyhow::Result<Option<LayeredAssetIo>> {
 /// 2. The directory specified in the `rfvp_ASSETS` environment variable
 /// 3. The directory "assets" next to the executable
 /// 4. The directory "assets" in the current working directory
-/// 5. The user's shared data directory (see `dirs::data_dir`, `/home/alice/.local/share/shin/assets` / `C:\Users\Alice\AppData\Roaming\shin\assets` / `/Users/Alice/Library/Application Support/shin/assets`)
+/// 5. The user's shared data directory (see `dirs::data_dir`, `/home/alice/.local/share/rfvp/assets` / `C:\Users\Alice\AppData\Roaming\rfvp\assets` / `/Users/Alice/Library/Application Support/rfvp/assets`)
 ///
 /// The used asset directory is the first one having a "data" directory or a "data.rom" file.
 #[allow(clippy::match_result_ok)]
@@ -96,7 +96,7 @@ pub fn locate_assets(cli_assets: Option<&Path>) -> anyhow::Result<LayeredAssetIo
     // | Linux   | `$XDG_DATA_HOME` or `$HOME`/.local/share | /home/alice/.local/share                 |
     // | macOS   | `$HOME`/Library/Application Support      | /Users/Alice/Library/Application Support |
     // | Windows | `{FOLDERID_RoamingAppData}`              | C:\Users\Alice\AppData\Roaming           |
-    if let Some(shared_assets) = dirs_next::data_dir().map(|p| p.join("shin").join("assets")) {
+    if let Some(shared_assets) = dirs_next::data_dir().map(|p| p.join("rfvp").join("assets")) {
         try_list.push(shared_assets);
     }
 

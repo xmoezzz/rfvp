@@ -50,6 +50,8 @@ serde-big-array = "0.5.1"
 num-integer = "0.1.46"
 chrono = { version = "0.4.38", features = ["serde"] }
 
+glob = { workspace = true }
+
 [dev-dependencies]
 hex = "0.4.3"
 insta = "1.39.0"

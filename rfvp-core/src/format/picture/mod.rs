@@ -341,7 +341,7 @@ pub fn read_texture(
         };
         let mut out_buffer = Vec::with_capacity(decompressed_size);
         let compressed = &data[..compressed_size];
-        super::lz77::decompress::<12>(compressed, &mut out_buffer);
+        // super::lz77::decompress::<12>(compressed, &mut out_buffer);
 
         assert_eq!(decompressed_size, out_buffer.len());
 

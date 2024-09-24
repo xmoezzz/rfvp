@@ -13,9 +13,11 @@ use async_trait::async_trait;
 use bevy_utils::HashMap;
 use derive_more::From;
 use pollster::FutureExt;
-use rfvp_core::format::rom::RomReader;
+use rfvp_core::format::vfs::Vfs;
 use rfvp_tasks::{AsyncComputeTaskPool, IoTaskPool};
 use tracing::debug;
+
+use rfvp_core::format::scenario::Nls;
 
 pub trait Asset: Send + Sync + Sized + 'static {
     fn load_from_bytes(data: Vec<u8>) -> Result<Self>;
@@ -104,8 +106,7 @@ impl AnyAssetServer {
     }
 
     #[allow(unused)]
-    pub fn new_rom(rom_path: impl AsRef<Path>) -> Self {
-        debug!("Using ROM for assets: {}", rom_path.as_ref().display());
+    pub fn new_fvp(rom_path: impl AsRef<Path>) -> Self {
         Self::new(AnyAssetIo::new_rom(rom_path))
     }
 }
@@ -142,12 +143,11 @@ impl AssetIo for DirAssetIo {
     }
 }
 
-pub struct RomAssetIo<S: io::Read + io::Seek + Send + Sync + 'static> {
-    rom: Arc<Mutex<RomReader<S>>>,
-    label: Option<String>,
+pub struct RomAssetIo {
+    vfs: Arc<Vfs>,
 }
 
-impl<S: io::Read + io::Seek + Send + Sync + 'static> Debug for RomAssetIo<S> {
+impl Debug for RomAssetIo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("RomAssetIo")
             .field(&self.label.as_deref().unwrap_or("unnamed"))
@@ -155,38 +155,28 @@ impl<S: io::Read + io::Seek + Send + Sync + 'static> Debug for RomAssetIo<S> {
     }
 }
 
-impl<S: io::Read + io::Seek + Send + Sync + 'static> RomAssetIo<S> {
-    pub fn new(rom: RomReader<S>, label: Option<&str>) -> Self {
+impl RomAssetIo {
+    pub fn new(vfs: Vfs) -> Self {
         Self {
-            rom: Arc::new(Mutex::new(rom)),
-            label: label.map(|s| s.to_string()),
+            vfs: Arc::new(vfs),
         }
     }
 }
 
 #[async_trait]
-impl<S: io::Read + io::Seek + Send + Sync + 'static> AssetIo for RomAssetIo<S> {
+impl AssetIo for RomAssetIo {
     async fn read_file(&self, path: &str) -> Result<Vec<u8>> {
-        let rom = self.rom.clone();
+        let vfs = self.vfs.clone();
         let path = path.to_string();
 
         IoTaskPool::get()
             .spawn(async move {
                 use io::Read;
 
-                let mut rom = rom.lock().unwrap();
-                let file = rom
-                    .find_file(&path)
-                    .with_context(|| format!("Finding asset {:?}", path))?;
-                let mut file = rom
-                    .open_file(file)
-                    .with_context(|| format!("Opening asset {:?}", path))?;
+                let data = vfs.read_file(&path)
+                    .map_err(|e| anyhow!("Reading asset {:?}: {:?}", path, e));
 
-                let mut data = Vec::new();
-                file.read_to_end(&mut data)
-                    .with_context(|| format!("Reading asset {:?}", path))?;
-
-                Ok(data)
+                data
             })
             .await
     }
@@ -195,7 +185,7 @@ impl<S: io::Read + io::Seek + Send + Sync + 'static> AssetIo for RomAssetIo<S> {
 #[derive(Debug, From)]
 pub enum AnyAssetIo {
     Dir(DirAssetIo),
-    RomFile(RomAssetIo<BufReader<File>>),
+    RomFile(RomAssetIo),
     Layered(LayeredAssetIo),
 }
 
@@ -204,14 +194,10 @@ impl AnyAssetIo {
         Self::Dir(DirAssetIo::new(root_path))
     }
 
-    pub fn new_rom(rom_path: impl AsRef<Path>) -> Self {
-        let rom_path = rom_path.as_ref();
-        let rom =
-            RomReader::new(BufReader::new(File::open(rom_path).unwrap())).expect("Opening rom");
-        Self::RomFile(RomAssetIo::new(
-            rom,
-            Some(&format!("{}", rom_path.display())),
-        ))
+    pub fn new_vfs(fvp_dir_path: impl AsRef<Path>) -> Self {
+        let dir_path = fvp_dir_path.as_ref();
+        let vfs = Vfs::new(Nls::ShiftJIS, dir_path).expect("Opening VFS");
+        Self::RomFile(vfs)
     }
 }
 
