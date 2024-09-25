@@ -1,6 +1,6 @@
 use anyhow::Result;
 use glam::vec2;
-use rfvp_core::format::picture::SimpleMergedPicture;
+use rfvp_core::format::pic::NvsgTexture;
 use rfvp_render::{GpuCommonResources, GpuImage, LazyGpuImage};
 
 use crate::asset::Asset;
@@ -8,6 +8,7 @@ use crate::asset::Asset;
 /// A Picture, uploaded to GPU on demand (because doing it in the asset loading context is awkward)
 pub struct Picture {
     picture: LazyGpuImage,
+    nvsg_texture: NvsgTexture,
 }
 
 impl Picture {
@@ -18,14 +19,17 @@ impl Picture {
 
 impl Asset for Picture {
     fn load_from_bytes(data: Vec<u8>) -> Result<Self> {
-        let picture = rfvp_core::format::picture::read_picture::<SimpleMergedPicture>(&data, ())?;
-        let picture_id = picture.picture_id;
+        let mut container = NvsgTexture::new();
+        container.read_texture(&buffer, |typ: TextureType| {true})?;
+        let pic = container.get_texture(0)?;
+        let image = pic.to_rgba8()?;
+
         let picture = LazyGpuImage::new(
-            picture.image,
-            vec2(picture.origin_x as f32, picture.origin_y as f32),
-            Some(&format!("Picture {:08x}", picture_id)),
+            image,
+            vec2(container.get_offset_x() as f32, container.get_offset_y() as f32),
+            None,
         );
 
-        Ok(Self { picture })
+        Ok(Self { picture, nvsg_texture })
     }
 }

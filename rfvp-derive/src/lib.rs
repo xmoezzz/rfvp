@@ -13,44 +13,9 @@ use proc_macro::TokenStream;
 use synstructure::macros::DeriveInput;
 
 use crate::{
-    command::impl_command,
     syntax_kind::{impl_syntax_kind, SyntaxKindInput},
-    texture_archive::impl_texture_archive,
     vertex::impl_vertex,
 };
-
-
-/// Generates an `TextureArchive` implementation for a struct. This allows you to have a strongly-typed wrapper for TXA files.
-///
-/// ```rust ignore
-/// # use rfvp_derive::TextureArchive;
-/// #[derive(TextureArchive)]
-/// pub struct MessageboxTextures {
-///     #[txa(name = "keywait")]
-///     pub keywait: LazyGpuTexture,
-///     #[txa(name = "select")]
-///     pub select: LazyGpuTexture,
-///     #[txa(name = "select_cur")]
-///     pub select_cursor: LazyGpuTexture,
-///
-///     #[txa(name = "msgwnd1")]
-///     pub message_window_1: LazyGpuTexture,
-///     #[txa(name = "msgwnd2")]
-///     pub message_window_2: LazyGpuTexture,
-///     #[txa(name = "msgwnd3")]
-///     pub message_window_3: LazyGpuTexture,
-/// }
-/// ```
-#[proc_macro_derive(TextureArchive, attributes(txa))]
-pub fn derive_texture_archive(input: TokenStream) -> TokenStream {
-    match synstructure::macros::parse::<DeriveInput>(input) {
-        Ok(p) => match synstructure::Structure::try_new(&p) {
-            Ok(s) => synstructure::MacroResult::into_stream(impl_texture_archive(s)),
-            Err(e) => e.to_compile_error().into(),
-        },
-        Err(e) => e.to_compile_error().into(),
-    }
-}
 
 /// A WIP replacement for the wrld macro.
 #[proc_macro_derive(

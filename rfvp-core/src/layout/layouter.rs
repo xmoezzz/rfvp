@@ -1,15 +1,16 @@
-use std::iter::Peekable;
+use std::{iter::Peekable, sync::Arc};
 
 use float_ord::FloatOrd;
 use glam::{vec2, Vec2, Vec3};
 use tracing::warn;
 
 use crate::{
-    format::font::{GlyphTrait, LazyFont},
     layout::parser::{LayouterParser, ParsedCommand},
     time::Ticks,
     vm::command::types::MessageTextLayout,
 };
+
+use ab_glyph::{FontRef, Font, Glyph, point};
 
 #[derive(Debug, Clone, Copy)]
 pub struct LayoutedChar {
@@ -18,7 +19,7 @@ pub struct LayoutedChar {
     pub color: Vec3,
     pub size: GlyphSize,
     pub fade: f32,
-    pub codepoint: u16,
+    pub codepoint: char,
 }
 
 #[derive(Debug, Clone)]
@@ -96,9 +97,9 @@ pub enum LayoutingMode {
     GenericText,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Clone)]
 pub struct LayoutParams<'a> {
-    pub font: &'a LazyFont,
+    pub font: FontRef<'a>,
     pub layout_width: f32,
     pub character_name_layout_width: f32,
     pub base_font_height: f32,
@@ -111,15 +112,24 @@ pub struct LayoutParams<'a> {
 }
 
 impl<'a> LayoutParams<'a> {
-    fn glyph_size(&self, font_size: f32, codepoint: u16) -> GlyphSize {
+    fn glyph_size(&self, font_size: f32, codepoint: char) -> GlyphSize {
         let line_height = self.base_font_height * font_size;
-        let scale = line_height / self.font.get_line_height() as f32;
+        let scale = line_height / self.base_font_height;
         let horizontal_scale = scale * self.font_horizontal_base_scale;
 
-        let glyph = self.font.get_glyph_for_character(codepoint).get_info();
-        let height = glyph.actual_height as f32 * scale;
-        let width = glyph.actual_width as f32 * horizontal_scale;
-        let advance_width = glyph.advance_width as f32 * horizontal_scale;
+        let glyph = self.font.glyph_id(codepoint).with_scale(scale);
+        let outlined_glyph = self.font.outline_glyph(glyph);
+        let mut height = 0.0_f32;
+        let mut width = 0.0_f32;
+        let mut advance_width = 0.0_f32;
+        if let Some(outlined_glyph) = outlined_glyph {
+            let rect = outlined_glyph.px_bounds();
+            height = rect.height();
+            width = rect.width();
+        }
+        // let height = glyph.actual_height as f32 * scale;
+        // let width = glyph.actual_width as f32 * horizontal_scale;
+        // let advance_width = glyph.advance_width as f32 * horizontal_scale;
 
         GlyphSize {
             scale,
@@ -146,9 +156,9 @@ struct Layouter<'a> {
 impl<'a> Layouter<'a> {
     fn on_char(&mut self, c: char) {
         assert!((c as u32) < 0x10000);
-        let codepoint = c as u16;
+        let _codepoint = c as u16;
 
-        let size = self.params.glyph_size(self.state.font_size, codepoint);
+        let size = self.params.glyph_size(self.state.font_size, c);
         let fade_time = if self.state.instant {
             0.0_f32
         } else {
@@ -164,7 +174,7 @@ impl<'a> Layouter<'a> {
             color: self.state.text_color,
             size,
             fade: fade_time,
-            codepoint,
+            codepoint: c,
         });
 
         self.position.x += size.advance_width;
@@ -223,10 +233,11 @@ impl<'a> Layouter<'a> {
             1.0
         };
 
-        let font = self.params.font;
+        let font = &self.params.font;
+        let line_height = font.ascent_unscaled() + font.descent_unscaled();
 
         let line_ascent =
-            (max_line_height / font.get_line_height() as f32) * font.get_ascent() as f32;
+            (max_line_height / line_height as f32) * font.ascent_unscaled();
 
         // TODO: handle hiragana
         // TODO: handle special cases for brackets
@@ -444,7 +455,7 @@ pub struct LayoutedMessage {
 pub fn layout_text(params: LayoutParams, text: &str) -> LayoutedMessage {
     let mut layouter = Layouter {
         parser: LayouterParser::new(text).peekable(),
-        params,
+        params: params.clone(),
         state: params.default_state,
         chars: Vec::new(),
         pending_chars: Vec::new(),
@@ -566,86 +577,3 @@ pub fn layout_text(params: LayoutParams, text: &str) -> LayoutedMessage {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use std::{fs::File, io::BufReader};
-
-    use super::*;
-
-    fn is_sorted<T, F, K>(data: &[T], mut map: F) -> bool
-    where
-        K: Ord,
-        F: FnMut(&T) -> K,
-    {
-        data.windows(2).all(|w| map(&w[0]) <= map(&w[1]))
-    }
-
-    fn test_layout(text: &str) -> Vec<LayoutedChar> {
-        // NOTICE: here we need to use a font
-        // it is an asset, so we need to load it from __somewhere__
-        // having tests that depend on assets is not ideal
-        // maybe I can create my own font for testing purposes?
-        // use the one from assets for now
-        let font = File::open("../shin/assets/data/newrodin-medium.fnt").unwrap();
-        let mut font = BufReader::new(font);
-        let font = rfvp_core::format::font::read_lazy_font(&mut font).unwrap();
-
-        let params = LayoutParams {
-            font: &font,
-            layout_width: 1500.0,
-            character_name_layout_width: 384.0,
-            base_font_height: 50.0,
-            furigana_font_height: 20.0,
-            font_horizontal_base_scale: 0.9697,
-            text_layout: MessageTextLayout::Left,
-            default_state: LayouterState::default(),
-            has_character_name: true,
-            mode: LayoutingMode::MessageText,
-        };
-
-        let message = layout_text(params, text);
-
-        assert!(is_sorted(&message.chars, |c| c.time));
-        assert!(is_sorted(&message.actions, |a| a.time));
-        assert!(is_sorted(&message.blocks, |b| b.start_time));
-        assert!(message.blocks.iter().all(|b| b.end_time >= b.start_time));
-
-        message.chars
-    }
-
-    #[test]
-    fn test_simple() {
-        let result = test_layout("@rHello, world!");
-        println!("{:#?}", result);
-    }
-
-    #[test]
-    #[ignore]
-    fn test_tsu() {
-        let result = test_layout(
-            "@r埃と甘ったるい異臭の入り混じった薄暗い書斎に、年輩の男たちの姿はあった。",
-        );
-
-        let tsu = result[3];
-        assert_eq!(tsu.codepoint, 'っ' as u16);
-
-        const EXPECTED_ASPECT_RATIO: f32 = 104.0 / 80.0;
-        let aspect_ratio = tsu.size.width / tsu.size.height;
-
-        // divide max by min to get the ratio between aspect ratios
-        let ratio =
-            aspect_ratio.max(EXPECTED_ASPECT_RATIO) / aspect_ratio.min(EXPECTED_ASPECT_RATIO);
-        // the ratio will always be larger than 1 and should be close to 1
-        assert!(ratio < 1.09);
-
-        // the の should still be on the first line
-        let c = result[29];
-        assert_eq!(c.codepoint, 'の' as u16);
-        assert_eq!(c.position.y, 40.625); // TODO: why this fails?
-
-        // while the 姿 should be on the second line
-        let c = result[30];
-        assert_eq!(c.codepoint, '姿' as u16);
-        assert!(c.position.y > 40.625);
-    }
-}

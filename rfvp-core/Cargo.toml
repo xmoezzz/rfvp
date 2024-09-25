@@ -51,6 +51,8 @@ num-integer = "0.1.46"
 chrono = { version = "0.4.38", features = ["serde"] }
 
 glob = { workspace = true }
+flate2 = "1.0.33"
+ab_glyph = "0.2.28"
 
 [dev-dependencies]
 hex = "0.4.3"
