@@ -1,6 +1,5 @@
 use bevy_utils::{hashbrown::hash_map::Entry, StableHashMap};
 use rfvp_core::{
-    format::scenario::instruction_elements::UntypedNumberArray,
     vm::command::types::{LayerId, LayerIdOpt, LayerType, VLayerId, VLayerIdRepr, PLANES_COUNT},
 };
 use smallvec::{smallvec, SmallVec};

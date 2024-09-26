@@ -240,6 +240,10 @@ impl Vfs {
             std::fs::read(path.clone()).context(format!("unable to load : {:?}", path))?;
         Ok(content)
     }
+
+    pub fn all_archives(&self) -> Vec<String> {
+        self.files.keys().cloned().collect()
+    }
 }
 
 #[cfg(test)]

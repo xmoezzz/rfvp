@@ -107,7 +107,7 @@ impl AnyAssetServer {
 
     #[allow(unused)]
     pub fn new_fvp(rom_path: impl AsRef<Path>) -> Self {
-        Self::new(AnyAssetIo::new_rom(rom_path))
+        Self::new(AnyAssetIo::new_vfs(rom_path))
     }
 }
 
@@ -150,7 +150,7 @@ pub struct RomAssetIo {
 impl Debug for RomAssetIo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("RomAssetIo")
-            .field(&self.label.as_deref().unwrap_or("unnamed"))
+            .field(&self.vfs.all_archives())
             .finish()
     }
 }
@@ -197,7 +197,7 @@ impl AnyAssetIo {
     pub fn new_vfs(fvp_dir_path: impl AsRef<Path>) -> Self {
         let dir_path = fvp_dir_path.as_ref();
         let vfs = Vfs::new(Nls::ShiftJIS, dir_path).expect("Opening VFS");
-        Self::RomFile(vfs)
+        Self::RomFile(RomAssetIo::new(vfs))
     }
 }
 
@@ -259,7 +259,7 @@ impl LayeredAssetIo {
         if !meta.is_file() {
             bail!("{:?} is not a file, cannot use as asset ROM", rom_path);
         }
-        self.with(AnyAssetIo::new_rom(rom_path));
+        self.with(AnyAssetIo::new_vfs(rom_path));
         Ok(())
     }
 }

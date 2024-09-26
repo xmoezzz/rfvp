@@ -1,23 +1,5 @@
-//! Support for BUP files, storing the character bustup sprites.
-//!
-//! The BUP format is re-using the machinery from the picture format, but it has some additions on top.
-//!
-//! The character sprite is composed of three layers:
-//! - the base image, which is the character's body
-//! - the expression, which displays the character's facial expression
-//! - the mouth, which displays the character's mouth
-//!
-//! The layers are separate because one base image can have multiple facial expressions layered on top, using storage more efficiently.
-//!
-//! The mouth is also separate because it is usually animated, storing multiple versions with varying openness.
-
-use std::collections::HashMap;
-
 use anyhow::{bail, Result};
-use binrw::{BinRead, BinWrite};
-use bitvec::{bitbox, vec};
 use image::RgbaImage;
-use rfvp_tasks::ParallelSlice;
 
 use crate::format::{
     pic::NvsgTexture,
