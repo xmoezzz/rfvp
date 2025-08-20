@@ -5,7 +5,7 @@ use wgpu::util::DeviceExt;
 
 use crate::{
     vertices::{PosColTexVertex, PosVertex, TextVertex, VertexSource},
-    GpuCommonResources, VIRTUAL_HEIGHT, VIRTUAL_WIDTH,
+    GpuCommonResources, 
 };
 
 pub trait Vertex: bytemuck::Pod + bytemuck::Zeroable {
@@ -182,9 +182,9 @@ impl SpriteVertexBuffer {
         }
     }
 
-    pub fn new_fullscreen(resources: &GpuCommonResources) -> Self {
-        let w = VIRTUAL_WIDTH / 2.0;
-        let h = VIRTUAL_HEIGHT / 2.0;
+    pub fn new_fullscreen(resources: &GpuCommonResources, width: u32, height: u32) -> Self {
+        let w = width as f32 / 2.0;
+        let h = height as f32 / 2.0;
 
         Self::new(resources, (-w, -h, w, h), vec4(1.0, 1.0, 1.0, 1.0))
     }
@@ -239,9 +239,9 @@ impl PosVertexBuffer {
     }
 
     #[allow(unused)]
-    pub fn new_fullscreen(resources: &GpuCommonResources) -> Self {
-        let w = VIRTUAL_WIDTH / 2.0;
-        let h = VIRTUAL_HEIGHT / 2.0;
+    pub fn new_fullscreen(resources: &GpuCommonResources, width: u32, height: u32) -> Self {
+        let w = width as f32 / 2.0;
+        let h = height as f32 / 2.0;
 
         Self::new(resources, (-w, -h, w, h))
     }

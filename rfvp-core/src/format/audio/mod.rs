@@ -1,9 +1,3 @@
-//! Support for NXA format, storing opus audio. (The format might be specific for Nintendo Switch?)
-//!
-//! It is a simple container storing opus frames mostly as-is. The only addition compared to usual opus formats are loop points.
-//!
-//! The header specifies loop start and loop end points in samples. When looping is enabled and loop end is reached, the decoder seeks to the loop start.
-
 mod audio_source;
 
 use std::io::Read;
@@ -53,16 +47,16 @@ pub struct AudioFile {
 }
 
 impl AudioFile {
+    pub fn new(info: AudioInfo, data: Vec<u8>) -> Self {
+        Self { info, data }
+    }
+    
     pub fn info(&self) -> &AudioInfo {
         &self.info
     }
 
     pub fn decode(self) -> Result<AudioDecoder<Self>> {
         AudioDecoder::new(self)
-    }
-
-    pub fn read_frames(self) -> AudioFileFrameReader<Self> {
-        AudioFileFrameReader::new(self)
     }
 }
 
@@ -72,59 +66,9 @@ impl AsRef<AudioFile> for AudioFile {
     }
 }
 
-pub struct AudioFileFrameReader<F: AsRef<AudioFile>> {
+pub struct AudioDecoder<F: AsRef<AudioFile>> {
     file: F,
     bytes_position: usize,
-}
-
-impl<F: AsRef<AudioFile>> AudioFileFrameReader<F> {
-    pub fn new(file: F) -> Self {
-        Self {
-            file,
-            bytes_position: 0,
-        }
-    }
-
-    pub fn audio_info(&self) -> &AudioInfo {
-        &self.file.as_ref().info
-    }
-
-    pub fn frame_size(&self) -> usize {
-        self.audio_info().frame_size as usize
-    }
-
-    fn frame_samples(&self) -> usize {
-        self.audio_info().frame_samples as usize
-    }
-
-    pub fn frames_position(&self) -> usize {
-        self.bytes_position / self.frame_size()
-    }
-
-    pub fn seek_to_frames(&mut self, new_frames_position: usize) {
-        self.bytes_position = self.frame_size() * new_frames_position;
-    }
-
-    pub fn get_next_frame(&mut self) -> Option<&[u8]> {
-        let data = &self.file.as_ref().data;
-        if self.bytes_position >= data.len() {
-            return None;
-        }
-
-        let data = &data[self.bytes_position..][..self.frame_size()];
-
-        self.bytes_position += self.frame_size();
-
-        Some(data)
-    }
-
-    pub fn has_next_frame(&self) -> bool {
-        self.bytes_position < self.file.as_ref().data.len()
-    }
-}
-
-pub struct AudioDecoder<F: AsRef<AudioFile>> {
-    frame_iter: AudioFileFrameReader<F>,
     buffer: Box<[f32]>,
     decoder: opus::Decoder,
 }
@@ -143,18 +87,23 @@ impl<F: AsRef<AudioFile>> AudioDecoder<F> {
         let buffer =
             vec![0.0; info.frame_samples as usize * info.channel_count as usize].into_boxed_slice();
         Ok(Self {
-            frame_iter: AudioFileFrameReader::new(file),
+            file,
+            bytes_position: 0,
             buffer,
             decoder,
         })
     }
 
     pub fn audio_info(&self) -> &AudioInfo {
-        self.frame_iter.audio_info()
+        &self.file.as_ref().info
     }
 
-    fn frame_samples(&self) -> usize {
-        self.frame_iter.frame_samples()
+    fn frame_size(&self) -> u32 {
+        self.audio_info().frame_size as u32
+    }
+
+    fn frame_samples(&self) -> u32 {
+        self.audio_info().frame_samples as u32
     }
 }
 
@@ -180,28 +129,28 @@ impl<F: AsRef<AudioFile>> AudioFrameSource for AudioDecoder<F> {
     }
 
     fn read_frame(&mut self, destination: &mut AudioBuffer) -> bool {
-        // copy the important info to not annoy the borrow checker below
-        let &AudioInfo {
-            frame_samples,
-            channel_count: channels,
-            ..
-        } = self.audio_info();
-
-        let Some(data) = self.frame_iter.get_next_frame() else {
+        let data = &self.file.as_ref().data;
+        if self.bytes_position >= data.len() {
             return false;
-        };
+        }
+
+        let data = &data[self.bytes_position..][..self.frame_size() as usize];
 
         assert_eq!(
-            self.decoder.get_nb_samples(data).unwrap(),
-            frame_samples as usize
+            self.decoder.get_nb_samples(data).unwrap() as u32,
+            self.frame_samples()
         );
 
         let decoded = self
             .decoder
             .decode_float(data, &mut self.buffer, false)
-            .unwrap();
+            .unwrap() as u32;
 
-        assert_eq!(decoded, frame_samples as usize);
+        assert_eq!(decoded, self.frame_samples());
+
+        self.bytes_position += self.frame_size() as usize;
+
+        let channels = self.audio_info().channel_count;
 
         match channels {
             1 => {
@@ -229,19 +178,18 @@ impl<F: AsRef<AudioFile>> AudioFrameSource for AudioDecoder<F> {
             );
         }
 
-        let samples_position = samples_position as usize;
-
         let frames_position = samples_position / self.frame_samples();
+        let bytes_position = frames_position * self.frame_size();
         let in_frame_position = samples_position % self.frame_samples();
 
-        self.frame_iter.seek_to_frames(frames_position);
+        self.bytes_position = bytes_position.try_into().unwrap();
         self.decoder.reset_state().unwrap();
 
-        Ok(in_frame_position.try_into().unwrap())
+        Ok(in_frame_position)
     }
 
     fn current_sample_position(&self) -> u32 {
-        (self.frame_iter.frames_position() * self.frame_samples()) as u32
+        (self.bytes_position / self.frame_size() as usize) as u32 * self.frame_samples()
     }
 }
 

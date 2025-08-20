@@ -1,9 +1,8 @@
 mod y4m;
 
 use std::io::{Read, Seek};
-
-use anyhow::Result;
 use cfg_if::cfg_if;
+use anyhow::Result;
 pub use y4m::{BitsPerSample, Colorspace, Frame, FrameSize, PlaneSize};
 
 use crate::mp4::Mp4TrackReader;

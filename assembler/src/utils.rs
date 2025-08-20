@@ -2,8 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::inst::*;
 use anyhow::Result;
-use rfvp_core::format::scenario::instructions::Opcode;
-use rfvp_core::format::scenario::Nls;
+use rfvp::script::{opcode::Opcode, parser::Nls};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]

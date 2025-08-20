@@ -1,20 +1,16 @@
 [package]
 name = "rfvp-audio"
-version = "0.6.1"
+version = "0.1.0"
 edition = "2021"
-description = "Kira audio sources for rfvp Engine"
-license = "MPL-2.0"
-authors = ["DCNick3", "xmoe"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 rfvp-core = { path = "../rfvp-core" }
-rfvp-tasks = { path = "../rfvp-tasks" }
+# shin-tasks = { path = "../shin-tasks" }
 
-anyhow = { workspace = true }
-tracing = "0.1.40"
+anyhow = "*"
+tracing = "0.1.37"
 
-kira = { workspace = true, features = ["cpal"] }
-ringbuf = "0.4.1"
-
+kira = { version = "0.8.5", features = ["cpal"] }
+ringbuf = "0.3.1"

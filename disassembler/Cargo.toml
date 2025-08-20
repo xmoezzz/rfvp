@@ -11,9 +11,7 @@ clap = { version = "4.5.4", features = ["derive"] }
 serde = { version = "1.0.197", features = ["derive"] }
 serde_yaml = "0.9.34"
 toml = "=0.8.12"
-rfvp-core = { path = "../rfvp-core" }
-
-bytes = { workspace = true }
+rfvp = { path = "../rfvp" }
 
 env_logger = "0.11.3"
 log = "0.4.21"

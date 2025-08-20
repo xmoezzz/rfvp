@@ -1,16 +1,16 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use ringbuf::{traits::Producer as _, HeapProd};
+use ringbuf::HeapProducer;
 use rfvp_core::{
     time::{Ticks, Tween},
-    vm::command::types::{AudioWaitStatus, Pan, Volume},
+    types::{AudioWaitStatus, Pan, Volume},
 };
 
 use crate::sound::{Command, Shared};
 
 pub struct AudioHandle {
-    pub(super) command_producer: HeapProd<Command>,
+    pub(super) command_producer: HeapProducer<Command>,
     pub(super) shared: Arc<Shared>,
 }
 
@@ -36,14 +36,14 @@ impl AudioHandle {
     /// The volume is a value between 0.0 and 1.0, on the linear scale.
     pub fn set_volume(&mut self, volume: Volume, tween: Tween) -> anyhow::Result<()> {
         self.command_producer
-            .try_push(Command::SetVolume(volume, tween))
+            .push(Command::SetVolume(volume, tween))
             .map_err(|_| anyhow!("Command queue full"))
     }
 
     /// Sets the panning of the sound
     pub fn set_panning(&mut self, panning: Pan, tween: Tween) -> anyhow::Result<()> {
         self.command_producer
-            .try_push(Command::SetPanning(panning, tween))
+            .push(Command::SetPanning(panning, tween))
             .map_err(|_| anyhow!("Command queue full"))
     }
 
@@ -53,7 +53,7 @@ impl AudioHandle {
     /// Once the sound is stopped, it cannot be restarted.
     pub fn stop(&mut self, tween: Tween) -> anyhow::Result<()> {
         self.command_producer
-            .try_push(Command::Stop(tween))
+            .push(Command::Stop(tween))
             .map_err(|_| anyhow!("Command queue full"))
     }
 

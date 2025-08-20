@@ -8,7 +8,6 @@ mod bind_groups;
 mod camera;
 mod common_resources;
 mod gpu_image;
-mod new_render;
 mod pillarbox;
 mod pipelines;
 mod render_target;
@@ -16,7 +15,7 @@ mod vertex_buffer;
 pub mod vertices;
 
 pub use bind_groups::{BindGroupLayouts, TextureBindGroup, YuvTextureBindGroup};
-pub use camera::{Camera, VIRTUAL_HEIGHT, VIRTUAL_WIDTH};
+pub use camera::Camera;
 pub use common_resources::GpuCommonResources;
 pub use gpu_image::{GpuImage, GpuTexture, LazyGpuImage, LazyGpuTexture};
 pub use pillarbox::Pillarbox;

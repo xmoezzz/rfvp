@@ -14,10 +14,6 @@ pub use tween::{Easing, Tween};
 pub use tweener::Tweener;
 
 
-/// A time value that can be used to store either a duration.
-///
-/// The value is stored as a number of "ticks" (60 tps), in an f32.
-/// This precision should be good enough, if we wouldn't use it to store some global "time elapsed from the start of the game"
 #[derive(
     Copy, Clone, Default, bytemuck::Pod, bytemuck::Zeroable, Add, AddAssign, Sub, SubAssign,
 )]

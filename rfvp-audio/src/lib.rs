@@ -1,4 +1,4 @@
-//! Glue together `rfvp-core` and `kira` to provide an API to play NXA audio files.
+//! Glue together `shin-core` and `kira` to provide an API to play NXA audio files.
 
 mod data;
 mod handle;
@@ -13,7 +13,7 @@ pub use manager::AudioManager;
 pub use rfvp_core::format::audio::AudioFile;
 use rfvp_core::{
     time::Tween,
-    vm::command::types::{Pan, Volume},
+    types::{Pan, Volume},
 };
 
 pub struct AudioSettings {

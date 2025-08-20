@@ -12,7 +12,7 @@ use futures_lite::Future;
 /// # Example
 /// ```rust
 /// # use std::sync::{Arc, atomic::{AtomicI32, Ordering}};
-/// use rfvp_tasks::ThreadExecutor;
+/// use shin_tasks::ThreadExecutor;
 ///
 /// let thread_executor = ThreadExecutor::new();
 /// let count = Arc::new(AtomicI32::new(0));
@@ -78,7 +78,7 @@ impl<'task> ThreadExecutor<'task> {
         if thread::current().id() == self.thread_id {
             return Some(ThreadExecutorTicker {
                 executor: &self.executor,
-                _marker: PhantomData::default(),
+                _marker: PhantomData,
             });
         }
         None

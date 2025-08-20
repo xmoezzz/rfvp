@@ -1,60 +1,19 @@
 [package]
 name = "rfvp-core"
-version = "0.6.1"
+version = "0.1.0"
 edition = "2021"
-description = "Core library for the rfvp engine: file formats support, virtual machine, etc"
-license = "MPL-2.0"
-authors = ["DCNick3", "xmoe"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
 [dependencies]
-rfvp-tasks = { path = "../rfvp-tasks" }
-
-# derive macros
-num-traits = "0.2.19"
-num-derive = "0.4.2"
-rfvp-derive = { path = "../rfvp-derive" }
-derive_more = "0.99.18"
-enum-map = { workspace = true }
-async-trait = "0.1.58"
-binrw = { workspace = true }
-strum = { workspace = true, features = ["derive"] }
-proc-bitfield = "0.4.0"
-derivative = "2.2.0"
-snafu = "0.8.4"
-
-anyhow = { workspace = true }
-bitflags = "2.0.1"
-bytemuck = { workspace = true, features = ["derive"] }
-bytes = { workspace = true }
-glam = { workspace = true }
-log = { workspace = true }
-encoding_rs = { workspace = true }
-twofloat = { workspace = true }
-lazy_static = { workspace = true }
+anyhow = "*"
+num-traits = "0.2.15"
+num-derive = "0.4.0"
 float-ord = "0.3.2"
-image = { workspace = true, default-features = false }
-itertools = { workspace = true }
-smallvec = { workspace = true }
-tracing = "0.1.40"
-smartstring = "1.0.1"
-once_cell = "1.19.0"
-bitvec = "1.0.1"
-# git version for unsafe-libopus backend
-# we can ditch the bindings, but this would make moving back to them harder
-opus = { git = "https://github.com/DCNick3/opus-rs.git", rev = "a3de7e71b35ab0a80be38c0d2420b18f0bd41411", default-features = false, features = ["unsafe-libopus-backend"] }
-# git version for align method & attribute support
-bitbuffer = { git = "https://github.com/icewind1991/bitbuffer.git", rev = "80a1c7cc2204023aa554e05f258c57e79e532fe8" }
-serde = { version = "1.0.204", features = ["derive"] }
-serde-big-array = "0.5.1"
-num-integer = "0.1.46"
-chrono = { version = "0.4.38", features = ["serde"] }
-
-glob = { workspace = true }
-flate2 = "1.0.33"
-ab_glyph = "0.2.28"
-
-[dev-dependencies]
-hex = "0.4.3"
-insta = "1.39.0"
-rand = "0.8.5"
+tracing = "0.1.37"
+bytemuck = { version = "1.12.1", features = ["derive"] }
+derive_more = "0.99.17"
+binrw = "0.13.3"
+bitflags = "2.5.0"
+proc-bitfield = "0.4.0"
+opus = "0.3.0"

@@ -1,4 +1,4 @@
-use rfvp_core::format::scenario::Nls;
+use rfvp::script::parser::Nls;
 
 pub trait Inst {
     fn address(&self) -> u32;

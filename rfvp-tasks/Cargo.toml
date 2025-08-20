@@ -1,24 +1,15 @@
 [package]
 name = "rfvp-tasks"
-version = "0.6.1"
+version = "0.1.0"
 edition = "2021"
-description = "A task executor for rfvp Engine (based on bevy)"
-license = "MIT OR Apache-2.0"
-authors = ["DCNick3"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-futures-lite = "2.3.0"
-async-executor = "1.12.0"
-async-channel = "2.3.1"
-async-task = "4.7.1"
-once_cell = "1.19.0"
-concurrent-queue = "2.5.0"
-tracing = "0.1.40"
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen-futures = "0.4"
-
-[dev-dependencies]
-instant = { version = "0.1", features = ["wasm-bindgen"] }
+futures-lite = "1.4.0"
+async-executor = "1.3.0"
+async-channel = "1.4.2"
+async-task = "4.2.0"
+once_cell = "1.7"
+concurrent-queue = "2.0.0"
+tracing = "0.1.37"
