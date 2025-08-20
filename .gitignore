@@ -1,2 +1,4 @@
 /target
 /video_player/testcase/image
+/testcase
+*.log

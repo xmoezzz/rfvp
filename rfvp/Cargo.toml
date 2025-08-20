@@ -61,8 +61,11 @@ enum-map = "2.7.3"
 itertools = "0.12.1"
 petitset = "0.2.1"
 tracing = "0.1.37"
-kira = { version = "0.8.5", features = ["cpal"] }
+kira = "0.10.8"
 
 rfvp-render = { path = "../rfvp-render" }
 rfvp-core = { path = "../rfvp-core" }
 rfvp-audio = { path = "../rfvp-audio" }
+
+[profile.test]
+inherits = "release"

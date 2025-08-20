@@ -7,9 +7,7 @@ use std::{
 };
 
 use kira::{
-    clock::clock_info::ClockInfoProvider, dsp::Frame,
-    modulator::value_provider::ModulatorValueProvider, sound::Sound, track::TrackId,
-    OutputDestination,
+    Frame, sound::Sound,
 };
 use ringbuf::HeapConsumer;
 use rfvp_core::{
@@ -17,7 +15,6 @@ use rfvp_core::{
     time::{Ticks, Tween, Tweener},
     types::{AudioWaitStatus, Pan, Volume},
 };
-use tracing::debug;
 
 use crate::{resampler::Resampler, AudioData};
 
@@ -114,7 +111,6 @@ impl<S: AudioFrameSource + Send> SampleProvider<S> {
 }
 
 pub struct AudioSound<S: AudioFrameSource + Send> {
-    track_id: TrackId,
     command_consumer: HeapConsumer<Command>,
     shared: Arc<Shared>,
     state: PlaybackState,
@@ -126,7 +122,6 @@ pub struct AudioSound<S: AudioFrameSource + Send> {
 
 impl<S: AudioFrameSource + Send> AudioSound<S> {
     pub fn new(data: AudioData<S>, command_consumer: HeapConsumer<Command>) -> Self {
-        debug!("Creating audio sound for track {:?}", data.settings.track);
 
         let mut volume_fade = Tweener::new(0.0);
         volume_fade.enqueue_now(1.0, data.settings.fade_in);
@@ -134,7 +129,6 @@ impl<S: AudioFrameSource + Send> AudioSound<S> {
         let shared = Arc::new(Shared::new());
 
         AudioSound {
-            track_id: data.settings.track,
             command_consumer,
             shared,
             state: PlaybackState::Playing,
@@ -176,9 +170,9 @@ impl<S: AudioFrameSource + Send> AudioSound<S> {
 }
 
 impl<S: AudioFrameSource + Send> Sound for AudioSound<S> {
-    fn output_destination(&mut self) -> OutputDestination {
-        OutputDestination::Track(self.track_id)
-    }
+    // fn output_destination(&mut self) -> OutputDestination {
+    //     OutputDestination::Track(self.track_id)
+    // }
 
     fn on_start_processing(&mut self) {
         while let Some(command) = self.command_consumer.pop() {
@@ -207,10 +201,10 @@ impl<S: AudioFrameSource + Send> Sound for AudioSound<S> {
 
     fn process(
         &mut self,
+        output: &mut [Frame],
         dt: f64,
-        _clock_info_provider: &ClockInfoProvider,
-        _modulator_value_provider: &ModulatorValueProvider,
-    ) -> Frame {
+        _info: &kira::info::Info<'_>
+    ) {
         let dt_ticks = Ticks::from_seconds(dt as f32);
 
         // update tweeners
@@ -222,21 +216,23 @@ impl<S: AudioFrameSource + Send> Sound for AudioSound<S> {
             self.state = PlaybackState::Stopped
         }
 
-        let mut f = self.sample_provider.next(dt);
+        for frame in output.iter_mut() {
+            let mut f = self.sample_provider.next(dt);
 
-        if self.sample_provider.reached_eof {
-            self.state = PlaybackState::Stopped;
+            if self.sample_provider.reached_eof {
+                self.state = PlaybackState::Stopped;
+            }
+
+            let pan = self.panning.value();
+            let volume = self.volume_fade.value() * self.volume.value();
+
+            f *= volume;
+            if pan != 0.0 {
+                f = Frame::new(f.left * (1.0 - pan).sqrt(), f.right * pan.sqrt()) * SQRT_2
+            }
+
+            *frame = f;
         }
-
-        let pan = self.panning.value();
-        let volume = self.volume_fade.value() * self.volume.value();
-
-        f *= volume;
-        if pan != 0.0 {
-            f = Frame::new(f.left * (1.0 - pan).sqrt(), f.right * pan.sqrt()) * SQRT_2
-        }
-
-        f
     }
 
     fn finished(&self) -> bool {

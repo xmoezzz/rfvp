@@ -1,11 +1,9 @@
 use std::sync::Arc;
 
-use kira::track::{TrackBuilder, TrackHandle, TrackId, TrackRoutes};
+use kira::track::{TrackBuilder, TrackHandle};
 use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings};
 use rfvp_audio::AudioManager;
 use kira::sound::Region;
-use kira::tween::Tween;
-use kira::Volume;
 use tracing::warn;
 
 pub const SE_SLOT_COUNT: usize = 256;
@@ -24,7 +22,7 @@ impl SePlayer {
 
         let se_tracks = [(); SE_SLOT_COUNT].map(|_| {
             manager
-                .add_sub_track(TrackBuilder::new().routes(TrackRoutes::parent(TrackId::Main)))
+                .add_sub_track(TrackBuilder::new())
                 .expect("Failed to create se track")
         });
 
@@ -48,9 +46,9 @@ impl SePlayer {
         &mut self,
         slot: i32,
         repeat: bool,
-        volume: Volume,
+        volume: f32,
         pan: f64,
-        fade_in: Tween,
+        fade_in: kira::Tween,
     ) -> anyhow::Result<()> {
         let slot = slot as usize;
 
@@ -64,28 +62,31 @@ impl SePlayer {
 
         let cursor = std::io::Cursor::new(bgm_data);
         let loop_region = repeat.then_some(Region::default());
+        let pan = kira::Panning::from(pan as f32);
         let settings = StaticSoundSettings::new()
             .panning(pan)
             .volume(volume)
             .fade_in_tween(fade_in)
-            .loop_region(loop_region);
+            .loop_region(loop_region)
+            .playback_rate(1.0);
 
-        let bgm = StaticSoundData::from_cursor(cursor, settings)?;
+        let bgm = StaticSoundData::from_cursor(cursor)?;
+        bgm.with_settings(settings);
         let handle = self.audio_manager.play(bgm);
 
         if let Some(mut old_handle) = self.se_slots[slot].take() {
-            old_handle.stop(fade_in).unwrap();
+            old_handle.stop(fade_in);
         }
 
         self.se_slots[slot] = Some(handle);
         Ok(())
     }
 
-    pub fn set_volume(&mut self, slot: i32, volume: Volume, tween: Tween) {
+    pub fn set_volume(&mut self, slot: i32, volume: f32, tween: kira::Tween) {
         let slot = slot as usize;
 
         if let Some(handle) = self.se_slots[slot].as_mut() {
-            handle.set_volume(volume, tween).unwrap();
+            handle.set_volume(volume, tween);
         } else {
             warn!(
                 "Tried to set volume of se slot {}, but there was no se playing",
@@ -94,7 +95,7 @@ impl SePlayer {
         }
     }
 
-    pub fn set_type_volume(&mut self, kind: i32, volume: Volume, tween: Tween) {
+    pub fn set_type_volume(&mut self, kind: i32, volume: f32, tween: kira::Tween) {
         for slot in 0..SE_SLOT_COUNT {
             if self.se_kinds[slot] == Some(kind) {
                 self.set_volume(slot as i32, volume, tween);
@@ -102,11 +103,12 @@ impl SePlayer {
         }
     }
 
-    pub fn set_panning(&mut self, slot: i32, pan: f64, tween: Tween) {
+    pub fn set_panning(&mut self, slot: i32, pan: f64, tween: kira::Tween) {
         let slot = slot as usize;
 
+        let pan = kira::Panning::from(pan as f32);
         if let Some(handle) = self.se_slots[slot].as_mut() {
-            handle.set_panning(pan, tween).unwrap();
+            handle.set_panning(pan, tween);
         } else {
             warn!(
                 "Tried to set pan of se slot {}, but there was no se playing",
@@ -115,17 +117,17 @@ impl SePlayer {
         }
     }
 
-    pub fn stop(&mut self, slot: i32, fade_out: Tween) {
+    pub fn stop(&mut self, slot: i32, fade_out: kira::Tween) {
         let slot = slot as usize;
 
         if let Some(mut se) = self.se_slots[slot].take() {
-            se.stop(fade_out).unwrap();
+            se.stop(fade_out);
         } else {
             warn!("Tried to stop a SE that was not playing");
         }
     }
 
-    pub fn stop_all(&mut self, fade_out: Tween) {
+    pub fn stop_all(&mut self, fade_out: kira::Tween) {
         for slot in 0..SE_SLOT_COUNT {
             if self.se_slots[slot].is_some() {
                 self.stop(slot as i32, fade_out);

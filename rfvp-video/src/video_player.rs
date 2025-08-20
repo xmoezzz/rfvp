@@ -57,7 +57,6 @@ impl VideoPlayer {
             Some(audio_manager.play(AudioData {
                 source: frame_source,
                 settings: AudioSettings {
-                    track: TrackId::Main,
                     fade_in: Tween::MS_15,
                     loop_start: None,
                     volume: Volume::default(),

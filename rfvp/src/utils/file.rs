@@ -39,9 +39,10 @@ pub fn open_file(path: &Path) -> Result<File, FileReaderError> {
 
 /// This will give you the path to the executable (when in build mode) or to the root of the current project.
 pub fn app_base_path() -> PathBuilder {
-    if env::var_os("FVP_TEST").is_none() {
+    if env::var_os("FVP_TEST").is_some() {
         if let Some(manifest_dir) = env::var_os("CARGO_MANIFEST_DIR") {
             let mut p = path::PathBuf::from(manifest_dir);
+            p.push("..");
             p.push("testcase");
             return PathBuilder { path_buff: p };
         }

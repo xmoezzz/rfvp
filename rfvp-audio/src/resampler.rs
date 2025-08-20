@@ -1,4 +1,4 @@
-use kira::dsp::{interpolate_frame, Frame};
+use kira::{interpolate_frame, Frame};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct RecentFrame {

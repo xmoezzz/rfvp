@@ -62,3 +62,52 @@ fn main() -> Result<()> {
         .run();
     Ok(())
 }
+
+
+// test
+mod tests {
+    use std::{thread::sleep, time::Duration};
+    use super::*;
+
+    #[test]
+    fn test_audio_system() {
+        std::env::set_var("FVP_TEST", "1");
+        let world = GameData::default();
+        let vfs=  crate::subsystem::resources::vfs::Vfs::new(Nls::ShiftJIS).unwrap();
+        let buff = vfs.read_file("bgm/001").unwrap();
+        // is oggs?
+        assert!(&buff[0..4] == [0x4fu8, 0x67u8, 0x67u8, 0x53u8].as_slice(), "BGM file is not OGG format");
+        println!("BGM data size: {}", buff.len());
+        world.bgm_player().load(0, buff).unwrap();
+        let mut fade_in = kira::Tween {
+            duration: Duration::from_secs(0),
+            ..Default::default()
+        };
+        fade_in.duration = Duration::from_secs(0);
+        world.bgm_player().play(0, true, 1.0, 0.5, fade_in).unwrap();
+        sleep(Duration::from_secs(20));
+    }
+
+    #[test]
+    fn test_audio_system_mix() {
+        std::env::set_var("FVP_TEST", "1");
+        let world = GameData::default();
+        let vfs=  crate::subsystem::resources::vfs::Vfs::new(Nls::ShiftJIS).unwrap();
+        let buff = vfs.read_file("bgm/001").unwrap();
+        let buff2 = vfs.read_file("bgm/002").unwrap();
+        // is oggs?
+        assert!(&buff[0..4] == [0x4fu8, 0x67u8, 0x67u8, 0x53u8].as_slice(), "BGM file is not OGG format");
+        assert!(&buff2[0..4] == [0x4fu8, 0x67u8, 0x67u8, 0x53u8].as_slice(), "BGM file is not OGG format");
+        println!("BGM data size: {}", buff.len());
+        world.bgm_player().load(0, buff).unwrap();
+        let mut fade_in = kira::Tween {
+            duration: Duration::from_secs(0),
+            ..Default::default()
+        };
+        world.bgm_player().load(1, buff2).unwrap();
+        fade_in.duration = Duration::from_secs(0);
+        world.bgm_player().play(0, true, 1.0, 0.5, fade_in).unwrap();
+        world.bgm_player().play(1, true, 1.0, 0.5, fade_in).unwrap();
+        sleep(Duration::from_secs(20));
+    }
+}

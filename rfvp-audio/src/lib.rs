@@ -8,7 +8,6 @@ mod sound;
 
 pub use data::AudioData;
 pub use handle::AudioHandle;
-use kira::track::TrackId;
 pub use manager::AudioManager;
 pub use rfvp_core::format::audio::AudioFile;
 use rfvp_core::{
@@ -17,10 +16,8 @@ use rfvp_core::{
 };
 
 pub struct AudioSettings {
-    pub track: TrackId,
     pub fade_in: Tween,
     pub loop_start: Option<u32>,
     pub volume: Volume,
     pub pan: Pan,
-    // TODO: support play speed (needs research)
 }
