@@ -281,6 +281,16 @@ mod tests {
     }
 
     #[test]
+    fn list_vfs_file2() {
+        let filepath = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../testcase/graph.bin"));
+
+        let vfs = VfsFile::new(filepath, "graph", Nls::ShiftJIS).unwrap();
+        let entries = vfs.list_entries();
+        println!("Entries: {:?}", entries);
+        assert!(!entries.is_empty(), "Entries should not be empty");
+    }
+
+    #[test]
     fn test_vfs() {
         let vfs = Vfs::new(Nls::ShiftJIS).unwrap();
         let buf = vfs.read_file("se_sys/001").unwrap();

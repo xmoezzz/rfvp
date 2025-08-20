@@ -2,7 +2,6 @@
 
 members = [
     "assembler",
-    "decompiler",
     "disassembler",
     "rfvp",
     "rfvp-audio",

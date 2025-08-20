@@ -340,7 +340,9 @@ impl Variant {
                     Variant::Nil
                 }
             },
-            _ => Variant::Nil,
+            _ => {
+                Variant::True
+            },
         };
 
         *self = result;

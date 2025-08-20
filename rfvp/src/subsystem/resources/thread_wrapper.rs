@@ -15,17 +15,11 @@ pub enum ThreadRequest {
     ShouldBreak(),
 }
 
+#[derive(Default)]
 pub struct ThreadWrapper {
     requests: Option<ThreadRequest>,
 }
 
-impl Default for ThreadWrapper {
-    fn default() -> Self {
-        Self {
-            requests: None,
-        }
-    }
-}
 
 impl ThreadWrapper {
     pub fn new() -> Self {

@@ -67,6 +67,9 @@ use crate::subsystem::components::syscalls::saveload::{
 use crate::subsystem::components::syscalls::other_anm::{
     LipAnim, LipSync, Dissolve, Snow, SnowStart, SnowStop,
 };
+use crate::subsystem::components::syscalls::utils::{
+    WindowMode, ExitMode
+};
 
 use crate::subsystem::resources::motion_manager::MotionManager;
 use crate::subsystem::resources::time::Time;
@@ -259,6 +262,9 @@ lazy_static::lazy_static! {
         m.insert("DebugMessage".into(), Box::new(DebugMessage));
         m.insert("BreakPoint".into(), Box::new(BreakPoint));
         m.insert("FloatToInt".into(), Box::new(FloatToInt));
+
+        m.insert("WindowMode".into(), Box::new(WindowMode));
+        m.insert("ExitMode".into(), Box::new(ExitMode));
 
         // thread apis
         m.insert("ThreadExit".into(), Box::new(ThreadExit));

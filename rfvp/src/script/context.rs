@@ -30,7 +30,7 @@ pub struct StackFrame {
 #[derive(Debug, Clone)]
 pub struct Context {
     /// the context id
-    id: u64,
+    id: u32,
     stack: Vec<Variant>,
     cursor: usize,
     /// absolute position of the current stack pointer
@@ -54,9 +54,9 @@ pub const CONTEXT_STATUS_SLEEP: u32 = 4;
 pub const CONTEXT_STATUS_DISSOLVE_WAIT: u32 = 16;
 
 impl Context {
-    pub fn new(start_addr: u32) -> Self {
+    pub fn new(start_addr: u32, id: u32) -> Self {
         let mut ctx = Context {
-            id: 0,
+            id,
             stack: vec![Variant::Nil; MAX_STACK_SIZE],
             cursor: start_addr as usize,
             cur_stack_pos: 0,
@@ -74,7 +74,7 @@ impl Context {
             super::SavedStackInfo { 
                 stack_base: 0, 
                 stack_pos: 0, 
-                return_addr: 0,
+                return_addr: usize::MAX,
                 args: 0,
             }
         )).unwrap();
@@ -328,7 +328,13 @@ impl Context {
             args.reverse();
 
             log::info!("syscall: {} {:?}", &syscall.name, &args);
-            let result = sys.do_syscall(syscall.name.as_str(), args)?;
+            let result = match sys.do_syscall(syscall.name.as_str(), args) {
+                Ok(result) => result,
+                Err(e) => {
+                    log::error!("syscall error: {}", e);
+                    Variant::Nil
+                }
+            };
             self.return_value = result;
         } else {
             bail!("syscall not found: {}", id);
@@ -344,9 +350,15 @@ impl Context {
         self.return_value = Variant::Nil;
         let frame = self.get_local(-1)?;
         if let Some(frame) = frame.as_saved_stack_info() {
+
             self.cur_stack_pos = frame.stack_pos;
             self.cur_stack_base = frame.stack_base;
             self.cursor = frame.return_addr;
+            if self.cursor == usize::MAX {
+                log::info!("Thread {} is exiting", self.id);
+                self.should_exit = true;
+                return Ok(());
+            }
 
             // pop the arguments
             for _ in 0..frame.args {
@@ -369,6 +381,11 @@ impl Context {
             self.cur_stack_pos = frame.stack_pos;
             self.cur_stack_base = frame.stack_base;
             self.cursor = frame.return_addr;
+            if self.cursor == usize::MAX {
+                log::info!("Thread {} is exiting", self.id);
+                self.should_exit = true;
+                return Ok(());
+            }
 
             // pop the arguments
             for _ in 0..frame.args {
@@ -1056,12 +1073,24 @@ impl Context {
                 self.setge()?;
             }
             _ => {
-                self.nop()?;
-                log::error!("unknown opcode: {}", opcode);
+                log::error!("unknown opcode: {:#02x} @ {:#08x}, thread: {}", opcode, self.cursor, self.id);
+                self.backtrace();
+                std::process::exit(1);
             }
         };
 
         Ok(())
+    }
+
+    fn backtrace(&self) {
+        log::error!("backtrace for context: {}", self.id);
+        let mut pos = self.cur_stack_pos + self.cur_stack_base;
+
+        while pos != 0 {
+            let local = self.stack.get(pos);
+            log::info!("pos: {}, value: {:?}", pos, local);
+            pos -= 1;
+        }
     }
 
 }

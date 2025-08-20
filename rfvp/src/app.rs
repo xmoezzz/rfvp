@@ -132,18 +132,16 @@ impl App {
     fn exec_script_bytecode(&mut self, id: u32, frame_time: u64) {
         // let ctx = self.game_data.thread_manager.get_thread(id);
         let dissolve_type = self.game_data.motion_manager.get_dissolve_type();
-        let status = self.thread_manager.get_thread(id).get_status();
+        let status = self.thread_manager.get_context_status(id);
         if status & CONTEXT_STATUS_WAIT != 0 {
-            let wait_time = self.thread_manager.get_thread(id).get_waiting_time();
+            let wait_time = self.thread_manager.get_context_waiting_time(id);
             if wait_time > frame_time {
                 self.thread_manager
-                    .get_thread(id)
-                    .set_waiting_time(wait_time - frame_time);
+                    .set_context_waiting_time(id, wait_time - frame_time);
             } else {
-                self.thread_manager.get_thread(id).set_waiting_time(0);
+                self.thread_manager.set_context_waiting_time(id, 0);
                 self.thread_manager
-                    .get_thread(id)
-                    .set_status(status & 0xFFFFFFFD);
+                    .set_context_status(id, status & 0xFFFFFFFD);
             }
         }
 
@@ -152,18 +150,20 @@ impl App {
             && (dissolve_type == DissolveType::None || dissolve_type == DissolveType::Static)
         {
             self.thread_manager
-                .get_thread(id)
-                .set_status(status & 0xFFFFFFEF);
+                .set_context_status(id, status & 0xFFFFFFEF);
         }
 
         if status & CONTEXT_STATUS_RUNNING != 0 {
-            self.thread_manager.get_thread(id).set_should_break(false);
-            while !self.thread_manager.get_thread(id).should_break() {
+            self.thread_manager.set_context_should_break(id, false);
+            while !self.thread_manager.get_context_should_break(id) {
                 // let mut ctx = self.thread_manager.get_thread(id);
                 let result = self
                     .thread_manager
-                    .get_thread(id)
-                    .dispatch_opcode(&mut self.game_data, &mut self.parser);
+                    .context_dispatch_opcode(id, &mut self.game_data, &mut self.parser);
+                if self.thread_manager.get_contexct_should_exit(id) {
+                    self.thread_manager.thread_exit(Some(id));
+                    break;
+                }
                 if let Err(e) = result {
                     log::error!("Error while executing the script {:?}", e);
                     std::process::exit(1);
@@ -208,29 +208,29 @@ impl App {
         self.layer_machine
             .apply_scene_action(SceneAction::LateUpdate, &mut self.game_data);
 
-        if self.current_thread_id.is_none() {
-            self.current_thread_id = Some(0);
-        }
+        // if self.current_thread_id.is_none() {
+        //     self.current_thread_id = Some(0);
+        // }
 
-        if let Some(id) = self.current_thread_id {
-            if !self.thread_manager.get_should_break() {
-                self.thread_manager.set_current_id(id);
-                self.exec_script_bytecode(id, frame_duration.as_millis() as u64);
-            }
-            if id < self.thread_manager.total_contexts() as u32 - 1 {
-                self.current_thread_id = Some(id + 1);
-            } else {
-                self.current_thread_id = Some(0);
-            }
-        }
-
-        // for i in 0..self.thread_manager.total_contexts() {
-        //     log::info!("Executing script bytecode for thread {}", i);
+        // if let Some(id) = self.current_thread_id {
         //     if !self.thread_manager.get_should_break() {
-        //         self.thread_manager.set_current_id(i as u32);
-        //         self.exec_script_bytecode(i as u32, frame_duration.as_micros() as u64);
+        //         self.thread_manager.set_current_id(id);
+        //         self.exec_script_bytecode(id, frame_duration.as_millis() as u64);
+        //     }
+        //     if id < self.thread_manager.total_contexts() as u32 - 1 {
+        //         self.current_thread_id = Some(id + 1);
+        //     } else {
+        //         self.current_thread_id = Some(0);
         //     }
         // }
+
+        for i in 0..self.thread_manager.total_contexts() {
+            log::info!("Executing script bytecode for thread {}", i);
+            if !self.thread_manager.get_should_break() {
+                self.thread_manager.set_current_id(i as u32);
+                self.exec_script_bytecode(i as u32, frame_duration.as_micros() as u64);
+            }
+        }
         // self.thread_manager.set_current_id(0);
 
         self.update_cursor();

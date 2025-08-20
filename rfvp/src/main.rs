@@ -6,6 +6,7 @@ mod rendering;
 mod config;
 mod window;
 mod audio_player;
+mod cli;
 
 use script::parser::{Nls, Parser};
 use subsystem::{anzu_scene::AnzuScene, resources::thread_manager::ThreadManager};
@@ -46,11 +47,16 @@ fn load_script(nls: Nls) -> Result<Parser> {
     Parser::new(opcode_path, nls)
 }
 
+
 fn main() -> Result<()> {
     let parser = load_script(Nls::ShiftJIS)?;
     let title  = parser.get_title();
     let size = parser.get_screen_size();
     let script_engine = ThreadManager::new();
+
+    // let (tx, rx) = std::sync::mpsc::channel();
+    // let mut app = cli::RatatuiApp::new()?;
+    // let ui_handle = cli::RatatuiApp::spawn(rx);
 
     App::app_with_config(app_config(&title, size))
         .with_scene::<AnzuScene>()
@@ -60,6 +66,8 @@ fn main() -> Result<()> {
         .with_parser(parser)
         .with_vfs(Nls::ShiftJIS)?
         .run();
+
+    
     Ok(())
 }
 

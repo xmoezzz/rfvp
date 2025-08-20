@@ -1,9 +1,9 @@
 use std::cell::{RefCell, RefMut};
 
-use crate::script::context::{Context, CONTEXT_STATUS_NONE, CONTEXT_STATUS_RUNNING, CONTEXT_STATUS_SLEEP, CONTEXT_STATUS_WAIT};
+use crate::script::{context::{Context, CONTEXT_STATUS_NONE, CONTEXT_STATUS_RUNNING, CONTEXT_STATUS_SLEEP, CONTEXT_STATUS_WAIT}, parser::Parser, VmSyscall};
 
 pub struct ThreadManager {
-    pub contexts: Vec<RefCell<Context>>,
+    pub contexts: Vec<Context>,
     current_id: u32,
     thread_break: bool,
 }
@@ -16,8 +16,14 @@ impl Default for ThreadManager {
 
 impl ThreadManager {
     pub fn new() -> Self {
+        let mut contexts = Vec::with_capacity(32);
+        for i in 0..32 {
+            let context = Context::new(0, i as u32);
+            contexts.push(context);
+        }
+        
         ThreadManager {
-            contexts: vec![RefCell::new(Context::new(0)); 32],
+            contexts,
             current_id: 0,
             thread_break: false,
         }
@@ -39,8 +45,36 @@ impl ThreadManager {
         self.contexts.len()
     }
 
-    pub fn get_thread(&mut self, id: u32) -> RefMut<'_, Context> {
-        self.contexts[id as usize].borrow_mut()
+    pub fn get_context_status(&self, id: u32) -> u32 {
+        self.contexts[id as usize].get_status()
+    }
+
+    pub fn set_context_status(&mut self, id: u32, status: u32) {
+        self.contexts[id as usize].set_status(status);
+    }
+
+    pub fn get_context_waiting_time(&self, id: u32) -> u64 {
+        self.contexts[id as usize].get_waiting_time()
+    }
+
+    pub fn set_context_waiting_time(&mut self, id: u32, time: u64) {
+        self.contexts[id as usize].set_waiting_time(time);
+    }
+
+    pub fn set_context_should_break(&mut self, id: u32, should_break: bool) {
+        self.contexts[id as usize].set_should_break(should_break);
+    }
+
+    pub fn get_context_should_break(&self, id: u32) -> bool {
+        self.contexts[id as usize].should_break()
+    }
+
+    pub fn get_contexct_should_exit(&self, id: u32) -> bool {
+        self.contexts[id as usize].should_exit_now()
+    }
+
+    pub fn context_dispatch_opcode(&mut self, id: u32, syscaller: &mut impl VmSyscall, parser: &mut Parser) -> anyhow::Result<()> {
+        self.contexts[id as usize].dispatch_opcode(syscaller, parser)
     }
 
     pub fn get_should_break(&self) -> bool {
@@ -53,48 +87,48 @@ impl ThreadManager {
 
     pub fn thread_start(&mut self, id: u32, addr: u32) {
         if id == 0 {
-            for _i in 0..self.total_contexts() {
-                let mut context = Context::new(0);
+            for i in 0..self.total_contexts() {
+                let mut context = Context::new(0, i as u32);
                 context.set_status(CONTEXT_STATUS_NONE);
                 context.set_should_break(true);
-                self.contexts[id as usize] = RefCell::new(context);
+                self.contexts[id as usize] = context;
             }
         }
 
-        let mut context = Context::new(addr);
+        let mut context = Context::new(addr, id);
         context.set_status(CONTEXT_STATUS_RUNNING);
-        self.contexts[id as usize] = RefCell::new(context);
+        self.contexts[id as usize] = context;
     }
 
     pub fn thread_wait(&mut self, time: u32) {
-        self.contexts[self.current_id as usize].borrow_mut().set_should_break(true);
-        self.contexts[self.current_id as usize].borrow_mut().set_waiting_time(time as u64);
+        self.contexts[self.current_id as usize].set_should_break(true);
+        self.contexts[self.current_id as usize].set_waiting_time(time as u64);
 
-        let status = self.contexts[self.current_id as usize].borrow_mut().get_status();
-        self.contexts[self.current_id as usize].borrow_mut().set_status(status | CONTEXT_STATUS_WAIT);
+        let status = self.contexts[self.current_id as usize].get_status();
+        self.contexts[self.current_id as usize].set_status(status | CONTEXT_STATUS_WAIT);
     }
 
     pub fn thread_sleep(&mut self, time: u32) {
-        self.contexts[self.current_id as usize].borrow_mut().set_should_break(true);
-        self.contexts[self.current_id as usize].borrow_mut().set_waiting_time(time as u64);
+        self.contexts[self.current_id as usize].set_should_break(true);
+        self.contexts[self.current_id as usize].set_waiting_time(time as u64);
 
-        let status = self.contexts[self.current_id as usize].borrow_mut().get_status();
-        self.contexts[self.current_id as usize].borrow_mut().set_status(status | CONTEXT_STATUS_SLEEP);
+        let status = self.contexts[self.current_id as usize].get_status();
+        self.contexts[self.current_id as usize].set_status(status | CONTEXT_STATUS_SLEEP);
     }
 
     pub fn thread_raise(&mut self, time: u32) {
         for i in 0..self.total_contexts() {
-            let status = self.contexts[i].borrow_mut().get_status();
+            let status = self.contexts[i].get_status();
             // wtf?
             // both sleep and raise are never used
-            if status & CONTEXT_STATUS_SLEEP != 0 && self.contexts[i].borrow_mut().get_waiting_time() == time as u64 {
-                self.contexts[i].borrow_mut().set_status(status & !CONTEXT_STATUS_SLEEP);
+            if status & CONTEXT_STATUS_SLEEP != 0 && self.contexts[i].get_waiting_time() == time as u64 {
+                self.contexts[i].set_status(status & !CONTEXT_STATUS_SLEEP);
             }
         }
     }
 
     pub fn thread_next(&mut self) {
-        self.contexts[self.current_id as usize].borrow_mut().set_should_break(true);
+        self.contexts[self.current_id as usize].set_should_break(true);
     }
 
     pub fn thread_exit(&mut self, id: Option<u32>) {
@@ -104,20 +138,20 @@ impl ThreadManager {
         };
 
         if id == 0 {
-            for _i in 0..self.total_contexts() {
-                let mut ctx = Context::new(0);
+            for i in 0..self.total_contexts() {
+                let mut ctx = Context::new(0, i as u32);
                 ctx.set_status(CONTEXT_STATUS_NONE);
                 ctx.set_should_break(true);
-                self.contexts[id as usize] = RefCell::new(ctx);
+                self.contexts[id as usize] = ctx;
             }
 
             self.thread_break = true;
 
         } else {
-            let mut ctx = Context::new(0);
+            let mut ctx = Context::new(0, id);
             ctx.set_status(CONTEXT_STATUS_NONE);
             ctx.set_should_break(true);
-            self.contexts[id as usize] = RefCell::new(ctx);
+            self.contexts[id as usize] = ctx;
         }
     }
 

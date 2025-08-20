@@ -106,8 +106,8 @@ pub fn window_mode(_game_data: &mut GameData, mode: &Variant) -> Result<Variant>
     let mode = match mode {
         Variant::Int(mode) => WinMode::try_from(*mode)?,
         _ => {
-            log::error!("window_mode: Invalid mode type");
-            return Ok(Variant::Nil);
+            log::error!("window_mode: Invalid mode type: {:?}", mode);
+            return Ok(Variant::True);
         },
     };
 
@@ -121,7 +121,7 @@ pub fn window_mode(_game_data: &mut GameData, mode: &Variant) -> Result<Variant>
         WinMode::Resizable => {},
         WinMode::NonResizable => {},
         WinMode::_UnUsed => {
-            log::warn!("window_mode: UnUsed mode");
+            log::warn!("window_mode: Unused mode");
         },
     }
 
@@ -132,7 +132,24 @@ pub fn title_menu(_game_data: &mut GameData, _title: &Variant) -> Result<Variant
     Ok(Variant::Nil)
 }
 
+pub fn exit_mode(_game_data: &mut GameData, mode: &Variant) -> Result<Variant> {
+    let mode = match mode {
+        Variant::Int(mode) => *mode,
+        _ => {
+            log::error!("exit_mode: Invalid mode type");
+            return Ok(Variant::True);
+        },
+    };
 
+    if mode > 4 {
+        log::error!("exit_mode: Invalid mode value");
+        return Ok(Variant::Nil);
+    }
+
+    log::info!("Exit mode set to: {:?}", mode);
+
+    Ok(Variant::Nil)
+}
 
 pub struct DebugMessage;
 impl Syscaller for DebugMessage {
@@ -214,6 +231,19 @@ impl Syscaller for WindowMode {
 
 unsafe impl Send for WindowMode {}
 unsafe impl Sync for WindowMode {}
+
+
+pub struct ExitMode;
+impl Syscaller for ExitMode {
+    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        let mode = get_var!(args, 0);
+        exit_mode(game_data, mode)
+    }
+}
+
+unsafe impl Send for ExitMode {}
+unsafe impl Sync for ExitMode {}
+
 
 
 pub struct TitleMenu;
