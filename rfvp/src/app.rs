@@ -42,6 +42,7 @@ pub struct App {
     thread_manager: ThreadManager,
     render_target: RenderTarget,
     resources: Arc<GpuCommonResources>,
+    current_thread_id: Option<u32>,
 }
 
 impl App {
@@ -159,7 +160,6 @@ impl App {
             self.thread_manager.get_thread(id).set_should_break(false);
             while !self.thread_manager.get_thread(id).should_break() {
                 // let mut ctx = self.thread_manager.get_thread(id);
-                log::info!("tid: {}", id);
                 let result = self
                     .thread_manager
                     .get_thread(id)
@@ -208,12 +208,29 @@ impl App {
         self.layer_machine
             .apply_scene_action(SceneAction::LateUpdate, &mut self.game_data);
 
-        for i in 0..self.thread_manager.total_contexts() {
+        if self.current_thread_id.is_none() {
+            self.current_thread_id = Some(0);
+        }
+
+        if let Some(id) = self.current_thread_id {
             if !self.thread_manager.get_should_break() {
-                self.thread_manager.set_current_id(i as u32);
-                self.exec_script_bytecode(i as u32, frame_duration.as_micros() as u64);
+                self.thread_manager.set_current_id(id);
+                self.exec_script_bytecode(id, frame_duration.as_millis() as u64);
+            }
+            if id < self.thread_manager.total_contexts() as u32 - 1 {
+                self.current_thread_id = Some(id + 1);
+            } else {
+                self.current_thread_id = Some(0);
             }
         }
+
+        // for i in 0..self.thread_manager.total_contexts() {
+        //     log::info!("Executing script bytecode for thread {}", i);
+        //     if !self.thread_manager.get_should_break() {
+        //         self.thread_manager.set_current_id(i as u32);
+        //         self.exec_script_bytecode(i as u32, frame_duration.as_micros() as u64);
+        //     }
+        // }
         // self.thread_manager.set_current_id(0);
 
         self.update_cursor();
@@ -248,13 +265,13 @@ impl App {
         let mut path = game_path.as_ref().to_path_buf();
         path.push("*.hcb");
 
-        let macthes: Vec<_> = glob::glob(&path.to_string_lossy())?.flatten().collect();
+        let matches: Vec<_> = glob::glob(&path.to_string_lossy())?.flatten().collect();
 
-        if macthes.is_empty() {
+        if matches.is_empty() {
             anyhow::bail!("No hcb file found in the game directory");
         }
 
-        Ok(macthes[0].to_path_buf())
+        Ok(matches[0].to_path_buf())
     }
 }
 
@@ -446,6 +463,7 @@ impl AppBuilder {
             thread_manager: self.script_engine,
             render_target,
             resources,
+            current_thread_id: None,
         };
 
         app.setup();
