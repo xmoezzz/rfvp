@@ -12,5 +12,5 @@ rfvp-core = { path = "../rfvp-core" }
 anyhow = "*"
 tracing = "0.1.37"
 
-kira = { version = "0.8.5", features = ["cpal"] }
+kira = "0.10.8"
 ringbuf = "0.3.1"

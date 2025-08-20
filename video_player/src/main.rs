@@ -90,7 +90,7 @@ async fn run(event_loop: EventLoop<()>, window: Arc<Window>) {
 
     let path = Path::new(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/testcase/01.mp4"
+        "/../testcase/movie/01.mp4"
     ));
     let file = File::open(path).unwrap();
     let mp4 = Mp4::new(file).unwrap();

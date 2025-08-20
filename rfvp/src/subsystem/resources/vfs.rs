@@ -148,6 +148,11 @@ impl VfsFile {
         Ok(())
     }
 
+    #[allow(dead_code)]
+    pub fn list_entries(&self) -> Vec<String> {
+        self.entries.keys().cloned().collect()
+    }
+
     /// we assume that modern systems have enough memory to load the whole file into memory
     pub fn read_file(&self, name: &str) -> Result<Vec<u8>> {
         
@@ -186,12 +191,12 @@ impl Vfs {
         let mut path = path.to_path_buf();
         path.push("*.bin");
 
-        let macthes: Vec<_> = glob::glob(&path.to_string_lossy())?
+        let matches: Vec<_> = glob::glob(&path.to_string_lossy())?
             .flatten()
             .collect();
 
         let mut files = HashMap::new();
-        for path in &macthes {
+        for path in &matches {
             if let Some(file_name) = path.file_name() {
                 let file_name = file_name.to_string_lossy();
                 if let Some(folder_name) = file_name.split('.').next() {
@@ -248,7 +253,7 @@ mod tests {
 
     #[test]
     fn test_vfs_file() {
-        let filepath = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/testcase/se_sys.bin"));
+        let filepath = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../testcase/se_sys.bin"));
 
         let vfs = VfsFile::new(filepath, "se_sys", Nls::ShiftJIS).unwrap();
         let buf = vfs.read_file("001").unwrap();
@@ -264,6 +269,16 @@ mod tests {
     //     let vfs = VfsFile::new(filepath, "graph", Nls::ShiftJIS).unwrap();
     //     vfs.extract_all("/Users/xmoe/Downloads/graph").unwrap();
     // }
+
+    #[test]
+    fn list_vfs_file() {
+        let filepath = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../testcase/bgm.bin"));
+
+        let vfs = VfsFile::new(filepath, "bgm", Nls::ShiftJIS).unwrap();
+        let entries = vfs.list_entries();
+        println!("Entries: {:?}", entries);
+        assert!(!entries.is_empty(), "Entries should not be empty");
+    }
 
     #[test]
     fn test_vfs() {
