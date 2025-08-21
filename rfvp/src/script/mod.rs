@@ -143,7 +143,7 @@ impl Variant {
     }
 
     #[allow(dead_code)]
-    pub fn as_saved_stack_info(&self) -> Option<&SavedStackInfo> {
+    fn as_saved_stack_info(&self) -> Option<&SavedStackInfo> {
         match self {
             Variant::SavedStackInfo(info) => Some(info),
             _ => None,
