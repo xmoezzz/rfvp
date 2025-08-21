@@ -12,7 +12,7 @@ pub struct SePlayer {
     audio_manager: Arc<AudioManager>,
     se_tracks: [TrackHandle; SE_SLOT_COUNT],
     se_slots: [Option<StaticSoundHandle>; SE_SLOT_COUNT],
-    se_datas: [Option<Vec<u8>>; SE_SLOT_COUNT],
+    se_datas: [Option<StaticSoundData>; SE_SLOT_COUNT],
     se_kinds: [Option<i32>; SE_SLOT_COUNT],
 }
 
@@ -37,9 +37,12 @@ impl SePlayer {
         }
     }
 
-    pub fn load(&mut self, slot: i32, se: Vec<u8>) {
+    pub fn load(&mut self, slot: i32, se: Vec<u8>) -> anyhow::Result<()> {
         let slot = slot as usize;
-        self.se_datas[slot] = Some(se);
+        let cursor = std::io::Cursor::new(se);
+        let sound = StaticSoundData::from_cursor(cursor)?;
+        self.se_datas[slot] = Some(sound);
+        Ok(())
     }
 
     pub fn play(
@@ -52,7 +55,7 @@ impl SePlayer {
     ) -> anyhow::Result<()> {
         let slot = slot as usize;
 
-        let bgm_data = match &self.se_datas[slot] {
+        let bgm = match &self.se_datas[slot] {
             Some(data) => data.clone(),
             None => {
                 log::error!("Tried to play BGM slot {}, but no BGM was loaded", slot);
@@ -60,7 +63,8 @@ impl SePlayer {
             }
         };
 
-        let cursor = std::io::Cursor::new(bgm_data);
+        log::info!("Playing SE slot {}", slot);
+
         let loop_region = repeat.then_some(Region::default());
         let pan = kira::Panning::from(pan as f32);
         let settings = StaticSoundSettings::new()
@@ -70,8 +74,7 @@ impl SePlayer {
             .loop_region(loop_region)
             .playback_rate(1.0);
 
-        let bgm = StaticSoundData::from_cursor(cursor)?;
-        bgm.with_settings(settings);
+        let bgm = bgm.with_settings(settings);
         let handle = self.audio_manager.play(bgm);
 
         if let Some(mut old_handle) = self.se_slots[slot].take() {

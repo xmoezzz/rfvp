@@ -22,7 +22,7 @@ impl PartsItem {
             g_value: 0,
             b_value: 0,
             running: false,
-            texture: NvsgTexture::new(),
+            texture: NvsgTexture::new(""),
             texture_name: String::new(),
             loaded: false,
         }
@@ -32,6 +32,7 @@ impl PartsItem {
         self.texture
             .read_texture(&buff, |typ| typ == TextureType::Multi32Bit)?;
 
+        self.texture.set_name(file_name);
         self.texture_name = file_name.to_string();
         self.r_value = 100;
         self.g_value = 100;

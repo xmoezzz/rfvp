@@ -100,7 +100,7 @@ impl GraphBuff {
     }
 
     pub fn load_texture(&mut self, file_name: &str, buff: Vec<u8>) -> Result<()> {
-        let mut nvsg_texture = NvsgTexture::new();
+        let mut nvsg_texture = NvsgTexture::new(file_name);
         nvsg_texture.read_texture(&buff, |typ| {
             typ == super::texture::TextureType::Single24Bit ||
             typ == super::texture::TextureType::Single32Bit
@@ -125,7 +125,7 @@ impl GraphBuff {
     }
 
     pub fn load_gaiji_fontface_glyph(&mut self, file_name: &str, buff: Vec<u8>) -> Result<()> {
-        let mut nvsg_texture = NvsgTexture::new();
+        let mut nvsg_texture = NvsgTexture::new(file_name);
         nvsg_texture.read_texture(&buff, |typ| {
             typ == super::texture::TextureType::Single1Bit
         })?;
@@ -148,7 +148,7 @@ impl GraphBuff {
     }
 
     pub fn load_mask(&mut self, file_name: &str, buff: Vec<u8>) -> Result<()> {
-        let mut nvsg_texture = NvsgTexture::new();
+        let mut nvsg_texture = NvsgTexture::new(file_name);
         nvsg_texture.read_texture(&buff, |typ| {
             typ == super::texture::TextureType::Single8Bit
         })?;

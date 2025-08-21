@@ -53,10 +53,12 @@ pub struct NvsgTexture {
     unknown3: u32,
     unknown4: u32,
     slices: Vec<Vec<u8>>,
+    name: String,
+    outlen: Option<usize>,
 }
 
 impl NvsgTexture {
-    pub fn new() -> Self {
+    pub fn new(name: &str) -> Self {
         Self {
             unknown1: 0,
             typ: TextureType::Single24Bit,
@@ -70,7 +72,13 @@ impl NvsgTexture {
             unknown3: 0,
             unknown4: 0,
             slices: vec![],
+            name: name.to_string(),
+            outlen: None,
         }
+    }
+
+    pub fn set_name(&mut self, name: &str) {
+        self.name = name.to_string();
     }
 
     fn read_u16le(&self, buff: &[u8], offset: usize) -> Result<u16> {
@@ -196,6 +204,9 @@ impl NvsgTexture {
             }
         }
 
+        // avoid the re-using issue
+        self.slices.clear();
+        self.outlen = Some(out_len);
         let frame_len = self.width as u64 * self.height as u64 * depth;
 
         for i in 0..self.entry_count as u64 {
@@ -464,7 +475,7 @@ mod tests {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
 
-        let mut container = NvsgTexture::new();
+        let mut container = NvsgTexture::new("");
         container.read_texture(&buffer, |typ: TextureType| {true}).unwrap();
         let output = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/testcase"));
         container.extract_textures(output).unwrap();
@@ -479,7 +490,7 @@ mod tests {
         let mut file = std::fs::File::open(filepath).unwrap();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
-        let mut container = NvsgTexture::new();
+        let mut container = NvsgTexture::new("");
         container.read_texture(&buffer, |typ: TextureType| {true}).unwrap();
         let output = Path::new(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -497,7 +508,7 @@ mod tests {
         let mut file = std::fs::File::open(filepath).unwrap();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
-        let mut container = NvsgTexture::new();
+        let mut container = NvsgTexture::new("");
         container.read_texture(&buffer, |typ: TextureType| {true}).unwrap();
         assert!(!container.slices.is_empty());
 
@@ -518,7 +529,7 @@ mod tests {
         let mut file = std::fs::File::open(filepath).unwrap();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
-        let mut container = NvsgTexture::new();
+        let mut container = NvsgTexture::new("");
         container.read_texture(&buffer, |typ: TextureType| {true}).unwrap();
         assert!(!container.slices.is_empty());
 
@@ -544,7 +555,7 @@ mod tests {
         let mut file = std::fs::File::open(filepath).unwrap();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
-        let mut container = NvsgTexture::new();
+        let mut container = NvsgTexture::new("");
         container.read_texture(&buffer, |typ: TextureType| {true}).unwrap();
         let output = Path::new(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -562,7 +573,7 @@ mod tests {
         let mut file = std::fs::File::open(filepath).unwrap();
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).unwrap();
-        let mut container = NvsgTexture::new();
+        let mut container = NvsgTexture::new("");
         container.read_texture(&buffer, |typ: TextureType| {true}).unwrap();
         let output = Path::new(concat!(
             env!("CARGO_MANIFEST_DIR"),
