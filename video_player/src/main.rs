@@ -92,6 +92,8 @@ async fn run(event_loop: EventLoop<()>, window: Arc<Window>) {
         env!("CARGO_MANIFEST_DIR"),
         "/../testcase/movie/01.mp4"
     ));
+
+    println!("Loading video from: {}", path.display());
     let file = File::open(path).unwrap();
     let mp4 = Mp4::new(file).unwrap();
     let mut video_player = VideoPlayer::new(&resources, &audio_manager, mp4).unwrap();
@@ -189,6 +191,7 @@ async fn run(event_loop: EventLoop<()>, window: Arc<Window>) {
                 }
 
                 drop(encoder);
+                println!("Submitting frame to GPU");
 
                 frame.present();
             }

@@ -16,8 +16,8 @@ use crate::{
 
 static INIT_ONCE: Lazy<()> = Lazy::new(|| {
     tracing_gstreamer::integrate_events();
-    gst::debug_remove_default_log_function();
-    gst::debug_set_default_threshold(gst::DebugLevel::Memdump);
+    // gst::debug_remove_default_log_function();
+    // gst::debug_set_default_threshold(gst::DebugLevel::Memdump);
     gst::init().expect("Failed to initialize GStreamer");
 });
 fn init() {

@@ -14,11 +14,6 @@ rfvp-core = { path = "../rfvp-core" }
 rfvp-audio = { path = "../rfvp-audio" }
 rfvp-tasks = { path = "../rfvp-tasks" }
 
-gst = { package = "gstreamer", version = "0.21.1", optional = true }
-gst-app = { package = "gstreamer-app", version = "0.21.1", optional = true}
-gst-video = { package = "gstreamer-video", version = "0.21.1", optional = true }
-
-tracing-gstreamer = { version = "0.6.0", optional = true }
 
 wgpu = { version = "0.19.1", features = ["spirv"] }
 kira = { version = "0.8.5", default-features = false }
@@ -27,6 +22,12 @@ glam = { version = "0.27.0", features = [
     # this is required for bytemuck to work
     "bytemuck", "scalar-math"
 ] }
+
+gst = { package = "gstreamer", version = "0.24.0" }
+gst-app = { package = "gstreamer-app", version = "0.24.0" }
+gst-video = { package = "gstreamer-video", version = "0.24.0" }
+
+tracing-gstreamer = "0.6.0"
 
 anyhow = "*"
 once_cell = "1.18.0"
@@ -39,10 +40,4 @@ async-process = "1.6.0"
 futures-lite = "1.12.0"
 num-integer = "0.1.45"
 
-[features]
-gstreamer = [
-    "dep:gst",
-    "dep:gst-app",
-    "dep:gst-video",
-    "dep:tracing-gstreamer",
-]
+

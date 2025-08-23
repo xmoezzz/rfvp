@@ -21,6 +21,8 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
+use crate::rendering::render_tree::RenderTree;
+
 
 
 use crate::subsystem::scene::{Scene, SceneAction, SceneMachine};
@@ -43,6 +45,7 @@ pub struct App {
     render_target: RenderTarget,
     resources: Arc<GpuCommonResources>,
     current_thread_id: Option<u32>,
+    render_tree: RenderTree,
 }
 
 impl App {
@@ -464,6 +467,7 @@ impl AppBuilder {
             render_target,
             resources,
             current_thread_id: None,
+            render_tree: RenderTree::new(),
         };
 
         app.setup();
