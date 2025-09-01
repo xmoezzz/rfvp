@@ -79,13 +79,14 @@ pub fn input_set_click(game_data: &mut GameData, clicked: &Variant) -> Result<Va
 }
 
 
+/// Skip mode in AVG games
 pub fn control_pulse(game_data: &mut GameData) -> Result<Variant> {
     game_data.inputs_manager.set_control_pulse();
     Ok(Variant::Nil)
 }
 
 pub fn control_mask(game_data: &mut GameData, mask: &Variant) -> Result<Variant> {
-    let mask = mask.canbe_true();
+    let mask = mask.is_nil();
     game_data.inputs_manager.set_control_mask(mask);
 
     Ok(Variant::Nil)

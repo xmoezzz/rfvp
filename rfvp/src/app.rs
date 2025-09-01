@@ -235,7 +235,7 @@ impl App {
             }
         }
         // self.thread_manager.set_current_id(0);
-
+        self.game_data.inputs_manager.refresh_input();
         self.update_cursor();
         // self.game_data.inputs().reset_inputs();
     }

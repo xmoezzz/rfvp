@@ -2,6 +2,45 @@ use std::{sync::Mutex, vec};
 
 use winit::keyboard::NamedKey;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::cell::UnsafeCell;
+use std::thread;
+use std::time::Duration;
+
+#[derive(Debug)]
+pub struct CriticalSection {
+    locked: AtomicBool,
+}
+
+impl CriticalSection {
+    pub const fn new() -> Self {
+        Self {
+            locked: AtomicBool::new(false),
+        }
+    }
+
+    pub fn enter(&self) -> CriticalGuard<'_> {
+        while self
+            .locked
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            std::hint::spin_loop();
+        }
+        CriticalGuard { cs: self }
+    }
+}
+
+pub struct CriticalGuard<'a> {
+    cs: &'a CriticalSection,
+}
+
+impl<'a> Drop for CriticalGuard<'a> {
+    fn drop(&mut self) {
+        self.cs.locked.store(false, Ordering::Release);
+    }
+}
+
 
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct PressItem {
@@ -65,7 +104,6 @@ pub struct InputManager {
     pub mouse_y: i32,
 
     press_items: Vec<PressItem>,
-    input_lock: Mutex<()>,
     current_index: u8,
     next_index: u8,
     // char gap2[2];
@@ -84,11 +122,15 @@ pub struct InputManager {
     wheel_value: i32,
     control_is_masked: bool,
     control_is_pulse: bool,
+
+    cs: CriticalSection,
 }
 
 impl Default for InputManager {
     fn default() -> Self {
-        Self::new()
+        let mut s = Self::new();
+        s.control_is_masked = true;
+        s
     }
 }
 
@@ -114,11 +156,12 @@ impl InputManager {
             old_input_state: 0,
             current_event: PressItem::default(),
             click: 0,
-            input_lock: Mutex::new(()),
+            cs: CriticalSection::new(),
         }
     }
 
     pub fn set_flash(&mut self) {
+        self.cs.enter();
         self.current_index = 0;
         self.next_index = 0;
         // this->gap2[0] = 0;
@@ -147,6 +190,7 @@ impl InputManager {
     }
 
     pub fn get_event(&mut self) -> Option<PressItem> {
+        self.cs.enter();
         if self.current_index != self.next_index {
             let event = self.press_items[self.current_index as usize].clone();
             self.next_index = (self.current_index + 1) & 0x3F;
@@ -184,10 +228,12 @@ impl InputManager {
     }
 
     pub fn set_click(&mut self, clicked: u32) {
+        self.cs.enter();
         self.click = clicked;
     }
 
     pub fn set_mouse_in(&mut self, in_screen: bool) {
+        self.cs.enter();
         self.cursor_in = in_screen;
     }
 
@@ -222,7 +268,7 @@ impl InputManager {
     }
 
     pub fn record_keydown_or_up(&mut self, keycode: KeyCode, x: i32, y: i32) {
-        let _lock = self.input_lock.lock().unwrap();
+        self.cs.enter();
         let next_index = (self.current_index + 1) & 0x3F;
         if next_index != self.next_index {
             let event = &mut self.press_items[self.current_index as usize];
@@ -292,7 +338,31 @@ impl InputManager {
         self.control_is_pulse = true;
     }
 
+    // ignore both control and shift when masked
     pub fn set_control_mask(&mut self, mask: bool) {
         self.control_is_masked = mask;
     }
+
+    // TODO: use flags to make it more clear
+    pub fn refresh_input(&mut self) {
+        self.cs.enter();
+        self.old_input_state = self.input_state;
+        let new_input_state = self.new_input_state;
+        self.input_state = new_input_state;
+        if (new_input_state & 0x90) != 0 {
+            self.input_state = new_input_state | 4;
+        }
+        let mut input_state = self.input_state;
+        if (input_state & 0x60) != 0 {
+            self.input_state = input_state | 8;
+        }
+        if !self.control_is_masked {
+            self.input_state &= !2u32;
+        }
+        input_state = self.input_state;
+        let v5 = input_state & (input_state ^ self.old_input_state);
+        self.input_up = (input_state ^ self.old_input_state) & !input_state;
+        self.down_keycode = v5;
+    }
+
 }
