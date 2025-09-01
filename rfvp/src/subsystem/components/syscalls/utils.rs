@@ -53,7 +53,8 @@ pub fn int_to_text(_game_data: &mut GameData, value: &Variant, width: &Variant) 
         return Ok(Variant::Nil);
     };
 
-    let value = format!("{:width$}", value, width = width as usize);
+    // pad with zeros to the left
+    let value = format!("{:0width$}", value, width = width as usize);
     Ok(Variant::String(value))
 }
 
@@ -255,3 +256,13 @@ impl Syscaller for TitleMenu {
 
 unsafe impl Send for TitleMenu {}
 unsafe impl Sync for TitleMenu {}
+
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_int_to_text() {
+        let result = int_to_text(&mut GameData::default(), &Variant::Int(42), &Variant::Int(5)).unwrap();
+        println!("Result: {:?}", result);
+    }
+}
