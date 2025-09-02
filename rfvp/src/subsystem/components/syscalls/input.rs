@@ -33,7 +33,7 @@ pub fn input_get_curs_y(game_data: &GameData) -> Result<Variant> {
 }
 
 pub fn input_get_down(game_data: &GameData) -> Result<Variant> {
-    Ok(Variant::Int(game_data.inputs_manager.get_down_keycode() as i32))
+    Ok(Variant::Int(game_data.inputs_manager.get_input_down() as i32))
 }
 
 pub fn input_get_event(game_data: &mut GameData) -> Result<Variant> {
@@ -93,6 +93,10 @@ pub fn control_mask(game_data: &mut GameData, mask: &Variant) -> Result<Variant>
 }
 
 
+///
+/// Refresh all input states, such as which keys are pressed
+/// No arguments
+/// 
 pub struct InputFlash;
 impl Syscaller for InputFlash {
     fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
@@ -103,6 +107,12 @@ impl Syscaller for InputFlash {
 unsafe impl Send for InputFlash {}
 unsafe impl Sync for InputFlash {}
 
+
+///
+/// Get whether the cursor is within the window
+/// No arguments
+/// Returns true if the cursor is inside the window, nil otherwise
+/// 
 pub struct InputGetCursIn;
 impl Syscaller for InputGetCursIn {
     fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
@@ -113,6 +123,12 @@ impl Syscaller for InputGetCursIn {
 unsafe impl Send for InputGetCursIn {}
 unsafe impl Sync for InputGetCursIn {}
 
+
+///
+/// Get the X coordinate of the cursor, relative to the window
+/// No arguments
+/// Returns an integer value representing the X coordinate
+/// 
 pub struct InputGetCursX;
 impl Syscaller for InputGetCursX {
     fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
@@ -124,6 +140,11 @@ unsafe impl Send for InputGetCursX {}
 unsafe impl Sync for InputGetCursX {}
 
 
+/// 
+/// Get the Y coordinate of the cursor, relative to the window
+/// No arguments
+/// Returns an integer value representing the Y coordinate
+/// 
 pub struct InputGetCursY;
 impl Syscaller for InputGetCursY {
     fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
@@ -134,7 +155,42 @@ impl Syscaller for InputGetCursY {
 unsafe impl Send for InputGetCursY {}
 unsafe impl Sync for InputGetCursY {}
 
-
+///
+/// FVP's keycode:
+/// #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// pub enum KeyCode {
+///     Shift = 0,
+///     Ctrl = 1,
+///     LeftClick = 2, // virtual
+///     RightClick = 3, // virtual
+///     MouseLeft = 4,
+///     MouseRight = 5,
+///     Esc = 6,
+///     Enter = 7,
+///     Space = 8,
+///     UpArrow = 9,
+///     DownArrow = 10,
+///     LeftArrow = 11,
+///     RightArrow = 12,
+///     F1 = 13,
+///     F2 = 14,
+///     F3 = 15,
+///     F4 = 16,
+///     F5 = 17,
+///     F6 = 18,
+///     F7 = 19,
+///     F8 = 20,
+///     F9 = 21,
+///     F10 = 22,
+///     F11 = 23,
+///     F12 = 24,
+///     Tab = 25,
+/// }
+/// 
+/// Get the keycode of the most recently pressed key
+/// No arguments
+/// Returns an integer value representing the keycode, or nil if no key is pressed
+///
 pub struct InputGetDown;
 impl Syscaller for InputGetDown {
     fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
@@ -146,6 +202,15 @@ unsafe impl Send for InputGetDown {}
 unsafe impl Sync for InputGetDown {}
 
 
+///
+/// Get the next input event from the queue
+/// No arguments
+/// Returns a table with the following structure if an event is available:
+/// { keycode, x, y }
+/// where `keycode` is an integer representing the keycode,
+/// and `x`, `y` are the cursor coordinates at the time of the event.
+/// Returns nil if no event is available.
+///
 pub struct InputGetEvent;
 impl Syscaller for InputGetEvent {
     fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
@@ -157,6 +222,12 @@ unsafe impl Send for InputGetEvent {}
 unsafe impl Sync for InputGetEvent {}
 
 
+///
+/// Get the keys that are currently being repeated
+/// Notice that both wheel movements and button repeats will be reset to 0 during each frame update.
+/// No arguments
+/// Returns an integer value representing the keycode, or 0 if no key is being repeated
+///   
 pub struct InputGetRepeat;
 impl Syscaller for InputGetRepeat {
     fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
@@ -168,6 +239,11 @@ unsafe impl Send for InputGetRepeat {}
 unsafe impl Sync for InputGetRepeat {}
 
 
+///
+/// Get the current state of all keys, such as which keys are pressed
+/// No arguments
+/// Returns an integer value representing the bitmask of the current key states
+/// 
 pub struct InputGetState;
 impl Syscaller for InputGetState {
     fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
@@ -179,6 +255,11 @@ unsafe impl Send for InputGetState {}
 unsafe impl Sync for InputGetState {}
 
 
+/// 
+/// Get the keycode of the most recently released key
+/// No arguments
+/// Returns an integer value representing the keycode, or nil if no key has been released
+/// 
 pub struct InputGetUp;
 impl Syscaller for InputGetUp {
     fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
@@ -189,7 +270,12 @@ impl Syscaller for InputGetUp {
 unsafe impl Send for InputGetUp {}
 unsafe impl Sync for InputGetUp {}
 
-
+///
+/// Get mouse wheel value (usually for scrolling)
+/// Notice that the wheel value will be reset to 0 during each frame update.
+/// No arguments
+/// Returns an integer value representing the wheel movement
+/// 
 pub struct InputGetWheel;
 impl Syscaller for InputGetWheel {
     fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
@@ -201,6 +287,11 @@ unsafe impl Send for InputGetWheel {}
 unsafe impl Sync for InputGetWheel {}
 
 
+/// 
+/// Set the click state from script side. 
+/// Maybe this is used to simulate mouse clicks in certain scenarios.
+/// Arg1: clicked (0 for not clicked, 1 for clicked)
+/// 
 pub struct InputSetClick;
 impl Syscaller for InputSetClick {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -211,7 +302,10 @@ impl Syscaller for InputSetClick {
 unsafe impl Send for InputSetClick {}
 unsafe impl Sync for InputSetClick {}
 
-
+///
+/// Skip mode in AVG games
+/// No arguments
+/// 
 pub struct ControlPulse;
 impl Syscaller for ControlPulse {
     fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
@@ -222,7 +316,11 @@ impl Syscaller for ControlPulse {
 unsafe impl Send for ControlPulse {}
 unsafe impl Sync for ControlPulse {}
 
-
+///
+/// Enable/disable control and shift keys, which are used to speed up text display in AVG games.
+/// When `control` is masked, both control and shift keys are disabled.
+/// Arg1: mask (nil to enable, non-nil to disable)
+/// 
 pub struct ControlMask;
 impl Syscaller for ControlMask {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {

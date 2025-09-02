@@ -1,11 +1,6 @@
 use std::{sync::Mutex, vec};
-
 use winit::keyboard::NamedKey;
-
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::cell::UnsafeCell;
-use std::thread;
-use std::time::Duration;
 
 #[derive(Debug)]
 pub struct CriticalSection {
@@ -68,10 +63,19 @@ impl PressItem {
     }
 }
 
+
+///
+/// Key codes used by FVP, auctually keycode is just the index of the bit in input_state
+/// input_state |= 1 << keycode
+/// if input_state is zero, then no key is pressed
+/// This term is little confusing, but I keep it for compatibility
+/// 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum KeyCode {
     Shift = 0,
     Ctrl = 1,
+    LeftClick = 2, // left mouse button & enter, a virtual keycode
+    RightClick = 3, // right mouse button & esc, a virtual keycode
     MouseLeft = 4,
     MouseRight = 5,
     Esc = 6,
@@ -112,7 +116,7 @@ pub struct InputManager {
     old_input_state: u32,
     current_event: PressItem,
     click: u32,
-    down_keycode: u32,
+    input_down: u32,
     input_up: u32,
     input_state: u32,
     input_repeat: u32,
@@ -140,7 +144,7 @@ impl InputManager {
             mouse_x: 0,
             mouse_y: 0,
             press_items: vec![PressItem::default(); 64],
-            down_keycode: 0,
+            input_down: 0,
             input_up: 0,
             input_state: 0,
             input_repeat: 0,
@@ -169,7 +173,7 @@ impl InputManager {
         self.new_input_state = 0;
         self.input_repeat = 0;
         self.input_state = 0;
-        self.down_keycode = 0;
+        self.input_down = 0;
         self.input_up = 0;
     }
 
@@ -185,15 +189,15 @@ impl InputManager {
         self.cursor_y
     }
 
-    pub fn get_down_keycode(&self) -> u32 {
-        self.down_keycode
+    pub fn get_input_down(&self) -> u32 {
+        self.input_down
     }
 
     pub fn get_event(&mut self) -> Option<PressItem> {
         self.cs.enter();
         if self.current_index != self.next_index {
             let event = self.press_items[self.current_index as usize].clone();
-            self.next_index = (self.current_index + 1) & 0x3F;
+            self.next_index = (self.current_index + 1) & 0x3F; // wrap around 64, to make the ring buffer
             Some(event)
         } else {
             None
@@ -268,7 +272,6 @@ impl InputManager {
     }
 
     pub fn record_keydown_or_up(&mut self, keycode: KeyCode, x: i32, y: i32) {
-        self.cs.enter();
         let next_index = (self.current_index + 1) & 0x3F;
         if next_index != self.next_index {
             let event = &mut self.press_items[self.current_index as usize];
@@ -293,12 +296,13 @@ impl InputManager {
 
     // see https://wiki.winehq.org/List_Of_Windows_Messages
     pub fn notify_keydown(&mut self, key: winit::keyboard::Key, repeat: bool) {
+        self.cs.enter();
         if let Some(keycode) = self.keymap(key) {
-            if repeat {
+            // keyFlags & 0x40000000  == 0, means it's not a repeat
+            if !repeat {
                 self.new_input_state |= 1 << (keycode.clone() as u32);
             }
-            self.input_state |= 1 << (keycode.clone() as u32);
-            self.down_keycode = keycode.clone() as u32;
+            self.input_repeat |= 1 << (keycode.clone() as u32);
             if repeat {
                 // winit does not provide repeat count which stored in lParam
                 self.record_keydown_or_up(keycode, 0, 0);
@@ -307,6 +311,7 @@ impl InputManager {
     }
 
     pub fn notify_keyup(&mut self, key: winit::keyboard::Key) {
+        self.cs.enter();
         if let Some(keycode) = self.keymap(key) {
             self.input_state &= !(1 << (keycode.clone() as u32));
             self.record_keydown_or_up(keycode, 0, 0);
@@ -314,6 +319,7 @@ impl InputManager {
     }
 
     pub fn notify_mouse_down(&mut self, keycode: KeyCode) {
+        self.cs.enter();
         self.new_input_state |= 1 << (keycode.clone() as u32);
         if self.click == 1 {
             self.record_keydown_or_up(keycode, self.cursor_x, self.cursor_y);
@@ -321,16 +327,19 @@ impl InputManager {
     }
 
     pub fn notify_mouse_up(&mut self, keycode: KeyCode) {
+        self.cs.enter();
         self.new_input_state &= !(1 << (keycode.clone() as u32));
         self.record_keydown_or_up(keycode, self.cursor_x, self.cursor_y);
     }
 
     pub fn notify_mouse_move(&mut self, x: i32, y: i32) {
+        self.cs.enter();
         self.cursor_x = x;
         self.cursor_y = y;
     }
 
     pub fn notify_mouse_wheel(&mut self, value: i32) {
+        self.cs.enter();
         self.wheel_value += value;
     }
 
@@ -343,26 +352,45 @@ impl InputManager {
         self.control_is_masked = mask;
     }
 
+    pub fn frame_reset(&mut self) {
+        self.input_repeat = 0;
+        self.wheel_value = 0;
+    }
+
     // TODO: use flags to make it more clear
     pub fn refresh_input(&mut self) {
         self.cs.enter();
         self.old_input_state = self.input_state;
         let new_input_state = self.new_input_state;
         self.input_state = new_input_state;
+        // 10010000b
+        // according to Keycode enum:
+        // 4 bit: MouseLeft
+        // 7 bit: Enter
         if (new_input_state & 0x90) != 0 {
+            // if mouse left or enter is pressed
+            // 4 = 100b
+            // 2 bit: LeftClick (for comfirm button)
             self.input_state = new_input_state | 4;
         }
-        let mut input_state = self.input_state;
+        let input_state = self.input_state;
+        // 01100000b
+        // according to Keycode enum:
+        // 5 bit: MouseRight
+        // 6 bit: Esc
         if (input_state & 0x60) != 0 {
+            // if mouse right or esc is pressed
+            // 8 = 1000b
+            // 3 bit: RightClick (for cancel button)
             self.input_state = input_state | 8;
         }
         if !self.control_is_masked {
             self.input_state &= !2u32;
         }
-        input_state = self.input_state;
-        let v5 = input_state & (input_state ^ self.old_input_state);
-        self.input_up = (input_state ^ self.old_input_state) & !input_state;
-        self.down_keycode = v5;
+
+        let changed = self.input_state ^ self.old_input_state;
+        self.input_down = input_state & changed;    // Previous frame 0, this frame 1
+        self.input_up   = (!input_state) & changed; // Previous frame 1, this frame 0
     }
 
 }

@@ -18,7 +18,7 @@ use winit::dpi::{PhysicalSize, Size};
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    window::{Window, WindowBuilder},
+    window::{Window, WindowAttributes},
 };
 
 use crate::rendering::render_tree::RenderTree;
@@ -235,6 +235,7 @@ impl App {
             }
         }
         // self.thread_manager.set_current_id(0);
+        self.game_data.inputs_manager.frame_reset();
         self.game_data.inputs_manager.refresh_input();
         self.update_cursor();
         // self.game_data.inputs().reset_inputs();
@@ -422,14 +423,13 @@ impl AppBuilder {
         let event_loop = EventLoop::new().expect("Event loop could not be created");
         event_loop.set_control_flow(ControlFlow::Poll);
 
-        let window_builder: WindowBuilder = self
+        let window_builder: WindowAttributes = self
             .config
             .window_config
             .clone()
             .expect("The window configuration has not been found")
             .into(&self.config);
-        let window = window_builder
-            .build(&event_loop)
+        let window = event_loop.create_window(window_builder)
             .expect("An error occured while building the main game window");
 
         let window = Arc::new(window);

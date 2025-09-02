@@ -31,15 +31,15 @@ pub fn movie_stop(game_data: &mut GameData) -> Result<Variant> {
 }
 
 
-pub struct MoviePlay;
-impl Syscaller for MoviePlay {
+pub struct Movie;
+impl Syscaller for Movie {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
         movie_play(game_data, get_var!(args, 0), get_var!(args, 1))
     }
 }
 
-unsafe impl Send for MoviePlay {}
-unsafe impl Sync for MoviePlay {}
+unsafe impl Send for Movie {}
+unsafe impl Sync for Movie {}
 
 pub struct MovieState;
 impl Syscaller for MovieState {

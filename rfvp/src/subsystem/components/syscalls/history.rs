@@ -105,6 +105,14 @@ pub fn history_get(game_data: &mut GameData, id: &Variant, fnid: &Variant) -> Re
 }
 
 
+///
+/// Retrieves a certain value from the history manager.
+/// Arguments:
+/// Arg1: id (int) - The id of the history entry to retrieve from. 0 means the most recent entry, 1 the one before that, etc.
+/// Arg2: fnid (int) - The kind of value to retrieve. 0 = name, 1 = content, 2 = voice.
+/// Returns:
+/// The requested value, or nil if not found or on error.
+/// 
 pub struct HistoryGet;
 impl Syscaller for HistoryGet {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -119,6 +127,12 @@ impl Syscaller for HistoryGet {
 unsafe impl Send for HistoryGet {}
 unsafe impl Sync for HistoryGet {}
 
+///
+/// Sets a certain value in the history manager.
+/// Arguments:
+/// Arg1: fnid (int or nil) - The kind of value to set.
+/// Arg2: The value
+/// 
 pub struct HistorySet;
 impl Syscaller for HistorySet {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {

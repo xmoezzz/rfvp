@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-use winit::window::WindowBuilder;
+use winit::window::WindowAttributes;
 use winit::dpi::LogicalSize;
 use winit::window::WindowLevel;
 
@@ -54,8 +54,8 @@ impl Default for WindowConfig {
 }
 
 impl WindowConfig {
-    pub(crate) fn into(self, config: &AppConfig) -> WindowBuilder {
-        let mut builder = WindowBuilder::new();
+    pub(crate) fn into(self, config: &AppConfig) -> WindowAttributes {
+        let mut builder = WindowAttributes::default();
 
         builder = builder.with_title(config.app_name.clone())
             .with_fullscreen(None);

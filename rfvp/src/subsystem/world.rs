@@ -48,7 +48,7 @@ use crate::subsystem::components::syscalls::timer::{
     TimerSet, TimerGet, TimerSuspend
 };
 use crate::subsystem::components::syscalls::movie::{
-    MoviePlay, MovieState, MovieStop
+    Movie, MovieState, MovieStop
 };
 use crate::subsystem::components::syscalls::parts::{
     PartsLoad, PartsRGB, PartsMotion, PartsMotionTest, 
@@ -382,7 +382,7 @@ lazy_static::lazy_static! {
         m.insert("TimerSuspend".into(), Box::new(TimerSuspend));
 
         // movie apis
-        m.insert("MoviePlay".into(), Box::new(MoviePlay));
+        m.insert("Movie".into(), Box::new(Movie));
         m.insert("MovieState".into(), Box::new(MovieState));
         m.insert("MovieStop".into(), Box::new(MovieStop));
 

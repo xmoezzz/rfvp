@@ -5,10 +5,7 @@ use crate::subsystem::world::GameData;
 
 use super::{get_var, Syscaller};
 
-/// stupid api
-/// 11111111|111 means id_bit_pos can not larger than 2047
-/// the highest 8 bits is used for id
-/// the lowest 3 bits is used for the bits position
+
 pub fn flag_set(game_data: &mut GameData, id_bit_pos: &Variant, on: &Variant) -> Result<Variant> {
     let id_bit_pos = if let Variant::Int(id_bit_pos) = id_bit_pos {
         *id_bit_pos
@@ -54,6 +51,13 @@ pub fn flag_get(game_data: &mut GameData, id_bit_pos: &Variant) -> Result<Varian
     Ok(Variant::Nil)
 }
 
+/// 
+/// Set or clear a flag. Why not just let the vm handle it? 
+/// Arg1: id_bit_pos (0..2047)
+/// 11111111|111 means id_bit_pos can not larger than 2047
+/// the highest 8 bits is used for id
+/// the lowest 3 bits is used for the bits position
+/// 
 pub struct FlagSet;
 impl Syscaller for FlagSet {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -64,6 +68,12 @@ impl Syscaller for FlagSet {
 unsafe impl Send for FlagSet {}
 unsafe impl Sync for FlagSet {}
 
+
+///
+/// Get a flag
+/// Arg1: id_bit_pos (0..2047)
+/// Returns True if the flag is set, Nil otherwise
+/// 
 pub struct FlagGet;
 impl Syscaller for FlagGet {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
