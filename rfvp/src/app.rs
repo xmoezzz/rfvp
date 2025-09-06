@@ -215,6 +215,9 @@ impl App {
         //     self.current_thread_id = Some(0);
         // }
 
+        // let cur_id = self.thread_manager.get_current_id();
+
+
         // if let Some(id) = self.current_thread_id {
         //     if !self.thread_manager.get_should_break() {
         //         self.thread_manager.set_current_id(id);
