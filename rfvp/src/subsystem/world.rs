@@ -136,6 +136,7 @@ pub struct GameData {
     audio_manager: Arc<AudioManager>,
     se_player: AtomicRefCell<SePlayer>,
     bgm_player: AtomicRefCell<BgmPlayer>,
+    root_prim: Option<i16>,
 }
 
 impl Default for GameData {
@@ -162,6 +163,7 @@ impl Default for GameData {
             se_player: AtomicRefCell::new(SePlayer::new(audio_manager.clone())),
             bgm_player: AtomicRefCell::new(BgmPlayer::new(audio_manager.clone())),
             audio_manager,
+            root_prim: None,
         }
     }
 }
@@ -216,6 +218,10 @@ impl GameData {
 
     pub fn audio_manager(&self) -> Arc<AudioManager> {
         self.audio_manager.clone()
+    }
+
+    pub fn set_prim_root(&mut self, root: i16) {
+        self.root_prim = Some(root);
     }
 }
 

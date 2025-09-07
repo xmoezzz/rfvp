@@ -440,7 +440,7 @@ impl MotionManager {
 
         match sprite.get_type() {
             PrimType::PrimTypeGroup => {
-                let mut child = sprite.get_child();
+                let mut child = sprite.get_first_child_idx();
                 if child != INVAILD_PRIM_HANDLE {
                     loop {
                         let p = self.prim_manager.get_prim(child);
@@ -449,7 +449,7 @@ impl MotionManager {
                         }
 
                         let p = self.prim_manager.get_prim_immutable(child);
-                        child = p.get_grand_son();
+                        child = p.get_next_sibling_idx();
                         if child == INVAILD_PRIM_HANDLE {
                             return false;
                         }

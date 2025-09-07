@@ -6,7 +6,7 @@ use crate::subsystem::world::GameData;
 
 use super::Syscaller;
 
-pub fn prim_exit_group(_game_data: &mut GameData, id: &Variant) -> Result<Variant> {
+pub fn prim_exit_group(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
         None => {
@@ -15,10 +15,14 @@ pub fn prim_exit_group(_game_data: &mut GameData, id: &Variant) -> Result<Varian
         },
     };
 
-    if !(0..=4095).contains(&id) {
+    // bad idea :( 
+    // if ( Value < 0x1000 )
+    if !(-2..=4095).contains(&id) {
         log::error!("prim_exit_group: invalid id : {}", id);
         return Ok(Variant::Nil);
     }
+
+    game_data.set_prim_root(id as i16);
 
     Ok(Variant::Nil)
 }
@@ -1042,6 +1046,12 @@ pub fn gaiji_load(game_data: &mut GameData, code: &Variant, size: &Variant, fnam
     Ok(Variant::Nil)
 }
 
+
+///
+/// Set the root primitive index
+/// The engine will begin rendering from this primitive.
+/// Arg1: the primitive, which should not larger that 0x1000
+/// 
 pub struct PrimExitGroup;
 impl Syscaller for PrimExitGroup {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -1052,6 +1062,19 @@ impl Syscaller for PrimExitGroup {
 unsafe impl Send for PrimExitGroup {}
 unsafe impl Sync for PrimExitGroup {}
 
+/// Add a primitive as a child of another primitive (group insertion).
+///
+/// Arg1: child primitive index (1–4095)
+/// Arg2: parent primitive index (0–4095)
+///
+/// Behavior:
+/// - Initializes the parent as a group (type 1) if needed.
+/// - Removes the child from any previous parent/sibling links.
+/// - Appends the child to the end of the parent’s child list.
+/// - Marks the child as part of a group (m_Attribute |= 0x40).
+///
+/// Example usage (script):
+///   PrimGroupIn(10, 5)  // Make primitive 10 a child of primitive 5
 pub struct PrimGroupIn;
 impl Syscaller for PrimGroupIn {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -1066,6 +1089,38 @@ impl Syscaller for PrimGroupIn {
 unsafe impl Send for PrimGroupIn {}
 unsafe impl Sync for PrimGroupIn {}
 
+/// Move a primitive in the scene hierarchy relative to another primitive.
+///
+/// Arg1: reference primitive index (`idx2`)
+///       - The primitive after/below which the target will be inserted.
+/// Arg2: target primitive index (`idx`)
+///       - The primitive that will be moved.
+///
+/// Behavior:
+/// - Detaches the target primitive from its current parent and sibling chain.
+/// - Attaches it under the same parent as `idx2`.
+/// - Updates sibling links so that `idx` follows `idx2`:
+///     - If `idx2` has no next sibling, `idx` becomes the new last child of the parent.
+///     - Otherwise, `idx` is inserted between `idx2` and `idx2`'s next sibling.
+/// - Sets the `0x40` flag on the target primitive to indicate it has been moved.
+///
+/// Hierarchy diagram (before and after moving `idx` relative to `idx2`):
+///
+/// Before:
+/// Parent
+/// ├── idx2
+/// └── idx2_next_sibling
+///
+/// After:
+/// Parent
+/// ├── idx2
+/// ├── idx      <- moved here
+/// └── idx2_next_sibling
+///
+/// Example usage (script):
+/// ```text
+/// PrimGroupMove(5, 10)  // Move primitive 10 to follow primitive 5 under the same parent
+/// ```
 pub struct PrimGroupMove;
 impl Syscaller for PrimGroupMove {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -1080,6 +1135,17 @@ impl Syscaller for PrimGroupMove {
 unsafe impl Send for PrimGroupMove {}
 unsafe impl Sync for PrimGroupMove {}
 
+
+/// Remove a primitive from the scene hierarchy.
+///
+/// Arg1: primitive index (1–4095)
+///
+/// Behavior:
+/// - Detaches the primitive from its parent and siblings using `unlink_prim`.
+/// - The primitive itself remains allocated and can be reinserted.
+///
+/// Example usage (script):
+///   PrimGroupOut(10)  // Removes primitive 10 from the hierarchy
 pub struct PrimGroupOut;
 impl Syscaller for PrimGroupOut {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -1090,6 +1156,18 @@ impl Syscaller for PrimGroupOut {
 unsafe impl Send for PrimGroupOut {}
 unsafe impl Sync for PrimGroupOut {}
 
+///
+/// Reset (clear) the corresponding primitive
+///
+/// Arg1: primitive index
+///
+/// This syscall reinitializes the specified primitive to a "null" state.
+/// The primitive is detached from its parent/sibling chain, its attributes
+/// are cleared, and it is ready to be reused.  
+/// 
+/// Typical usage: free an existing primitive before creating a new one
+/// in the same slot.
+///
 pub struct PrimSetNull;
 impl Syscaller for PrimSetNull {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -1100,6 +1178,19 @@ impl Syscaller for PrimSetNull {
 unsafe impl Send for PrimSetNull {}
 unsafe impl Sync for PrimSetNull {}
 
+///
+/// Set the alpha (transparency) value of the corresponding primitive
+///
+/// Arg1: primitive index  
+/// Arg2: alpha value (0–255)
+///
+/// This syscall changes the transparency of a primitive.  
+/// - `0` means fully transparent  
+/// - `255` means fully opaque  
+///
+/// The alpha value is usually used in blending during rendering.  
+/// Intermediate values create semi-transparent effects.
+///
 pub struct PrimSetAlpha;
 impl Syscaller for PrimSetAlpha {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -1114,6 +1205,20 @@ impl Syscaller for PrimSetAlpha {
 unsafe impl Send for PrimSetAlpha {}
 unsafe impl Sync for PrimSetAlpha {}
 
+
+///
+/// Set the blending mode flag of the corresponding primitive
+///
+/// Arg1: primitive index
+/// Arg2: blend flag
+///
+/// - blend = 0: use inverse source color blending (D3DBLEND_INVSRCCOLOR)
+/// - blend = 1: use additive blending (D3DBLEND_ONE)
+///
+/// This syscall modifies how the primitive's color is combined with the
+/// existing framebuffer. Combined with PrimSetAlpha, it controls transparency
+/// and visual blending effects.
+///
 pub struct PrimSetBlend;
 impl Syscaller for PrimSetBlend {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -1128,6 +1233,11 @@ impl Syscaller for PrimSetBlend {
 unsafe impl Send for PrimSetBlend {}
 unsafe impl Sync for PrimSetBlend {}
 
+///
+/// Set the draw flag of the corresponding primitive
+/// Arg1: primitive index
+/// Arg2: draw flag
+/// 
 pub struct PrimSetDraw;
 impl Syscaller for PrimSetDraw {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -1142,6 +1252,23 @@ impl Syscaller for PrimSetDraw {
 unsafe impl Send for PrimSetDraw {}
 unsafe impl Sync for PrimSetDraw {}
 
+
+///
+/// Set the operation (position) of the corresponding primitive
+///
+/// Arg1: primitive index
+/// Arg2: x coordinate (local, relative to parent) — signed integer (pixels)
+/// Arg3: y coordinate (local, relative to parent) — signed integer (pixels)
+///
+/// This syscall sets the primitive's local position. The engine stores prim
+/// coordinates relative to the parent (see drawing: parent's x/y are added
+/// before drawing children). Changing position should mark the prim as
+/// "dirty" so the renderer / layout logic can update any cached bounds or
+/// vertex data.
+///
+/// Example usage (script):
+///   PrimSetOp(42, 100, 200)  // set prim 42 to local position (100, 200)
+///
 pub struct PrimSetOP;
 impl Syscaller for PrimSetOP {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -1157,6 +1284,25 @@ impl Syscaller for PrimSetOP {
 unsafe impl Send for PrimSetOP {}
 unsafe impl Sync for PrimSetOP {}
 
+
+///
+/// Set the rotation and scale factor of the corresponding primitive
+///
+/// Arg1: primitive index
+/// Arg2: rotation value (0–3600, representing 0–360 degrees; optional)
+/// Arg3: scale factor (100 = 100%, range 100–10000; optional)
+///
+/// This syscall modifies the primitive's transformation parameters:
+/// - Rotation: clockwise, in tenths of a degree. Values wrap around 3600.
+/// - Scale: uniform scaling on X and Y axes, clamped to [100, 10000].
+///
+/// The primitive is marked as "dirty" (m_Attribute |= 0x40) so that the
+/// renderer will recalculate its matrix before drawing.
+///
+/// Example usage (script):
+///   PrimSetRS(42, 900, 150)  // prim 42 rotated 90°, scaled 150%
+///   PrimSetRS(42, 1800)      // prim 42 rotated 180°, scale unchanged
+///
 pub struct PrimSetRS;
 impl Syscaller for PrimSetRS {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -1172,6 +1318,25 @@ impl Syscaller for PrimSetRS {
 unsafe impl Send for PrimSetRS {}
 unsafe impl Sync for PrimSetRS {}
 
+///
+/// Set the rotation and independent scale factors of the corresponding primitive
+///
+/// Arg1: primitive index
+/// Arg2: rotation value (0–3600, representing 0–360 degrees; optional)
+/// Arg3: scale factor X (100 = 100%, range 100–10000; optional)
+/// Arg4: scale factor Y (100 = 100%, range 100–10000; optional)
+///
+/// This syscall modifies the primitive's transformation parameters:
+/// - Rotation: clockwise, in tenths of a degree. Values wrap around 3600.
+/// - Scale X / Y: independent scaling on X and Y axes, clamped to [100, 10000].
+///
+/// The primitive is marked as "dirty" (m_Attribute |= 0x40) so that the
+/// renderer will recalculate its matrix before drawing.
+///
+/// Example usage (script):
+///   PrimSetRS2(42, 900, 150, 200)  // prim 42 rotated 90°, scaled 150% X, 200% Y
+///   PrimSetRS2(42, 1800)            // prim 42 rotated 180°, scale unchanged
+///
 pub struct PrimSetRS2;
 impl Syscaller for PrimSetRS2 {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -1204,6 +1369,29 @@ impl Syscaller for PrimSetSnow {
 unsafe impl Send for PrimSetSnow {}
 unsafe impl Sync for PrimSetSnow {}
 
+///
+/// Initialize a primitive as a sprite and bind it to a texture or special source.
+///
+/// Arg1: primitive index (1–4095)
+/// Arg2: referred texture id
+///       - >= 0: index into scene.textures[]
+///       - -1: use built-in special texture (rendered by sub_42B740)
+///       - -2: use dynamic MOV-to-texture binding
+/// Arg3: initial X position (optional, default 0)
+/// Arg4: initial Y position (optional, default 0)
+///
+/// The primitive is initialized with:
+/// - Type = Sprite (4)
+/// - Position = (X, Y, Z=1000)
+/// - Scale = (1000, 1000) [100%]
+/// - Rotation = 0
+/// - Alpha = -1 (opaque)
+/// - Blend = 0 (normal)
+///
+/// Example usage (script):
+///   PrimSetSprt(10, 5)       // Sprite prim 10, using texture 5
+///   PrimSetSprt(11, -1, 100, 200)  // Sprite prim 11, special -1 texture at (100,200)
+///
 pub struct PrimSetSprt;
 impl Syscaller for PrimSetSprt {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -1219,7 +1407,30 @@ impl Syscaller for PrimSetSprt {
 
 unsafe impl Send for PrimSetSprt {}
 unsafe impl Sync for PrimSetSprt {}
-
+///
+/// Initialize a primitive as a text placeholder bound to a text object.
+///
+/// Arg1: primitive index (1–4095)
+/// Arg2: text index (managed by the text system)
+/// Arg3: initial X position
+/// Arg4: initial Y position
+///
+/// The primitive is initialized with:
+/// - Type = Text
+/// - Position = (X, Y, Z=1000)
+/// - Scale = (1000, 1000) [100%]
+/// - Rotation = 0
+/// - Alpha = -1 (opaque)
+/// - Blend = 0 (normal)
+///
+/// Notes:
+/// - The actual text content is managed separately via SysCallText* APIs,
+///   using the given text_index.
+/// - Prim only controls placement, visibility, alpha, blend, etc.
+///
+/// Example usage:
+///   PrimSetText(20, 5, 100, 200);   // prim 20 displays text object #5 at (100,200)
+///
 pub struct PrimSetText;
 impl Syscaller for PrimSetText {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -1236,6 +1447,34 @@ impl Syscaller for PrimSetText {
 unsafe impl Send for PrimSetText {}
 unsafe impl Sync for PrimSetText {}
 
+
+///
+/// Initialize a primitive as a solid-color tile
+///
+/// Arg1: primitive index (1–4095)
+/// Arg2: tile index (reference ID for tile data)
+/// Arg3: X position (screen space)
+/// Arg4: Y position (screen space)
+/// Arg5: Width
+/// Arg6: Height
+///
+/// This syscall initializes the primitive as a "Tile" type:
+/// - Associates the primitive with a tile resource (tile index)
+/// - Places it at screen position (X, Y)
+/// - Sets its dimensions to (Width, Height)
+/// - Rotation defaults to 0
+/// - Scale factors default to (1000, 1000) [100%]
+/// - Alpha defaults to -1 (opaque)
+/// - Blend defaults to 0 (normal blending)
+///
+/// Notes:
+/// - Tile primitives are always filled rectangles, using the engine’s tile resource.
+/// - Color/alpha adjustments should be applied separately using `PrimSetAlpha` or `PrimSetBlend`.
+/// - Commonly used for UI panels, backgrounds, or simple colored blocks.
+///
+/// Example usage:
+///   PrimSetTile(10, 3, 50, 50, 200, 100); // prim #10, uses tile #3, positioned at (50,50) with size 200×100
+///
 pub struct PrimSetTile;
 impl Syscaller for PrimSetTile {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -1254,6 +1493,30 @@ impl Syscaller for PrimSetTile {
 unsafe impl Send for PrimSetTile {}
 unsafe impl Sync for PrimSetTile {}
 
+
+///
+/// Set the UV sub-rectangle of a primitive
+///
+/// Arg1: primitive index (1–4095)  
+/// Arg2: U coordinate (left/top pixel in the texture)  
+/// Arg3: V coordinate (top pixel in the texture)  
+///
+/// Usage:
+/// - Defines the texture sampling origin relative to the **loaded texture atlas**.
+/// - Typically used together with `PrimSetUVWH` to specify width/height of the region.
+/// - If not called, the entire texture is sampled by default.
+///
+/// Relationship with offsets:
+/// - `offset_x` / `offset_y` (from HGraphBuff) define the **pivot point** of the sprite when drawn.  
+/// - `U` / `V` define the **top-left corner of the texture region** to be sampled.  
+/// - At render time, the engine subtracts `(offset_x, offset_y)` from `(m_U, m_V)` so that the sampled region aligns with the sprite pivot.
+///
+/// Example:
+/// ```
+/// // Sample a 32×32 icon starting at (64,128) inside a texture atlas
+/// PrimSetUV(12, 64, 128);
+/// ```
+///
 pub struct PrimSetUV;
 impl Syscaller for PrimSetUV {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -1284,6 +1547,52 @@ impl Syscaller for PrimSetXY {
 unsafe impl Send for PrimSetXY {}
 unsafe impl Sync for PrimSetXY {}
 
+
+///
+/// Set the width and height of a primitive's texture region
+///
+/// Arg1: primitive index (1–4095)  
+/// Arg2: width (pixels)  
+/// Arg3: height (pixels)  
+///
+/// Usage:
+/// - Works together with `PrimSetUV`.  
+/// - Defines the size (W,H) of the rectangular region sampled from the texture atlas.  
+/// - If not called, defaults to the full texture size (graph_width/graph_height).  
+///
+/// Relationship with offsets:
+/// - `PrimSetUV` sets the starting point (U,V) inside the texture.  
+/// - `PrimSetWH` sets how large the region is.  
+/// - Together, they form the complete sub-rectangle `(U,V,W,H)` to be drawn.  
+///
+/// Example:
+/// ```
+/// // Render a 64×64 sprite from texture atlas starting at (U=128, V=256)
+/// PrimSetUV(10, 128, 256);
+/// PrimSetWH(10, 64, 64);
+/// ```
+///
+/// Notes:
+/// - The actual on-screen size may still be affected by `PrimSetRS`/`PrimSetRS2` (scaling).  
+/// - If `W` or `H` exceed the texture bounds, they will be clipped during rendering.
+///
+/// Texture Atlas
+// +---------------------------------------------------+
+// |                                                   |
+// |             (U,V) Origin                          |
+// |                +-------------------+              |
+// |                |                   |              |
+// |                |   Sub-Region      | <- from      |
+// |                |   (W,H)           |    PrimSetWH |
+// |                |                   |              |
+// |                +-------------------+              |
+// |                                                   |
+// +---------------------------------------------------+
+// Explanation:
+// - `PrimSetUV(index, U, V)` sets the starting point (U,V) of the texture sample rectangle.
+// - `PrimSetWH(index, W, H)` sets the width and height (W,H) of that rectangle.
+// - The actual sampled region = rectangle starting at (U,V) with size (W,H).
+// - This rectangle is then mapped to the sprite on screen.
 pub struct PrimSetWH;
 impl Syscaller for PrimSetWH {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -1299,6 +1608,22 @@ impl Syscaller for PrimSetWH {
 unsafe impl Send for PrimSetWH {}
 unsafe impl Sync for PrimSetWH {}
 
+///
+/// Set the Z-depth of a sprite primitive.
+///
+/// Arg1: primitive index (1–4095)
+/// Arg2: Z value (100–10000)
+///       - 100 = closest to camera (appears on top)
+///       - 10000 = farthest from camera (appears behind)
+///
+/// The primitive's Z value affects:
+/// - Rendering order (near → far)
+/// - Perspective scaling and projection
+///
+/// Example usage (script):
+///   PrimSetZ(10, 500)    // Set sprite prim 10 to Z=500
+///   PrimSetZ(11, 2000)   // Set sprite prim 11 farther back in scene
+///
 pub struct PrimSetZ;
 impl Syscaller for PrimSetZ {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -1313,7 +1638,14 @@ impl Syscaller for PrimSetZ {
 unsafe impl Send for PrimSetZ {}
 unsafe impl Sync for PrimSetZ {}
 
-
+/// Check if a sprite primitive was clicked or "hit".
+///
+/// Arg1: primitive index (1–4095)
+///
+/// Returns:
+/// - `nil` if the primitive was not hit
+/// - `True` if the primitive was clicked
+///
 pub struct PrimHit;
 impl Syscaller for PrimHit {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -1328,7 +1660,13 @@ impl Syscaller for PrimHit {
 unsafe impl Send for PrimHit {}
 unsafe impl Sync for PrimHit {}
 
-
+/// Load or unload a graphical texture into the engine.
+///
+/// Arg1: texture index (0..0x1000)
+/// Arg2: file path to the texture
+///       - `path`: load the texture from the specified path
+///       - `nil`: unload the texture at this index
+///
 pub struct GraphLoad;
 impl Syscaller for GraphLoad {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -1343,7 +1681,51 @@ impl Syscaller for GraphLoad {
 unsafe impl Send for GraphLoad {}
 unsafe impl Sync for GraphLoad {}
 
-
+///
+/// Adjust the color tone of a loaded texture.
+///
+/// Arg1: texture index
+///       - If nil, the call is ignored
+/// Arg2: red adjustment (optional, default 100)
+///       - 0 = completely dark
+///       - 100 = original color
+///       - 101–200 = brightened color
+/// Arg3: green adjustment (optional, default 100)
+///       - Same scale as red
+/// Arg4: blue adjustment (optional, default 100)
+///       - Same scale as red
+///
+/// Notes:
+/// - This function does not tile or replace the texture.
+/// - It performs a color tone modification (brightness/darkening) per channel.
+/// - Values are clamped: 0–200. 100 means 100% of original channel intensity.
+/// - Values >100 brighten proportionally; values <100 darken proportionally.
+/// - Internally, `apply_color_tone` modifies the pixel buffer directly.
+///
+/// Example usage (script):
+///   GraphRGB(5)                // Texture 5, no change (100,100,100)
+///   GraphRGB(5, 50, 100, 100)  // Texture 5, red darkened by 50%
+///   GraphRGB(5, 150, 150, 150) // Texture 5, brighten all channels by ~50%
+///
+/// Color Tone Scale:
+///
+/// Darkening | Original | Brightening
+///    0     ---|--- 100 ---|--- 200
+/// Red/Green/Blue intensity
+///
+/// ASCII diagram (proportional):
+///
+///  200 ┤          #######
+///  180 ┤         #######
+///  160 ┤        #######
+///  140 ┤       #######
+///  120 ┤      #######
+///  100 ┤###### Original
+///   80 ┤######
+///   60 ┤#####
+///   40 ┤####
+///   20 ┤###
+///    0 ┤##
 pub struct GraphRGB;
 impl Syscaller for GraphRGB {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -1360,7 +1742,29 @@ impl Syscaller for GraphRGB {
 unsafe impl Send for GraphRGB {}
 unsafe impl Sync for GraphRGB {}
 
-
+///
+/// Load a custom gaiji (special character image 外字) for use in dialogue or UI rendering.
+/// Also see wiki: https://zh.wikipedia.org/zh-hk/%E5%A4%96%E5%AD%97
+///
+/// Arg1: path to the gaiji image folder (string)
+///       - Example: "graph/gaiji_ikari"
+/// Arg2: size slot (integer 12–64)
+///       - Corresponds to the text size or rendering slot where this gaiji will be used
+///       - Different slots allow the same character to appear at multiple sizes in dialogue
+/// Arg3: keyword (string)
+///       - The character or symbol this gaiji represents
+///       - Example: "怒", "汗", "汁", "ハ"
+///
+/// Notes:
+/// - The gaiji image is mapped to the keyword in the engine’s gaiji table for the given size.
+///
+/// Example usage (script):
+/// ```text
+/// GaijiLoad("graph/gaiji_ikari", 28, "怒")   // Slot 28, kanji for "anger"
+/// GaijiLoad("graph/gaiji_ase", 28, "汗")    // Slot 28, kanji for "sweat"
+/// GaijiLoad("graph/gaiji_ikari156", 39, "怒") // Slot 39, larger size
+/// GaijiLoad("graph/gaiji_heart68", 17, "ハ") // Slot 17, small heart symbol
+/// ```
 pub struct GaijiLoad;
 impl Syscaller for GaijiLoad {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {

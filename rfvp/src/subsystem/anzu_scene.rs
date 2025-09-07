@@ -128,7 +128,7 @@ impl AnzuScene {
                     .motion_manager
                     .prim_manager
                     .get_prim(prim_id)
-                    .get_child();
+                    .get_first_child_idx();
 
                 while i != INVAILD_PRIM_HANDLE {
                     let prim_x = game_data
@@ -148,7 +148,7 @@ impl AnzuScene {
                         .motion_manager
                         .prim_manager
                         .get_prim(i)
-                        .get_grand_son();
+                        .get_next_sibling_idx();
                 }
             }
             PrimType::PrimTypeTile => {
