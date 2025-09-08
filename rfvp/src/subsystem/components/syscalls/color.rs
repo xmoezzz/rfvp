@@ -21,7 +21,9 @@ pub fn color_set(
         },
     };
 
-    if !(0..256).contains(&id) {
+    let id = id as u8;  // compiler optimization
+
+    if !(0..=255).contains(&id) {
         log::error!("id must be in range 0..256");
         return Ok(Variant::Nil);
     }
@@ -46,6 +48,14 @@ pub fn color_set(
     Ok(Variant::Nil)
 }
 
+
+/// Set color value (rbga) for the corresponding slot
+/// 
+/// Arg1: color index (0~255)
+/// Arg2: the red value (0~255)
+/// Arg2: the green value (0~255)
+/// Arg2: the blue value (0~255)
+/// Arg2: the alpha value (0~255)
 pub struct ColorSet;
 impl Syscaller for ColorSet {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {

@@ -259,7 +259,7 @@ impl MotionManager {
     ) {
         self.snow_motion_container.push_motion(
             id, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18,
-            screen_width, screen_height,
+            screen_width as i32, screen_height as i32,
         )
     }
 

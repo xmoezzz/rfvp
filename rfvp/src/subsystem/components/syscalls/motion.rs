@@ -827,6 +827,44 @@ pub fn v3d_set(game_data: &mut GameData, x: &Variant, y: &Variant, z: &Variant) 
     Ok(Variant::Nil)
 }
 
+/// Start an alpha animation on a primitive (fade/tween).
+///
+/// Arg1: primitive index (1–4095)
+/// Arg2: src_alpha (0–255, optional)
+///       - starting alpha; if omitted or invalid, uses current prim.m_Alpha
+/// Arg3: dest_alpha (0–255, optional)
+///       - target alpha; if omitted or invalid, uses current prim.m_Alpha
+/// Arg4: duration (ms) (1–300000)
+///       - animation length in milliseconds
+/// Arg5: type (0 or 1, optional)
+///       - 0 = Linear interpolation (default)
+///       - 1 = Immediate (set to src_alpha immediately)
+/// Arg6: reverse (optional)
+///       - treated as true if the argument exists (i.e. args[5].Type != 0)
+///       - when reverse is enabled, negative elapsed passed into the updater is handled (elapsed sign may be flipped)
+///
+/// Behavior:
+/// - Validates parameters; src/dest alpha fallback to the primitive's current alpha when not provided or out of range (<0x100).
+/// - Registers an alpha animation record (set_alpha_anm) with the engine's alpha motion container.
+/// - During each frame update the animation:
+///     - marks the primitive dirty (`m_Attribute |= 0x40`)
+///     - accumulates elapsed time (if reverse=true and elapsed < 0, elapsed is negated)
+///     - if elapsed >= duration: sets `m_Alpha = dest_alpha` and ends the animation
+///     - otherwise for type=0: linearly interpolates
+///       `m_Alpha = src + elapsed * (dest - src) / duration`
+///       for type=1: sets `m_Alpha = src` (immediate)
+///
+/// Notes:
+/// - Alpha values are 0..255 (1 byte). Time is in milliseconds.
+/// - `reverse` is detected by the presence/type of the 6th argument (not by its numeric value).
+/// - The updater skips running if the primitive or any ancestor is paused, or if scene root constraints apply.
+/// - The animation sets the primitive's alpha progressively on the `m_Alpha` field used by the renderer.
+///
+/// Example usage (script):
+///   MotionAlpha(12, 0,   255, 1000, 0)      // fade in prim 12 over 1 second (linear)
+///   MotionAlpha(8,  128, 128,  500, 1)      // immediately set prim 8 alpha to 128
+///   MotionAlpha(20, 255, 0,  2000, 0, true) // fade out prim 20 over 2s with reverse allowed
+///
 pub struct MotionAlpha;
 impl Syscaller for MotionAlpha {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -844,6 +882,11 @@ impl Syscaller for MotionAlpha {
 unsafe impl Send for MotionAlpha {}
 unsafe impl Sync for MotionAlpha {}
 
+/// Stop the alpha animation with a primitive index
+/// 
+/// Arg1: primitive index (1–4095)
+/// Behavior:
+/// - The function has no return value
 pub struct MotionAlphaStop;
 impl Syscaller for MotionAlphaStop {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -856,6 +899,20 @@ impl Syscaller for MotionAlphaStop {
 unsafe impl Send for MotionAlphaStop {}
 unsafe impl Sync for MotionAlphaStop {}
 
+/// Test whether a primitive currently has a running alpha animation.
+///
+/// Arg1: primitive index (1–4095)
+///
+/// Behavior:
+/// - Queries the alpha motion container (`alpha_motion_is_running`) for the specified prim.
+/// - Sets the script return value to:
+///     - True if an alpha animation is currently active
+///     - Nil/False if no alpha animation is running
+///
+/// Notes:
+/// - This does not return details about the animation (duration, type, etc.), only a boolean.
+/// - Works in tandem with `MotionAlpha`; useful for checking whether a fade/tween is still ongoing before triggering new actions.
+///
 pub struct MotionAlphaTest;
 impl Syscaller for MotionAlphaTest {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
