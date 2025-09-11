@@ -71,6 +71,8 @@ pollster = "0.4.0"
 rfvp-render = { path = "../rfvp-render" }
 rfvp-core = { path = "../rfvp-core" }
 rfvp-audio = { path = "../rfvp-audio" }
+rfvp-debugger = { path = "../rfvp-debugger" }
+bitflags = "2.9.4"
 
 [profile.test]
 inherits = "release"

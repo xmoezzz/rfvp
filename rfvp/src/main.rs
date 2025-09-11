@@ -6,7 +6,6 @@ mod rendering;
 mod config;
 mod window;
 mod audio_player;
-mod cli;
 
 use script::parser::{Nls, Parser};
 use subsystem::{anzu_scene::AnzuScene, resources::thread_manager::ThreadManager};
@@ -18,6 +17,10 @@ use crate::{
     },
     app::App,
     utils::file::app_base_path,
+};
+
+use rfvp_debugger::{
+    start_debug_ui, ResourceInfo, ResourceStatus, InputEvent,
 };
 
 use crate::subsystem::world::GameData;
@@ -49,14 +52,13 @@ fn load_script(nls: Nls) -> Result<Parser> {
 
 
 fn main() -> Result<()> {
+    // let mut handle = start_debug_ui();
+    // let _ = handle.start_capture();
+
     let parser = load_script(Nls::ShiftJIS)?;
     let title  = parser.get_title();
     let size = parser.get_screen_size();
     let script_engine = ThreadManager::new();
-
-    // let (tx, rx) = std::sync::mpsc::channel();
-    // let mut app = cli::RatatuiApp::new()?;
-    // let ui_handle = cli::RatatuiApp::spawn(rx);
 
     App::app_with_config(app_config(&title, size))
         .with_scene::<AnzuScene>()
@@ -67,6 +69,7 @@ fn main() -> Result<()> {
         .with_vfs(Nls::ShiftJIS)?
         .run();
 
+    // handle.shutdown();
     
     Ok(())
 }

@@ -137,6 +137,10 @@ pub struct GameData {
     se_player: AtomicRefCell<SePlayer>,
     bgm_player: AtomicRefCell<BgmPlayer>,
     root_prim: Option<i16>,
+    pub close_immediate: bool,
+    pub lock_scripter: bool,
+    pub close_pending: bool,
+    pub last_current_thread: u32,
 }
 
 impl Default for GameData {
@@ -164,6 +168,10 @@ impl Default for GameData {
             bgm_player: AtomicRefCell::new(BgmPlayer::new(audio_manager.clone())),
             audio_manager,
             root_prim: None,
+            close_immediate: true,
+            lock_scripter: false,
+            close_pending: false,
+            last_current_thread: 0,
         }
     }
 }

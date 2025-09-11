@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     script::{
-        context::{CONTEXT_STATUS_DISSOLVE_WAIT, CONTEXT_STATUS_RUNNING, CONTEXT_STATUS_WAIT},
+        context::ThreadState,
         global::GLOBAL,
         parser::{Nls, Parser}, Variant,
     },
@@ -79,6 +79,31 @@ impl App {
             ));
     }
 
+    fn debug_title(&mut self, x: i32, y: i32) {
+        let title = self.parser.get_title();
+        let test = std::env::var("FVP_TEST");
+        if let Ok(test) = test {
+            if test == *"1" {
+                let title = format!("{} | {},{} | down {}, up {} | ", 
+                    title, 
+                    x, 
+                    y,
+                    self.debug_keydown(),
+                    self.debug_keyup()
+                );
+                self.window.as_mut().unwrap().set_title(&title);
+            }
+        }
+    }
+
+    fn debug_keydown(&self) -> String {
+        self.game_data.inputs_manager.get_input_down().to_string()
+    }
+
+    fn debug_keyup(&self) -> String {
+        self.game_data.inputs_manager.get_input_up().to_string()
+    }
+
     fn run(mut self, event_loop: EventLoop<()>) {
         let _result = event_loop.run(move |event, loopd| {
             loopd.set_control_flow(ControlFlow::Poll);
@@ -126,6 +151,7 @@ impl App {
                     self.layer_machine
                         .apply_scene_action(SceneAction::EndFrame, &mut self.game_data);
                     self.window.as_mut().unwrap().request_redraw();
+                    self.debug_title(self.game_data.inputs_manager.get_cursor_x(), self.game_data.inputs_manager.get_cursor_y());
                 }
                 _ => (),
             }
@@ -136,27 +162,31 @@ impl App {
         // let ctx = self.game_data.thread_manager.get_thread(id);
         let dissolve_type = self.game_data.motion_manager.get_dissolve_type();
         let status = self.thread_manager.get_context_status(id);
-        if status & CONTEXT_STATUS_WAIT != 0 {
+        if status.contains(ThreadState::CONTEXT_STATUS_WAIT) {
             let wait_time = self.thread_manager.get_context_waiting_time(id);
             if wait_time > frame_time {
                 self.thread_manager
                     .set_context_waiting_time(id, wait_time - frame_time);
             } else {
                 self.thread_manager.set_context_waiting_time(id, 0);
+                let mut new_status = status.clone();
+                new_status.remove(ThreadState::CONTEXT_STATUS_WAIT);
                 self.thread_manager
-                    .set_context_status(id, status & 0xFFFFFFFD);
+                    .set_context_status(id, new_status);
             }
         }
 
         // dissolve wait
-        if status & CONTEXT_STATUS_DISSOLVE_WAIT != 0
+        if status.contains(ThreadState::CONTEXT_STATUS_DISSOLVE_WAIT)
             && (dissolve_type == DissolveType::None || dissolve_type == DissolveType::Static)
         {
+            let mut new_status = status.clone();
+            new_status.remove(ThreadState::CONTEXT_STATUS_DISSOLVE_WAIT);
             self.thread_manager
-                .set_context_status(id, status & 0xFFFFFFEF);
+                .set_context_status(id, new_status);
         }
 
-        if status & CONTEXT_STATUS_RUNNING != 0 {
+        if status.contains(ThreadState::CONTEXT_STATUS_RUNNING) {
             self.thread_manager.set_context_should_break(id, false);
             while !self.thread_manager.get_context_should_break(id) {
                 // let mut ctx = self.thread_manager.get_thread(id);

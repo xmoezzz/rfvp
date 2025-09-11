@@ -18,6 +18,24 @@ impl ColorItem {
         }
     }
 
+    pub fn black() -> Self {
+        Self {
+            r: 0,
+            g: 0,
+            b: 0,
+            a: 0xff,
+        }
+    }
+
+    pub fn white() -> Self {
+        Self {
+            r: 0xff,
+            g: 0xff,
+            b: 0xff,
+            a: 0xff,
+        }
+    }
+
     pub fn set_r(&mut self, r: u8) {
         self.r = r;
     }
@@ -60,9 +78,13 @@ pub struct ColorManager {
 
 impl ColorManager {
     pub fn new() -> Self {
-        Self {
+        let mut s = Self {
             colors: vec![ColorItem::new(); 256],
-        }
+        };
+
+        s.colors[1] = ColorItem::black();
+        s.colors[2] = ColorItem::white();
+        s
     }
 
     pub fn get_entry_mut(&mut self, id: u8) -> &mut ColorItem {

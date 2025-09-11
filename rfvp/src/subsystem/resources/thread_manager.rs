@@ -1,6 +1,6 @@
 use std::cell::{RefCell, RefMut};
 
-use crate::script::{context::{Context, CONTEXT_STATUS_NONE, CONTEXT_STATUS_RUNNING, CONTEXT_STATUS_SLEEP, CONTEXT_STATUS_WAIT}, parser::Parser, VmSyscall};
+use crate::script::{context::{Context, ThreadState}, parser::Parser, VmSyscall};
 
 pub struct ThreadManager {
     pub contexts: Vec<Context>,
@@ -45,11 +45,11 @@ impl ThreadManager {
         self.contexts.len()
     }
 
-    pub fn get_context_status(&self, id: u32) -> u32 {
+    pub fn get_context_status(&self, id: u32) -> ThreadState {
         self.contexts[id as usize].get_status()
     }
 
-    pub fn set_context_status(&mut self, id: u32, status: u32) {
+    pub fn set_context_status(&mut self, id: u32, status: ThreadState) {
         self.contexts[id as usize].set_status(status);
     }
 
@@ -89,14 +89,14 @@ impl ThreadManager {
         if id == 0 {
             for i in 0..self.total_contexts() {
                 let mut context = Context::new(0, i as u32);
-                context.set_status(CONTEXT_STATUS_NONE);
+                context.set_status(ThreadState::CONTEXT_STATUS_NONE);
                 context.set_should_break(true);
                 self.contexts[id as usize] = context;
             }
         }
 
         let mut context = Context::new(addr, id);
-        context.set_status(CONTEXT_STATUS_RUNNING);
+        context.set_status(ThreadState::CONTEXT_STATUS_RUNNING);
         self.contexts[id as usize] = context;
     }
 
@@ -105,7 +105,7 @@ impl ThreadManager {
         self.contexts[self.current_id as usize].set_waiting_time(time as u64);
 
         let status = self.contexts[self.current_id as usize].get_status();
-        self.contexts[self.current_id as usize].set_status(status | CONTEXT_STATUS_WAIT);
+        self.contexts[self.current_id as usize].set_status(status | ThreadState::CONTEXT_STATUS_WAIT);
     }
 
     pub fn thread_sleep(&mut self, time: u32) {
@@ -113,7 +113,7 @@ impl ThreadManager {
         self.contexts[self.current_id as usize].set_waiting_time(time as u64);
 
         let status = self.contexts[self.current_id as usize].get_status();
-        self.contexts[self.current_id as usize].set_status(status | CONTEXT_STATUS_SLEEP);
+        self.contexts[self.current_id as usize].set_status(status | ThreadState::CONTEXT_STATUS_SLEEP);
     }
 
     pub fn thread_raise(&mut self, time: u32) {
@@ -121,8 +121,8 @@ impl ThreadManager {
             let status = self.contexts[i].get_status();
             // wtf?
             // both sleep and raise are never used
-            if status & CONTEXT_STATUS_SLEEP != 0 && self.contexts[i].get_waiting_time() == time as u64 {
-                self.contexts[i].set_status(status & !CONTEXT_STATUS_SLEEP);
+            if status.contains(ThreadState::CONTEXT_STATUS_SLEEP) && self.contexts[i].get_waiting_time() == time as u64 {
+                self.contexts[i].set_status(status & !ThreadState::CONTEXT_STATUS_SLEEP);
             }
         }
     }
@@ -140,7 +140,7 @@ impl ThreadManager {
         if id == 0 {
             for i in 0..self.total_contexts() {
                 let mut ctx = Context::new(0, i as u32);
-                ctx.set_status(CONTEXT_STATUS_NONE);
+                ctx.set_status(ThreadState::CONTEXT_STATUS_NONE);
                 ctx.set_should_break(true);
                 self.contexts[id as usize] = ctx;
             }
@@ -149,7 +149,7 @@ impl ThreadManager {
 
         } else {
             let mut ctx = Context::new(0, id);
-            ctx.set_status(CONTEXT_STATUS_NONE);
+            ctx.set_status(ThreadState::CONTEXT_STATUS_NONE);
             ctx.set_should_break(true);
             self.contexts[id as usize] = ctx;
         }

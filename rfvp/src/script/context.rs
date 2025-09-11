@@ -6,6 +6,7 @@ use crate::script::parser::Parser;
 use crate::script::Variant;
 use crate::script::VmSyscall;
 use crate::script::opcode::Opcode;
+use bitflags::bitflags;
 
 use anyhow::{bail, Result};
 
@@ -41,17 +42,23 @@ pub struct Context {
     cur_stack_base: usize,
     start_addr: u32,
     return_value: Variant,
-    state: u32,
+    state: ThreadState,
     wait_ms: u64,
     should_exit: bool,
     should_break: bool,
 }
 
-pub const CONTEXT_STATUS_NONE: u32 = 0;
-pub const CONTEXT_STATUS_RUNNING: u32 = 1;
-pub const CONTEXT_STATUS_WAIT: u32 = 2;
-pub const CONTEXT_STATUS_SLEEP: u32 = 4;
-pub const CONTEXT_STATUS_DISSOLVE_WAIT: u32 = 16;
+bitflags! {
+    #[derive(Debug, Clone)]
+    pub struct ThreadState: u32 {
+        const CONTEXT_STATUS_NONE = 0;
+        const CONTEXT_STATUS_RUNNING = 1;
+        const CONTEXT_STATUS_WAIT = 2;
+        const CONTEXT_STATUS_SLEEP = 4;
+        const CONTEXT_STATUS_DISSOLVE_WAIT = 16;
+    }
+}
+
 
 impl Context {
     pub fn new(start_addr: u32, id: u32) -> Self {
@@ -63,7 +70,7 @@ impl Context {
             cur_stack_base: 0,
             start_addr,
             return_value: Variant::Nil,
-            state: CONTEXT_STATUS_NONE,
+            state: ThreadState::CONTEXT_STATUS_NONE,
             wait_ms: 0,
             should_exit: false,
             should_break: false,
@@ -926,11 +933,11 @@ impl Context {
         self.wait_ms = wait_ms;
     }
 
-    pub fn get_status(&self) -> u32 {
-        self.state
+    pub fn get_status(&self) -> ThreadState {
+        self.state.clone()
     }
 
-    pub fn set_status(&mut self, state: u32) {
+    pub fn set_status(&mut self, state: ThreadState) {
         self.state = state;
     }
 

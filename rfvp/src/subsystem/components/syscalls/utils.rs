@@ -133,7 +133,7 @@ pub fn title_menu(_game_data: &mut GameData, _title: &Variant) -> Result<Variant
     Ok(Variant::Nil)
 }
 
-pub fn exit_mode(_game_data: &mut GameData, mode: &Variant) -> Result<Variant> {
+pub fn exit_mode(game_data: &mut GameData, mode: &Variant) -> Result<Variant> {
     let mode = match mode {
         Variant::Int(mode) => *mode,
         _ => {
@@ -142,12 +142,22 @@ pub fn exit_mode(_game_data: &mut GameData, mode: &Variant) -> Result<Variant> {
         },
     };
 
-    if mode > 4 {
-        log::error!("exit_mode: Invalid mode value");
-        return Ok(Variant::Nil);
+    if mode == 0 {
+        if game_data.close_pending {
+            game_data.close_pending = false;
+            return Ok(Variant::True);
+        }
     }
-
-    log::info!("Exit mode set to: {:?}", mode);
+    else if mode == 1 {
+        game_data.close_immediate = true;
+    }
+    else if mode == 2 {
+        game_data.close_immediate = false;
+    }
+    else if mode == 3 {
+        game_data.lock_scripter = true;
+        // game_data.
+    }
 
     Ok(Variant::Nil)
 }
