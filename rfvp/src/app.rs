@@ -1,9 +1,8 @@
 use anyhow::Result;
 use std::{
-    path::{Path, PathBuf},
-    sync::{Arc, RwLock},
+    collections::HashMap, fs::File, path::{Path, PathBuf}, slice::Windows, sync::{Arc, RwLock}, time::Instant
 };
-
+use regex::Regex;
 use crate::{
     script::{
         context::ThreadState,
@@ -12,9 +11,9 @@ use crate::{
     },
     subsystem::resources::{
         motion_manager::DissolveType, thread_manager::ThreadManager, thread_wrapper::ThreadRequest,
-    },
+    }, utils::ani::{self, icondir_to_custom_cursor, CursorBundle},
 };
-use winit::dpi::{PhysicalSize, Size};
+use winit::{dpi::{PhysicalSize, Size}, window::CustomCursor};
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
@@ -68,6 +67,9 @@ impl App {
         self.initialize_internal_resources();
         self.layer_machine
             .apply_scene_action(SceneAction::Start, &mut self.game_data);
+        if self.game_data.has_cursor(1) {
+            self.game_data.switch_cursor(1);
+        }
     }
 
     fn initialize_internal_resources(&mut self) {
@@ -102,6 +104,15 @@ impl App {
 
     fn debug_keyup(&self) -> String {
         self.game_data.inputs_manager.get_input_up().to_string()
+    }
+
+    fn get_current_thread(&self) -> u32 {
+        self.thread_manager.get_current_id()
+    }
+
+    fn set_current_thread(&mut self, id : u32) {
+        self.thread_manager.set_current_id(id);
+        self.game_data.set_current_thread(id);
     }
 
     fn run(mut self, event_loop: EventLoop<()>) {
@@ -241,29 +252,10 @@ impl App {
         self.layer_machine
             .apply_scene_action(SceneAction::LateUpdate, &mut self.game_data);
 
-        // if self.current_thread_id.is_none() {
-        //     self.current_thread_id = Some(0);
-        // }
-
-        // let cur_id = self.thread_manager.get_current_id();
-
-
-        // if let Some(id) = self.current_thread_id {
-        //     if !self.thread_manager.get_should_break() {
-        //         self.thread_manager.set_current_id(id);
-        //         self.exec_script_bytecode(id, frame_duration.as_millis() as u64);
-        //     }
-        //     if id < self.thread_manager.total_contexts() as u32 - 1 {
-        //         self.current_thread_id = Some(id + 1);
-        //     } else {
-        //         self.current_thread_id = Some(0);
-        //     }
-        // }
-
         for i in 0..self.thread_manager.total_contexts() {
             log::info!("Executing script bytecode for thread {}", i);
             if !self.thread_manager.get_should_break() {
-                self.thread_manager.set_current_id(i as u32);
+                self.set_current_thread(i as u32);
                 self.exec_script_bytecode(i as u32, frame_duration.as_micros() as u64);
             }
         }
@@ -275,27 +267,17 @@ impl App {
     }
 
     fn update_cursor(&mut self) {
-        {
-            let mut window = self.game_data.window();
-            if let Some(icon) = window.new_cursor() {
-                let w = self
-                    .window
-                    .as_mut()
-                    .expect("A window is mandatory to run this game !");
-                w.set_cursor_icon(*icon);
-            }
-            if let Some(dimensions) = window.new_dimensions() {
-                let w = self
-                    .window
-                    .as_mut()
-                    .expect("A window is mandatory to run this game !");
-                let _r = w.request_inner_size(Size::Physical(PhysicalSize::new(
-                    dimensions.0 * window.dpi() as u32,
-                    dimensions.1 * window.dpi() as u32,
-                )));
-            }
-            window.reset_future_settings()
+        let cursor_frame = self.game_data.update_cursor();
+        let mut window = self.game_data.window();
+        let w = self
+            .window
+            .as_mut()
+            .expect("A window is mandatory to run this game !");
+        if let Some(frame) = cursor_frame {
+            w.set_cursor(frame);
         }
+        
+        window.reset_future_settings()
     }
 
     pub fn find_hcb(game_path: impl AsRef<Path>) -> Result<PathBuf> {
@@ -485,6 +467,69 @@ impl AppBuilder {
         
         self.script_engine.start_main(entry_point);
         self.world.nls = self.parser.nls.clone();
+
+
+        let mut cursor_table = HashMap::new();
+        if let Ok(cursor_paths) = self.world.vfs.find_ani() {
+            let re = Regex::new(r"^([a-zA-Z_]+)(\d+)$").unwrap();
+            for path in &cursor_paths {
+                // split cursor1.ani into `cursor` and `1`
+                let filename = path
+                    .file_stem()
+                    .unwrap_or_default() 
+                    .to_string_lossy();
+
+                if let Some(caps) = re.captures(&filename) {
+                    let prefix = caps[1].to_string();
+                    let number = caps[2].to_string();
+                    
+                    if let Ok(index) = number.parse::<u32>() {
+                        let file = File::open(path).unwrap();
+                        if let Ok(cursor) = ani::Decoder::new(file).decode() {
+                            let mut failed = false;
+                            let mut sources = vec![];
+                            for frame in &cursor.frames {
+                                match icondir_to_custom_cursor(frame) {
+                                    Ok(s) => {
+                                        sources.push(s);
+                                    }
+                                    Err(e) => {
+                                        log::error!("{:#?}", e);
+                                        failed = true;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if failed {
+                                log::error!("Failed to load icon : {}", path.display());
+                                continue;
+                            }
+
+                            let mut new_cursors = vec![];
+                            for s in sources {
+                                let c = event_loop.create_custom_cursor(s);
+                                new_cursors.push(c);
+                            }
+
+                            let cb = CursorBundle {
+                                animated_cursor: cursor,
+                                frames: new_cursors,
+                                current_frame: 0,
+                                last_update: Instant::now(),
+                            };
+
+                            cursor_table.insert(index, cb);
+                        }
+                    }
+                } else {
+                    continue;
+                }
+
+            }
+        }
+
+        self.world.set_cursor_table(cursor_table);
 
         let mut app = App {
             config: self.config,

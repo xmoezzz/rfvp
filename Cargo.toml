@@ -5,7 +5,7 @@ members = [
     "disassembler",
     "rfvp",
     "rfvp-audio",
-    "rfvp-core",
+    "rfvp-core", "rfvp-debugger",
     "rfvp-render",
     "rfvp-tasks",
     "rfvp-video",

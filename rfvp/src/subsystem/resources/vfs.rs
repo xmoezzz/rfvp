@@ -244,6 +244,21 @@ impl Vfs {
         let content = std::fs::read(path).context(format!("unable to load : {}", path.display()))?;
         Ok(content)
     }
+
+
+    pub fn find_ani(&self) -> Result<Vec<PathBuf>> {
+        let app_base = app_base_path();
+        let mut path = app_base.get_path().clone();
+        path.push("*.ani");
+
+        let matches: Vec<_> = glob::glob(&path.to_string_lossy())?.flatten().collect();
+
+        if matches.is_empty() {
+            anyhow::bail!("No hcb file found in the game directory");
+        }
+
+        Ok(matches.iter().map(|p| p.to_path_buf()).collect())
+    }
 }
 
 #[cfg(test)]
@@ -297,6 +312,14 @@ mod tests {
         if buf.is_empty() {
             panic!("Buffer is empty");
         }
+    }
+
+    #[test]
+    fn test_find_ani() {
+        std::env::set_var("FVP_TEST", "1");
+        let vfs = Vfs::new(Nls::ShiftJIS).unwrap();
+        let ani_files = vfs.find_ani().unwrap();
+        println!("{:#?}", ani_files)
     }
     
 }

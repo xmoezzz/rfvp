@@ -75,12 +75,14 @@ use crate::subsystem::resources::motion_manager::MotionManager;
 use crate::subsystem::resources::time::Time;
 use crate::subsystem::resources::window::Window;
 use crate::subsystem::scene::SceneController;
-use atomic_refcell::{AtomicRefCell, AtomicRefMut};
+use crate::utils::ani::CursorBundle;
+use atomic_refcell::{AtomicRef, AtomicRefCell, AtomicRefMut};
 use hecs::{
     Component, ComponentError, DynamicBundle, Entity, NoSuchEntity, Query, QueryBorrow, QueryMut,
     QueryOne, QueryOneError,
 };
 use rfvp_audio::AudioManager;
+use winit::window::CustomCursor;
 
 
 use super::resources::flag_manager::FlagManager;
@@ -137,10 +139,15 @@ pub struct GameData {
     se_player: AtomicRefCell<SePlayer>,
     bgm_player: AtomicRefCell<BgmPlayer>,
     root_prim: Option<i16>,
-    pub close_immediate: bool,
-    pub lock_scripter: bool,
-    pub close_pending: bool,
-    pub last_current_thread: u32,
+    close_immediate: bool,
+    lock_scripter: bool,
+    close_pending: bool,
+    last_current_thread: u32,
+    current_thread: u32,
+    main_thread_exited: bool,
+    game_should_exit: bool,
+    cursor_table: HashMap<u32, CursorBundle>,
+    current_cursor_index: u32,
 }
 
 impl Default for GameData {
@@ -172,6 +179,11 @@ impl Default for GameData {
             lock_scripter: false,
             close_pending: false,
             last_current_thread: 0,
+            current_thread: 0,
+            main_thread_exited: false,
+            game_should_exit: false,
+            cursor_table: HashMap::new(),
+            current_cursor_index: 0, // means use the defualt cursor
         }
     }
 }
@@ -187,8 +199,16 @@ impl GameData {
         self.window.borrow_mut()
     }
 
+    pub fn window_borrow(&self) -> AtomicRef<Window> {
+        self.window.borrow()
+    }
+
     pub fn set_window(&mut self, window: Window) {
         self.window = AtomicRefCell::new(window);
+    }
+
+    pub fn set_cursor_table(&mut self, table: HashMap<u32, CursorBundle>) {
+        self.cursor_table = table;
     }
 
     /// retrieves the window from the resources
@@ -230,6 +250,85 @@ impl GameData {
 
     pub fn set_prim_root(&mut self, root: i16) {
         self.root_prim = Some(root);
+    }
+
+    pub fn get_current_thread(&self) -> u32 {
+        self.current_thread
+    }
+    
+    pub fn set_current_thread(&mut self, id: u32) {
+        self.current_thread = id;
+    }
+
+    pub fn get_last_current_thread(&self) -> u32 {
+        self.last_current_thread
+    }
+    
+    pub fn set_last_current_thread(&mut self, id: u32) {
+        self.last_current_thread = id;
+    }
+
+    pub fn get_close_immediate(&self) -> bool {
+        self.close_immediate
+    }
+
+    pub fn set_close_immediate(&mut self, value: bool) {
+        self.close_immediate = value;
+    }
+
+    pub fn get_close_pending(&self) -> bool {
+        self.close_pending
+    }
+
+    pub fn set_close_pending(&mut self, value: bool) {
+        self.close_pending = value;
+    }
+
+    pub fn get_main_thread_exited(&self) -> bool {
+        self.main_thread_exited
+    }
+
+    pub fn set_main_thread_exited(&mut self, value: bool) {
+        self.main_thread_exited = value;
+    }
+
+    pub fn get_lock_scripter(&self) -> bool {
+        self.lock_scripter
+    }
+
+    pub fn set_lock_scripter(&mut self, value: bool) {
+        self.lock_scripter = value;
+    }
+
+    pub fn get_game_should_exit(&self) -> bool {
+        self.game_should_exit
+    }
+
+    pub fn set_game_should_exit(&mut self, value: bool) {
+        self.game_should_exit = value;
+    }
+
+    pub fn switch_cursor(&mut self, index: u32) {
+        if index == self.current_cursor_index || index == 0 {
+            return;
+        }
+
+        if let Some(c) = self.cursor_table.get_mut(&index) {
+            c.reset();
+            self.current_cursor_index = index;
+        }
+    }
+
+    pub fn has_cursor(&self, index: u32) -> bool {
+        self.cursor_table.contains_key(&index)
+    }
+
+    pub fn update_cursor(&mut self) -> Option<CustomCursor> {
+        if let Some(c) = self.cursor_table.get_mut(&self.current_cursor_index) {
+            return Some(c.update());
+        }
+
+        None
     }
 }
 

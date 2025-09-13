@@ -143,20 +143,25 @@ pub fn exit_mode(game_data: &mut GameData, mode: &Variant) -> Result<Variant> {
     };
 
     if mode == 0 {
-        if game_data.close_pending {
-            game_data.close_pending = false;
+        if game_data.get_close_pending() {
+            game_data.set_close_pending(false);
             return Ok(Variant::True);
         }
     }
     else if mode == 1 {
-        game_data.close_immediate = true;
+        game_data.set_close_immediate(true);
     }
     else if mode == 2 {
-        game_data.close_immediate = false;
+        game_data.set_close_immediate(false);
     }
     else if mode == 3 {
-        game_data.lock_scripter = true;
-        // game_data.
+        game_data.set_lock_scripter(true);
+        game_data.set_last_current_thread(game_data.get_current_thread());
+        game_data.set_game_should_exit(true);
+    }
+    else if mode == 4 {
+        game_data.set_lock_scripter(false);
+        game_data.set_game_should_exit(false);
     }
 
     Ok(Variant::Nil)

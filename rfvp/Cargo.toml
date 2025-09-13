@@ -63,8 +63,8 @@ petitset = "0.2.1"
 tracing = "0.1.37"
 kira = "0.10.8"
 
-crossterm = "0.29.0"
-ratatui = "0.29.0"
+ico = "0.3"
+riff = "2.0.0"
 
 pollster = "0.4.0"
 
@@ -73,6 +73,7 @@ rfvp-core = { path = "../rfvp-core" }
 rfvp-audio = { path = "../rfvp-audio" }
 rfvp-debugger = { path = "../rfvp-debugger" }
 bitflags = "2.9.4"
+regex = "1.11.2"
 
 [profile.test]
 inherits = "release"
