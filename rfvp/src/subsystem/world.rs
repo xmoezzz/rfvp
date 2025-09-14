@@ -148,6 +148,7 @@ pub struct GameData {
     game_should_exit: bool,
     cursor_table: HashMap<u32, CursorBundle>,
     current_cursor_index: u32,
+    halt: bool,
 }
 
 impl Default for GameData {
@@ -184,6 +185,7 @@ impl Default for GameData {
             game_should_exit: false,
             cursor_table: HashMap::new(),
             current_cursor_index: 0, // means use the defualt cursor
+            halt: false,
         }
     }
 }
@@ -329,6 +331,14 @@ impl GameData {
         }
 
         None
+    }
+
+    pub fn get_halt(&self) -> bool {
+        self.halt
+    }
+
+    pub fn set_halt(&mut self, value: bool) {
+        self.halt = value;
     }
 }
 

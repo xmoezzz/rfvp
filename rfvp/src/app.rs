@@ -252,16 +252,35 @@ impl App {
         self.layer_machine
             .apply_scene_action(SceneAction::LateUpdate, &mut self.game_data);
 
-        for i in 0..self.thread_manager.total_contexts() {
-            log::info!("Executing script bytecode for thread {}", i);
-            if !self.thread_manager.get_should_break() {
-                self.set_current_thread(i as u32);
-                self.exec_script_bytecode(i as u32, frame_duration.as_micros() as u64);
+
+        if self.game_data.get_halt() {
+            self.game_data.set_halt(false);
+        }
+        else {
+            self.game_data.inputs_manager.refresh_input();
+            self.set_current_thread(0);
+        }
+
+        if !self.game_data.get_halt() {
+            let mut current_thread = self.get_current_thread();
+            loop {
+                if current_thread >= self.thread_manager.total_contexts() as u32 {
+                    break;
+                }
+
+                if !self.game_data.get_game_should_exit() || self.game_data.get_last_current_thread() == current_thread {
+                    self.set_current_thread(current_thread);
+                    self.exec_script_bytecode(current_thread, frame_duration.as_micros() as u64);
+                }
+
+                current_thread += 1;
+                if self.game_data.get_halt() {
+                    break;
+                }
             }
         }
-        // self.thread_manager.set_current_id(0);
+
         self.game_data.inputs_manager.frame_reset();
-        self.game_data.inputs_manager.refresh_input();
         self.update_cursor();
         // self.game_data.inputs().reset_inputs();
     }
