@@ -642,7 +642,7 @@ pub fn motion_move_z_test(game_data: &GameData, id: &Variant) -> Result<Variant>
         Variant::Int(id) => *id as i16,
         _ => {
             log::error!("Invalid id");
-            return Ok(Variant::Nil);;
+            return Ok(Variant::Nil);
         },
     };
 
