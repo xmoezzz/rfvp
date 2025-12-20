@@ -1,14 +1,5 @@
 [workspace]
 
-members = [
-    "assembler",
-    "disassembler",
-    "rfvp",
-    "rfvp-audio",
-    "rfvp-core", "rfvp-debugger",
-    "rfvp-render",
+members = ["rfvp-script",
     "rfvp-tasks",
-    "rfvp-video",
-    "rfvp-wrld",
-    "video_player",
 ]
