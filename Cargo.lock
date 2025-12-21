@@ -66,6 +66,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56254986775e3233ffa9c4d7d3faaf6d36a2c09d30b20687e9f88bc8bafc16c8"
 
 [[package]]
+name = "encoding_rs"
+version = "0.8.35"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "75030f3c4f45dafd7586dd6780965a8c7e8e285a5ecb86713e63a79c5b2766f3"
+dependencies = [
+ "cfg-if",
+]
+
+[[package]]
 name = "futures"
 version = "0.3.31"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -272,13 +281,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "rfvp-nls"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "encoding_rs",
+]
+
+[[package]]
 name = "rfvp-script"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "byteorder",
+ "encoding_rs",
  "futures",
  "pretty_assertions",
+ "rfvp-nls",
  "rfvp-tasks",
  "thiserror",
 ]

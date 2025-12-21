@@ -6,9 +6,11 @@ edition = "2024"
 [dependencies]
 anyhow = { version ="1", features = ["backtrace"] }
 rfvp-tasks = { path = "../rfvp-tasks" }
+rfvp-nls = { path = "../rfvp-nls" }
 futures = "0.3"
 thiserror = "1"
 byteorder = "1"
+encoding_rs = "0.8"
 
 [dev-dependencies]
 pretty_assertions = "1"

@@ -1,5 +1,5 @@
 [workspace]
 
-members = ["rfvp-script",
+members = ["rfvp-nls","rfvp-script",
     "rfvp-tasks",
 ]
