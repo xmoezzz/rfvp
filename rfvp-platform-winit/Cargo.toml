@@ -1,0 +1,8 @@
+[package]
+name = "rfvp-platform-winit"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rfvp-input = { path = "../rfvp-input" }
+winit = "0.30.5"

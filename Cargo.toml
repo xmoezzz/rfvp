@@ -1,5 +1,10 @@
 [workspace]
 
-members = ["rfvp-nls","rfvp-script",
+members = [
+    "rfvp-nls",
+    "rfvp-script",
     "rfvp-tasks",
+    "rfvp-platform-winit",
+    "rfvp-input",
+    "rfvp-events",
 ]

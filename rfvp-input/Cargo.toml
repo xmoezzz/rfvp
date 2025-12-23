@@ -1,0 +1,8 @@
+[package]
+name = "rfvp-input"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rfvp-events = { path = "../rfvp-events" }
+bitflags = "2"
