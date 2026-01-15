@@ -1,0 +1,38 @@
+[package]
+name = "video-sys"
+version = "0.1.0"
+edition = "2024"
+license = "MPL-2.0"
+
+[dependencies]
+anyhow = "1"
+thiserror = "1"
+log = "0.4"
+parking_lot = "0.12"
+mp4 = "0.14.0"
+crossbeam-channel = "0.5"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gstreamer = "0.24"
+gstreamer-app = "0.24"
+gstreamer-video = "0.24"
+glib = "0.21.5"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.60", features = [
+  "Win32_Foundation",
+  "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_Media_MediaFoundation",
+  "Win32_Media_DxMediaObjects",
+  "Win32_System_WinRT",
+  "Win32_System_SystemServices",
+] }
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "android")'.dependencies]
+libc = "0.2"
+mediacodec = "0.1.2"
+ndk-sys = "0.6"

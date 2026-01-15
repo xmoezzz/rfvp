@@ -1,0 +1,525 @@
+use std::{collections::HashMap, sync::Arc};
+
+use glam::{mat4, vec2, vec3, vec4, Mat4, Vec2, Vec3, Vec4};
+use image::{DynamicImage, GenericImageView};
+
+use crate::{rfvp_render::{
+    GpuCommonResources, GpuTexture, TextureBindGroup, VertexBuffer, pipelines::sprite::SpritePipeline, vertices::{PosColTexVertex, VertexSource}
+}, subsystem::resources::{color_manager::ColorManager, motion_manager::{MotionManager, snow::SnowMotion}}};
+
+use crate::subsystem::resources::{graph_buff::GraphBuff, prim::{Prim, PrimManager, PrimType}};
+
+#[derive(Clone, Copy, Debug)]
+enum DrawTextureKey {
+    Graph(u16),
+    White,
+}
+
+#[derive(Clone, Debug)]
+struct DrawItem {
+    tex: DrawTextureKey,
+    vertex_range: std::ops::Range<u32>,
+}
+
+#[derive(Debug)]
+struct GraphGpuEntry {
+    generation: u64,
+    texture: GpuTexture,
+}
+
+/// GPU primitive renderer for Sprt/Tile/Group traversal.
+///
+/// Design goals:
+/// - Preserve scene graph draw order.
+/// - Upload GraphBuff images to GPU lazily and refresh on generation bumps.
+/// - Keep rendering code independent from scripting/syscall layers.
+pub struct GpuPrimRenderer {
+    virtual_size: (u32, u32),
+    vb: VertexBuffer<PosColTexVertex>,
+    vb_capacity: u32,
+    vertices: Vec<PosColTexVertex>,
+    draws: Vec<DrawItem>,
+    graph_cache: HashMap<u16, GraphGpuEntry>,
+    white: GpuTexture,
+}
+
+impl GpuPrimRenderer {
+    pub fn new(resources: Arc<GpuCommonResources>, virtual_size: (u32, u32)) -> Self {
+        let vb_capacity = 1024 * 6; // initial: 1024 quads
+        let vb = VertexBuffer::new_updatable(resources.as_ref(), vb_capacity, Some("GpuPrimRenderer.vertex_buffer"));
+
+        let white = {
+            let img = image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 255, 255, 255]));
+            GpuTexture::new(resources.as_ref(), &DynamicImage::ImageRgba8(img), Some("white_1x1"))
+        };
+
+        Self {
+            virtual_size,
+            vb,
+            vb_capacity,
+            vertices: Vec::with_capacity(vb_capacity as usize),
+            draws: Vec::new(),
+            graph_cache: HashMap::new(),
+            white,
+        }
+    }
+
+    pub fn set_virtual_size(&mut self, virtual_size: (u32, u32)) {
+        self.virtual_size = virtual_size;
+    }
+
+    /// Rebuild renderer draw lists from the current motion manager state.
+    /// This matches the callsite in `app.rs`.
+    pub fn rebuild(&mut self, resources: &GpuCommonResources, motion: &MotionManager) {
+        self.build(resources, motion);
+    }
+
+    fn ensure_vb_capacity(&mut self, resources: &GpuCommonResources, needed_vertices: u32) {
+        if needed_vertices <= self.vb_capacity {
+            return;
+        }
+
+        let mut new_cap = self.vb_capacity.max(1);
+        while new_cap < needed_vertices {
+            new_cap = new_cap.saturating_mul(2);
+        }
+
+        self.vb = VertexBuffer::new_updatable(resources, new_cap, Some("GpuPrimRenderer.vertex_buffer"));
+        self.vb_capacity = new_cap;
+        self.vertices.reserve((new_cap - self.vertices.len() as u32) as usize);
+    }
+
+    fn virtual_projection(&self) -> Mat4 {
+        // Virtual space: origin at center, x right, y down.
+        let (w, h) = (self.virtual_size.0 as f32, self.virtual_size.1 as f32);
+        mat4(
+            vec4(2.0 / w, 0.0, 0.0, 0.0),
+            vec4(0.0, -2.0 / h, 0.0, 0.0),
+            vec4(0.0, 0.0, 1.0, 0.0),
+            vec4(0.0, 0.0, 0.0, 1.0),
+        )
+    }
+
+    fn build_local_transform(&self, prim: &Prim) -> Mat4 {
+        let (vw, vh) = (self.virtual_size.0 as f32, self.virtual_size.1 as f32);
+        let x = prim.get_x() as f32 - vw / 2.0;
+        let y = prim.get_y() as f32 - vh / 2.0;
+        let opx = prim.get_opx() as f32;
+        let opy = prim.get_opy() as f32;
+        let sx = prim.get_factor_x() as f32 / 1000.0;
+        let sy = prim.get_factor_y() as f32 / 1000.0;
+
+        // Screen space uses y-down; use negative angle to keep expected clockwise positive.
+        let theta = -(prim.get_angle() as f32) * std::f32::consts::PI / 180.0;
+
+        Mat4::from_translation(vec3(x, y, 0.0))
+            * Mat4::from_translation(vec3(opx, opy, 0.0))
+            * Mat4::from_rotation_z(theta)
+            * Mat4::from_scale(vec3(sx, sy, 1.0))
+            * Mat4::from_translation(vec3(-opx, -opy, 0.0))
+    }
+
+    fn upload_graph_if_needed(
+        &mut self,
+        resources: &GpuCommonResources,
+        graph_id: u16,
+        graph: &GraphBuff,
+    ) {
+        let gen = graph.get_generation();
+
+        let needs_upload = match self.graph_cache.get(&graph_id) {
+            Some(e) => e.generation != gen,
+            None => true,
+        };
+
+        if !needs_upload {
+            return;
+        }
+
+        let Some(img) = graph.get_texture().as_ref() else {
+            return;
+        };
+
+        let tex = GpuTexture::new(resources, img, Some(&format!("graph_{}", graph_id)));
+        self.graph_cache.insert(
+            graph_id,
+            GraphGpuEntry {
+                generation: gen,
+                texture: tex,
+            },
+        );
+    }
+
+    fn texture_bind_group(&self, key: DrawTextureKey) -> &TextureBindGroup {
+        match key {
+            DrawTextureKey::White => self.white.bind_group(),
+            DrawTextureKey::Graph(id) => self
+                .graph_cache
+                .get(&id)
+                .expect("graph texture must be uploaded before use")
+                .texture
+                .bind_group(),
+        }
+    }
+
+    fn emit_sprite_vertices(
+        &mut self,
+        model: Mat4,
+        dst_w: f32,
+        dst_h: f32,
+        uv0: Vec2,
+        uv1: Vec2,
+        color: Vec4,
+        tex: DrawTextureKey,
+    ) {
+        let base = self.vertices.len() as u32;
+
+        // Two triangles (0,1,2) (2,1,3)
+        let p0 = model.transform_point3(vec3(0.0, dst_h, 0.0));
+        let p1 = model.transform_point3(vec3(0.0, 0.0, 0.0));
+        let p2 = model.transform_point3(vec3(dst_w, dst_h, 0.0));
+        let p3 = model.transform_point3(vec3(dst_w, 0.0, 0.0));
+
+        let v0 = PosColTexVertex {
+            position: p0,
+            color,
+            texture_coordinate: vec2(uv0.x, uv1.y),
+        };
+        let v1 = PosColTexVertex {
+            position: p1,
+            color,
+            texture_coordinate: vec2(uv0.x, uv0.y),
+        };
+        let v2 = PosColTexVertex {
+            position: p2,
+            color,
+            texture_coordinate: vec2(uv1.x, uv1.y),
+        };
+        let v3 = PosColTexVertex {
+            position: p3,
+            color,
+            texture_coordinate: vec2(uv1.x, uv0.y),
+        };
+
+        self.vertices.extend_from_slice(&[v0, v1, v2, v2, v1, v3]);
+        self.draws.push(DrawItem {
+            tex,
+            vertex_range: base..base + 6,
+        });
+    }
+
+    fn collect_tree(
+        &mut self,
+        resources: &GpuCommonResources,
+        prim_manager: &PrimManager,
+        color_manager: &ColorManager,
+        graphs: &[GraphBuff],
+        snow_motions: &[SnowMotion],
+        prim_id: i16,
+        parent: Mat4,
+    ) {
+        if prim_id < 0 {
+            return;
+        }
+
+        let prim = prim_manager.get_prim(prim_id);
+        let local = self.build_local_transform(&prim);
+        let model = parent * local;
+
+        match prim.get_type() {
+            PrimType::PrimTypeGroup => {
+                // No draw; traverse children.
+            }
+            PrimType::PrimTypeSprt => {
+                let tex_id = prim.get_texture_id();
+                let graph_id = if tex_id >= 0 {
+                    Some(tex_id as u16)
+                } else if tex_id == -2 {
+                    Some(crate::subsystem::resources::videoplayer::MOVIE_GRAPH_ID)
+                } else {
+                    None
+                };
+
+                if let Some(tex_id) = graph_id {
+                    if let Some(g) = graphs.get(tex_id as usize) {
+                        self.upload_graph_if_needed(resources, tex_id, g);
+                        if self.graph_cache.contains_key(&tex_id) {
+                            let (tw, th) = match g.get_texture().as_ref() {
+                                Some(img) => img.dimensions(),
+                                None => (0, 0),
+                            };
+                            if tw > 0 && th > 0 {
+                                let mut w = prim.get_w() as f32;
+                                let mut h = prim.get_h() as f32;
+                                if w <= 0.0 {
+                                    w = g.get_width() as f32;
+                                }
+                                if h <= 0.0 {
+                                    h = g.get_height() as f32;
+                                }
+
+                                let u = prim.get_u() as f32;
+                                let v = prim.get_v() as f32;
+                                let uv0 = vec2(u / tw as f32, v / th as f32);
+                                let uv1 = vec2((u + w) / tw as f32, (v + h) / th as f32);
+
+                                let a = prim.get_alpha() as f32 / 255.0;
+                                let color = vec4(
+                                    1.0,
+                                    1.0,
+                                    1.0,
+                                    a,
+                                );
+
+                                self.emit_sprite_vertices(
+                                    model,
+                                    w,
+                                    h,
+                                    uv0,
+                                    uv1,
+                                    color,
+                                    DrawTextureKey::Graph(tex_id),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            PrimType::PrimTypeText => {
+                // Text primitives own a dedicated texture slot (0..31) mapped to
+                // GraphBuff[4064 + slot]. We draw it as a sprite quad.
+                let slot = prim.get_text_index();
+                if (0..=31).contains(&slot) {
+                    let graph_id = 4064u16 + slot as u16;
+                    if let Some(g) = graphs.get(graph_id as usize) {
+                        self.upload_graph_if_needed(resources, graph_id, g);
+                        if self.graph_cache.contains_key(&graph_id) {
+                            let (tw, th) = match g.get_texture().as_ref() {
+                                Some(img) => img.dimensions(),
+                                None => (0, 0),
+                            };
+                            if tw > 0 && th > 0 {
+                                let mut w = prim.get_w() as f32;
+                                let mut h = prim.get_h() as f32;
+                                if w <= 0.0 {
+                                    w = g.get_width() as f32;
+                                }
+                                if h <= 0.0 {
+                                    h = g.get_height() as f32;
+                                }
+
+                                let u = prim.get_u() as f32;
+                                let v = prim.get_v() as f32;
+                                let uv0 = vec2(u / tw as f32, v / th as f32);
+                                let uv1 = vec2((u + w) / tw as f32, (v + h) / th as f32);
+
+                                let a = prim.get_alpha() as f32 / 255.0;
+                                let color = vec4(
+                                    1.0,
+                                    1.0,
+                                    1.0,
+                                    a,
+                                );
+
+                                self.emit_sprite_vertices(
+                                    model,
+                                    w,
+                                    h,
+                                    uv0,
+                                    uv1,
+                                    color,
+                                    DrawTextureKey::Graph(graph_id),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+
+            PrimType::PrimTypeSnow => {
+                // Snow is rendered as a set of sprite quads (flakes). Each flake selects one texture
+                // from a sequence of GraphBuffs starting at sm.texture_id:
+                //   graph_id = sm.texture_id + (variant_idx % variant_count)
+                // This matches the "multiple independent textures" layout (not an atlas).
+                let snow_id = prim.get_texture_id();
+                if snow_id >= 0 {
+                    if let Some(sm) = snow_motions.get(snow_id as usize) {
+                        if sm.enabled && sm.flake_count > 0 && sm.texture_id >= 0 && sm.flake_w > 1 && sm.flake_h > 1 {
+                            let a = prim.get_alpha() as f32 / 255.0;
+                            let color = vec4(
+                                sm.color_r as f32 / 255.0,
+                                sm.color_g as f32 / 255.0,
+                                sm.color_b_or_extra as f32 / 255.0,
+                                a,
+                            );
+
+                            let base_tex = sm.texture_id as i32;
+                            let vcnt = sm.variant_count.max(1) as u32;
+
+                            let tile_w_cfg = (sm.flake_w - 1) as f32;
+                            let tile_h_cfg = (sm.flake_h - 1) as f32;
+
+                            let count = sm.flake_count.max(0).min(1024) as usize;
+                            for j in 0..count {
+                                let idx = sm.flake_ptrs[j];
+                                let flake = &sm.flakes[idx];
+
+                                let vi = (flake.variant_idx % vcnt) as i32;
+                                let graph_i32 = base_tex + vi;
+                                if graph_i32 < 0 {
+                                    continue;
+                                }
+                                let graph_id = graph_i32 as u16;
+
+                                if let Some(g) = graphs.get(graph_id as usize) {
+                                    self.upload_graph_if_needed(resources, graph_id, g);
+                                    if !self.graph_cache.contains_key(&graph_id) {
+                                        continue;
+                                    }
+
+                                    let (tw, th) = match g.get_texture().as_ref() {
+                                        Some(img) => img.dimensions(),
+                                        None => (0, 0),
+                                    };
+                                    if tw == 0 || th == 0 {
+                                        continue;
+                                    }
+
+                                    let scale = if flake.period > 0.0 { 1000.0 / flake.period } else { 1.0 };
+
+                                    // Destination size follows the configured (flake_w/flake_h) with a 1px guard,
+                                    // mirroring the observed IDA math. If the actual texture is smaller, clamp.
+                                    let tile_w = tile_w_cfg.min(tw as f32 - 1.0).max(0.0);
+                                    let tile_h = tile_h_cfg.min(th as f32 - 1.0).max(0.0);
+
+                                    let w = tile_w * scale;
+                                    let h = tile_h * scale;
+
+                                    // UV covers the left-top tile region of the independent texture.
+                                    let u0 = 0.0;
+                                    let v0 = 0.0;
+                                    let u1 = if tw > 0 { tile_w / tw as f32 } else { 0.0 };
+                                    let v1 = if th > 0 { tile_h / th as f32 } else { 0.0 };
+
+                                    let flake_model = model
+                                        * Mat4::from_translation(vec3(flake.x - w * 0.5, flake.y - h * 0.5, 0.0));
+
+                                    self.emit_sprite_vertices(
+                                        flake_model,
+                                        w,
+                                        h,
+                                        vec2(u0, v0),
+                                        vec2(u1, v1),
+                                        color,
+                                        DrawTextureKey::Graph(graph_id),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            PrimType::PrimTypeTile => {
+                let w = prim.get_w() as f32;
+                let h = prim.get_h() as f32;
+                let color_id = prim.get_tile();
+                let c = color_manager.get_entry(color_id as u8);
+                if w > 0.0 && h > 0.0 {
+                    let a = prim.get_alpha() as f32 / 255.0;
+                    let color = vec4(
+                        c.get_r() as f32 / 255.0,
+                        c.get_g() as f32 / 255.0,
+                        c.get_b() as f32 / 255.0,
+                        a,
+                    );
+
+                    self.emit_sprite_vertices(
+                        model,
+                        w,
+                        h,
+                        vec2(0.0, 0.0),
+                        vec2(1.0, 1.0),
+                        color,
+                        DrawTextureKey::White,
+                    );
+                }
+            }
+            PrimType::PrimTypeNone => {
+                // No draw; traverse children.
+            }
+
+            _ => {
+                // Other primitive types are handled by dedicated subsystems.
+            }
+        }
+
+        // Traverse children in z-order (stable by sibling order).
+        let mut children = Vec::<i16>::new();
+        let mut child = prim.get_first_child_idx();
+        while child != -1 {
+            children.push(child);
+            let p = prim_manager.get_prim(child);
+            child = p.get_next_sibling_idx();
+        }
+
+        if children.len() > 1 {
+            children.sort_by_key(|&cid| {
+                let p = prim_manager.get_prim(cid);
+                (p.get_z(), cid)
+            });
+        }
+
+        for cid in children {
+            self.collect_tree(resources, prim_manager, color_manager, graphs, snow_motions, cid, model);
+        }
+    }
+
+    /// Build geometry and draw items from the current primitive tree.
+    pub fn build(&mut self, resources: &GpuCommonResources, motion: &MotionManager) {
+        self.vertices.clear();
+        self.draws.clear();
+
+        // Root is typically 0; scripts usually operate on 1..=4095.
+        let prim_manager = motion.prim_manager();
+        let graphs = motion.graphs();
+        let snow_motions = motion.snow_motions();
+
+        // Root is typically 0; scripts usually operate on 1..=4095.
+        let root = prim_manager.get_custom_root_prim_id();
+        self.collect_tree(resources, prim_manager, &motion.color_manager, graphs, snow_motions, root as i16, Mat4::IDENTITY);
+
+        self.ensure_vb_capacity(resources, self.vertices.len() as u32);
+        self.vb.write(&resources.queue, &self.vertices);
+    }
+
+    fn draw_with_proj<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        sprite_pipeline: &'a SpritePipeline,
+        proj: Mat4,
+    ) {
+        for item in &self.draws {
+            let src = self.vb.vertex_source_slice(item.vertex_range.clone());
+            sprite_pipeline.draw(render_pass, src, self.texture_bind_group(item.tex), proj);
+        }
+    }
+
+    pub fn draw<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        sprite_pipeline: &'a SpritePipeline,
+    ) {
+        let proj = self.virtual_projection();
+        self.draw_with_proj(render_pass, sprite_pipeline, proj);
+    }
+
+    /// Draw using an externally provided projection matrix (used by app.rs).
+    pub fn draw_virtual<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        sprite_pipeline: &'a SpritePipeline,
+        projection_matrix: Mat4,
+    ) {
+        self.draw_with_proj(render_pass, sprite_pipeline, projection_matrix);
+    }
+}
