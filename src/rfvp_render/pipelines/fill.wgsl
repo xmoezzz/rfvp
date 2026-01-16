@@ -11,8 +11,7 @@ struct VsOut {
   @builtin(position) pos: vec4<f32>,
 };
 
-@push_constant
-var<uniform> pc: Pc;
+var<push_constant> pc: Pc;
 
 @vertex
 fn vs_main(v: VsIn) -> VsOut {
@@ -22,6 +21,7 @@ fn vs_main(v: VsIn) -> VsOut {
 }
 
 @fragment
-fn fs_main(_: VsOut) -> @location(0) vec4<f32> {
+fn fs_main(i: VsOut) -> @location(0) vec4<f32> {
+  _ = i;
   return pc.color;
 }

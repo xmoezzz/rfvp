@@ -16,7 +16,14 @@ impl Debug for AudioManager {
 
 impl AudioManager {
     pub fn new() -> Self {
-        let mgr = KiraAudioManager::new(AudioManagerSettings::default())
+        // The original engine expects a large number of mixer sub-tracks
+        // (e.g., 256 SE slots + BGM tracks). Kira enforces this capacity.
+        // Increase the sub-track capacity to avoid ResourceLimitReached when
+        // creating the SE tracks.
+        let mut settings = AudioManagerSettings::default();
+        settings.capacities.sub_track_capacity = 512;
+
+        let mgr = KiraAudioManager::new(settings)
             .expect("failed to create Kira AudioManager");
         Self {
             manager: Mutex::new(mgr),

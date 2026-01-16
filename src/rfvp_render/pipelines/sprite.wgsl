@@ -16,8 +16,7 @@ struct VsOut {
   @location(1) uv: vec2<f32>,
 };
 
-@push_constant
-var<uniform> pc: Pc;
+var<push_constant> pc: Pc;
 
 @vertex
 fn vs_main(v: VsIn) -> VsOut {

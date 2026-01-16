@@ -400,7 +400,7 @@ impl App {
         let matches: Vec<_> = glob::glob(&path.to_string_lossy())?.flatten().collect();
 
         if matches.is_empty() {
-            anyhow::bail!("No hcb file found in the game directory");
+            anyhow::bail!("No hcb file found in the game directory: {}", game_path.as_ref().display());
         }
 
         Ok(matches[0].to_path_buf())
