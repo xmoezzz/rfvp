@@ -206,35 +206,48 @@ impl App {
     }
 
     fn next_frame(&mut self) {
-        let frame_duration = {
-            let mut gd = self.game_data.write().unwrap();
-            gd.time_mut_ref().frame()
-        };
-        self.pending_vm_frame_ms = frame_duration.as_millis() as u64;
-        self.pending_vm_frame_ms_valid = true;
         let mut notify_dissolve_done = false;
+        let frame_ms: u64;
+
         {
-            let gd = self.game_data.write();
-            let mut gd = gd.unwrap();
+            // Take the write lock once and never re-lock inside this scope.
+            // IMPORTANT: avoid borrowing fields via the RwLockWriteGuard multiple times; always
+            // project through a single &mut GameData binding.
+            let mut gd_guard = self.game_data.write().unwrap();
+            let gd = &mut *gd_guard;
+
+            let frame_duration = gd.time_mut_ref().frame();
+            frame_ms = frame_duration.as_millis() as u64;
+
             let prev_dissolve = self.last_dissolve_type;
 
             // Movie update must run even when the VM/scheduler is halted for modal playback.
+            let mut video_tick_failed = false;
             {
-                let motion_manager = &mut gd.motion_manager;
-                if let Err(e) = self.game_data.write().unwrap().video_manager.tick(motion_manager) {
+                let (video_manager, motion_manager) =
+                    (&mut gd.video_manager, &mut gd.motion_manager);
+                if let Err(e) = video_manager.tick(motion_manager) {
                     log::error!("VideoPlayerManager::tick failed: {:?}", e);
-                    let motion_manager = &mut gd.motion_manager;
-                    self.game_data.write().unwrap().video_manager.stop(motion_manager);
-                    gd.set_halt(false);
+                    video_tick_failed = true;
                 }
+            }
+            if video_tick_failed {
+                {
+                    let (video_manager, motion_manager) =
+                        (&mut gd.video_manager, &mut gd.motion_manager);
+                    video_manager.stop(motion_manager);
+                }
+                gd.set_halt(false);
             }
 
             let modal_movie = gd.video_manager.is_modal_active();
 
             if !modal_movie {
-                self.layer_machine.apply_scene_action(SceneAction::Update, &mut gd);
-                self.scheduler.execute(&mut gd);
-                self.layer_machine.apply_scene_action(SceneAction::LateUpdate, &mut gd);
+                self.layer_machine
+                    .apply_scene_action(SceneAction::Update, gd);
+                self.scheduler.execute(gd);
+                self.layer_machine
+                    .apply_scene_action(SceneAction::LateUpdate, gd);
             }
 
             // If a dissolve finished on this frame, wake contexts waiting on DISSOLVE_WAIT
@@ -259,11 +272,15 @@ impl App {
             gd.inputs_manager.frame_reset();
         }
 
+        self.pending_vm_frame_ms = frame_ms;
+        self.pending_vm_frame_ms_valid = true;
+
         if notify_dissolve_done {
             self.vm_worker.send_dissolve_done();
         }
         self.update_cursor();
-}
+    }
+
 
     fn update_cursor(&mut self) {
         let cursor_frame = {

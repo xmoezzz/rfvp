@@ -352,78 +352,90 @@ impl PrimManager {
     }
 
     pub fn unlink_prim(&self, id: i16) {
+        if id < 0 { return; }
+
         let parent = self.get_prim(id).get_parent();
-        if parent != INVAILD_PRIM_HANDLE {
-            // unlink previous parent and child
-            let prev_sibling_idx = self.get_prim(id).get_prev_sibling_idx();
-            if prev_sibling_idx == INVAILD_PRIM_HANDLE {
-                let next_id = self.get_prim(id).get_next_sibling_idx();
-                self.get_prim(parent).set_first_child_idx(next_id);
-            } else {
-                let next_id = self.get_prim(id).get_next_sibling_idx();
-                self.get_prim(prev_sibling_idx).set_next_sibling_idx(next_id);
-            }
-
-            let next_sibling_idx = self.get_prim(id).get_next_sibling_idx();
-            let prev_sibling_idx = self.get_prim(id).get_prev_sibling_idx();
-            if next_sibling_idx == INVAILD_PRIM_HANDLE {
-                let parent = self.get_prim(id).get_parent();
-                self.get_prim(parent).set_last_child_idx(prev_sibling_idx);
-            } else {
-                self.get_prim(next_sibling_idx).set_prev_sibling_idx(prev_sibling_idx);
-            }
-
-            self.get_prim(id).apply_attr(0x40);
-            self.get_prim(id).set_parent(INVAILD_PRIM_HANDLE);
+        if parent == INVAILD_PRIM_HANDLE {
+            // Still clear stale links to avoid later cycles.
+            self.get_prim(id).set_prev_sibling_idx(INVAILD_PRIM_HANDLE);
+            self.get_prim(id).set_next_sibling_idx(INVAILD_PRIM_HANDLE);
+            return;
         }
+
+        let prev = self.get_prim(id).get_prev_sibling_idx();
+        let next = self.get_prim(id).get_next_sibling_idx();
+
+        if prev == INVAILD_PRIM_HANDLE {
+            self.get_prim(parent).set_first_child_idx(next);
+        } else {
+            self.get_prim(prev).set_next_sibling_idx(next);
+        }
+
+        if next == INVAILD_PRIM_HANDLE {
+            self.get_prim(parent).set_last_child_idx(prev);
+        } else {
+            self.get_prim(next).set_prev_sibling_idx(prev);
+        }
+
+        self.get_prim(id).set_parent(INVAILD_PRIM_HANDLE);
+        self.get_prim(id).set_prev_sibling_idx(INVAILD_PRIM_HANDLE);
+        self.get_prim(id).set_next_sibling_idx(INVAILD_PRIM_HANDLE);
+        self.get_prim(id).apply_attr(0x40);
     }
 
     pub fn prim_move(&mut self, new_root: i32, id: i32) {
-        self.unlink_prim(id as i16);
-        let parent_id = self.get_prim(new_root as i16).get_parent();
+        let new_root = new_root as i16;
+        let id = id as i16;
 
-        if parent_id != INVAILD_PRIM_HANDLE {
-            //let mut prim = self.get_prim(id as i16);
-            self.get_prim(id as i16).set_parent(parent_id);
-            self.get_prim(id as i16).set_prev_sibling_idx(new_root as i16);
-            //let mut root_prim = self.get_prim(new_root as i16);
-            if self.get_prim(new_root as i16).get_next_sibling_idx() == INVAILD_PRIM_HANDLE {
-                self.get_prim(id as i16).set_next_sibling_idx(INVAILD_PRIM_HANDLE);
-                self.get_prim(new_root as i16).set_next_sibling_idx(id as i16);
-                let parent_id = self.get_prim(new_root as i16).get_parent();
-                //let mut prim2 = self.get_prim(parent_id);
-                self.get_prim(parent_id).set_last_child_idx(id as i16);
-            } else {
-                let next_sibling_idx = self.get_prim(parent_id).get_next_sibling_idx();
-                self.get_prim(id as i16).set_next_sibling_idx(next_sibling_idx);
-                self.get_prim(new_root as i16).set_next_sibling_idx(id as i16);
-            }
-            // self.prim_slots[idx].m_Attribute |= 0x40;
+        self.unlink_prim(id);
+
+        let parent = self.get_prim(new_root).get_parent();
+        if parent == INVAILD_PRIM_HANDLE {
+            return;
         }
+
+        let next = self.get_prim(new_root).get_next_sibling_idx();
+
+        self.get_prim(id).set_parent(parent);
+        self.get_prim(id).set_prev_sibling_idx(new_root);
+        self.get_prim(id).set_next_sibling_idx(next);
+
+        self.get_prim(new_root).set_next_sibling_idx(id);
+
+        if next != INVAILD_PRIM_HANDLE {
+            self.get_prim(next).set_prev_sibling_idx(id);
+        } else {
+            self.get_prim(parent).set_last_child_idx(id);
+        }
+
+        self.get_prim(id).apply_attr(0x40);
     }
+
 
     pub fn set_prim_group_in(&mut self, new_root: i32, id: i32) {
-        self.prim_init_with_type(new_root as i16, PrimType::PrimTypeGroup);
-        self.unlink_prim(id as i16);
+        let new_root = new_root as i16;
+        let id = id as i16;
 
-        //let mut prim = self.get_prim(id as i16);
-        self.get_prim(id as i16).set_parent(new_root as i16);
-        self.get_prim(id as i16).set_prev_sibling_idx(INVAILD_PRIM_HANDLE);
+        self.prim_init_with_type(new_root, PrimType::PrimTypeGroup);
+        self.unlink_prim(id);
 
-        if self.get_prim(new_root as i16).get_first_child_idx() == INVAILD_PRIM_HANDLE {
-            self.get_prim(id as i16)
-                .set_prev_sibling_idx(INVAILD_PRIM_HANDLE);
-            self.get_prim(new_root as i16).set_first_child_idx(id as i16);
+        self.get_prim(id).set_parent(new_root);
+        self.get_prim(id).set_next_sibling_idx(INVAILD_PRIM_HANDLE); // critical
+
+        if self.get_prim(new_root).get_first_child_idx() == INVAILD_PRIM_HANDLE {
+            self.get_prim(id).set_prev_sibling_idx(INVAILD_PRIM_HANDLE);
+            self.get_prim(new_root).set_first_child_idx(id);
+            self.get_prim(new_root).set_last_child_idx(id);
         } else {
-            let arg2 = self.get_prim(new_root as i16).get_last_child_idx();
-            self.get_prim(id as i16).set_prev_sibling_idx(arg2);
-
-            let id2 = self.get_prim(new_root as i16).get_last_child_idx();
-            self.get_prim(id2).set_next_sibling_idx(id as i16);
+            let last = self.get_prim(new_root).get_last_child_idx();
+            self.get_prim(id).set_prev_sibling_idx(last);
+            self.get_prim(last).set_next_sibling_idx(id);
+            self.get_prim(new_root).set_last_child_idx(id);
         }
-        self.get_prim(new_root as i16).set_last_child_idx(id as i16);
-        self.get_prim(id as i16).apply_attr(0x40);
+
+        self.get_prim(id).apply_attr(0x40);
     }
+
 
     pub fn prim_set_op(&mut self, id: i32, opx: i32, opy: i32) {
         let mut prim = self.get_prim(id as i16);
