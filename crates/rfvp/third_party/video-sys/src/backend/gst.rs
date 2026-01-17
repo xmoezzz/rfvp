@@ -1,9 +1,14 @@
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
+use gstreamer::prelude::GstBinExtManual;
 use gstreamer as gst;
 use gstreamer_app as gst_app;
 use gstreamer_video as gst_video;
+use gstreamer::prelude::ElementExt;
+use gstreamer::prelude::Cast;
+use gstreamer::prelude::ObjectExt;
+use gstreamer::prelude::PadExt;
 
 use crate::backend::{H264Decoder, VideoFrame};
 use crate::h264::H264Config;
@@ -110,7 +115,7 @@ impl GstH264Decoder {
 
 impl Drop for GstH264Decoder {
     fn drop(&mut self) {
-        let _ = self.pipeline.set_state(gst::State::Null);
+        let _ = self.pipeline.state(None);
     }
 }
 
@@ -156,8 +161,9 @@ impl H264Decoder for GstH264Decoder {
 
         let row_bytes = (width as usize) * 4;
         let mut rgba = vec![0u8; row_bytes * (height as usize)];
+        let rgba_len = rgba.len();
         if stride == row_bytes {
-            rgba.copy_from_slice(&data[..rgba.len()]);
+            rgba.copy_from_slice(&data[..rgba_len]);
         } else {
             for y in 0..(height as usize) {
                 let src_off = y * stride;
@@ -169,7 +175,7 @@ impl H264Decoder for GstH264Decoder {
 
         let pts_us = buffer
             .pts()
-            .map(|t| (t.nseconds().unwrap_or(0) / 1000) as i64)
+            .map(|t| (t.nseconds() / 1000) as i64)
             .unwrap_or(0);
 
         Ok(Some(VideoFrame {

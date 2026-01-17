@@ -2996,6 +2996,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "lua2hcb_compiler"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "encoding_rs",
+ "regex",
+ "serde",
+ "serde_yaml",
+]
+
+[[package]]
 name = "mach2"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
