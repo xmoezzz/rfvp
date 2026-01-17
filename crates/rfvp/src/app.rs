@@ -33,8 +33,8 @@ use crate::rfvp_render::vertices::{PosVertex, VertexSource};
 
 
 use crate::rendering::gpu_prim::GpuPrimRenderer;
-use crate::debug::{self, hud::{DebugHud, HudSnapshot}};
-use crate::debug::log_ring::{self, LogRing};
+use crate::debug_ui::{self, hud::{DebugHud, HudSnapshot}};
+use crate::debug_ui::log_ring::{self, LogRing};
 use crate::subsystem::resources::motion_manager::DissolveType;
 
 // ----------------------------
@@ -801,7 +801,7 @@ impl AppBuilder {
             dissolve_index_buffer,
             dissolve_num_indices,
             last_dissolve_type: DissolveType::None,
-            debug_hud: if debug::enabled() {
+            debug_hud: if debug_ui::enabled() {
                 Some(DebugHud::new(&resources.device, surface_config_format, debug_ring.clone()))
             } else {
                 None

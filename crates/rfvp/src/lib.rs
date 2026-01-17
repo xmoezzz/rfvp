@@ -10,4 +10,4 @@ pub mod window;
 pub mod rfvp_render;
 pub mod rfvp_audio;
 pub mod vm_worker;
-pub mod debug;
+pub mod debug_ui;

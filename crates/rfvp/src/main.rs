@@ -6,7 +6,7 @@ mod rendering;
 mod config;
 mod window;
 mod audio_player;
-mod debug;
+mod debug_ui;
 mod vm_worker;
 mod rfvp_render;
 mod rfvp_audio;

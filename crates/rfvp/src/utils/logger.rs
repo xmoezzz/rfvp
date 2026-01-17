@@ -4,8 +4,8 @@ use fern::colors::{Color, ColoredLevelConfig};
 use log::debug;
 
 use crate::config::logger_config::LoggerConfig;
-use crate::debug;
-use crate::debug::log_ring::{self, RingWriter};
+use crate::debug_ui;
+use crate::debug_ui::log_ring::{self, RingWriter};
 
 /// Logging utility
 pub(crate) struct Logger;
@@ -18,7 +18,7 @@ impl Logger {
     /// apply a logging config. If one already exists, it won't replace it.
     pub fn init_logging(config: Option<LoggerConfig>) {
         let config = config.unwrap_or_default();
-        let enable_test = debug::enabled();
+        let enable_test = debug_ui::enabled();
         let ring = if enable_test {
             Some(log_ring::init(4096))
         } else {

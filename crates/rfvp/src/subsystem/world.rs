@@ -147,7 +147,7 @@ pub struct GameData {
     current_cursor_index: u32,
     halt: bool,
 
-    pub(crate) debug_vm: crate::debug::vm_snapshot::VmSnapshot,
+    pub(crate) debug_vm: crate::debug_ui::vm_snapshot::VmSnapshot,
 }
 
 impl Default for GameData {
@@ -269,11 +269,11 @@ impl GameData {
         &self.bgm_player
     }
 
-    pub fn debug_vm_ref(&self) -> &crate::debug::vm_snapshot::VmSnapshot {
+    pub fn debug_vm_ref(&self) -> &crate::debug_ui::vm_snapshot::VmSnapshot {
         &self.debug_vm
     }
 
-    pub fn debug_vm_mut(&mut self) -> &mut crate::debug::vm_snapshot::VmSnapshot {
+    pub fn debug_vm_mut(&mut self) -> &mut crate::debug_ui::vm_snapshot::VmSnapshot {
         &mut self.debug_vm
     }
 
