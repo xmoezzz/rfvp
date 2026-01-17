@@ -33,6 +33,8 @@ use crate::rfvp_render::vertices::{PosVertex, VertexSource};
 
 
 use crate::rendering::gpu_prim::GpuPrimRenderer;
+use crate::debug::{self, hud::{DebugHud, HudSnapshot}};
+use crate::debug::log_ring::{self, LogRing};
 use crate::subsystem::resources::motion_manager::DissolveType;
 
 // ----------------------------
@@ -75,6 +77,14 @@ pub struct App {
     dissolve_index_buffer: wgpu::Buffer,
     dissolve_num_indices: u32,
 
+
+    // ----------------------------
+    // Debug HUD (FVP_TEST=1)
+    // ----------------------------
+    debug_hud: Option<DebugHud>,
+    debug_ring: Arc<LogRing>,
+    debug_frame_no: u64,
+    last_dt_ms: f32,
     // Tracks dissolve completion on the main thread so we can wake contexts
     // waiting on DISSOLVE_WAIT immediately via an EngineEvent.
     last_dissolve_type: DissolveType,
@@ -292,6 +302,9 @@ impl App {
             gd.inputs_manager.frame_reset();
         }
 
+        self.last_dt_ms = frame_ms as f32;
+        self.debug_frame_no = self.debug_frame_no.wrapping_add(1);
+
         self.pending_vm_frame_ms = frame_ms;
         self.pending_vm_frame_ms_valid = true;
 
@@ -441,6 +454,28 @@ impl App {
                 self.render_target.bind_group(),
                 present_m,
             );
+        }
+
+
+        // Optional in-window debug HUD (enabled when FVP_TEST=1).
+        if let Some(hud) = self.debug_hud.as_mut() {
+            let snap = {
+                let gd = gd_read(&self.game_data);
+                HudSnapshot {
+                    frame_no: self.debug_frame_no,
+                    dt_ms: self.last_dt_ms,
+                    render: self.prim_renderer.stats(),
+                    se: gd.se_player_ref().debug_summary(),
+                    bgm: gd.bgm_player_ref().debug_summary(),
+                    vm: gd.debug_vm_ref().clone(),
+                }
+            };
+
+            let win = self.window.as_ref().unwrap();
+            let ws = win.inner_size();
+            let ppp = win.scale_factor() as f32;
+            hud.prepare_frame((ws.width, ws.height), ppp, &snap);
+            hud.render(&self.resources.device, &self.resources.queue, &mut encoder, &view);
         }
 
         self.resources.queue.submit(Some(encoder.finish()));
@@ -738,7 +773,10 @@ impl AppBuilder {
         };
 
         let game_data = Arc::new(RwLock::new(self.world));
+        let debug_ring = log_ring::get().unwrap_or_else(|| log_ring::init(4096));
         let vm_worker = VmWorker::spawn(game_data.clone(), self.parser, self.script_engine);
+
+        let surface_config_format = surface_config.format.clone();
 
         let mut app = App {
             config: self.config,
@@ -763,6 +801,14 @@ impl AppBuilder {
             dissolve_index_buffer,
             dissolve_num_indices,
             last_dissolve_type: DissolveType::None,
+            debug_hud: if debug::enabled() {
+                Some(DebugHud::new(&resources.device, surface_config_format, debug_ring.clone()))
+            } else {
+                None
+            },
+            debug_ring: debug_ring.clone(),
+            debug_frame_no: 0,
+            last_dt_ms: 0.0,
         };
 
         app.setup();

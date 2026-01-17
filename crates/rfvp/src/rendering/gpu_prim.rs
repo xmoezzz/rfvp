@@ -43,6 +43,14 @@ pub struct GpuPrimRenderer {
     white: GpuTexture,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct PrimRenderStats {
+    pub quad_count: usize,
+    pub vertex_count: usize,
+    pub draw_calls: usize,
+    pub cached_graphs: usize,
+}
+
 impl GpuPrimRenderer {
     pub fn new(resources: Arc<GpuCommonResources>, virtual_size: (u32, u32)) -> Self {
         let vb_capacity = 1024 * 6; // initial: 1024 quads
@@ -66,6 +74,18 @@ impl GpuPrimRenderer {
 
     pub fn set_virtual_size(&mut self, virtual_size: (u32, u32)) {
         self.virtual_size = virtual_size;
+    }
+
+    pub fn stats(&self) -> PrimRenderStats {
+        // Each quad is two triangles => 6 vertices.
+        let vertex_count = self.vertices.len();
+        let quad_count = vertex_count / 6;
+        PrimRenderStats {
+            quad_count,
+            vertex_count,
+            draw_calls: self.draws.len(),
+            cached_graphs: self.graph_cache.len(),
+        }
     }
 
     /// Rebuild renderer draw lists from the current motion manager state.

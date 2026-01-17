@@ -146,6 +146,8 @@ pub struct GameData {
     cursor_table: HashMap<u32, CursorBundle>,
     current_cursor_index: u32,
     halt: bool,
+
+    pub(crate) debug_vm: crate::debug::vm_snapshot::VmSnapshot,
 }
 
 impl Default for GameData {
@@ -182,6 +184,7 @@ impl Default for GameData {
             cursor_table: HashMap::new(),
             current_cursor_index: 0, // means use the defualt cursor
             halt: false,
+            debug_vm: Default::default(),
         }
     }
 }
@@ -256,6 +259,22 @@ impl GameData {
 
     pub fn bgm_player_mut(&mut self) -> &mut BgmPlayer {
         &mut self.bgm_player
+    }
+
+    pub fn se_player_ref(&self) -> &SePlayer {
+        &self.se_player
+    }
+
+    pub fn bgm_player_ref(&self) -> &BgmPlayer {
+        &self.bgm_player
+    }
+
+    pub fn debug_vm_ref(&self) -> &crate::debug::vm_snapshot::VmSnapshot {
+        &self.debug_vm
+    }
+
+    pub fn debug_vm_mut(&mut self) -> &mut crate::debug::vm_snapshot::VmSnapshot {
+        &mut self.debug_vm
     }
 
     pub fn audio_manager(&self) -> Arc<AudioManager> {

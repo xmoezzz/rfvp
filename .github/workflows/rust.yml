@@ -44,3 +44,5 @@ jobs:
       run: rustc --version
     - name: Build
       run: cargo build --release --verbose
+      env:
+              RUSTFLAGS: "-A static_mut_refs"

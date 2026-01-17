@@ -141,4 +141,45 @@ impl BgmPlayer {
         let slot = slot as usize;
         self.bgm_kinds[slot] = Some(kind);
     }
+
+    pub fn debug_summary(&self) -> BgmDebugSummary {
+        let loaded_datas = self.bgm_datas.iter().filter(|x| x.is_some()).count();
+        let mut playing = Vec::new();
+        for slot in 0..BGM_SLOT_COUNT {
+            if self.bgm_slots[slot].is_some() {
+                playing.push(BgmSlotInfo {
+                    slot,
+                    volume: self.bgm_volumes[slot] as f64,
+                    muted: self.bgm_muted[slot],
+                    kind: self.bgm_kinds[slot],
+                    data_loaded: self.bgm_datas[slot].is_some(),
+                });
+            }
+        }
+
+        BgmDebugSummary {
+            max_slots: BGM_SLOT_COUNT,
+            loaded_datas,
+            playing_slots: playing.len(),
+            playing,
+        }
+    }
 }
+
+#[derive(Debug, Clone, Default)]
+pub struct BgmSlotInfo {
+    pub slot: usize,
+    pub volume: f64,
+    pub muted: bool,
+    pub kind: Option<i32>,
+    pub data_loaded: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct BgmDebugSummary {
+    pub max_slots: usize,
+    pub loaded_datas: usize,
+    pub playing_slots: usize,
+    pub playing: Vec<BgmSlotInfo>,
+}
+

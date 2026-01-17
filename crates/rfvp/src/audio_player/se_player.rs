@@ -165,4 +165,47 @@ impl SePlayer {
         let slot = slot as usize;
         self.se_kinds[slot] = Some(kind);
     }
+
+    pub fn debug_summary(&self) -> SeDebugSummary {
+        let loaded_datas = self.se_datas.iter().filter(|x| x.is_some()).count();
+
+        let mut playing = Vec::new();
+        for slot in 0..SE_SLOT_COUNT {
+            if self.se_slots[slot].is_some() {
+                playing.push(SeSlotInfo {
+                    slot,
+                    volume: self.se_volumes[slot] as f64,
+                    muted: self.se_muted[slot],
+                    kind: self.se_kinds[slot],
+                    data_loaded: self.se_datas[slot].is_some(),
+                });
+            }
+        }
+
+        SeDebugSummary {
+            max_datas: self.se_datas.len(),
+            max_slots: self.se_slots.len(),
+            loaded_datas,
+            playing_slots: playing.len(),
+            playing,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SeSlotInfo {
+    pub slot: usize,
+    pub volume: f64,
+    pub muted: bool,
+    pub kind: Option<i32>,
+    pub data_loaded: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SeDebugSummary {
+    pub max_datas: usize,
+    pub max_slots: usize,
+    pub loaded_datas: usize,
+    pub playing_slots: usize,
+    pub playing: Vec<SeSlotInfo>,
 }

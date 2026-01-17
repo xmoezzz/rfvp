@@ -7,6 +7,7 @@ use crate::subsystem::resources::{
     thread_wrapper::ThreadRequest,
 };
 use crate::subsystem::world::GameData;
+use crate::debug;
 
 /// Drives the script VM (which is coroutine-based, not OS-thread based).
 ///
@@ -41,6 +42,9 @@ impl VmRunner {
         // The VM itself is cooperative; the engine decides when to advance contexts.
         // If the game is halted (e.g. waiting for IO / modal UI), we do not advance contexts.
         if game.get_halt() {
+            if debug::enabled() {
+                game.debug_vm_mut().update_from_thread_manager(&self.tm);
+            }
             return Ok(());
         }
 
@@ -77,6 +81,10 @@ impl VmRunner {
             {
                 self.run_one_context(tid, game, parser, max_ops_per_context)?;
             }
+        }
+
+        if debug::enabled() {
+            game.debug_vm_mut().update_from_thread_manager(&self.tm);
         }
 
         Ok(())

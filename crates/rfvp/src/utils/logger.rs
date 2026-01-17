@@ -4,6 +4,8 @@ use fern::colors::{Color, ColoredLevelConfig};
 use log::debug;
 
 use crate::config::logger_config::LoggerConfig;
+use crate::debug;
+use crate::debug::log_ring::{self, RingWriter};
 
 /// Logging utility
 pub(crate) struct Logger;
@@ -16,6 +18,12 @@ impl Logger {
     /// apply a logging config. If one already exists, it won't replace it.
     pub fn init_logging(config: Option<LoggerConfig>) {
         let config = config.unwrap_or_default();
+        let enable_test = debug::enabled();
+        let ring = if enable_test {
+            Some(log_ring::init(4096))
+        } else {
+            None
+        };
         let color_config = ColoredLevelConfig {
             error: Color::Red,
             warn: Color::Yellow,
@@ -23,7 +31,7 @@ impl Logger {
             debug: Color::White,
             trace: Color::BrightWhite,
         };
-        fern::Dispatch::new()
+        let mut root = fern::Dispatch::new()
             .format(|out, message, record| {
                 out.finish(format_args!(
                     "[{}][{}] : \n    -> {}", record.level(), record.target(), message
@@ -46,8 +54,23 @@ impl Logger {
                             message = message,
                             color_reset = "\x1B[0m",
                         ))
-                    }))
-            .apply()
+                    }),
+            );
+
+        if let Some(ring) = ring {
+            root = root.chain(
+                fern::Dispatch::new()
+                    .chain(Box::new(RingWriter::new(ring)) as Box<dyn io::Write + Send>)
+                    .level(config.level_filter)
+                    .level_for("rfvp", config.app_level_filter)
+                    .level_for("wgpu_core", log::LevelFilter::Off)
+                    .level_for("wgpu_hal", log::LevelFilter::Off)
+                    .level_for("naga", log::LevelFilter::Off)
+                    .format(|out, message, _record| out.finish(format_args!("{}", message))),
+            );
+        }
+
+        root.apply()
             .unwrap_or_else(|_| debug!("Logger can be set only one time, skipping."));
     }
 }
