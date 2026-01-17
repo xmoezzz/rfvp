@@ -1,0 +1,13 @@
+[package]
+name = "hcb2lua_decompiler"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+log = "0.4"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+encoding_rs = "0.8"
+serde_yml = "0.0.12"
+serde = { version = "1.0.228", features = ["derive"] }
+

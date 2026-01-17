@@ -1,0 +1,18 @@
+[package]
+name = "assembler"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = { version = "1.0.79", features = ["backtrace"] }
+clap = { version = "4.5.4", features = ["derive"] }
+serde = { version = "1.0.197", features = ["derive"] }
+serde_yaml = "0.9.34"
+toml = "=0.8.12"
+rfvp = { path = "../rfvp" }
+
+env_logger = "0.11.3"
+log = "0.4.21"
+encoding_rs = "0.8.34"
