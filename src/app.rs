@@ -1,6 +1,6 @@
 use anyhow::Result;
 use std::{
-    collections::HashMap, fs::File, path::{Path, PathBuf}, slice::Windows, sync::{Arc, RwLock}, time::Instant
+    collections::HashMap, fs::File, path::{Path, PathBuf}, slice::Windows, sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard}, time::Instant
 };
 use glam::{mat4, vec3, vec4, Mat4};
 use wgpu::util::DeviceExt;
@@ -34,6 +34,25 @@ use crate::rfvp_render::vertices::{PosVertex, VertexSource};
 
 use crate::rendering::gpu_prim::GpuPrimRenderer;
 use crate::subsystem::resources::motion_manager::DissolveType;
+
+// ----------------------------
+// GameData lock helpers
+// ----------------------------
+#[inline]
+fn gd_read<'a>(gd: &'a Arc<RwLock<GameData>>) -> RwLockReadGuard<'a, GameData> {
+    match gd.read() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
+
+#[inline]
+fn gd_write<'a>(gd: &'a Arc<RwLock<GameData>>) -> RwLockWriteGuard<'a, GameData> {
+    match gd.write() {
+        Ok(g) => g,
+        Err(poisoned) => poisoned.into_inner(),
+    }
+}
 
 pub struct App {
     config: AppConfig,
@@ -80,16 +99,16 @@ impl App {
     fn setup(&mut self) {
         self.initialize_internal_resources();
         {
-            let mut gd = self.game_data.write().unwrap();
+            let mut gd = gd_write(&self.game_data);
             self.layer_machine.apply_scene_action(SceneAction::Start, &mut gd);
             if gd.has_cursor(1) {
                 gd.switch_cursor(1);
             }
         }
-}
+    }
 
     fn initialize_internal_resources(&mut self) {
-        let mut gd = self.game_data.write().unwrap();
+        let mut gd = gd_write(&self.game_data);
 
         let window = self.window.as_ref().expect("No window found during setup");
         gd
@@ -98,7 +117,6 @@ impl App {
                 window.scale_factor(),
             ));
     }
-    
     fn window(&self) -> &Arc<Window> {
         self.window.as_ref().expect("No window found")
     }
@@ -106,7 +124,7 @@ impl App {
     fn debug_title(&mut self, x: i32, y: i32) {
         let title = self.title.clone();
         let (x, y, down, up) = {
-            let gd = self.game_data.read().unwrap();
+            let gd = gd_read(&self.game_data);
             (
                 gd.inputs_manager.get_cursor_x(),
                 gd.inputs_manager.get_cursor_y(),
@@ -120,17 +138,17 @@ impl App {
                 self.window.as_mut().unwrap().set_title(&title);
             }
         }
-}
+    }
 
     fn debug_keydown(&self) -> String {
-        let gd = self.game_data.read().unwrap();
+        let gd = gd_read(&self.game_data);
         gd.inputs_manager.get_input_down().to_string()
-}
+    }
 
     fn debug_keyup(&self) -> String {
-        let gd = self.game_data.read().unwrap();
+        let gd = gd_read(&self.game_data);
         gd.inputs_manager.get_input_up().to_string()
-}
+    }
 
     fn run(mut self, event_loop: EventLoop<()>) {
         let _result = event_loop.run(move |event, loopd| {
@@ -153,7 +171,7 @@ impl App {
                     match event {
                         WindowEvent::CloseRequested => loopd.exit(),
                         WindowEvent::Resized(physical_size) => {
-                            self.game_data.write().unwrap().window_mut().set_dimensions(physical_size.width, physical_size.height);
+                            gd_write(&self.game_data).window_mut().set_dimensions(physical_size.width, physical_size.height);
 
                             // Update swapchain configuration.
                             self.surface_config.width = physical_size.width.max(1);
@@ -169,8 +187,10 @@ impl App {
                         WindowEvent::RedrawRequested => {
                             // Drive the simulation from redraws so we do not busy-spin.
                             self.next_frame();
-                            self.layer_machine
-                                .apply_scene_action(SceneAction::EndFrame, &mut self.game_data.write().unwrap());
+                            {
+                                let mut gd = gd_write(&self.game_data);
+                                self.layer_machine.apply_scene_action(SceneAction::EndFrame, &mut gd);
+                            }
                             if let Err(e) = self.render_frame() {
                                 log::error!("render_frame: {e:?}");
                             }
@@ -178,7 +198,7 @@ impl App {
                         _ => {}
                     }
                     {
-                        let mut gd = self.game_data.write().unwrap();
+                        let mut gd = gd_write(&self.game_data);
                         update_input_events(event, &mut gd);
                     }
                     // Wake the VM immediately on user input so scripts that poll
@@ -213,7 +233,7 @@ impl App {
             // Take the write lock once and never re-lock inside this scope.
             // IMPORTANT: avoid borrowing fields via the RwLockWriteGuard multiple times; always
             // project through a single &mut GameData binding.
-            let mut gd_guard = self.game_data.write().unwrap();
+            let mut gd_guard = gd_write(&self.game_data);
             let gd = &mut *gd_guard;
 
             let frame_duration = gd.time_mut_ref().frame();
@@ -284,7 +304,7 @@ impl App {
 
     fn update_cursor(&mut self) {
         let cursor_frame = {
-            let mut gd = self.game_data.write().unwrap();
+            let mut gd = gd_write(&self.game_data);
             gd.update_cursor()
         };
         let w = self.window.as_mut().expect("A window is mandatory to run this game !");
@@ -292,17 +312,39 @@ impl App {
             w.set_cursor(frame);
         }
         {
-            let mut gd = self.game_data.write().unwrap();
+            let mut gd = gd_write(&self.game_data);
             let mut window = gd.window_mut();
             window.reset_future_settings()
         }
 }
 
     fn render_frame(&mut self) -> anyhow::Result<()> {
-        let gd = self.game_data.read().unwrap();
+        let dissolve_color: Option<glam::Vec4>;
+        {
+            let gd = gd_read(&self.game_data);
 
-        // Build primitive draw list and upload any modified GraphBuffs to the GPU.
-        self.prim_renderer.rebuild(&self.resources, &gd.motion_manager);
+            // Build primitive draw list and upload any modified GraphBuffs to the GPU.
+            self.prim_renderer.rebuild(&self.resources, &gd.motion_manager);
+
+            let dissolve_type = gd.motion_manager.get_dissolve_type();
+            dissolve_color = if dissolve_type != DissolveType::None {
+                let alpha = gd.motion_manager.get_dissolve_alpha();
+                if alpha > 0.0 {
+                    let cid = gd.motion_manager.get_dissolve_color_id() as u8;
+                    let c = gd.motion_manager.color_manager.get_entry(cid);
+                    Some(vec4(
+                        c.get_r() as f32 / 255.0,
+                        c.get_g() as f32 / 255.0,
+                        c.get_b() as f32 / 255.0,
+                        (c.get_a() as f32 / 255.0) * alpha,
+                    ))
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+        }
 
         let mut encoder = self
             .resources
@@ -316,34 +358,26 @@ impl App {
             let mut pass = self
                 .render_target
                 .begin_srgb_render_pass(&mut encoder, Some("rfvp virtual pass"));
-            self.prim_renderer.draw_virtual(&mut pass, &self.resources.pipelines.sprite, self.render_target.projection_matrix());
+            self.prim_renderer.draw_virtual(
+                &mut pass,
+                &self.resources.pipelines.sprite,
+                self.render_target.projection_matrix(),
+            );
+
             // Global dissolve overlay (rendered in virtual space).
-            let dissolve_type = gd.motion_manager.get_dissolve_type();
-            if dissolve_type != crate::subsystem::resources::motion_manager::DissolveType::None {
-                // NOTE: Mask-based dissolves are currently rendered as a simple colored fade.
-                let alpha = gd.motion_manager.get_dissolve_alpha();
-                if alpha > 0.0 {
-                    let cid = gd.motion_manager.get_dissolve_color_id() as u8;
-                    let c = gd.motion_manager.color_manager.get_entry(cid);
-                    let color = vec4(
-                        c.get_r() as f32 / 255.0,
-                        c.get_g() as f32 / 255.0,
-                        c.get_b() as f32 / 255.0,
-                        (c.get_a() as f32 / 255.0) * alpha,
-                    );
-                    let src = VertexSource::VertexIndexBuffer {
-                        vertex_buffer: &self.dissolve_vertex_buffer,
-                        index_buffer: &self.dissolve_index_buffer,
-                        indices: 0..self.dissolve_num_indices,
-                        instances: 0..1,
-                    };
-                    self.resources.pipelines.fill.draw(
-                        &mut pass,
-                        src,
-                        self.render_target.projection_matrix(),
-                        color,
-                    );
-                }
+            if let Some(color) = dissolve_color {
+                let src = VertexSource::VertexIndexBuffer {
+                    vertex_buffer: &self.dissolve_vertex_buffer,
+                    index_buffer: &self.dissolve_index_buffer,
+                    indices: 0..self.dissolve_num_indices,
+                    instances: 0..1,
+                };
+                self.resources.pipelines.fill.draw(
+                    &mut pass,
+                    src,
+                    self.render_target.projection_matrix(),
+                    color,
+                );
             }
         }
 
@@ -359,7 +393,9 @@ impl App {
                 // Skip a frame.
                 return Ok(());
             }
-            Err(e) => return Err(anyhow::anyhow!(e)),
+            Err(e) => {
+                return Err(e.into());
+            }
         };
 
         let view = output
@@ -382,33 +418,37 @@ impl App {
                 occlusion_query_set: None,
             });
 
-            let win_w = self.surface_config.width.max(1) as f32;
-            let win_h = self.surface_config.height.max(1) as f32;
-            let virt_w = self.virtual_size.0.max(1) as f32;
-            let virt_h = self.virtual_size.1.max(1) as f32;
+            let vw = self.virtual_size.0 as f32;
+            let vh = self.virtual_size.1 as f32;
+            let sw = self.surface_config.width as f32;
+            let sh = self.surface_config.height as f32;
+            let scale = if vw > 0.0 && vh > 0.0 {
+                (sw / vw).min(sh / vh)
+            } else {
+                1.0
+            };
 
-            let s = (win_w / virt_w).min(win_h / virt_h);
-            let screen_proj = mat4(
-                vec4(2.0 / win_w, 0.0, 0.0, 0.0),
-                vec4(0.0, -2.0 / win_h, 0.0, 0.0),
+            let present_m = mat4(
+                vec4(2.0 * scale / sw, 0.0, 0.0, 0.0),
+                vec4(0.0, -2.0 * scale / sh, 0.0, 0.0),
                 vec4(0.0, 0.0, 1.0, 0.0),
                 vec4(0.0, 0.0, 0.0, 1.0),
             );
-            let transform = screen_proj * Mat4::from_scale(vec3(s, s, 1.0));
 
             self.resources.pipelines.sprite_screen.draw(
                 &mut pass,
                 self.render_target.vertex_source(),
                 self.render_target.bind_group(),
-                transform,
+                present_m,
             );
         }
 
         self.resources.queue.submit(Some(encoder.finish()));
         output.present();
+
         Ok(())
-    
-}
+    }
+
 
     pub fn find_hcb(game_path: impl AsRef<Path>) -> Result<PathBuf> {
         let mut path = game_path.as_ref().to_path_buf();

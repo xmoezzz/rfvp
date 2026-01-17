@@ -217,12 +217,33 @@ impl GpuPrimRenderer {
         snow_motions: &[SnowMotion],
         prim_id: i16,
         parent: Mat4,
+        visit: &mut [u8],
+        depth: usize,
     ) {
         if prim_id < 0 {
             return;
         }
 
-        let prim = prim_manager.get_prim(prim_id);
+        let prim_idx = prim_id as usize;
+        if prim_idx >= visit.len() {
+            log::error!("collect_tree: invalid prim_id {prim_id}");
+            return;
+        }
+        if depth > 4096 {
+            log::error!("collect_tree: depth overflow at prim_id {prim_id}");
+            return;
+        }
+        if visit[prim_idx] == 1 {
+            log::error!("collect_tree: cycle detected at prim_id {prim_id}");
+            return;
+        }
+        if visit[prim_idx] == 2 {
+            // Duplicate reference (should not happen in a tree). Skip to avoid exponential work.
+            return;
+        }
+        visit[prim_idx] = 1;
+
+        let prim = prim_manager.get_prim_immutable(prim_id);
         let local = self.build_local_transform(&prim);
         let model = parent * local;
 
@@ -456,22 +477,34 @@ impl GpuPrimRenderer {
         // Traverse children in z-order (stable by sibling order).
         let mut children = Vec::<i16>::new();
         let mut child = prim.get_first_child_idx();
+        let mut steps: usize = 0;
         while child != -1 {
+            if steps >= 4096 {
+                log::error!("collect_tree: child sibling chain too long (possible cycle) at prim_id {prim_id}");
+                break;
+            }
+            steps += 1;
+            if child < 0 || child >= 4096 {
+                log::error!("collect_tree: invalid child id {child} under prim_id {prim_id}");
+                break;
+            }
             children.push(child);
-            let p = prim_manager.get_prim(child);
+            let p = prim_manager.get_prim_immutable(child);
             child = p.get_next_sibling_idx();
         }
 
         if children.len() > 1 {
             children.sort_by_key(|&cid| {
-                let p = prim_manager.get_prim(cid);
+                let p = prim_manager.get_prim_immutable(cid);
                 (p.get_z(), cid)
             });
         }
 
         for cid in children {
-            self.collect_tree(resources, prim_manager, color_manager, graphs, snow_motions, cid, model);
+            self.collect_tree(resources, prim_manager, color_manager, graphs, snow_motions, cid, model, visit, depth + 1);
         }
+
+        visit[prim_idx] = 2;
     }
 
     /// Build geometry and draw items from the current primitive tree.
@@ -486,7 +519,8 @@ impl GpuPrimRenderer {
 
         // Root is typically 0; scripts usually operate on 1..=4095.
         let root = prim_manager.get_custom_root_prim_id();
-        self.collect_tree(resources, prim_manager, &motion.color_manager, graphs, snow_motions, root as i16, Mat4::IDENTITY);
+        let mut visit = vec![0u8; 4096];
+        self.collect_tree(resources, prim_manager, &motion.color_manager, graphs, snow_motions, root as i16, Mat4::IDENTITY, &mut visit, 0);
 
         self.ensure_vb_capacity(resources, self.vertices.len() as u32);
         self.vb.write(&resources.queue, &self.vertices);
