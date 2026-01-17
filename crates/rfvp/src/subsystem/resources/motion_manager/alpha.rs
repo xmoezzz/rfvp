@@ -213,20 +213,26 @@ impl AlphaMotionContainer {
     }
 
     fn next_free_id(&mut self, prim_id: u32) -> Option<u32> {
-        let mut i = 0;
-        while !self.motions[i].is_running() || self.motions[i].get_prim_id() != prim_id {
-            i += 1;
-            if i >= 256 {
-                return None;
+        // Fast path: if this prim already has a running alpha motion, stop it and reuse its slot.
+        if let Some(i) = self
+            .motions
+            .iter()
+            .position(|m| m.is_running() && m.get_prim_id() == prim_id)
+        {
+            self.motions[i].set_running(false);
+            if self.current_id > 0 {
+                self.current_id -= 1;
             }
+            self.allocation_pool[self.current_id as usize] = self.motions[i].get_id();
+            return Some(self.current_id);
         }
 
-        self.motions[i].set_running(false);
-        if self.current_id > 0 {
-            self.current_id -= 1;
+        // Otherwise, allocate from the pool if we still have capacity.
+        if (self.current_id as usize) < self.allocation_pool.len() {
+            return Some(self.current_id);
         }
-        self.allocation_pool[self.current_id as usize] = self.motions[i].get_id();
-        Some(self.current_id)
+
+        None
     }
 
     pub fn push_motion(

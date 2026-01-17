@@ -11,6 +11,15 @@ use crate::subsystem::world::GameData;
 
 use super::{get_var, Syscaller};
 
+#[inline]
+fn int_or_default(v: &Variant, default: i32) -> i32 {
+    match v {
+        Variant::Int(x) => *x,
+        Variant::Nil => default,
+        _ => default,
+    }
+}
+
 pub fn motion_alpha(
     game_data: &mut GameData,
     id: &Variant,
@@ -64,18 +73,14 @@ pub fn motion_alpha(
         return Ok(Variant::Nil);
     }
 
-    let typ = match typ {
-        Variant::Int(typ) => *typ,
-        _ => {
-            log::error!("Invalid type");
-            return Ok(Variant::Nil);
-        },
-    };
+    // Scripts frequently pass Nil to indicate "default".
+    // For alpha motion, default is linear interpolation (0).
+    let typ = int_or_default(typ, 0);
 
     let typ = match typ.try_into() {
         Ok(AlphaMotionType::Linear) => AlphaMotionType::Linear,
         Ok(AlphaMotionType::Immediate) => AlphaMotionType::Immediate,
-        _ => AlphaMotionType::Immediate,
+        _ => AlphaMotionType::Linear,
     };
 
     game_data.motion_manager.set_alpha_motion(
@@ -190,22 +195,17 @@ pub fn motion_move(
         return Ok(Variant::Nil);
     }
 
-    let typ = match typ {
-        Variant::Int(typ) => *typ,
-        _ => { 
-            log::error!("Invalid type");
-            return Ok(Variant::Nil);
-        },
-    };
+    // Default for move motion is linear (1). Nil means "use default".
+    let typ = int_or_default(typ, 1);
 
     let typ = match typ.try_into() {
-        Ok(MoveMotionType::None) => MoveMotionType::None,
         Ok(MoveMotionType::Linear) => MoveMotionType::Linear,
         Ok(MoveMotionType::Accelerate) => MoveMotionType::Accelerate,
         Ok(MoveMotionType::Decelerate) => MoveMotionType::Decelerate,
         Ok(MoveMotionType::Rebound) => MoveMotionType::Rebound,
         Ok(MoveMotionType::Bounce) => MoveMotionType::Bounce,
-        _ => MoveMotionType::None,
+        // Type 0 is reserved as "None" (unused) in the motion container.
+        _ => MoveMotionType::Linear,
     };
 
     game_data.motion_manager.set_move_motion(
@@ -309,22 +309,17 @@ pub fn motion_move_r(
         return Ok(Variant::Nil);
     }
 
-    let typ = match typ {
-        Variant::Int(typ) => *typ,
-        _ => {
-            log::error!("Invalid type");
-            return Ok(Variant::Nil);
-        },
-    };
+    // Default for rotation motion is linear (1). Nil means "use default".
+    let typ = int_or_default(typ, 1);
 
     let typ = match typ.try_into() {
-        Ok(RotationMotionType::None) => RotationMotionType::None,
         Ok(RotationMotionType::Linear) => RotationMotionType::Linear,
         Ok(RotationMotionType::Accelerate) => RotationMotionType::Accelerate,
         Ok(RotationMotionType::Decelerate) => RotationMotionType::Decelerate,
         Ok(RotationMotionType::Rebound) => RotationMotionType::Rebound,
         Ok(RotationMotionType::Bounce) => RotationMotionType::Bounce,
-        _ => RotationMotionType::None,
+        // Type 0 is reserved as "None" (unused) in the motion container.
+        _ => RotationMotionType::Linear,
     };
 
     game_data.motion_manager.set_rotation_motion(
@@ -459,22 +454,17 @@ pub fn motion_move_s2(
         return Ok(Variant::Nil);
     }
 
-    let typ = match typ {
-        Variant::Int(typ) => *typ,
-        _ => {
-            log::error!("Invalid type");
-            return Ok(Variant::Nil);
-        },
-    };
+    // Default for scale motion is linear (1). Nil means "use default".
+    let typ = int_or_default(typ, 1);
 
     let typ = match typ.try_into() {
-        Ok(ScaleMotionType::None) => ScaleMotionType::None,
         Ok(ScaleMotionType::Linear) => ScaleMotionType::Linear,
         Ok(ScaleMotionType::Accelerate) => ScaleMotionType::Accelerate,
         Ok(ScaleMotionType::Decelerate) => ScaleMotionType::Decelerate,
         Ok(ScaleMotionType::Rebound) => ScaleMotionType::Rebound,
         Ok(ScaleMotionType::Bounce) => ScaleMotionType::Bounce,
-        _ => ScaleMotionType::None,
+        // Type 0 is reserved as "None" (unused) in the motion container.
+        _ => ScaleMotionType::Linear,
     };
 
     game_data.motion_manager.set_scale_motion(
@@ -588,22 +578,17 @@ pub fn motion_move_z(
         return Ok(Variant::Nil);
     }
 
-    let typ = match typ {
-        Variant::Int(typ) => *typ,
-        _ => {
-            log::error!("Invalid type");
-            return Ok(Variant::Nil);
-        },
-    };
+    // Default for z motion is linear (1). Nil means "use default".
+    let typ = int_or_default(typ, 1);
 
     let typ = match typ.try_into() {
-        Ok(ZMotionType::None) => ZMotionType::None,
         Ok(ZMotionType::Linear) => ZMotionType::Linear,
         Ok(ZMotionType::Accelerate) => ZMotionType::Accelerate,
         Ok(ZMotionType::Decelerate) => ZMotionType::Decelerate,
         Ok(ZMotionType::Rebound) => ZMotionType::Rebound,
         Ok(ZMotionType::Bounce) => ZMotionType::Bounce,
-        _ => ZMotionType::None,
+        // Type 0 is reserved as "None" (unused) in the motion container.
+        _ => ZMotionType::Linear,
     };
 
     game_data.motion_manager.set_z_motion(
@@ -741,18 +726,13 @@ pub fn v3d_motion(
         return Ok(Variant::Nil);
     }
 
-    let typ = match typ {
-        Variant::Int(typ) => *typ,
-        _ => {
-            log::error!("Invalid type");
-            return Ok(Variant::Nil);
-        },
-    };
+    // Default for v3d motion is linear (1). Nil means "use default".
+    let typ = int_or_default(typ, 1);
 
     let typ = match typ.try_into() {
-        Ok(V3dMotionType::None) => V3dMotionType::None,
         Ok(V3dMotionType::Linear) => V3dMotionType::Linear,
-        _ => V3dMotionType::None,
+        // Type 0 is reserved as "None" (unused) in the motion container.
+        _ => V3dMotionType::Linear,
     };
 
     game_data.motion_manager.set_v3d_motion(

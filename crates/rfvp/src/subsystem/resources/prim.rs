@@ -332,8 +332,10 @@ impl PrimManager {
             if self.get_prim(id).get_type() == PrimType::PrimTypeGroup {
                 let mut child = self.get_prim(id).get_first_child_idx();
                 while child != INVAILD_PRIM_HANDLE {
+                    // Capture next before unlinking; unlink_prim clears sibling links.
+                    let next = self.get_prim(child).get_next_sibling_idx();
                     self.unlink_prim(child);
-                    child = self.get_prim(child).get_next_sibling_idx();
+                    child = next;
                 }
             }
 
@@ -422,15 +424,43 @@ impl PrimManager {
         self.get_prim(id).set_parent(new_root);
         self.get_prim(id).set_next_sibling_idx(INVAILD_PRIM_HANDLE); // critical
 
-        if self.get_prim(new_root).get_first_child_idx() == INVAILD_PRIM_HANDLE {
+        let first = self.get_prim(new_root).get_first_child_idx();
+        if first == INVAILD_PRIM_HANDLE {
             self.get_prim(id).set_prev_sibling_idx(INVAILD_PRIM_HANDLE);
             self.get_prim(new_root).set_first_child_idx(id);
             self.get_prim(new_root).set_last_child_idx(id);
         } else {
-            let last = self.get_prim(new_root).get_last_child_idx();
-            self.get_prim(id).set_prev_sibling_idx(last);
-            self.get_prim(last).set_next_sibling_idx(id);
-            self.get_prim(new_root).set_last_child_idx(id);
+            // Some buggy sequences may leave last_child_idx unset even though the list is non-empty.
+            // Recompute a safe "last" by walking from first if needed.
+            let mut last = self.get_prim(new_root).get_last_child_idx();
+            if last == INVAILD_PRIM_HANDLE {
+                let mut cur = first;
+                for _ in 0..4096 {
+                    let next = self.get_prim(cur).get_next_sibling_idx();
+                    if next == INVAILD_PRIM_HANDLE {
+                        last = cur;
+                        break;
+                    }
+                    // Defensive: stop if next is out of range or forms an obvious self-loop.
+                    if next < 0 || next == cur {
+                        last = cur;
+                        break;
+                    }
+                    cur = next;
+                }
+                self.get_prim(new_root).set_last_child_idx(last);
+            }
+
+            if last == INVAILD_PRIM_HANDLE {
+                // Still inconsistent; treat as empty to avoid indexing -1.
+                self.get_prim(id).set_prev_sibling_idx(INVAILD_PRIM_HANDLE);
+                self.get_prim(new_root).set_first_child_idx(id);
+                self.get_prim(new_root).set_last_child_idx(id);
+            } else {
+                self.get_prim(id).set_prev_sibling_idx(last);
+                self.get_prim(last).set_next_sibling_idx(id);
+                self.get_prim(new_root).set_last_child_idx(id);
+            }
         }
 
         self.get_prim(id).apply_attr(0x40);

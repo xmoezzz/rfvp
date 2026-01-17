@@ -312,34 +312,30 @@ pub fn prim_set_rs(
         return Ok(Variant::Nil);
     }
 
+    // In real scripts, rotation/scale are often passed as Nil to indicate "keep current".
+    // Treat Nil (and other unexpected types) as "no change" instead of reporting an error.
+    let (cur_rot, cur_fx) = {
+        let p = game_data
+            .motion_manager
+            .prim_manager
+            .get_prim_immutable(id as i16);
+        (p.get_rotation() as i32, p.get_factor_x() as i32)
+    };
+
     let rotation = match rotation.as_int() {
         Some(r) => {
             let r2 = r % 3600;
-            if r2 < 0 {
-                r2 + 3600
-            } else {
-                r2
-            }
+            if r2 < 0 { r2 + 3600 } else { r2 }
         }
-        None => {
-            log::error!("prim_set_rs: invalid rs : {:?}", rotation);
-            return Ok(Variant::Nil);
-        },
+        None => cur_rot,
     };
 
     let scale = match scale.as_int() {
         Some(s) => s,
-        None => {
-            log::error!("prim_set_rs: invalid rs : {:?}", scale);
-            return Ok(Variant::Nil);
-        },
+        None => cur_fx,
     };
 
-    let scale = if !(0..=10000).contains(&scale) {
-        100 // default value
-    } else {
-        scale
-    };
+    let scale = if !(0..=10000).contains(&scale) { 1000 } else { scale };
 
     game_data
         .motion_manager
@@ -378,48 +374,39 @@ pub fn prim_set_rs2(
         return Ok(Variant::Nil);
     }
 
+    // Nil indicates "keep current".
+    let (cur_rot, cur_fx, cur_fy) = {
+        let p = game_data
+            .motion_manager
+            .prim_manager
+            .get_prim_immutable(id as i16);
+        (
+            p.get_rotation() as i32,
+            p.get_factor_x() as i32,
+            p.get_factor_y() as i32,
+        )
+    };
+
     let rotation = match rotation.as_int() {
         Some(r) => {
             let r2 = r % 3600;
-            if r2 < 0 {
-                r2 + 3600
-            } else {
-                r2
-            }
+            if r2 < 0 { r2 + 3600 } else { r2 }
         }
-        None => {
-            log::error!("prim_set_rs2: invalid rs : {:?}", rotation);
-            return Ok(Variant::Nil);
-        },
+        None => cur_rot,
     };
 
     let scale_x = match scale_x.as_int() {
         Some(s) => s,
-        None => {
-            log::error!("prim_set_rs2: invalid rs : {:?}", scale_x);
-            return Ok(Variant::Nil);
-        },
+        None => cur_fx,
     };
 
     let scale_y = match scale_y.as_int() {
         Some(s) => s,
-        None => {
-            log::error!("prim_set_rs2: invalid rs : {:?}", scale_y);
-            return Ok(Variant::Nil);
-        },
+        None => cur_fy,
     };
 
-    let scale_x = if !(0..=10000).contains(&scale_x) {
-        100 // default value
-    } else {
-        scale_x
-    };
-
-    let scale_y = if !(0..=10000).contains(&scale_y) {
-        100 // default value
-    } else {
-        scale_y
-    };
+    let scale_x = if !(0..=10000).contains(&scale_x) { 1000 } else { scale_x };
+    let scale_y = if !(0..=10000).contains(&scale_y) { 1000 } else { scale_y };
 
     game_data
         .motion_manager
