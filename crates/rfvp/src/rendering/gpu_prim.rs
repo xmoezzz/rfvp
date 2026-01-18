@@ -40,6 +40,7 @@ pub struct GpuPrimRenderer {
     vb_capacity: u32,
     vertices: Vec<PosColTexVertex>,
     draws: Vec<DrawItem>,
+    base_draws_len: usize,
     graph_cache: HashMap<u16, GraphGpuEntry>,
     white: GpuTexture,
 }
@@ -68,6 +69,7 @@ impl GpuPrimRenderer {
             vb_capacity,
             vertices: Vec::with_capacity(vb_capacity as usize),
             draws: Vec::new(),
+            base_draws_len: 0,
             graph_cache: HashMap::new(),
             white,
         }
@@ -554,6 +556,9 @@ impl GpuPrimRenderer {
             );
         }
 
+        // Mark split point for overlay draws (root_prim_idx)
+        self.base_draws_len = self.draws.len();
+
         // 2) draw optional overlay root if non-zero
         let root = prim_manager.get_custom_root_prim_id() as i16;
         if root != 0 {
@@ -576,16 +581,27 @@ impl GpuPrimRenderer {
     }
 
 
+
+    fn draw_slice_with_proj<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        sprite_pipeline: &'a SpritePipeline,
+        proj: Mat4,
+        draws: &'a [DrawItem],
+    ) {
+        for item in draws {
+            let src = self.vb.vertex_source_slice(item.vertex_range.clone());
+            sprite_pipeline.draw(render_pass, src, self.texture_bind_group(item.tex), proj);
+        }
+    }
+
     fn draw_with_proj<'a>(
         &'a self,
         render_pass: &mut wgpu::RenderPass<'a>,
         sprite_pipeline: &'a SpritePipeline,
         proj: Mat4,
     ) {
-        for item in &self.draws {
-            let src = self.vb.vertex_source_slice(item.vertex_range.clone());
-            sprite_pipeline.draw(render_pass, src, self.texture_bind_group(item.tex), proj);
-        }
+        self.draw_slice_with_proj(render_pass, sprite_pipeline, proj, &self.draws);
     }
 
     pub fn draw<'a>(
@@ -605,5 +621,27 @@ impl GpuPrimRenderer {
         projection_matrix: Mat4,
     ) {
         self.draw_with_proj(render_pass, sprite_pipeline, projection_matrix);
+    }
+
+    /// Draw only the base tree (slot 0), excluding overlay root draws.
+    pub fn draw_virtual_base<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        sprite_pipeline: &'a SpritePipeline,
+        projection_matrix: Mat4,
+    ) {
+        let end = self.base_draws_len.min(self.draws.len());
+        self.draw_slice_with_proj(render_pass, sprite_pipeline, projection_matrix, &self.draws[..end]);
+    }
+
+    /// Draw only the overlay root tree (root_prim_idx), if any.
+    pub fn draw_virtual_overlay<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        sprite_pipeline: &'a SpritePipeline,
+        projection_matrix: Mat4,
+    ) {
+        let start = self.base_draws_len.min(self.draws.len());
+        self.draw_slice_with_proj(render_pass, sprite_pipeline, projection_matrix, &self.draws[start..]);
     }
 }

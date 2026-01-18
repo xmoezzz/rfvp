@@ -190,7 +190,7 @@ impl MoveMotion {
                     break;
                 }
                 prim = prim_manager.get_prim(next as i16);
-                if !prim.get_paused() {
+                if prim.get_paused() {
                     return true;
                 }
             }
