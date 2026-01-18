@@ -7,31 +7,32 @@ use crate::subsystem::world::GameData;
 use super::Syscaller;
 
 pub fn prim_exit_group(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
-    let id = match id.as_int() {
-        Some(id) => id,
-        None => {
-            log::error!("prim_exit_group: invalid id : {:?}", id);
-            return Ok(Variant::Nil);
-        },
+    let Some(id) = id.as_int() else {
+        log::error!("prim_exit_group: invalid id : {:?}", id);
+        return Ok(Variant::Nil);
     };
 
-    // bad idea :( 
-    // if ( Value < 0x1000 )
-    if !(-2..=4095).contains(&id) {
-        log::error!("prim_exit_group: invalid id : {}", id);
+    println!("prim_exit_group: called with id={}", id);
+
+    // Match original engine: accept only 0..4095, ignore others.
+    if !(0..=4095).contains(&id) {
+        // Optional: warn instead of error to match "silently ignore"
+        log::warn!("prim_exit_group: ignored out-of-range id={}", id);
         return Ok(Variant::Nil);
     }
 
+    // Store scene root prim index.
     game_data.set_prim_root(id as i16);
 
-    // Keep renderer traversal root in sync (PrimManager.custom_root_prim_id).
-    // Negative ids are special values in the original engine; for traversal we
-    // fall back to 0.
-    let root = if id >= 0 { id as u16 } else { 0u16 };
-    game_data.motion_manager.prim_manager.set_custom_root_prim_id(root);
+    // Keep renderer traversal root in sync.
+    game_data
+        .motion_manager
+        .prim_manager
+        .set_custom_root_prim_id(id as u16);
 
     Ok(Variant::Nil)
 }
+
 
 pub fn prim_group_in(game_data: &mut GameData, id: &Variant, id2: &Variant) -> Result<Variant> {
     let id = match id.as_int() {

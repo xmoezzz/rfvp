@@ -25,7 +25,9 @@ pub fn audio_load(game_data: &mut GameData, channel: &Variant, path: &Variant) -
         Variant::String(path) | Variant::ConstString(path, _) => {
             let path = path.clone();
             let data = game_data.vfs_load_file(&path)?;
-            game_data.bgm_player_mut().load(channel, data);
+            if let Err(e) = game_data.bgm_player_mut().load_named(channel, path.clone(), data) {
+                log::error!("audio_load: {:?}", e);
+            }
             return Ok(Variant::Nil);
         },
         // unload channel
@@ -263,7 +265,9 @@ pub fn sound_load(game_data: &mut GameData, channel: &Variant, path: &Variant) -
         Variant::String(path) | Variant::ConstString(path, _) => {
             let path = path.clone();
             let data = game_data.vfs_load_file(&path)?;
-            game_data.se_player_mut().load(channel, data);
+            if let Err(e) = game_data.se_player_mut().load_named(channel, path.clone(), data) {
+                log::error!("sound_load: {:?}", e);
+            }
             return Ok(Variant::Nil);
         },
         // unload channel

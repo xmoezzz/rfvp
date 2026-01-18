@@ -16,6 +16,7 @@ pub struct BgmPlayer {
     bgm_slots: [Option<StaticSoundHandle>; BGM_SLOT_COUNT],
     bgm_datas: [Option<StaticSoundData>; BGM_SLOT_COUNT],
     bgm_kinds: [Option<i32>; BGM_SLOT_COUNT],
+    bgm_names: [Option<String>; BGM_SLOT_COUNT],
     bgm_muted: [bool; BGM_SLOT_COUNT],
     bgm_volumes: [f32; BGM_SLOT_COUNT],
 }
@@ -42,6 +43,7 @@ impl BgmPlayer {
             bgm_slots: [(); BGM_SLOT_COUNT].map(|_| None),
             bgm_datas: [(); BGM_SLOT_COUNT].map(|_| None),
             bgm_kinds: [(); BGM_SLOT_COUNT].map(|_| None),
+            bgm_names: [(); BGM_SLOT_COUNT].map(|_| None),
             bgm_muted: [false; BGM_SLOT_COUNT],
             bgm_volumes: [1.0; BGM_SLOT_COUNT],
         }
@@ -53,6 +55,12 @@ impl BgmPlayer {
         let sound = StaticSoundData::from_cursor(cursor)?;
         self.bgm_datas[slot] = Some(sound);
         Ok(())
+    }
+
+    pub fn load_named(&mut self, slot: i32, name: impl Into<String>, bgm: Vec<u8>) -> anyhow::Result<()> {
+        let slot_usize = slot as usize;
+        self.bgm_names[slot_usize] = Some(name.into());
+        self.load(slot, bgm)
     }
 
     pub fn play(
@@ -141,18 +149,25 @@ impl BgmPlayer {
         let slot = slot as usize;
         self.bgm_kinds[slot] = Some(kind);
     }
-
     pub fn debug_summary(&self) -> BgmDebugSummary {
         let loaded_datas = self.bgm_datas.iter().filter(|x| x.is_some()).count();
-        let mut playing = Vec::new();
+        let playing_slots = self.bgm_slots.iter().filter(|x| x.is_some()).count();
+
+        let mut slots = Vec::new();
         for slot in 0..BGM_SLOT_COUNT {
-            if self.bgm_slots[slot].is_some() {
-                playing.push(BgmSlotInfo {
+            let playing = self.bgm_slots[slot].is_some();
+            let data_loaded = self.bgm_datas[slot].is_some();
+            let has_name = self.bgm_names[slot].is_some();
+            let has_kind = self.bgm_kinds[slot].is_some();
+            if playing || data_loaded || has_name || has_kind {
+                slots.push(BgmSlotInfo {
                     slot,
+                    name: self.bgm_names[slot].clone(),
                     volume: self.bgm_volumes[slot] as f64,
                     muted: self.bgm_muted[slot],
                     kind: self.bgm_kinds[slot],
-                    data_loaded: self.bgm_datas[slot].is_some(),
+                    data_loaded,
+                    playing,
                 });
             }
         }
@@ -160,8 +175,8 @@ impl BgmPlayer {
         BgmDebugSummary {
             max_slots: BGM_SLOT_COUNT,
             loaded_datas,
-            playing_slots: playing.len(),
-            playing,
+            playing_slots,
+            slots,
         }
     }
 }
@@ -169,10 +184,12 @@ impl BgmPlayer {
 #[derive(Debug, Clone, Default)]
 pub struct BgmSlotInfo {
     pub slot: usize,
+    pub name: Option<String>,
     pub volume: f64,
     pub muted: bool,
     pub kind: Option<i32>,
     pub data_loaded: bool,
+    pub playing: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -180,6 +197,5 @@ pub struct BgmDebugSummary {
     pub max_slots: usize,
     pub loaded_datas: usize,
     pub playing_slots: usize,
-    pub playing: Vec<BgmSlotInfo>,
+    pub slots: Vec<BgmSlotInfo>,
 }
-

@@ -16,7 +16,9 @@ pub struct HudSnapshot {
     pub se: SeDebugSummary,
     pub bgm: BgmDebugSummary,
     pub vm: VmSnapshot,
+    pub textures: Vec<String>,
 }
+
 
 pub struct DebugHud {
     ring: Arc<LogRing>,
@@ -124,94 +126,93 @@ impl DebugHud {
     }
 
     fn build_ui(&self, snap: &HudSnapshot) {
-        let console_lines = self.ring.snapshot_tail(self.max_console_lines);
-
         egui::TopBottomPanel::top("hud_top").show(&self.egui_ctx, |ui| {
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                 ui.heading("rfvp debug");
                 ui.separator();
-                ui.label(format!(
-                    "frame={}  dt={:.2}ms",
-                    snap.frame_no, snap.dt_ms
-                ));
+                let fps = if snap.dt_ms > 0.0 { 1000.0 / snap.dt_ms } else { 0.0 };
+                ui.label(format!("frame={}  dt={:.2}ms  fps={:.1}", snap.frame_no, snap.dt_ms, fps));
                 ui.separator();
-                ui.label(format!(
-                    "render: quads={} verts={} draws={} textures={}",
+                ui.label(format!("render: quads={} verts={} draws={} textures={}",
                     snap.render.quad_count,
                     snap.render.vertex_count,
                     snap.render.draw_calls,
                     snap.render.cached_graphs
                 ));
+                ui.separator();
+                ui.label(format!("loaded textures={}", snap.textures.len()));
             });
         });
 
-        egui::SidePanel::left("hud_console")
-            .resizable(true)
-            .default_width(560.0)
-            .show(&self.egui_ctx, |ui| {
-                ui.label("Console (log)");
-                ui.separator();
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
-                    .stick_to_bottom(true)
-                    .show(ui, |ui| {
-                        ui.style_mut().override_text_style = Some(TextStyle::Monospace);
-                        for line in console_lines {
-                            ui.label(line);
-                        }
-                    });
-            });
-
         egui::CentralPanel::default().show(&self.egui_ctx, |ui| {
             ui.columns(2, |cols| {
-                // Audio
                 cols[0].group(|ui| {
-                    ui.label("Audio");
+                    ui.label("Textures");
                     ui.separator();
-                    ui.label(format!(
-                        "SE: loaded_datas={} playing_slots={} (slots={})",
-                        snap.se.loaded_datas, snap.se.playing.len(), snap.se.max_slots
-                    ));
-                    if !snap.se.playing.is_empty() {
-                        ui.style_mut().override_text_style = Some(TextStyle::Monospace);
-                        for s in snap.se.playing.iter().take(24) {
-                            ui.label(format!(
-                                "slot {:02}  vol={:.2}  muted={}  loaded={}  kind={}",
-                                s.slot,
-                                s.volume,
-                                if s.muted { 1 } else { 0 },
-                                if s.data_loaded { 1 } else { 0 },
-                                s.kind.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string())
-                            ));
-                        }
-                    }
-                    ui.separator();
-                    ui.label(format!(
-                        "BGM: loaded_datas={} playing_slots={} (slots={})",
-                        snap.bgm.loaded_datas, snap.bgm.playing.len(), snap.bgm.max_slots
-                    ));
-                    if !snap.bgm.playing.is_empty() {
-                        ui.style_mut().override_text_style = Some(TextStyle::Monospace);
-                        for b in snap.bgm.playing.iter().take(8) {
-                            ui.label(format!(
-                                "slot {:02}  vol={:.2}  muted={}  loaded={}  kind={}",
-                                b.slot,
-                                b.volume,
-                                if b.muted { 1 } else { 0 },
-                                if b.data_loaded { 1 } else { 0 },
-                                b.kind.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string())
-                            ));
-                        }
-                    }
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ui.style_mut().override_text_style = Some(TextStyle::Monospace);
+                            for t in &snap.textures {
+                                ui.label(t);
+                            }
+                        });
                 });
 
-                // VM
+                cols[1].group(|ui| {
+                    ui.label("Audio");
+                    ui.separator();
+                    ui.label(format!("BGM: loaded_datas={} playing_slots={} (slots={})",
+                        snap.bgm.loaded_datas, snap.bgm.playing_slots, snap.bgm.max_slots
+                    ));
+                    egui::ScrollArea::vertical().max_height(220.0)
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ui.style_mut().override_text_style = Some(TextStyle::Monospace);
+                            for b in &snap.bgm.slots {
+                                let name = b.name.as_deref().unwrap_or("<unnamed>");
+                                ui.label(format!("BGM[{slot:02}] {play} {load} vol={vol:.2} muted={muted} kind={kind} name={name}",
+                                    slot=b.slot,
+                                    play=if b.playing {"play"} else {"stop"},
+                                    load=if b.data_loaded {"loaded"} else {"empty"},
+                                    vol=b.volume,
+                                    muted=if b.muted {1} else {0},
+                                    kind=b.kind.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string()),
+                                    name=name
+                                ));
+                            }
+                        });
+
+                    ui.separator();
+                    ui.label(format!("SE: loaded_datas={} playing_slots={} (slots={})",
+                        snap.se.loaded_datas, snap.se.playing_slots, snap.se.max_slots
+                    ));
+                    egui::ScrollArea::vertical().max_height(280.0)
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ui.style_mut().override_text_style = Some(TextStyle::Monospace);
+                            for s in &snap.se.slots {
+                                let name = s.name.as_deref().unwrap_or("<unnamed>");
+                                ui.label(format!("SE[{slot:03}] {play} {load} vol={vol:.2} muted={muted} kind={kind} name={name}",
+                                    slot=s.slot,
+                                    play=if s.playing {"play"} else {"stop"},
+                                    load=if s.data_loaded {"loaded"} else {"empty"},
+                                    vol=s.volume,
+                                    muted=if s.muted {1} else {0},
+                                    kind=s.kind.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string()),
+                                    name=name
+                                ));
+                            }
+                        });
+                });
+
+                cols[1].add_space(8.0);
+
                 cols[1].group(|ui| {
                     ui.label("VM / Coroutine");
                     ui.separator();
                     let (run, wait, sleep, dissolve) = snap.vm.summarize_counts();
-                    ui.label(format!(
-                        "current={}  running={}  wait={}  sleep={}  dissolve_wait={}  tick={} ",
+                    ui.label(format!("current={}  running={}  wait={}  sleep={}  dissolve_wait={}  tick={} ",
                         snap.vm.current_id, run, wait, sleep, dissolve, snap.vm.tick_seq
                     ));
                     ui.separator();
@@ -241,6 +242,7 @@ impl DebugHud {
             });
         });
     }
+
 }
 
 fn format_thread_state(bits: u32) -> String {

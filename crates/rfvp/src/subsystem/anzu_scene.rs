@@ -8,10 +8,12 @@ impl Scene for AnzuScene {
     }
 
     fn on_update(&mut self, game_data: &mut GameData) {
-        let frame_duration = game_data
-            .time_mut_ref()
-            .frame()
-            .as_millis() as i64;
+        let frame_duration = game_data.time_mut_ref().delta_duration();
+        let frame_us = frame_duration.as_micros() as i64;
+        let frame_ms = ((frame_us as u64) + 999) / 1000;
+        let frame_duration = frame_ms as i64;
+
+        println!("AnzuScene: on_update called with frame_duration {}", frame_duration);
 
         self.update_alpha_motions(game_data, frame_duration);
         self.update_move_motions(game_data, frame_duration);
@@ -32,31 +34,31 @@ impl AnzuScene {
     }
 
     fn update_alpha_motions(&mut self, game_data: &mut GameData, elapsed: i64) {
-        game_data.motion_manager.update_alpha_motions(elapsed, true);
+        game_data.motion_manager.update_alpha_motions(elapsed, game_data.get_game_should_exit());
     }
 
     fn update_move_motions(&mut self, game_data: &mut GameData, elapsed: i64) {
-        game_data.motion_manager.update_move_motions(elapsed, true);
+        game_data.motion_manager.update_move_motions(elapsed, game_data.get_game_should_exit());
     }
 
     fn update_scale_motions(&mut self, game_data: &mut GameData, elapsed: i64) {
         game_data
             .motion_manager
-            .update_s2_move_motions(elapsed, true);
+            .update_s2_move_motions(elapsed, game_data.get_game_should_exit());
     }
 
     fn update_rotation_motions(&mut self, game_data: &mut GameData, elapsed: i64) {
         game_data
             .motion_manager
-            .update_rotation_motions(elapsed, true);
+            .update_rotation_motions(elapsed, game_data.get_game_should_exit());
     }
 
     fn update_z_motions(&mut self, game_data: &mut GameData, elapsed: i64) {
-        game_data.motion_manager.update_z_motions(elapsed, true);
+        game_data.motion_manager.update_z_motions(elapsed, game_data.get_game_should_exit());
     }
 
     fn update_v3d_motions(&mut self, game_data: &mut GameData, elapsed: i64) {
-        game_data.motion_manager.update_v3d_motions(elapsed, true);
+        game_data.motion_manager.update_v3d_motions(elapsed, game_data.get_game_should_exit());
     }
 
     fn update_anim_motions(&mut self, game_data: &mut GameData, elapsed: i64) {

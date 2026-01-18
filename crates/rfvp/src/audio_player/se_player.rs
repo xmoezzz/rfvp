@@ -14,6 +14,7 @@ pub struct SePlayer {
     se_slots: [Option<StaticSoundHandle>; SE_SLOT_COUNT],
     se_datas: [Option<StaticSoundData>; SE_SLOT_COUNT],
     se_kinds: [Option<i32>; SE_SLOT_COUNT],
+    se_names: [Option<String>; SE_SLOT_COUNT],
     se_muted: [bool; SE_SLOT_COUNT],
     se_volumes: [f32; SE_SLOT_COUNT],
 }
@@ -36,6 +37,7 @@ impl SePlayer {
             se_slots: [(); SE_SLOT_COUNT].map(|_| None),
             se_datas: [(); SE_SLOT_COUNT].map(|_| None),
             se_kinds: [(); SE_SLOT_COUNT].map(|_| None),
+            se_names: [(); SE_SLOT_COUNT].map(|_| None),
             se_muted: [false; SE_SLOT_COUNT],
             se_volumes: [1.0; SE_SLOT_COUNT],
         }
@@ -47,6 +49,12 @@ impl SePlayer {
         let sound = StaticSoundData::from_cursor(cursor)?;
         self.se_datas[slot] = Some(sound);
         Ok(())
+    }
+
+    pub fn load_named(&mut self, slot: i32, name: impl Into<String>, se: Vec<u8>) -> anyhow::Result<()> {
+        let slot_usize = slot as usize;
+        self.se_names[slot_usize] = Some(name.into());
+        self.load(slot, se)
     }
 
     pub fn play(
@@ -165,19 +173,25 @@ impl SePlayer {
         let slot = slot as usize;
         self.se_kinds[slot] = Some(kind);
     }
-
     pub fn debug_summary(&self) -> SeDebugSummary {
         let loaded_datas = self.se_datas.iter().filter(|x| x.is_some()).count();
+        let playing_slots = self.se_slots.iter().filter(|x| x.is_some()).count();
 
-        let mut playing = Vec::new();
+        let mut slots = Vec::new();
         for slot in 0..SE_SLOT_COUNT {
-            if self.se_slots[slot].is_some() {
-                playing.push(SeSlotInfo {
+            let playing = self.se_slots[slot].is_some();
+            let data_loaded = self.se_datas[slot].is_some();
+            let has_name = self.se_names[slot].is_some();
+            let has_kind = self.se_kinds[slot].is_some();
+            if playing || data_loaded || has_name || has_kind {
+                slots.push(SeSlotInfo {
                     slot,
+                    name: self.se_names[slot].clone(),
                     volume: self.se_volumes[slot] as f64,
                     muted: self.se_muted[slot],
                     kind: self.se_kinds[slot],
-                    data_loaded: self.se_datas[slot].is_some(),
+                    data_loaded,
+                    playing,
                 });
             }
         }
@@ -186,8 +200,8 @@ impl SePlayer {
             max_datas: self.se_datas.len(),
             max_slots: self.se_slots.len(),
             loaded_datas,
-            playing_slots: playing.len(),
-            playing,
+            playing_slots,
+            slots,
         }
     }
 }
@@ -195,10 +209,12 @@ impl SePlayer {
 #[derive(Debug, Clone, Default)]
 pub struct SeSlotInfo {
     pub slot: usize,
+    pub name: Option<String>,
     pub volume: f64,
     pub muted: bool,
     pub kind: Option<i32>,
     pub data_loaded: bool,
+    pub playing: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -207,5 +223,5 @@ pub struct SeDebugSummary {
     pub max_slots: usize,
     pub loaded_datas: usize,
     pub playing_slots: usize,
-    pub playing: Vec<SeSlotInfo>,
+    pub slots: Vec<SeSlotInfo>,
 }

@@ -27,8 +27,18 @@ fn vs_main(v: VsIn) -> VsOut {
   return o;
 }
 
+// @fragment
+// fn fs_main(i: VsOut) -> @location(0) vec4<f32> {
+//   let tex = textureSample(t0, s0, i.uv);
+//   return tex * i.col;
+// }
+
 @fragment
 fn fs_main(i: VsOut) -> @location(0) vec4<f32> {
-  let tex = textureSample(t0, s0, i.uv);
+  let dims_i = textureDimensions(t0);        // vec2<i32>
+  let dims = vec2<f32>(f32(dims_i.x), f32(dims_i.y));
+  let uv = i.uv / dims;                      // pixel -> normalized
+  let tex = textureSample(t0, s0, uv);
   return tex * i.col;
 }
+

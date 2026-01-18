@@ -53,9 +53,7 @@ fn load_script(nls: Nls) -> Result<Parser> {
 
 
 fn main() -> Result<()> {
-    // let mut handle = start_debug_ui();
-    // let _ = handle.start_capture();
-
+    // env_logger::init();
     let parser = load_script(Nls::ShiftJIS)?;
     let title  = parser.get_title();
     let size = parser.get_screen_size();

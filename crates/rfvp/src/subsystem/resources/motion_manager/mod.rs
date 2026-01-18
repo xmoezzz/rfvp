@@ -717,6 +717,7 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
     }
 
     pub fn tick_dissolve(&mut self, elapsed_ms: u32) {
+        println!("tick_dissolve: elapsed_ms = {}", elapsed_ms);
         let typ = self.dissolve_type;
         if typ == DissolveType::None || typ == DissolveType::Static {
             self.dissolve_alpha = if typ == DissolveType::Static { 1.0 } else { 0.0 };

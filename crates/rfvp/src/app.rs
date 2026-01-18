@@ -16,6 +16,7 @@ use crate::{
 
 use winit::{dpi::{PhysicalSize, Size}, window::CustomCursor};
 use winit::{
+    keyboard::{KeyCode, PhysicalKey},
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowAttributes},
@@ -82,6 +83,10 @@ pub struct App {
     // Debug HUD (FVP_TEST=1)
     // ----------------------------
     debug_hud: Option<DebugHud>,
+    hud_window: Option<Arc<Window>>,
+    hud_surface: Option<wgpu::Surface<'static>>,
+    hud_surface_config: Option<wgpu::SurfaceConfiguration>,
+    hud_visible: bool,
     debug_ring: Arc<LogRing>,
     debug_frame_no: u64,
     last_dt_ms: f32,
@@ -205,7 +210,14 @@ impl App {
                                 log::error!("render_frame: {e:?}");
                             }
                         }
-                        _ => {}
+                        WindowEvent::KeyboardInput { event, .. } => {
+                        if event.state == winit::event::ElementState::Pressed && !event.repeat {
+                            if matches!(event.physical_key, PhysicalKey::Code(KeyCode::F2)) {
+                                self.toggle_hud_window();
+                            }
+                        }
+                    }
+                    _ => {}
                     }
                     {
                         let mut gd = gd_write(&self.game_data);
@@ -215,6 +227,38 @@ impl App {
                     // InputGetEvent/InputGetDown respond without waiting for the next frame.
                     if is_input_event {
                         self.vm_worker.send_input_signal();
+                    }
+                }
+                Event::WindowEvent {
+                    ref event,
+                    window_id,
+                } if self
+                    .hud_window
+                    .as_ref()
+                    .map(|w| w.id())
+                    == Some(window_id) => {
+                    match event {
+                        WindowEvent::CloseRequested => {
+                            self.set_hud_visible(false);
+                        }
+                        WindowEvent::Resized(physical_size) => {
+                            if let (Some(surf), Some(cfg)) = (
+                                self.hud_surface.as_ref(),
+                                self.hud_surface_config.as_mut(),
+                            ) {
+                                cfg.width = physical_size.width.max(1);
+                                cfg.height = physical_size.height.max(1);
+                                surf.configure(&self.resources.device, cfg);
+                            }
+                        }
+                        WindowEvent::RedrawRequested => {
+                            if self.hud_visible {
+                                if let Err(e) = self.render_hud_frame() {
+                                    log::error!("render_hud_frame: {e:?}");
+                                }
+                            }
+                        }
+                        _ => {}
                     }
                 }
                 Event::AboutToWait => {
@@ -229,6 +273,12 @@ impl App {
                     // Schedule the next redraw. This keeps the event loop responsive while
                     // avoiding a hard-coded FPS cap.
                     self.window.as_mut().unwrap().request_redraw();
+
+                    if self.hud_visible {
+                        if let Some(w) = self.hud_window.as_ref() {
+                            w.request_redraw();
+                        }
+                    }
                 }
                 _ => (),
             }
@@ -456,11 +506,93 @@ impl App {
             );
         }
 
+        self.resources.queue.submit(Some(encoder.finish()));
+        output.present();
 
-        // Optional in-window debug HUD (enabled when FVP_TEST=1).
+        Ok(())
+    }
+
+
+
+    fn set_hud_visible(&mut self, visible: bool) {
+        self.hud_visible = visible;
+        if let Some(w) = self.hud_window.as_ref() {
+            w.set_visible(visible);
+            if visible {
+                w.request_redraw();
+            }
+        }
+    }
+
+    fn toggle_hud_window(&mut self) {
+        let new_visible = !self.hud_visible;
+        self.set_hud_visible(new_visible);
+    }
+
+    fn render_hud_frame(&mut self) -> anyhow::Result<()> {
+        let (hud_surface, hud_cfg, hud_window) = match (
+            self.hud_surface.as_ref(),
+            self.hud_surface_config.as_ref(),
+            self.hud_window.as_ref(),
+        ) {
+            (Some(s), Some(c), Some(w)) => (s, c, w),
+            _ => return Ok(()),
+        };
+
+        let output = match hud_surface.get_current_texture() {
+            Ok(o) => o,
+            Err(wgpu::SurfaceError::Lost) | Err(wgpu::SurfaceError::Outdated) => {
+                hud_surface.configure(&self.resources.device, hud_cfg);
+                return Ok(());
+            }
+            Err(wgpu::SurfaceError::Timeout) => {
+                return Ok(());
+            }
+            Err(e) => return Err(e.into()),
+        };
+
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let mut encoder = self
+            .resources
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("rfvp hud encoder"),
+            });
+
+        // Clear HUD window to black.
+        {
+            let _ = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("hud clear"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+        }
+
         if let Some(hud) = self.debug_hud.as_mut() {
             let snap = {
                 let gd = gd_read(&self.game_data);
+                let mut textures: Vec<String> = gd
+                    .motion_manager
+                    .graphs()
+                    .iter()
+                    .filter(|g| g.texture_ready && !g.texture_path.is_empty())
+                    .map(|g| g.texture_path.clone())
+                    .collect();
+                textures.sort();
+                textures.dedup();
+
                 HudSnapshot {
                     frame_no: self.debug_frame_no,
                     dt_ms: self.last_dt_ms,
@@ -468,12 +600,12 @@ impl App {
                     se: gd.se_player_ref().debug_summary(),
                     bgm: gd.bgm_player_ref().debug_summary(),
                     vm: gd.debug_vm_ref().clone(),
+                    textures,
                 }
             };
 
-            let win = self.window.as_ref().unwrap();
-            let ws = win.inner_size();
-            let ppp = win.scale_factor() as f32;
+            let ws = hud_window.inner_size();
+            let ppp = hud_window.scale_factor() as f32;
             hud.prepare_frame((ws.width, ws.height), ppp, &snap);
             hud.render(&self.resources.device, &self.resources.queue, &mut encoder, &view);
         }
@@ -483,8 +615,6 @@ impl App {
 
         Ok(())
     }
-
-
     pub fn find_hcb(game_path: impl AsRef<Path>) -> Result<PathBuf> {
         let mut path = game_path.as_ref().to_path_buf();
         path.push("*.hcb");
@@ -564,12 +694,14 @@ impl AppBuilder {
 
     async fn init_render(
         window: Arc<Window>,
+        hud_window: Option<Arc<Window>>,
         virtual_size: (u32, u32),
     ) -> (
         Arc<GpuCommonResources>,
         RenderTarget,
         wgpu::Surface<'static>,
         wgpu::SurfaceConfiguration,
+        Option<(wgpu::Surface<'static>, wgpu::SurfaceConfiguration)>,
     ) {
         let size = window.inner_size();
         let backends = wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::all());
@@ -578,29 +710,30 @@ impl AppBuilder {
             ..Default::default()
         });
 
-        // wgpu 0.19 ties `Surface` to the lifetime of the window reference used to create it.
-        // The window is stored inside `App` and outlives the surface, so extending the lifetime
-        // to `'static` is sound here.
+        // Main surface
         let surface = {
             let s = instance.create_surface(window.as_ref()).unwrap();
             unsafe { std::mem::transmute::<wgpu::Surface<'_>, wgpu::Surface<'static>>(s) }
         };
+
+        // Optional HUD surface (same Instance/Adapter)
+        let hud_surface: Option<wgpu::Surface<'static>> = hud_window.as_ref().map(|w| {
+            let s = instance.create_surface(w.as_ref()).unwrap();
+            unsafe { std::mem::transmute::<wgpu::Surface<'_>, wgpu::Surface<'static>>(s) }
+        });
+
         let adapter = wgpu::util::initialize_adapter_from_env_or_default(
             &instance,
-            // NOTE: this select the low-power GPU by default
-            // it's fine, but if we want to use the high-perf one in the future we will have to ditch this function
             Some(&surface),
         )
         .await
         .unwrap();
 
-        // Create the logical device and command queue
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
                     required_features: wgpu::Features::PUSH_CONSTANTS,
-                    // Make sure we use the texture resolution limits from the adapter, so we can support images the size of the swapchain.
                     required_limits: wgpu::Limits {
                         max_push_constant_size: 256,
                         ..wgpu::Limits::downlevel_webgl2_defaults()
@@ -618,8 +751,8 @@ impl AppBuilder {
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: swapchain_format,
-            width: size.width,
-            height: size.height,
+            width: size.width.max(1),
+            height: size.height.max(1),
             present_mode: wgpu::PresentMode::Fifo,
             alpha_mode: swapchain_capabilities.alpha_modes[0],
             view_formats: vec![],
@@ -627,6 +760,31 @@ impl AppBuilder {
         };
 
         surface.configure(&device, &config);
+
+        let hud_bundle = if let (Some(hs), Some(hw)) = (hud_surface, hud_window.as_ref()) {
+            let hs_caps = hs.get_capabilities(&adapter);
+            let hud_format = hs_caps
+                .formats
+                .iter()
+                .copied()
+                .find(|f| *f == swapchain_format)
+                .unwrap_or(hs_caps.formats[0]);
+            let hud_size = hw.inner_size();
+            let hud_cfg = wgpu::SurfaceConfiguration {
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                format: hud_format,
+                width: hud_size.width.max(1),
+                height: hud_size.height.max(1),
+                present_mode: wgpu::PresentMode::Fifo,
+                alpha_mode: hs_caps.alpha_modes[0],
+                view_formats: vec![],
+                desired_maximum_frame_latency: 2,
+            };
+            hs.configure(&device, &hud_cfg);
+            Some((hs, hud_cfg))
+        } else {
+            None
+        };
 
         let bind_group_layouts = BindGroupLayouts::new(&device);
         let pipelines = Pipelines::new(&device, &bind_group_layouts, swapchain_format);
@@ -645,8 +803,9 @@ impl AppBuilder {
             Some("Window RenderTarget"),
         );
 
-        (resources, render_target, surface, config)
+        (resources, render_target, surface, config, hud_bundle)
     }
+
 
     /// Builds, setups and runs the application, must be called at the end of the building process.
     pub fn run(mut self) {
@@ -664,13 +823,29 @@ impl AppBuilder {
 
         let window = Arc::new(window);
 
+        // Debug HUD window (created hidden, toggled via F2).
+        let hud_window: Option<Arc<Window>> = if debug_ui::enabled() {
+            let ms = window.inner_size();
+            let attrs = WindowAttributes::default()
+                .with_title("rfvp HUD")
+                .with_inner_size(Size::Physical(PhysicalSize::new(ms.width.max(1), ms.height.max(1))))
+                .with_resizable(true)
+                .with_visible(false);
+            let w = event_loop
+                .create_window(attrs)
+                .expect("An error occured while building the HUD window");
+            Some(Arc::new(w))
+        } else {
+            None
+        };
+
         self.add_late_internal_systems_to_schedule();
 
         // let renderer_state =
         //     futures::executor::block_on(RendererState::new(window.clone()));
 
-        let (resources, render_target, surface, surface_config) =
-            futures::executor::block_on(AppBuilder::init_render(window.clone(), self.size));
+        let (resources, render_target, surface, surface_config, hud_bundle) =
+            futures::executor::block_on(AppBuilder::init_render(window.clone(), hud_window.clone(), self.size));
 
         let entry_point = self.parser.get_entry_point();
         let non_volatile_global_count = self.parser.get_non_volatile_global_count();
@@ -776,7 +951,15 @@ impl AppBuilder {
         let debug_ring = log_ring::get().unwrap_or_else(|| log_ring::init(4096));
         let vm_worker = VmWorker::spawn(game_data.clone(), self.parser, self.script_engine);
 
-        let surface_config_format = surface_config.format.clone();
+        let (hud_surface, hud_surface_config) = match hud_bundle {
+            Some((s, c)) => (Some(s), Some(c)),
+            None => (None, None),
+        };
+
+        let hud_surface_format = hud_surface_config
+            .as_ref()
+            .map(|c| c.format)
+            .unwrap_or(surface_config.format);
 
         let mut app = App {
             config: self.config,
@@ -802,10 +985,14 @@ impl AppBuilder {
             dissolve_num_indices,
             last_dissolve_type: DissolveType::None,
             debug_hud: if debug_ui::enabled() {
-                Some(DebugHud::new(&resources.device, surface_config_format, debug_ring.clone()))
+                Some(DebugHud::new(&resources.device, hud_surface_format, debug_ring.clone()))
             } else {
                 None
             },
+            hud_window: hud_window.clone(),
+            hud_surface,
+            hud_surface_config,
+            hud_visible: false,
             debug_ring: debug_ring.clone(),
             debug_frame_no: 0,
             last_dt_ms: 0.0,

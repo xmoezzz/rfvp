@@ -1,5 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
+use egui::debug_text::print;
 use glam::{mat4, vec2, vec3, vec4, Mat4, Vec2, Vec3, Vec4};
 use image::{DynamicImage, GenericImageView};
 
@@ -312,6 +313,7 @@ impl GpuPrimRenderer {
                                     a,
                                 );
 
+                                println!("Emit Sprt prim_id {} tex_id {} w={} h={} uv0={:?} uv1={:?} color={:?}", prim_id, tex_id, w, h, uv0, uv1, color);
                                 self.emit_sprite_vertices(
                                     model,
                                     w,
@@ -532,19 +534,47 @@ impl GpuPrimRenderer {
         self.vertices.clear();
         self.draws.clear();
 
-        // Root is typically 0; scripts usually operate on 1..=4095.
         let prim_manager = motion.prim_manager();
         let graphs = motion.graphs();
         let snow_motions = motion.snow_motions();
 
-        // Root is typically 0; scripts usually operate on 1..=4095.
-        let root = prim_manager.get_custom_root_prim_id();
-        let mut visit = vec![0u8; 4096];
-        self.collect_tree(resources, prim_manager, &motion.color_manager, graphs, snow_motions, root as i16, Mat4::IDENTITY, &mut visit, 0);
+        // 1) draw root tree (slot 0) always
+        {
+            let mut visit = vec![0u8; 4096];
+            self.collect_tree(
+                resources,
+                prim_manager,
+                &motion.color_manager,
+                graphs,
+                snow_motions,
+                0, // root
+                Mat4::IDENTITY,
+                &mut visit,
+                0,
+            );
+        }
+
+        // 2) draw optional overlay root if non-zero
+        let root = prim_manager.get_custom_root_prim_id() as i16;
+        if root != 0 {
+            let mut visit = vec![0u8; 4096]; // do NOT reuse visit; allow redraw
+            self.collect_tree(
+                resources,
+                prim_manager,
+                &motion.color_manager,
+                graphs,
+                snow_motions,
+                root,
+                Mat4::IDENTITY,
+                &mut visit,
+                0,
+            );
+        }
 
         self.ensure_vb_capacity(resources, self.vertices.len() as u32);
         self.vb.write(&resources.queue, &self.vertices);
     }
+
 
     fn draw_with_proj<'a>(
         &'a self,

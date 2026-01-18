@@ -1,4 +1,5 @@
 use anyhow::Result;
+use egui::debug_text::print;
 use crate::subsystem::resources::prim::{PrimManager, INVAILD_PRIM_HANDLE};
 
 
@@ -125,65 +126,74 @@ impl AlphaMotion {
     pub fn update(
         &mut self,
         prim_manager: &PrimManager,
-        flag: bool,
+        flag: bool,      // corresponds to engine->scene.should_break
         elapsed: i32,
     ) -> bool {
+        // Return value semantics from decompile: 1 = keep running, 0 = finished
         if !self.running || self.prim_id as i16 == INVAILD_PRIM_HANDLE {
             return true;
         }
 
-        let mut prim = prim_manager.get_prim(self.prim_id as i16);
-        let custom_root_id = prim_manager.get_custom_root_prim_id();
+        let target_id = self.prim_id as i16;
+
         if flag {
-            if custom_root_id == 0 {
-                return true;
-            }
-            let mut next = prim.get_parent();
-            if next == INVAILD_PRIM_HANDLE {
+            let root_id = prim_manager.get_custom_root_prim_id();
+            if root_id == 0 {
                 return true;
             }
 
-            while next as u16 != custom_root_id {
-                next = prim_manager.get_prim(next).get_parent();
-                if next == INVAILD_PRIM_HANDLE {
+            let mut parent = prim_manager.get_prim(target_id).get_parent();
+            if parent == INVAILD_PRIM_HANDLE {
+                return true;
+            }
+
+            // Walk up until we reach root_id; if we hit invalid, gate out.
+            while parent != root_id as i16 {
+                parent = prim_manager.get_prim(parent).get_parent();
+                if parent == INVAILD_PRIM_HANDLE {
                     return true;
                 }
             }
         } else {
-            let mut prim = prim_manager.get_prim(self.prim_id as i16);
-            if prim.get_paused() {
+            if prim_manager.get_prim(target_id).get_paused() {
                 return true;
             }
 
+            let mut walker = target_id;
             loop {
-                let next = prim.get_parent();
-                if next == INVAILD_PRIM_HANDLE {
+                let parent = prim_manager.get_prim(walker).get_parent();
+                if parent == INVAILD_PRIM_HANDLE {
                     break;
                 }
-                prim = prim_manager.get_prim(next as i16);
-                if !prim.get_paused() {
+                let p = prim_manager.get_prim(parent);
+                if p.get_paused() {
                     return true;
                 }
+                walker = parent;
             }
         }
 
-        prim.apply_attr(0x40);
-        let mut elapsed = elapsed;
-        if self.reverse && elapsed < 0 {
-            elapsed = -elapsed;
-        }
+        let mut prim = prim_manager.get_prim(target_id);
 
-        self.elapsed += elapsed;
-        if elapsed < 0 || self.elapsed >= self.duration {
+        prim.apply_attr(0x40);
+
+        let mut step = elapsed;
+        if self.reverse && step < 0 {
+            step = -step;
+        }
+        self.elapsed += step;
+
+        if step < 0 || self.elapsed >= self.duration {
+            self.running = false; 
             prim.set_alpha(self.dst_alpha);
             return false;
         }
 
         match self.anm_type {
             AlphaMotionType::Linear => {
-                let alpha = self.src_alpha as i32
-                    + (self.dst_alpha as i32 - self.src_alpha as i32) * self.elapsed
-                        / self.duration;
+                let src = self.src_alpha as i32;
+                let dst = self.dst_alpha as i32;
+                let alpha = src + (dst - src) * self.elapsed / self.duration;
                 prim.set_alpha(alpha as u8);
             }
             _ => {
