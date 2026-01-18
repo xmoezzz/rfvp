@@ -44,6 +44,7 @@ pub struct Context {
     return_value: Variant,
     state: ThreadState,
     wait_ms: u64,
+    sleep_ms: u64,
     should_exit: bool,
     should_break: bool,
 }
@@ -72,6 +73,7 @@ impl Context {
             return_value: Variant::Nil,
             state: ThreadState::CONTEXT_STATUS_NONE,
             wait_ms: 0,
+            sleep_ms: 0,
             should_exit: false,
             should_break: false,
         };
@@ -931,6 +933,14 @@ impl Context {
     /// set waiting time for the context in ms
     pub fn set_waiting_time(&mut self, wait_ms: u64) {
         self.wait_ms = wait_ms;
+    }
+
+    pub fn get_sleeping_time(&self) -> u64 {
+        self.sleep_ms
+    }
+
+    pub fn set_sleeping_time(&mut self, sleep_ms: u64) {
+        self.sleep_ms = sleep_ms;
     }
 
     pub fn get_status(&self) -> ThreadState {

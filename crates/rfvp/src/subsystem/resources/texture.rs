@@ -310,7 +310,7 @@ impl NvsgTexture {
         for (x, y, pixel) in img.enumerate_pixels_mut() {
             let index = (y * self.width as u32 + x) as usize;
             let alpha_value = slice[index];
-            *pixel = image::LumaA([alpha_value, 0xff]);
+            *pixel = image::LumaA([0xff, alpha_value]);
         }
 
         img.save(out_path)?;
@@ -324,7 +324,7 @@ impl NvsgTexture {
         for (x, y, pixel) in img.enumerate_pixels_mut() {
             let index = (y * self.width as u32 + x) as usize;
             let alpha_value = slice[index];
-            *pixel = image::LumaA([alpha_value, 0xff]);
+            *pixel = image::LumaA([0xff, alpha_value]);
         }
 
         Ok(img)

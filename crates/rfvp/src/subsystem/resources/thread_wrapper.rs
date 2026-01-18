@@ -30,7 +30,7 @@ impl ThreadWrapper {
         Default::default()
     }
 
-    pub fn peek(&mut self) -> Option<ThreadRequest> {
+    pub fn pop(&mut self) -> Option<ThreadRequest> {
         self.requests.pop_front()
     }
 

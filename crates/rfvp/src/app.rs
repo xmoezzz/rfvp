@@ -392,6 +392,7 @@ impl App {
             let dissolve_type = gd.motion_manager.get_dissolve_type();
             dissolve_color = if dissolve_type != DissolveType::None {
                 let alpha = gd.motion_manager.get_dissolve_alpha();
+                println!("Global dissolve alpha: {}", alpha);
                 if alpha > 0.0 {
                     let cid = gd.motion_manager.get_dissolve_color_id() as u8;
                     let c = gd.motion_manager.color_manager.get_entry(cid);
@@ -421,14 +422,13 @@ impl App {
             let mut pass = self
                 .render_target
                 .begin_srgb_render_pass(&mut encoder, Some("rfvp virtual pass"));
-            // Draw base tree (slot 0)
-            self.prim_renderer.draw_virtual_base(
+            self.prim_renderer.draw_virtual(
                 &mut pass,
                 &self.resources.pipelines.sprite,
                 self.render_target.projection_matrix(),
             );
 
-            // Dissolve overlay sits between base and overlay trees (matches original engine order).
+            // Global dissolve overlay (rendered in virtual space).
             if let Some(color) = dissolve_color {
                 let src = VertexSource::VertexIndexBuffer {
                     vertex_buffer: &self.dissolve_vertex_buffer,
@@ -443,13 +443,6 @@ impl App {
                     color,
                 );
             }
-
-            // Draw overlay root tree (root_prim_idx), if any
-            self.prim_renderer.draw_virtual_overlay(
-                &mut pass,
-                &self.resources.pipelines.sprite,
-                self.render_target.projection_matrix(),
-            );
         }
 
         // Pass 2: present to the swapchain with aspect-preserving scaling.
@@ -489,22 +482,32 @@ impl App {
                 occlusion_query_set: None,
             });
 
-            let vw = self.virtual_size.0 as f32;
-            let vh = self.virtual_size.1 as f32;
-            let sw = self.surface_config.width as f32;
-            let sh = self.surface_config.height as f32;
-            let scale = if vw > 0.0 && vh > 0.0 {
-                (sw / vw).min(sh / vh)
-            } else {
-                1.0
-            };
+            // Present the virtual render target into the swapchain while preserving aspect ratio.
+            // Coordinate system: origin at top-left, x right, y down.
+            //
+            // We first scale the virtual space into surface pixel space, then map surface pixels
+            // into NDC via the same top-left-origin projection convention used in the virtual pass.
+            let vw = self.virtual_size.0.max(1) as f32;
+            let vh = self.virtual_size.1.max(1) as f32;
+            let sw = self.surface_config.width.max(1) as f32;
+            let sh = self.surface_config.height.max(1) as f32;
 
-            let present_m = mat4(
-                vec4(2.0 * scale / sw, 0.0, 0.0, 0.0),
-                vec4(0.0, -2.0 * scale / sh, 0.0, 0.0),
+            let scale = (sw / vw).min(sh / vh);
+            let dst_w = vw * scale;
+            let dst_h = vh * scale;
+            let off_x = (sw - dst_w) * 0.5;
+            let off_y = (sh - dst_h) * 0.5;
+
+            let proj_surface = mat4(
+                vec4(2.0 / sw, 0.0, 0.0, 0.0),
+                vec4(0.0, -2.0 / sh, 0.0, 0.0),
                 vec4(0.0, 0.0, 1.0, 0.0),
-                vec4(0.0, 0.0, 0.0, 1.0),
+                vec4(-1.0, 1.0, 0.0, 1.0),
             );
+            let to_surface_px = Mat4::from_translation(vec3(off_x, off_y, 0.0))
+                * Mat4::from_scale(vec3(scale, scale, 1.0));
+
+            let present_m = proj_surface * to_surface_px;
 
             self.resources.pipelines.sprite_screen.draw(
                 &mut pass,
@@ -601,6 +604,8 @@ impl App {
                 textures.sort();
                 textures.dedup();
 
+                let text_lines = gd.motion_manager.text_manager.debug_lines();
+
                 HudSnapshot {
                     frame_no: self.debug_frame_no,
                     dt_ms: self.last_dt_ms,
@@ -609,6 +614,8 @@ impl App {
                     bgm: gd.bgm_player_ref().debug_summary(),
                     vm: gd.debug_vm_ref().clone(),
                     textures,
+                    text_slots: gd.motion_manager.text_manager.debug_lines(),
+                    text_lines,
                 }
             };
 
@@ -930,23 +937,15 @@ impl AppBuilder {
         self.world.set_cursor_table(cursor_table);
 
 
-        // Fullscreen quad used for dissolve overlays.
-        // IMPORTANT: positions must match the virtual-space convention used by RenderTarget::projection_matrix()
-        // (origin at the center; after the projection's negative y-scale, +y maps down on screen).
+        // Fullscreen quad used for dissolve overlays (virtual space, pixel coordinates).
         let (dissolve_vertex_buffer, dissolve_index_buffer, dissolve_num_indices) = {
-            let vw = self.size.0.max(1) as f32;
-            let vh = self.size.1.max(1) as f32;
-
-            // Centered pixel coordinates ([-w/2, +w/2] x [-h/2, +h/2]).
-            let x0 = -vw / 2.0;
-            let y0 = -vh / 2.0;
-            let x1 = vw / 2.0;
-            let y1 = vh / 2.0;
+            let w = self.size.0.max(1) as f32;
+            let h = self.size.1.max(1) as f32;
             let vertices: [PosVertex; 4] = [
-                PosVertex { position: vec3(x0, y0, 0.0) },
-                PosVertex { position: vec3(x1, y0, 0.0) },
-                PosVertex { position: vec3(x1, y1, 0.0) },
-                PosVertex { position: vec3(x0, y1, 0.0) },
+                PosVertex { position: vec3(0.0, 0.0, 0.0) },
+                PosVertex { position: vec3(w, 0.0, 0.0) },
+                PosVertex { position: vec3(w, h, 0.0) },
+                PosVertex { position: vec3(0.0, h, 0.0) },
             ];
             let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
 

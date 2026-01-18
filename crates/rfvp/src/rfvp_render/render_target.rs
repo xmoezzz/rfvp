@@ -51,16 +51,18 @@ impl RenderTarget {
             ],
         });
 
-        // Fullscreen quad in virtual pixel space centered at (0,0).
+        // Fullscreen quad in virtual pixel space.
+        // Coordinate system: origin at top-left, x right, y down.
         let vw = w as f32;
         let vh = h as f32;
-        let x0 = -vw / 2.0;
-        let y0 = -vh / 2.0;
-        let x1 = vw / 2.0;
-        let y1 = vh / 2.0;
+        let x0 = 0.0;
+        let y0 = 0.0;
+        let x1 = vw;
+        let y1 = vh;
 
         let white = Vec4::ONE;
         let v = [
+            // Two triangles (0,1,2) (2,1,3)
             PosColTexVertex { position: glam::vec3(x0, y1, 0.0), color: white, texture_coordinate: glam::vec2(0.0, 1.0) },
             PosColTexVertex { position: glam::vec3(x0, y0, 0.0), color: white, texture_coordinate: glam::vec2(0.0, 0.0) },
             PosColTexVertex { position: glam::vec3(x1, y1, 0.0), color: white, texture_coordinate: glam::vec2(1.0, 1.0) },
@@ -87,12 +89,14 @@ impl RenderTarget {
     }
 
     pub fn projection_matrix(&self) -> Mat4 {
+        // Virtual space: origin at top-left, x right, y down.
+        // Maps pixel coordinates (0..w, 0..h) into NDC (-1..1, 1..-1).
         let (w, h) = (self.size.0 as f32, self.size.1 as f32);
         mat4(
             vec4(2.0 / w, 0.0, 0.0, 0.0),
             vec4(0.0, -2.0 / h, 0.0, 0.0),
             vec4(0.0, 0.0, 1.0, 0.0),
-            vec4(0.0, 0.0, 0.0, 1.0),
+            vec4(-1.0, 1.0, 0.0, 1.0),
         )
     }
 

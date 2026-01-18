@@ -109,6 +109,20 @@ impl VmRunner {
             }
         }
 
+        // SLEEP timer
+        if status.contains(ThreadState::CONTEXT_STATUS_SLEEP) {
+            let sleep_time = self.tm.get_context_sleeping_time(tid);
+            if sleep_time > frame_time_ms {
+                self.tm.set_context_sleeping_time(tid, sleep_time - frame_time_ms);
+            } else {
+                self.tm.set_context_sleeping_time(tid, 0);
+                let mut new_status = status.clone();
+                new_status.remove(ThreadState::CONTEXT_STATUS_SLEEP);
+                new_status.insert(ThreadState::CONTEXT_STATUS_RUNNING);
+                self.tm.set_context_status(tid, new_status);
+            }
+        }
+
         // Dissolve wait is unblocked when dissolve is completed / static.
         if status.contains(ThreadState::CONTEXT_STATUS_DISSOLVE_WAIT)
             && (dissolve_type == DissolveType::None || dissolve_type == DissolveType::Static)
@@ -154,22 +168,49 @@ impl VmRunner {
                 anyhow::bail!(e);
             }
 
+            let mut must_yield = false;
+
             // Drain all pending requests emitted by syscalls.
-            while let Some(event) = game.thread_wrapper.peek() {
+            while let Some(event) = game.thread_wrapper.pop() {
                 match event {
                     ThreadRequest::Start(id, addr) => self.tm.thread_start(id, addr),
-                    ThreadRequest::Wait(time) => self.tm.thread_wait(time),
-                    ThreadRequest::DissolveWait() => self.tm.thread_dissolve_wait(),
-                    ThreadRequest::Sleep(time) => self.tm.thread_sleep(time),
-                    ThreadRequest::Raise(time) => self.tm.thread_raise(time),
-                    ThreadRequest::Next() => self.tm.thread_next(),
-                    ThreadRequest::Exit(id) => self.tm.thread_exit(id),
+                    ThreadRequest::Wait(time) => {
+                        self.tm.thread_wait(time);
+                        must_yield = true;
+                    },
+                    ThreadRequest::DissolveWait() => {
+                        self.tm.thread_dissolve_wait();
+                        must_yield = true;
+                    },
+                    ThreadRequest::Sleep(time) => {
+                        self.tm.thread_sleep(time);
+                        must_yield = true;
+                    }
+                    ThreadRequest::Raise(time) => {
+                        self.tm.thread_raise(time);
+                        must_yield = true;
+                    }
+                    ThreadRequest::Next() => {
+                        self.tm.thread_next();
+                        must_yield = true;
+                    }
+                    ThreadRequest::Exit(id) => {
+                        self.tm.thread_exit(id);
+                        must_yield = true;
+                    }
                     ThreadRequest::ShouldBreak() => {
                         // Must break the CURRENT context, not a global flag.
                         self.tm.set_context_should_break(tid, true);
                         self.tm.set_should_break(true);
+                        must_yield = true;
                     }
                 }
+            }
+
+            if must_yield {
+                // Force a per-context yield at frame boundary.
+                self.tm.set_context_should_break(tid, true);
+                break;
             }
         }
 

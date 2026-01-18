@@ -86,8 +86,10 @@ pub fn control_pulse(game_data: &mut GameData) -> Result<Variant> {
 }
 
 pub fn control_mask(game_data: &mut GameData, mask: &Variant) -> Result<Variant> {
-    let mask = mask.is_nil();
-    game_data.inputs_manager.set_control_mask(mask);
+    // Original engine: args[0].Type != 0  => enable mask
+    // Variant::Nil means Type==0, everything else means masked.
+    let masked = !mask.is_nil();
+    game_data.inputs_manager.set_control_mask(masked);
 
     Ok(Variant::Nil)
 }

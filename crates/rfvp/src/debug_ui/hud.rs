@@ -17,6 +17,8 @@ pub struct HudSnapshot {
     pub bgm: BgmDebugSummary,
     pub vm: VmSnapshot,
     pub textures: Vec<String>,
+    pub text_slots: Vec<String>,
+    pub text_lines: Vec<String>,
 }
 
 
@@ -149,7 +151,7 @@ impl DebugHud {
                 cols[0].group(|ui| {
                     ui.label("Textures");
                     ui.separator();
-                    egui::ScrollArea::vertical()
+                    egui::ScrollArea::both()
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
                             ui.style_mut().override_text_style = Some(TextStyle::Monospace);
@@ -159,13 +161,30 @@ impl DebugHud {
                         });
                 });
 
-                cols[1].group(|ui| {
+                
+
+                cols[0].add_space(8.0);
+
+                cols[0].group(|ui| {
+                    ui.label("Text Slots");
+                    ui.separator();
+                    egui::ScrollArea::both()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| {
+                            ui.style_mut().override_text_style = Some(TextStyle::Monospace);
+                            for line in &snap.text_slots {
+                                ui.label(line);
+                            }
+                        });
+                });
+
+cols[1].group(|ui| {
                     ui.label("Audio");
                     ui.separator();
                     ui.label(format!("BGM: loaded_datas={} playing_slots={} (slots={})",
                         snap.bgm.loaded_datas, snap.bgm.playing_slots, snap.bgm.max_slots
                     ));
-                    egui::ScrollArea::vertical().max_height(220.0)
+                    egui::ScrollArea::both().max_height(220.0)
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
                             ui.style_mut().override_text_style = Some(TextStyle::Monospace);
@@ -187,7 +206,7 @@ impl DebugHud {
                     ui.label(format!("SE: loaded_datas={} playing_slots={} (slots={})",
                         snap.se.loaded_datas, snap.se.playing_slots, snap.se.max_slots
                     ));
-                    egui::ScrollArea::vertical().max_height(280.0)
+                    egui::ScrollArea::both().max_height(280.0)
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
                             ui.style_mut().override_text_style = Some(TextStyle::Monospace);
@@ -216,7 +235,7 @@ impl DebugHud {
                         snap.vm.current_id, run, wait, sleep, dissolve, snap.vm.tick_seq
                     ));
                     ui.separator();
-                    egui::ScrollArea::vertical()
+                    egui::ScrollArea::both()
                         .auto_shrink([false, false])
                         .max_height(420.0)
                         .show(ui, |ui| {

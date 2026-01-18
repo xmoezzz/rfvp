@@ -834,6 +834,45 @@ impl TextManager {
         }
     }
 
+
+    /// Debug helper for HUD: one-line summary per text slot.
+    pub fn debug_lines(&self) -> Vec<String> {
+        let mut out = Vec::with_capacity(self.items.len());
+        for (i, t) in self.items.iter().enumerate() {
+            if !t.loaded && !t.dirty && t.content_text.is_empty() && t.text_content.is_empty() {
+                continue;
+            }
+            let mut preview = if !t.content_text.is_empty() {
+                t.content_text.clone()
+            } else {
+                t.text_content.clone()
+            };
+            preview = preview.replace('\n', " ");
+            if preview.len() > 120 {
+                preview.truncate(120);
+                preview.push_str("...");
+            }
+            out.push(format!(
+                "slot={:02} loaded={} dirty={} suspended={} pos=({}, {}) size=({}x{}) font(name={}, text={}) speed={} reveal={}/{} text=\"{}\"",
+                i,
+                if t.loaded { 1 } else { 0 },
+                if t.dirty { 1 } else { 0 },
+                if t.is_suspended { 1 } else { 0 },
+                t.x,
+                t.y,
+                t.w,
+                t.h,
+                t.font_name_id,
+                t.font_text_id,
+                t.speed,
+                t.visible_chars,
+                t.total_chars,
+                preview,
+            ));
+        }
+        out
+    }
+
     pub fn mark_readed_text_first(&mut self, addr: u32) -> bool {
         if addr >= 0x800000 {
             return false;

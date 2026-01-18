@@ -62,6 +62,14 @@ impl ThreadManager {
         self.contexts[id as usize].set_waiting_time(time);
     }
 
+    pub fn get_context_sleeping_time(&self, id: u32) -> u64 {
+        self.contexts[id as usize].get_sleeping_time()
+    }
+
+    pub fn set_context_sleeping_time(&mut self, id: u32, time: u64) {
+        self.contexts[id as usize].set_sleeping_time(time);
+    }
+
     pub fn set_context_should_break(&mut self, id: u32, should_break: bool) {
         self.contexts[id as usize].set_should_break(should_break);
     }
@@ -122,7 +130,7 @@ impl ThreadManager {
 
     pub fn thread_sleep(&mut self, time: u32) {
         self.contexts[self.current_id as usize].set_should_break(true);
-        self.contexts[self.current_id as usize].set_waiting_time(time as u64);
+        self.contexts[self.current_id as usize].set_sleeping_time(time as u64);
 
         let status = self.contexts[self.current_id as usize].get_status();
         // SLEEP blocks execution: clear RUNNING until raised/unblocked.

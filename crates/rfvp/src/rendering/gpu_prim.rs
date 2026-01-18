@@ -1,6 +1,5 @@
 use std::{collections::HashMap, sync::Arc};
 
-use egui::debug_text::print;
 use glam::{mat4, vec2, vec3, vec4, Mat4, Vec2, Vec3, Vec4};
 use image::{DynamicImage, GenericImageView};
 
@@ -40,7 +39,6 @@ pub struct GpuPrimRenderer {
     vb_capacity: u32,
     vertices: Vec<PosColTexVertex>,
     draws: Vec<DrawItem>,
-    base_draws_len: usize,
     graph_cache: HashMap<u16, GraphGpuEntry>,
     white: GpuTexture,
 }
@@ -69,7 +67,6 @@ impl GpuPrimRenderer {
             vb_capacity,
             vertices: Vec::with_capacity(vb_capacity as usize),
             draws: Vec::new(),
-            base_draws_len: 0,
             graph_cache: HashMap::new(),
             white,
         }
@@ -113,20 +110,18 @@ impl GpuPrimRenderer {
     }
 
     fn virtual_projection(&self) -> Mat4 {
-        // Virtual space: origin at center, x right, y down.
+        // Virtual space: origin at top-left, x right, y down.
         let (w, h) = (self.virtual_size.0 as f32, self.virtual_size.1 as f32);
         mat4(
             vec4(2.0 / w, 0.0, 0.0, 0.0),
             vec4(0.0, -2.0 / h, 0.0, 0.0),
             vec4(0.0, 0.0, 1.0, 0.0),
-            vec4(0.0, 0.0, 0.0, 1.0),
+            vec4(-1.0, 1.0, 0.0, 1.0),
         )
     }
 
-    fn build_local_transform(&self, prim: &Prim) -> Mat4 {
-        let (vw, vh) = (self.virtual_size.0 as f32, self.virtual_size.1 as f32);
-        let x = prim.get_x() as f32 - vw / 2.0;
-        let y = prim.get_y() as f32 - vh / 2.0;
+    fn build_local_transform(&self, prim: &Prim) -> Mat4 {        let x = prim.get_x() as f32;
+        let y = prim.get_y() as f32;
         let opx = prim.get_opx() as f32;
         let opy = prim.get_opy() as f32;
         let sx = prim.get_factor_x() as f32 / 1000.0;
@@ -231,6 +226,7 @@ impl GpuPrimRenderer {
         });
     }
 
+
     fn collect_tree(
         &mut self,
         resources: &GpuCommonResources,
@@ -239,7 +235,8 @@ impl GpuPrimRenderer {
         graphs: &[GraphBuff],
         snow_motions: &[SnowMotion],
         prim_id: i16,
-        parent: Mat4,
+        acc_x: f32,
+        acc_y: f32,
         visit: &mut [u8],
         depth: usize,
     ) {
@@ -261,21 +258,100 @@ impl GpuPrimRenderer {
             return;
         }
         if visit[prim_idx] == 2 {
-            // Duplicate reference (should not happen in a tree). Skip to avoid exponential work.
+            // Duplicate reference (should not happen in a tree). Skip.
             return;
         }
         visit[prim_idx] = 1;
 
-        let prim = prim_manager.get_prim_immutable(prim_id);
-        let local = self.build_local_transform(&prim);
-        let model = parent * local;
+        // -----------------------------
+        // Base prim (container semantics)
+        // -----------------------------
+        // base prim is used for:
+        //  - container translation (x/y)
+        //  - alpha (after sprt impersonation override per your comment)
+        //  - child traversal (first_child)
+        let base_prim = prim_manager.get_prim_immutable(prim_id);
+        if !base_prim.get_draw_flag() {
+            visit[prim_idx] = 2;
+            return;
+        }
 
-        match prim.get_type() {
+        let base_x = base_prim.get_x() as f32;
+        let base_y = base_prim.get_y() as f32;
+        let base_a = base_prim.get_alpha() as f32 / 255.0;
+        let first_child = base_prim.get_first_child_idx();
+
+        // Sprt impersonation: follow m_Sprt chain; resolve final draw prim id.
+        // IDA semantics you described: draw prim can be impersonated via sprt chain.
+        let mut draw_id: i16 = prim_id;
+        let mut sprt: i16 = base_prim.get_sprt();
+
+        // base_prim no longer needed beyond captured locals; it will drop naturally later,
+        // but we don't rely on it anymore to avoid move/borrow issues.
+
+        while sprt != -1 {
+            if sprt < 0 || sprt >= 4096 {
+                log::error!("collect_tree: invalid sprt id {sprt} under prim_id {prim_id}");
+                visit[prim_idx] = 2;
+                return;
+            }
+
+            let sref = prim_manager.get_prim_immutable(sprt);
+            if !sref.get_draw_flag() {
+                visit[prim_idx] = 2;
+                return;
+            }
+
+            draw_id = sprt;
+            sprt = sref.get_sprt();
+            // sref dropped here
+        }
+
+        // Borrow final draw prim for renderable properties (w/h/u/v/transform/type/etc.)
+        let draw_prim = prim_manager.get_prim_immutable(draw_id);
+
+        // Accumulate container translation only (IDA: x + base->m_X, y + base->m_Y).
+        let x = acc_x + base_x;
+        let y = acc_y + base_y;
+
+        println!(
+            "[prim] depth={} prim_id={} draw_id={} base(x,y)=({:.2},{:.2}) acc(x,y)=({:.2},{:.2}) => x,y=({:.2},{:.2}) alpha={:.3} type={:?} sprt_first={}",
+            depth,
+            prim_id,
+            draw_id,
+            base_x,
+            base_y,
+            acc_x,
+            acc_y,
+            x,
+            y,
+            base_a,
+            draw_prim.get_type(),
+            base_prim.get_sprt(),
+        );
+
+        // Local transform for renderable prims: translate to (x,y), then pivot/rotate/scale around draw_prim.op.
+        let model = {
+            let opx = draw_prim.get_opx() as f32;
+            let opy = draw_prim.get_opy() as f32;
+            let sx = draw_prim.get_factor_x() as f32 / 1000.0;
+            let sy = draw_prim.get_factor_y() as f32 / 1000.0;
+            let theta = -(draw_prim.get_angle() as f32) * std::f32::consts::PI / 180.0;
+
+            Mat4::from_translation(vec3(x, y, 0.0))
+                * Mat4::from_translation(vec3(opx, opy, 0.0))
+                * Mat4::from_rotation_z(theta)
+                * Mat4::from_scale(vec3(sx, sy, 1.0))
+                * Mat4::from_translation(vec3(-opx, -opy, 0.0))
+        };
+
+        match draw_prim.get_type() {
             PrimType::PrimTypeGroup => {
                 // No draw; traverse children.
             }
+
             PrimType::PrimTypeSprt => {
-                let tex_id = prim.get_texture_id();
+                let tex_id = draw_prim.get_texture_id();
                 let graph_id = if tex_id >= 0 {
                     Some(tex_id as u16)
                 } else if tex_id == -2 {
@@ -293,8 +369,8 @@ impl GpuPrimRenderer {
                                 None => (0, 0),
                             };
                             if tw > 0 && th > 0 {
-                                let mut w = prim.get_w() as f32;
-                                let mut h = prim.get_h() as f32;
+                                let mut w = draw_prim.get_w() as f32;
+                                let mut h = draw_prim.get_h() as f32;
                                 if w <= 0.0 {
                                     w = g.get_width() as f32;
                                 }
@@ -302,20 +378,49 @@ impl GpuPrimRenderer {
                                     h = g.get_height() as f32;
                                 }
 
-                                let u = prim.get_u() as f32;
-                                let v = prim.get_v() as f32;
+                                let attr = draw_prim.get_attr();
+                                let use_rect = (attr & 1) != 0;
+
+                                let (mut w, mut h, mut u, mut v) = if use_rect {
+                                    let mut w = draw_prim.get_w() as f32;
+                                    let mut h = draw_prim.get_h() as f32;
+                                    if w <= 0.0 { w = g.get_width() as f32; }
+                                    if h <= 0.0 { h = g.get_height() as f32; }
+
+                                    // IDA: clamp to graph_width/height
+                                    w = w.min(g.get_width() as f32);
+                                    h = h.min(g.get_height() as f32);
+
+                                    (w, h, draw_prim.get_u() as f32, draw_prim.get_v() as f32)
+                                } else {
+                                    (g.get_width() as f32, g.get_height() as f32, 0.0, 0.0)
+                                };
+
+                                let u = draw_prim.get_u() as f32;
+                                let v = draw_prim.get_v() as f32;
                                 let uv0 = vec2(u / tw as f32, v / th as f32);
                                 let uv1 = vec2((u + w) / tw as f32, (v + h) / th as f32);
 
-                                let a = prim.get_alpha() as f32 / 255.0;
-                                let color = vec4(
-                                    1.0,
-                                    1.0,
-                                    1.0,
-                                    a,
-                                );
+                                // Alpha comes from base prim (original container prim).
+                                let color = vec4(1.0, 1.0, 1.0, base_a);
 
-                                println!("Emit Sprt prim_id {} tex_id {} w={} h={} uv0={:?} uv1={:?} color={:?}", prim_id, tex_id, w, h, uv0, uv1, color);
+                                let model = {
+                                    let opx = draw_prim.get_opx() as f32;
+                                    let opy = draw_prim.get_opy() as f32;
+                                    let sx = draw_prim.get_factor_x() as f32 / 1000.0;
+                                    let sy = draw_prim.get_factor_y() as f32 / 1000.0;
+                                    let theta = -(draw_prim.get_angle() as f32) * std::f32::consts::PI / 180.0;
+
+                                    let off_x = g.get_offset_x() as f32;
+                                    let off_y = g.get_offset_y() as f32;
+
+                                    Mat4::from_translation(vec3(x + off_x, y + off_y, 0.0))
+                                        * Mat4::from_translation(vec3(opx, opy, 0.0))
+                                        * Mat4::from_rotation_z(theta)
+                                        * Mat4::from_scale(vec3(sx, sy, 1.0))
+                                        * Mat4::from_translation(vec3(-opx, -opy, 0.0))
+                                };
+
                                 self.emit_sprite_vertices(
                                     model,
                                     w,
@@ -330,10 +435,10 @@ impl GpuPrimRenderer {
                     }
                 }
             }
+
             PrimType::PrimTypeText => {
-                // Text primitives own a dedicated texture slot (0..31) mapped to
-                // GraphBuff[4064 + slot]. We draw it as a sprite quad.
-                let slot = prim.get_text_index();
+                // Text primitives own a dedicated texture slot (0..31) mapped to GraphBuff[4064 + slot].
+                let slot = draw_prim.get_text_index();
                 if (0..=31).contains(&slot) {
                     let graph_id = 4064u16 + slot as u16;
                     if let Some(g) = graphs.get(graph_id as usize) {
@@ -344,8 +449,8 @@ impl GpuPrimRenderer {
                                 None => (0, 0),
                             };
                             if tw > 0 && th > 0 {
-                                let mut w = prim.get_w() as f32;
-                                let mut h = prim.get_h() as f32;
+                                let mut w = draw_prim.get_w() as f32;
+                                let mut h = draw_prim.get_h() as f32;
                                 if w <= 0.0 {
                                     w = g.get_width() as f32;
                                 }
@@ -353,18 +458,47 @@ impl GpuPrimRenderer {
                                     h = g.get_height() as f32;
                                 }
 
-                                let u = prim.get_u() as f32;
-                                let v = prim.get_v() as f32;
+                                let attr = draw_prim.get_attr();
+                                let use_rect = (attr & 1) != 0;
+
+                                let (mut w, mut h, mut u, mut v) = if use_rect {
+                                    let mut w = draw_prim.get_w() as f32;
+                                    let mut h = draw_prim.get_h() as f32;
+                                    if w <= 0.0 { w = g.get_width() as f32; }
+                                    if h <= 0.0 { h = g.get_height() as f32; }
+
+                                    // IDA: clamp to graph_width/height
+                                    w = w.min(g.get_width() as f32);
+                                    h = h.min(g.get_height() as f32);
+
+                                    (w, h, draw_prim.get_u() as f32, draw_prim.get_v() as f32)
+                                } else {
+                                    (g.get_width() as f32, g.get_height() as f32, 0.0, 0.0)
+                                };
+
+                                let u = draw_prim.get_u() as f32;
+                                let v = draw_prim.get_v() as f32;
                                 let uv0 = vec2(u / tw as f32, v / th as f32);
                                 let uv1 = vec2((u + w) / tw as f32, (v + h) / th as f32);
 
-                                let a = prim.get_alpha() as f32 / 255.0;
-                                let color = vec4(
-                                    1.0,
-                                    1.0,
-                                    1.0,
-                                    a,
-                                );
+                                let color = vec4(1.0, 1.0, 1.0, base_a);
+
+                                let model = {
+                                    let opx = draw_prim.get_opx() as f32;
+                                    let opy = draw_prim.get_opy() as f32;
+                                    let sx = draw_prim.get_factor_x() as f32 / 1000.0;
+                                    let sy = draw_prim.get_factor_y() as f32 / 1000.0;
+                                    let theta = -(draw_prim.get_angle() as f32) * std::f32::consts::PI / 180.0;
+
+                                    let off_x = g.get_offset_x() as f32;
+                                    let off_y = g.get_offset_y() as f32;
+
+                                    Mat4::from_translation(vec3(x + off_x, y + off_y, 0.0))
+                                        * Mat4::from_translation(vec3(opx, opy, 0.0))
+                                        * Mat4::from_rotation_z(theta)
+                                        * Mat4::from_scale(vec3(sx, sy, 1.0))
+                                        * Mat4::from_translation(vec3(-opx, -opy, 0.0))
+                                };
 
                                 self.emit_sprite_vertices(
                                     model,
@@ -382,20 +516,21 @@ impl GpuPrimRenderer {
             }
 
             PrimType::PrimTypeSnow => {
-                // Snow is rendered as a set of sprite quads (flakes). Each flake selects one texture
-                // from a sequence of GraphBuffs starting at sm.texture_id:
-                //   graph_id = sm.texture_id + (variant_idx % variant_count)
-                // This matches the "multiple independent textures" layout (not an atlas).
-                let snow_id = prim.get_texture_id();
+                // Snow flakes are positioned relative to (x,y).
+                let snow_id = draw_prim.get_texture_id();
                 if snow_id >= 0 {
                     if let Some(sm) = snow_motions.get(snow_id as usize) {
-                        if sm.enabled && sm.flake_count > 0 && sm.texture_id >= 0 && sm.flake_w > 1 && sm.flake_h > 1 {
-                            let a = prim.get_alpha() as f32 / 255.0;
+                        if sm.enabled
+                            && sm.flake_count > 0
+                            && sm.texture_id >= 0
+                            && sm.flake_w > 1
+                            && sm.flake_h > 1
+                        {
                             let color = vec4(
                                 sm.color_r as f32 / 255.0,
                                 sm.color_g as f32 / 255.0,
                                 sm.color_b_or_extra as f32 / 255.0,
-                                a,
+                                base_a,
                             );
 
                             let base_tex = sm.texture_id as i32;
@@ -430,24 +565,29 @@ impl GpuPrimRenderer {
                                         continue;
                                     }
 
-                                    let scale = if flake.period > 0.0 { 1000.0 / flake.period } else { 1.0 };
+                                    let scale = if flake.period > 0.0 {
+                                        1000.0 / flake.period
+                                    } else {
+                                        1.0
+                                    };
 
-                                    // Destination size follows the configured (flake_w/flake_h) with a 1px guard,
-                                    // mirroring the observed IDA math. If the actual texture is smaller, clamp.
                                     let tile_w = tile_w_cfg.min(tw as f32 - 1.0).max(0.0);
                                     let tile_h = tile_h_cfg.min(th as f32 - 1.0).max(0.0);
 
                                     let w = tile_w * scale;
                                     let h = tile_h * scale;
 
-                                    // UV covers the left-top tile region of the independent texture.
                                     let u0 = 0.0;
                                     let v0 = 0.0;
-                                    let u1 = if tw > 0 { tile_w / tw as f32 } else { 0.0 };
-                                    let v1 = if th > 0 { tile_h / th as f32 } else { 0.0 };
+                                    let u1 = tile_w / tw as f32;
+                                    let v1 = tile_h / th as f32;
 
-                                    let flake_model = model
-                                        * Mat4::from_translation(vec3(flake.x - w * 0.5, flake.y - h * 0.5, 0.0));
+                                    let flake_model = Mat4::from_translation(vec3(x, y, 0.0))
+                                        * Mat4::from_translation(vec3(
+                                            flake.x - w * 0.5,
+                                            flake.y - h * 0.5,
+                                            0.0,
+                                        ));
 
                                     self.emit_sprite_vertices(
                                         flake_model,
@@ -464,18 +604,18 @@ impl GpuPrimRenderer {
                     }
                 }
             }
+
             PrimType::PrimTypeTile => {
-                let w = prim.get_w() as f32;
-                let h = prim.get_h() as f32;
-                let color_id = prim.get_tile();
+                let w = draw_prim.get_w() as f32;
+                let h = draw_prim.get_h() as f32;
+                let color_id = draw_prim.get_tile();
                 let c = color_manager.get_entry(color_id as u8);
                 if w > 0.0 && h > 0.0 {
-                    let a = prim.get_alpha() as f32 / 255.0;
                     let color = vec4(
                         c.get_r() as f32 / 255.0,
                         c.get_g() as f32 / 255.0,
                         c.get_b() as f32 / 255.0,
-                        a,
+                        base_a,
                     );
 
                     self.emit_sprite_vertices(
@@ -489,30 +629,38 @@ impl GpuPrimRenderer {
                     );
                 }
             }
+
             PrimType::PrimTypeNone => {
                 // No draw; traverse children.
             }
 
-            _ => {
-                // Other primitive types are handled by dedicated subsystems.
-            }
+            _ => {}
         }
 
-        // Traverse children in z-order (stable by sibling order).
-        let mut children = Vec::<i16>::new();
-        let mut child = prim.get_first_child_idx();
+        // -----------------------------
+        // Traverse children (base prim semantics)
+        // Note: container uses (acc + base.X/Y) only; scale/rotation do not affect children.
+        // -----------------------------
+        let mut children: Vec<i16> = Vec::new();
+        let mut child = first_child;
         let mut steps: usize = 0;
+
         while child != -1 {
             if steps >= 4096 {
-                log::error!("collect_tree: child sibling chain too long (possible cycle) at prim_id {prim_id}");
+                log::error!(
+                    "collect_tree: child sibling chain too long (possible cycle) at prim_id {prim_id}"
+                );
                 break;
             }
             steps += 1;
+
             if child < 0 || child >= 4096 {
                 log::error!("collect_tree: invalid child id {child} under prim_id {prim_id}");
                 break;
             }
+
             children.push(child);
+
             let p = prim_manager.get_prim_immutable(child);
             child = p.get_next_sibling_idx();
         }
@@ -525,7 +673,18 @@ impl GpuPrimRenderer {
         }
 
         for cid in children {
-            self.collect_tree(resources, prim_manager, color_manager, graphs, snow_motions, cid, model, visit, depth + 1);
+            self.collect_tree(
+                resources,
+                prim_manager,
+                color_manager,
+                graphs,
+                snow_motions,
+                cid,
+                x,
+                y,
+                visit,
+                depth + 1,
+            );
         }
 
         visit[prim_idx] = 2;
@@ -550,14 +709,12 @@ impl GpuPrimRenderer {
                 graphs,
                 snow_motions,
                 0, // root
-                Mat4::IDENTITY,
+                0.0,
+                0.0,
                 &mut visit,
                 0,
             );
         }
-
-        // Mark split point for overlay draws (root_prim_idx)
-        self.base_draws_len = self.draws.len();
 
         // 2) draw optional overlay root if non-zero
         let root = prim_manager.get_custom_root_prim_id() as i16;
@@ -570,7 +727,8 @@ impl GpuPrimRenderer {
                 graphs,
                 snow_motions,
                 root,
-                Mat4::IDENTITY,
+                0.0,
+                0.0,
                 &mut visit,
                 0,
             );
@@ -581,27 +739,16 @@ impl GpuPrimRenderer {
     }
 
 
-
-    fn draw_slice_with_proj<'a>(
-        &'a self,
-        render_pass: &mut wgpu::RenderPass<'a>,
-        sprite_pipeline: &'a SpritePipeline,
-        proj: Mat4,
-        draws: &'a [DrawItem],
-    ) {
-        for item in draws {
-            let src = self.vb.vertex_source_slice(item.vertex_range.clone());
-            sprite_pipeline.draw(render_pass, src, self.texture_bind_group(item.tex), proj);
-        }
-    }
-
     fn draw_with_proj<'a>(
         &'a self,
         render_pass: &mut wgpu::RenderPass<'a>,
         sprite_pipeline: &'a SpritePipeline,
         proj: Mat4,
     ) {
-        self.draw_slice_with_proj(render_pass, sprite_pipeline, proj, &self.draws);
+        for item in &self.draws {
+            let src = self.vb.vertex_source_slice(item.vertex_range.clone());
+            sprite_pipeline.draw(render_pass, src, self.texture_bind_group(item.tex), proj);
+        }
     }
 
     pub fn draw<'a>(
@@ -621,27 +768,5 @@ impl GpuPrimRenderer {
         projection_matrix: Mat4,
     ) {
         self.draw_with_proj(render_pass, sprite_pipeline, projection_matrix);
-    }
-
-    /// Draw only the base tree (slot 0), excluding overlay root draws.
-    pub fn draw_virtual_base<'a>(
-        &'a self,
-        render_pass: &mut wgpu::RenderPass<'a>,
-        sprite_pipeline: &'a SpritePipeline,
-        projection_matrix: Mat4,
-    ) {
-        let end = self.base_draws_len.min(self.draws.len());
-        self.draw_slice_with_proj(render_pass, sprite_pipeline, projection_matrix, &self.draws[..end]);
-    }
-
-    /// Draw only the overlay root tree (root_prim_idx), if any.
-    pub fn draw_virtual_overlay<'a>(
-        &'a self,
-        render_pass: &mut wgpu::RenderPass<'a>,
-        sprite_pipeline: &'a SpritePipeline,
-        projection_matrix: Mat4,
-    ) {
-        let start = self.base_draws_len.min(self.draws.len());
-        self.draw_slice_with_proj(render_pass, sprite_pipeline, projection_matrix, &self.draws[start..]);
     }
 }

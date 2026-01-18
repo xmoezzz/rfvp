@@ -21,7 +21,7 @@ pub fn movie_play(game_data: &mut GameData, path: &Variant, flag: &Variant) -> R
         _ => return Ok(Variant::Nil),
     };
 
-    let flag_i = flag.as_int().unwrap_or(0);
+    let flag = flag.is_nil();
 
     // Cross-platform restriction: old formats (wmv/mpg) are remapped to mp4 (H264/AAC).
     let mapped = map_legacy_movie_ext_to_mp4(path);
@@ -40,7 +40,7 @@ pub fn movie_play(game_data: &mut GameData, path: &Variant, flag: &Variant) -> R
 
     let (w, h) = (game_data.get_width() as u32, game_data.get_height() as u32);
 
-    let mode = if flag_i == 0 {
+    let mode = if !flag {
         // Modal playback: freeze other actions.
         game_data.set_halt(true);
         game_data.thread_wrapper.should_break();

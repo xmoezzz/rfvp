@@ -276,8 +276,8 @@ impl Vfs {
                     continue;
                 }
                 let folder_name = filename.to_string();
-                if let Ok(vf) = VfsFile::new(path, folder_name.clone(), nls) {
-                    files.insert(folder_name, vf);
+                if let Ok(vf) = VfsFile::new(path, folder_name.to_ascii_lowercase().clone(), nls) {
+                    files.insert(folder_name.to_ascii_lowercase(), vf);
                 }
             }
         }
@@ -306,7 +306,7 @@ impl Vfs {
 
         let vf = self
             .files
-            .get(folder)
+            .get(&folder.to_ascii_lowercase())
             .ok_or_else(|| anyhow::anyhow!("pack not found for folder '{}' (missing {}.bin)", folder, folder))?;
         vf.open_stream(inner)
     }

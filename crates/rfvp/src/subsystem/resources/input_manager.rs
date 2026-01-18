@@ -165,7 +165,7 @@ impl InputManager {
     }
 
     pub fn set_flash(&mut self) {
-        self.cs.enter();
+        let _g = self.cs.enter();
         self.current_index = 0;
         self.next_index = 0;
         // this->gap2[0] = 0;
@@ -194,10 +194,11 @@ impl InputManager {
     }
 
     pub fn get_event(&mut self) -> Option<PressItem> {
-        self.cs.enter();
-        if self.current_index != self.next_index {
-            let event = self.press_items[self.current_index as usize].clone();
-            self.next_index = (self.current_index + 1) & 0x3F; // wrap around 64, to make the ring buffer
+        let _g = self.cs.enter();
+        if self.next_index != self.current_index {
+            // next_index: read cursor; current_index: write cursor
+            let event = self.press_items[self.next_index as usize].clone();
+            self.next_index = (self.next_index + 1) & 0x3F; // wrap 64
             Some(event)
         } else {
             None
@@ -232,12 +233,12 @@ impl InputManager {
     }
 
     pub fn set_click(&mut self, clicked: u32) {
-        self.cs.enter();
+        let _g = self.cs.enter();
         self.click = clicked;
     }
 
     pub fn set_mouse_in(&mut self, in_screen: bool) {
-        self.cs.enter();
+        let _g = self.cs.enter();
         self.cursor_in = in_screen;
     }
 
@@ -272,74 +273,102 @@ impl InputManager {
     }
 
     pub fn record_keydown_or_up(&mut self, keycode: KeyCode, x: i32, y: i32) {
-        let next_index = (self.current_index + 1) & 0x3F;
-        if next_index != self.next_index {
-            let event = &mut self.press_items[self.current_index as usize];
-            if [KeyCode::MouseLeft, KeyCode::MouseRight].contains(&keycode) {
-                if self.click == 0 {
-                    event.keycode = keycode as u8;
-                    event.in_screen = self.cursor_in;
-                    event.x = x;
-                    event.y = y;
-                    self.current_index = next_index;
-                }
-            } else {
-                event.keycode = keycode as u8;
-                event.in_screen = false;
-                event.x = 0;
-                event.y = 0;
-                self.current_index = next_index;
-            }
-            self.current_index = next_index;
+        // Ring buffer: next_index is read cursor, current_index is write cursor.
+        let next_write = (self.current_index + 1) & 0x3F;
+        if next_write == self.next_index {
+            // full
+            return;
         }
+
+        // Mouse events are only recorded when click recording is enabled.
+        if matches!(keycode, KeyCode::MouseLeft | KeyCode::MouseRight) {
+            if self.click != 1 {
+                return;
+            }
+        }
+
+        let event = &mut self.press_items[self.current_index as usize];
+        event.keycode = keycode.clone() as u8;
+        if matches!(keycode, KeyCode::MouseLeft | KeyCode::MouseRight) {
+            event.in_screen = self.cursor_in;
+            event.x = x;
+            event.y = y;
+        } else {
+            event.in_screen = false;
+            event.x = 0;
+            event.y = 0;
+        }
+
+        self.current_index = next_write;
     }
 
     // see https://wiki.winehq.org/List_Of_Windows_Messages
     pub fn notify_keydown(&mut self, key: winit::keyboard::Key, repeat: bool) {
-        self.cs.enter();
         if let Some(keycode) = self.keymap(key) {
-            // keyFlags & 0x40000000  == 0, means it's not a repeat
-            if !repeat {
-                self.new_input_state |= 1 << (keycode.clone() as u32);
+            let (x, y) = (self.cursor_x, self.cursor_y);
+
+            {
+                let _g = self.cs.enter();
+                if !repeat {
+                    self.new_input_state |= 1 << (keycode.clone() as u32);
+                }
+                self.input_repeat |= 1 << (keycode.clone() as u32);
             }
-            self.input_repeat |= 1 << (keycode.clone() as u32);
+
             if repeat {
-                // winit does not provide repeat count which stored in lParam
                 self.record_keydown_or_up(keycode, 0, 0);
             }
         }
     }
 
+
     pub fn notify_keyup(&mut self, key: winit::keyboard::Key) {
-        self.cs.enter();
-        if let Some(keycode) = self.keymap(key) {
-            self.input_state &= !(1 << (keycode.clone() as u32));
+        // Take immutable-derived data first (outside the guard)
+        let keycode = self.keymap(key);
+
+        if let Some(keycode) = keycode {
+            {
+                let _g = self.cs.enter();
+                self.new_input_state &= !(1u32 << (keycode.clone() as u32));
+            } // _g dropped here
+
             self.record_keydown_or_up(keycode, 0, 0);
         }
     }
 
     pub fn notify_mouse_down(&mut self, keycode: KeyCode) {
-        self.cs.enter();
-        self.new_input_state |= 1 << (keycode.clone() as u32);
-        if self.click == 1 {
-            self.record_keydown_or_up(keycode, self.cursor_x, self.cursor_y);
-        }
+        // Snapshot cursor position outside the guard
+        let (x, y) = (self.cursor_x, self.cursor_y);
+
+        {
+            let _g = self.cs.enter();
+            self.new_input_state |= 1u32 << (keycode.clone() as u32);
+        } // _g dropped here
+
+        self.record_keydown_or_up(keycode, x, y);
     }
 
     pub fn notify_mouse_up(&mut self, keycode: KeyCode) {
-        self.cs.enter();
-        self.new_input_state &= !(1 << (keycode.clone() as u32));
-        self.record_keydown_or_up(keycode, self.cursor_x, self.cursor_y);
+        // Snapshot cursor position outside the guard
+        let (x, y) = (self.cursor_x, self.cursor_y);
+
+        {
+            let _g = self.cs.enter();
+            self.new_input_state &= !(1u32 << (keycode.clone() as u32));
+        } // _g dropped here
+
+        self.record_keydown_or_up(keycode, x, y);
     }
 
+
     pub fn notify_mouse_move(&mut self, x: i32, y: i32) {
-        self.cs.enter();
+        let _g = self.cs.enter();
         self.cursor_x = x;
         self.cursor_y = y;
     }
 
     pub fn notify_mouse_wheel(&mut self, value: i32) {
-        self.cs.enter();
+        let _g = self.cs.enter();
         self.wheel_value += value;
     }
 
@@ -359,38 +388,30 @@ impl InputManager {
 
     // TODO: use flags to make it more clear
     pub fn refresh_input(&mut self) {
-        self.cs.enter();
+        let _g = self.cs.enter();
+
         self.old_input_state = self.input_state;
-        let new_input_state = self.new_input_state;
-        self.input_state = new_input_state;
-        // 10010000b
-        // according to Keycode enum:
-        // 4 bit: MouseLeft
-        // 7 bit: Enter
-        if (new_input_state & 0x90) != 0 {
-            // if mouse left or enter is pressed
-            // 4 = 100b
-            // 2 bit: LeftClick (for comfirm button)
-            self.input_state = new_input_state | 4;
+        self.input_state = self.new_input_state;
+
+        // Synthesize virtual click keys.
+        // LeftClick (bit 2) is active when MouseLeft (bit 4) or Enter (bit 7) is active.
+        if (self.input_state & ((1u32 << (KeyCode::MouseLeft as u32)) | (1u32 << (KeyCode::Enter as u32)))) != 0 {
+            self.input_state |= 1u32 << (KeyCode::LeftClick as u32);
         }
-        let input_state = self.input_state;
-        // 01100000b
-        // according to Keycode enum:
-        // 5 bit: MouseRight
-        // 6 bit: Esc
-        if (input_state & 0x60) != 0 {
-            // if mouse right or esc is pressed
-            // 8 = 1000b
-            // 3 bit: RightClick (for cancel button)
-            self.input_state = input_state | 8;
+        // RightClick (bit 3) is active when MouseRight (bit 5) or Esc (bit 6) is active.
+        if (self.input_state & ((1u32 << (KeyCode::MouseRight as u32)) | (1u32 << (KeyCode::Esc as u32)))) != 0 {
+            self.input_state |= 1u32 << (KeyCode::RightClick as u32);
         }
-        if !self.control_is_masked {
-            self.input_state &= !2u32;
+
+        // When masked, ignore both Shift and Ctrl.
+        if self.control_is_masked {
+            self.input_state &= !(1u32 << (KeyCode::Shift as u32));
+            self.input_state &= !(1u32 << (KeyCode::Ctrl as u32));
         }
 
         let changed = self.input_state ^ self.old_input_state;
-        self.input_down = input_state & changed;    // Previous frame 0, this frame 1
-        self.input_up   = (!input_state) & changed; // Previous frame 1, this frame 0
+        self.input_down = self.input_state & changed;        // prev 0 -> now 1
+        self.input_up = (!self.input_state) & changed;       // prev 1 -> now 0
     }
 
 }

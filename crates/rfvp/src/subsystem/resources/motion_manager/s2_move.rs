@@ -189,7 +189,7 @@ impl ScaleMotion {
                     break;
                 }
                 prim = prim_manager.get_prim(next);
-                if prim.get_paused() {
+                if !prim.get_paused() {
                     return true;
                 }
             }
