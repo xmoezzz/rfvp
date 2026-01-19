@@ -315,9 +315,10 @@ impl InputManager {
                 self.input_repeat |= 1 << (keycode.clone() as u32);
             }
 
-            if repeat {
-                self.record_keydown_or_up(keycode, 0, 0);
-            }
+            // Record the keydown event regardless of repeat. The original engine
+            // exposes key events via InputGetEvent; if we only record repeats,
+            // the first press (e.g., Enter to advance) is invisible to scripts.
+            self.record_keydown_or_up(keycode, 0, 0);
         }
     }
 

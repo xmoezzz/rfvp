@@ -514,12 +514,22 @@ impl Context {
         let len = parser.read_u8(self.cursor)? as usize;
         self.cursor += size_of::<u8>();
 
+        // IDA (original engine) semantics for opcode 0x0E (push_str):
+        //   - push Variant{Type=4, Value=NextOpOffset} onto the stack
+        //   - read a u8 length, then advance NextOpOffset by that many bytes
+        //
+        // Many syscalls (notably TextPrint) branch on whether the argument is a
+        // script-buffer string (Type=4) and use the offset as a stable identifier.
+        // Preserve that offset in our Variant so game scripts can observe the
+        // intended return values and control flow.
+        let addr = self.cursor as u32; // points to the first byte of the string payload
+
         let s = parser.read_cstring(self.cursor, len)?;
         self.cursor += len;
 
         // log::info!("push_string: {}", &s);
 
-        self.push(Variant::String(s))?;
+        self.push(Variant::ConstString(s, addr))?;
         Ok(())
     }
 
