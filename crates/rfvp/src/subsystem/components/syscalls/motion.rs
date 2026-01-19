@@ -689,28 +689,32 @@ pub fn v3d_motion(
     typ: &Variant,
     reverse: &Variant,
 ) -> Result<Variant> {
+    // dest_*: Int or Nil (Nil => keep current).
     let dest_x = match dest_x {
         Variant::Int(x) => *x,
+        Variant::Nil => game_data.motion_manager.get_v3d_x(),
         _ => {
             log::error!("Invalid dest_x");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     let dest_y = match dest_y {
         Variant::Int(y) => *y,
+        Variant::Nil => game_data.motion_manager.get_v3d_y(),
         _ => {
             log::error!("Invalid dest_y");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     let dest_z = match dest_z {
         Variant::Int(z) => *z,
+        Variant::Nil => game_data.motion_manager.get_v3d_z(),
         _ => {
             log::error!("Invalid dest_z");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     let duration = match duration {
@@ -718,22 +722,24 @@ pub fn v3d_motion(
         _ => {
             log::error!("Invalid duration");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if duration <= 0 || duration > 300000 {
-        log::error!("Duration must be between 0 and 300000");
+        log::error!("Duration must be between 1 and 300000");
         return Ok(Variant::Nil);
     }
 
     // Default for v3d motion is linear (1). Nil means "use default".
-    let typ = int_or_default(typ, 1);
-
-    let typ = match typ.try_into() {
-        Ok(V3dMotionType::Linear) => V3dMotionType::Linear,
-        // Type 0 is reserved as "None" (unused) in the motion container.
-        _ => V3dMotionType::Linear,
+    let typ_i32 = int_or_default(typ, 1);
+    let typ = match V3dMotionType::try_from(typ_i32) {
+        Ok(V3dMotionType::None) | Err(_) => V3dMotionType::Linear,
+        Ok(t) => t,
     };
+
+    // In the original script layer, this argument behaves like a presence flag
+    // (Nil => not set, non-Nil => set).
+    let reverse_flag = !matches!(reverse, Variant::Nil);
 
     game_data.motion_manager.set_v3d_motion(
         dest_x,
@@ -741,7 +747,7 @@ pub fn v3d_motion(
         dest_z,
         duration,
         typ,
-        reverse.canbe_true(),
+        reverse_flag,
     )?;
 
     Ok(Variant::Nil)

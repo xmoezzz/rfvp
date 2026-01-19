@@ -137,6 +137,67 @@ impl GpuPrimRenderer {
             * Mat4::from_translation(vec3(-opx, -opy, 0.0))
     }
 
+    fn build_draw_model(
+        &self,
+        prim: &Prim,
+        world_x: f32,
+        world_y: f32,
+        off_x: f32,
+        off_y: f32,
+        v3d_x: i32,
+        v3d_y: i32,
+        v3d_z: i32,
+    ) -> Mat4 {
+        let opx = prim.get_opx() as f32;
+        let opy = prim.get_opy() as f32;
+
+        // Screen space uses y-down; use negative angle to keep expected clockwise positive.
+        let theta = -(prim.get_angle() as f32) * std::f32::consts::PI / 180.0;
+
+        let attr = prim.get_attr();
+        if (attr & 4) != 0 {
+            // V3D prim: center-based space + perspective scaling by depth.
+            let (vw, vh) = (self.virtual_size.0 as f32, self.virtual_size.1 as f32);
+            let center_x = vw * 0.5;
+            let center_y = vh * 0.5;
+
+            let mut fx = prim.get_factor_x() as f32;
+            let mut fy = prim.get_factor_y() as f32;
+            if fx.abs() < 1e-6 { fx = 1.0; }
+            if fy.abs() < 1e-6 { fy = 1.0; }
+
+            let mut depth = prim.get_z() as f32 - v3d_z as f32;
+            if depth.abs() < 1e-3 { depth = 1.0; }
+
+            let sx = fx / depth;
+            let sy = fy / depth;
+
+            let cam_shift_x = 1000.0 * (v3d_x as f32) / fx;
+            let cam_shift_y = 1000.0 * (v3d_y as f32) / fy;
+
+            let px = (world_x + off_x) - cam_shift_x;
+            let py = (world_y + off_y) - cam_shift_y;
+
+            Mat4::from_translation(vec3(center_x, center_y, 0.0))
+                * Mat4::from_translation(vec3(px, py, 0.0))
+                * Mat4::from_translation(vec3(opx, opy, 0.0))
+                * Mat4::from_rotation_z(theta)
+                * Mat4::from_scale(vec3(sx, sy, 1.0))
+                * Mat4::from_translation(vec3(-opx, -opy, 0.0))
+        } else {
+            // Non-V3D prim: standard 2D transform in top-left space.
+            let sx = prim.get_factor_x() as f32 / 1000.0;
+            let sy = prim.get_factor_y() as f32 / 1000.0;
+
+            Mat4::from_translation(vec3(world_x + off_x, world_y + off_y, 0.0))
+                * Mat4::from_translation(vec3(opx, opy, 0.0))
+                * Mat4::from_rotation_z(theta)
+                * Mat4::from_scale(vec3(sx, sy, 1.0))
+                * Mat4::from_translation(vec3(-opx, -opy, 0.0))
+        }
+    }
+
+
     fn upload_graph_if_needed(
         &mut self,
         resources: &GpuCommonResources,
@@ -234,6 +295,9 @@ impl GpuPrimRenderer {
         color_manager: &ColorManager,
         graphs: &[GraphBuff],
         snow_motions: &[SnowMotion],
+        v3d_x: i32,
+        v3d_y: i32,
+        v3d_z: i32,
         prim_id: i16,
         acc_x: f32,
         acc_y: f32,
@@ -403,23 +467,19 @@ impl GpuPrimRenderer {
 
                                 // Alpha comes from base prim (original container prim).
                                 let color = vec4(1.0, 1.0, 1.0, base_a);
+                                let off_x = g.get_offset_x() as f32;
+                                let off_y = g.get_offset_y() as f32;
 
-                                let model = {
-                                    let opx = draw_prim.get_opx() as f32;
-                                    let opy = draw_prim.get_opy() as f32;
-                                    let sx = draw_prim.get_factor_x() as f32 / 1000.0;
-                                    let sy = draw_prim.get_factor_y() as f32 / 1000.0;
-                                    let theta = -(draw_prim.get_angle() as f32) * std::f32::consts::PI / 180.0;
-
-                                    let off_x = g.get_offset_x() as f32;
-                                    let off_y = g.get_offset_y() as f32;
-
-                                    Mat4::from_translation(vec3(x + off_x, y + off_y, 0.0))
-                                        * Mat4::from_translation(vec3(opx, opy, 0.0))
-                                        * Mat4::from_rotation_z(theta)
-                                        * Mat4::from_scale(vec3(sx, sy, 1.0))
-                                        * Mat4::from_translation(vec3(-opx, -opy, 0.0))
-                                };
+                                let model = self.build_draw_model(
+                                    &draw_prim,
+                                    x,
+                                    y,
+                                    off_x,
+                                    off_y,
+                                    v3d_x,
+                                    v3d_y,
+                                    v3d_z,
+                                );
 
                                 self.emit_sprite_vertices(
                                     model,
@@ -482,23 +542,19 @@ impl GpuPrimRenderer {
                                 let uv1 = vec2((u + w) / tw as f32, (v + h) / th as f32);
 
                                 let color = vec4(1.0, 1.0, 1.0, base_a);
+                                let off_x = g.get_offset_x() as f32;
+                                let off_y = g.get_offset_y() as f32;
 
-                                let model = {
-                                    let opx = draw_prim.get_opx() as f32;
-                                    let opy = draw_prim.get_opy() as f32;
-                                    let sx = draw_prim.get_factor_x() as f32 / 1000.0;
-                                    let sy = draw_prim.get_factor_y() as f32 / 1000.0;
-                                    let theta = -(draw_prim.get_angle() as f32) * std::f32::consts::PI / 180.0;
-
-                                    let off_x = g.get_offset_x() as f32;
-                                    let off_y = g.get_offset_y() as f32;
-
-                                    Mat4::from_translation(vec3(x + off_x, y + off_y, 0.0))
-                                        * Mat4::from_translation(vec3(opx, opy, 0.0))
-                                        * Mat4::from_rotation_z(theta)
-                                        * Mat4::from_scale(vec3(sx, sy, 1.0))
-                                        * Mat4::from_translation(vec3(-opx, -opy, 0.0))
-                                };
+                                let model = self.build_draw_model(
+                                    &draw_prim,
+                                    x,
+                                    y,
+                                    off_x,
+                                    off_y,
+                                    v3d_x,
+                                    v3d_y,
+                                    v3d_z,
+                                );
 
                                 self.emit_sprite_vertices(
                                     model,
@@ -679,6 +735,9 @@ impl GpuPrimRenderer {
                 color_manager,
                 graphs,
                 snow_motions,
+                v3d_x,
+                v3d_y,
+                v3d_z,
                 cid,
                 x,
                 y,
@@ -708,6 +767,9 @@ impl GpuPrimRenderer {
                 &motion.color_manager,
                 graphs,
                 snow_motions,
+                motion.get_v3d_x(),
+                motion.get_v3d_y(),
+                motion.get_v3d_z(),
                 0, // root
                 0.0,
                 0.0,
@@ -726,6 +788,9 @@ impl GpuPrimRenderer {
                 &motion.color_manager,
                 graphs,
                 snow_motions,
+                motion.get_v3d_x(),
+                motion.get_v3d_y(),
+                motion.get_v3d_z(),
                 root,
                 0.0,
                 0.0,

@@ -243,15 +243,14 @@ impl V3dMotionContainer {
         flag: bool,
         elapsed: i32,
     ) -> bool {
-        if self.motion.typ != V3dMotionType::None && !self.motion.paused && flag {
-            let mut i = 1i16;
-            while i < prim_manager.get_custom_root_prim_id() as i16 {
-                let mut prim = prim_manager.get_prim(i);
-                let mut attr = prim.get_attr();
-                if attr & 4 != 0 {
-                    attr |= 0x40;
-                    prim.set_attr(attr);
-                    i += 1;
+        if self.motion.typ != V3dMotionType::None && !self.motion.paused && !flag {
+            // Mark all V3D-enabled prims dirty (attr |= 0x40).
+            // The prim array is fixed-size (4096 slots).
+            for idx in 1i16..4096i16 {
+                let mut prim = prim_manager.get_prim(idx);
+                let attr = prim.get_attr();
+                if (attr & 4) != 0 {
+                    prim.set_attr(attr | 0x40);
                 }
             }
 
@@ -271,11 +270,11 @@ impl V3dMotionContainer {
             match self.motion.get_type() {
                 V3dMotionType::Linear => {
                     let x = self.motion.src_x as i64
-                        + delta_x * elapsed as i64 / self.motion.duration as i64;
+                        + delta_x * self.motion.elapsed as i64 / self.motion.duration as i64;
                     let y = self.motion.src_y as i64
-                        + delta_y * elapsed as i64 / self.motion.duration as i64;
+                        + delta_y * self.motion.elapsed as i64 / self.motion.duration as i64;
                     let z = self.motion.src_z as i64
-                        + delta_z * elapsed as i64 / self.motion.duration as i64;
+                        + delta_z * self.motion.elapsed as i64 / self.motion.duration as i64;
 
                     self.set_v3d(x as i32, y as i32, z as i32);
                 }
