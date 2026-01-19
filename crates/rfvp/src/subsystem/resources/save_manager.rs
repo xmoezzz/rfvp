@@ -155,6 +155,13 @@ impl SaveItem {
         }
     }
 
+    pub fn get_save_path(slot: u32) -> std::path::PathBuf {
+        app_base_path()
+            .get_path()
+            .join("save")
+            .join(format!("s{}.bin", slot))
+    }
+
     pub fn load_from_mem(buf: &Vec<u8>, nls: Nls) -> Result<Self> {
         if buf.len() < Self::calculate_offset() {
             return Err(anyhow::anyhow!("invalid save data: too short"));
@@ -229,6 +236,7 @@ pub struct SaveManager {
     current_title: String,
     current_script_content: String,
     current_save_slot: u32,
+    load_slot: u32,
     save_requested: bool,
     savedata_prepared: bool,
     should_load: bool,
@@ -243,7 +251,8 @@ impl SaveManager {
             current_scene_title: String::new(),
             current_title: String::new(),
             current_script_content: String::new(),
-            current_save_slot: 0,
+            current_save_slot: u32::MAX,
+            load_slot: u32::MAX,
             save_requested: false,
             savedata_prepared: false,
             should_load: false,
@@ -494,6 +503,174 @@ impl SaveManager {
     pub fn load_save_buff(&mut self, slot: u32, nls: Nls, cache: &Vec<u8>) -> Result<()> {
         let save_item = SaveItem::load_from_mem(cache, nls)?;
         self.slots[slot as usize] = Some(save_item);
+        Ok(())
+    }
+
+
+    /// If a SaveWrite has been requested and the thumbnail parameters are known,
+    /// return (slot, thumb_w, thumb_h) so the renderer can capture the current frame.
+    pub fn pending_save_capture(&self) -> Option<(u32, u32, u32)> {
+        if !self.save_requested {
+            return None;
+        }
+        if self.savedata_prepared {
+            return None;
+        }
+        if self.current_save_slot >= 1000 {
+            return None;
+        }
+        let w = self.thumb_width.max(1);
+        let h = self.thumb_height.max(1);
+        Some((self.current_save_slot, w, h))
+    }
+
+    /// Finalize a pending save by writing out the save slot file.
+    ///
+    /// The caller is expected to provide an RGBA8 thumbnail of size (thumb_w, thumb_h).
+    pub fn finalize_save_write(
+        &mut self,
+        nls: Nls,
+        thumb_w: u32,
+        thumb_h: u32,
+        thumb_rgba: &[u8],
+    ) -> Result<()> {
+        if !self.save_requested || self.current_save_slot == u32::MAX {
+            return Ok(());
+        }
+        let expected = (thumb_w as usize)
+            .saturating_mul(thumb_h as usize)
+            .saturating_mul(4);
+        if thumb_rgba.len() != expected {
+            log::warn!(
+                "finalize_save_write: thumbnail size mismatch: got={}, expected={}",
+                thumb_rgba.len(),
+                expected
+            );
+        }
+
+        let bytes = self.build_save_file_bytes(nls, thumb_rgba)?;
+        let path = SaveItem::get_save_path(self.current_save_slot);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&path, &bytes)?;
+
+        // Refresh slot cache.
+        if self.current_save_slot < 1000 {
+            if let Ok(item) = SaveItem::load_from_mem(&bytes, nls) {
+                self.slots[self.current_save_slot as usize] = Some(item);
+            }
+        }
+
+        self.savedata_prepared = true;
+        Ok(())
+    }
+
+    /// Called by the SaveWrite syscall once it has observed completion.
+    pub fn consume_save_write_result(&mut self) {
+        self.save_requested = false;
+        self.savedata_prepared = false;
+        self.current_save_slot = u32::MAX;
+    }
+
+    /// Request a load of a save slot (deferred to the engine loop).
+    pub fn request_load(&mut self, slot: u32) {
+        self.should_load = true;
+        self.load_slot = slot;
+    }
+
+    /// Take a pending load request (slot), clearing the flag.
+    pub fn take_load_request(&mut self) -> Option<u32> {
+        if !self.should_load {
+            return None;
+        }
+        self.should_load = false;
+        Some(self.load_slot)
+    }
+
+    /// Load a save slot into the current save fields.
+    ///
+    /// Note: the actual VM/state restoration is expected to be driven by scripts
+    /// using the loaded fields (title/scene/script content). This mirrors the original
+    /// engine behavior where the save payload is interpreted at a higher layer.
+    pub fn load_slot_into_current(&mut self, slot: u32, nls: Nls) -> Result<()> {
+        let path = SaveItem::get_save_path(slot);
+        let bytes = std::fs::read(&path)?;
+        let item = SaveItem::load_from_mem(&bytes, nls)?;
+        self.current_save_slot = slot;
+        self.current_title = item.title.clone();
+        self.current_scene_title = item.scene_title.clone();
+        self.current_script_content = item.script_content.clone();
+        if slot < 1000 {
+            self.slots[slot as usize] = Some(item);
+        }
+        Ok(())
+    }
+
+    fn build_save_file_bytes(&self, nls: Nls, thumb_rgba: &[u8]) -> Result<Vec<u8>> {
+        use encoding_rs::Encoding;
+
+        fn enc(nls: Nls, s: &str) -> Vec<u8> {
+            match nls {
+                Nls::ShiftJIS => {
+                    let (cow, _, _) = encoding_rs::SHIFT_JIS.encode(s);
+                    cow.into_owned()
+                }
+                Nls::UTF8 => s.as_bytes().to_vec(),
+                Nls::GBK => {
+                    let enc = Encoding::for_label(b"gbk").unwrap_or(encoding_rs::UTF_8);
+                    let (cow, _, _) = enc.encode(s);
+                    cow.into_owned()
+                }
+            }
+        }
+
+        let now = chrono::Local::now();
+        let mut out: Vec<u8> = Vec::new();
+
+        // 7 x i32 timestamp fields (matches SaveItem::load_from_mem expectations).
+        let fields: [i32; 7] = [
+            now.year() as i32,
+            now.month() as i32,
+            now.day() as i32,
+            now.hour() as i32,
+            now.minute() as i32,
+            now.second() as i32,
+            now.weekday().num_days_from_sunday() as i32,
+        ];
+        for v in fields {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+
+        let title_b = enc(nls, &self.current_title);
+        let scene_b = enc(nls, &self.current_scene_title);
+        let script_b = enc(nls, &self.current_script_content);
+
+        let title_sz = title_b.len() as i32;
+        let scene_sz = scene_b.len() as i32;
+        let script_sz = script_b.len() as i32;
+
+        out.extend_from_slice(&title_sz.to_le_bytes());
+        out.extend_from_slice(&scene_sz.to_le_bytes());
+        out.extend_from_slice(&script_sz.to_le_bytes());
+
+        out.extend_from_slice(&title_b);
+        out.extend_from_slice(&scene_b);
+        out.extend_from_slice(&script_b);
+
+        out.extend_from_slice(thumb_rgba);
+
+        Ok(out)
+    }
+
+    pub fn finish_save_write_from_thumb(&mut self, slot: u32, nls: Nls, thumb_rgba: &[u8]) -> Result<()> {
+        let save_manager = SaveManager::new();
+        let bytes = save_manager.build_save_file_bytes(nls, thumb_rgba)?;
+        let path = SaveItem::get_save_path(slot);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&path, &bytes)?;
         Ok(())
     }
 }

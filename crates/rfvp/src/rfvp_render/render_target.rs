@@ -4,6 +4,61 @@ use wgpu::util::DeviceExt;
 use super::{GpuCommonResources, TextureBindGroup};
 use super::vertices::{PosColTexVertex, VertexSource};
 
+
+
+#[derive(Debug)]
+pub struct RenderTargetReadback {
+    pub buffer: wgpu::Buffer,
+    pub width: u32,
+    pub height: u32,
+    pub bytes_per_row: u32,
+    pub padded_bytes_per_row: u32,
+}
+
+impl RenderTargetReadback {
+    // get pixels as RGBA8 slice
+pub fn map_to_rgba8(&self, device: &wgpu::Device) -> Vec<u8> {
+        let height = self.height as usize;
+        let dst_bpr = self.bytes_per_row as usize;
+        let src_bpr = self.padded_bytes_per_row as usize;
+
+        if height == 0 || dst_bpr == 0 {
+            return Vec::new();
+        }
+
+        let slice = self.buffer.slice(..);
+
+        // wgpu::Buffer::map_async is async; block here without extra crates.
+        let (tx, rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |res| {
+            let _ = tx.send(res);
+        });
+
+        // Ensure the mapping completes.
+        device.poll(wgpu::Maintain::Wait);
+
+        // Propagate mapping failure loudly (you can change to Result if preferred).
+        rx.recv().expect("map_async callback dropped").expect("buffer map failed");
+
+        let mapped = slice.get_mapped_range();
+
+        // Strip per-row padding.
+        let mut out = vec![0u8; height * dst_bpr];
+        for y in 0..height {
+            let src0 = y * src_bpr;
+            let src1 = src0 + dst_bpr;
+            let dst0 = y * dst_bpr;
+            let dst1 = dst0 + dst_bpr;
+            out[dst0..dst1].copy_from_slice(&mapped[src0..src1]);
+        }
+
+        drop(mapped);
+        self.buffer.unmap();
+
+        out
+    }
+}
+
 pub struct RenderTarget {
     texture: wgpu::Texture,
     view: wgpu::TextureView,
@@ -26,7 +81,7 @@ impl RenderTarget {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: Self::FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
 
@@ -131,5 +186,58 @@ impl RenderTarget {
             timestamp_writes: None,
             occlusion_query_set: None,
         })
+    }
+
+
+    /// Encode a GPU -> CPU readback of the full render target into an internal buffer.
+    /// The returned buffer is MAP_READ and must be mapped after submission.
+    pub fn encode_readback_rgba8(
+        &self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> RenderTargetReadback {
+        let width = self.size.0;
+        let height = self.size.1;
+        let bytes_per_row = 4u32.saturating_mul(width);
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded_bytes_per_row = ((bytes_per_row + align - 1) / align) * align;
+
+        let buffer_size = (padded_bytes_per_row as u64) * (height as u64);
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("rfvp_render.render_target.readback"),
+            size: buffer_size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        encoder.copy_texture_to_buffer(
+            wgpu::ImageCopyTexture {
+                texture: &self.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyBuffer {
+                buffer: &buffer,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        RenderTargetReadback {
+            buffer,
+            width,
+            height,
+            bytes_per_row,
+            padded_bytes_per_row,
+        }
     }
 }

@@ -3,6 +3,7 @@ use std::{
     collections::HashMap, fs::File, path::{Path, PathBuf}, slice::Windows, sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard}, time::Instant
 };
 use glam::{mat4, vec3, vec4, Mat4};
+use image::{imageops::FilterType, RgbaImage};
 use wgpu::util::DeviceExt;
 use regex::Regex;
 use crate::{
@@ -410,6 +411,13 @@ impl App {
             };
         }
 
+
+        // Save thumbnail capture request (resolved after the virtual pass).
+        let save_capture = {
+            let gd = gd_read(&self.game_data);
+            gd.save_manager.pending_save_capture()
+        };
+
         let mut encoder = self
             .resources
             .device
@@ -444,6 +452,13 @@ impl App {
                 );
             }
         }
+
+
+        // If a SaveWrite is pending, capture the current virtual render target to CPU.
+        let save_readback = save_capture.map(|_| {
+            self.render_target
+                .encode_readback_rgba8(&self.resources.device, &mut encoder)
+        });
 
         // Pass 2: present to the swapchain with aspect-preserving scaling.
         let output = match self.surface.get_current_texture() {
@@ -518,6 +533,29 @@ impl App {
         }
 
         self.resources.queue.submit(Some(encoder.finish()));
+
+        if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_capture) {
+            let rgba = readback.map_to_rgba8(&self.resources.device);
+            let src_w = self.virtual_size.0.max(1);
+            let src_h = self.virtual_size.1.max(1);
+
+            let thumb_rgba = if thumb_w > 0 && thumb_h > 0 && (thumb_w != src_w || thumb_h != src_h) {
+                if let Some(img) = RgbaImage::from_raw(src_w, src_h, rgba.clone()) {
+                    let resized = image::imageops::resize(&img, thumb_w, thumb_h, FilterType::Triangle);
+                    resized.into_raw()
+                } else {
+                    rgba
+                }
+            } else {
+                rgba.clone()
+            };
+
+            let mut gd = gd_write(&self.game_data);
+            let nls = gd.get_nls();
+            gd.save_manager
+                .finish_save_write_from_thumb(slot, nls, &thumb_rgba)?;
+        }
+
         output.present();
 
         Ok(())
@@ -626,6 +664,7 @@ impl App {
         }
 
         self.resources.queue.submit(Some(encoder.finish()));
+
         output.present();
 
         Ok(())

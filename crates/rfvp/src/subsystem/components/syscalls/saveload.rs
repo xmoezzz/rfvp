@@ -56,6 +56,7 @@ pub fn save_create(game_data: &mut GameData, fnid: &Variant, value: &Variant) ->
     Ok(Variant::Nil)
 }
 
+
 pub fn save_data(
     game_data: &mut GameData,
     fnid: &Variant,
@@ -264,46 +265,70 @@ pub fn save_thumb_size(
 }
 
 pub fn save_write(game_data: &mut GameData, slot: &Variant) -> Result<Variant> {
-    let nls = game_data.get_nls();
-    let cache = game_data.get_cache();
-    if let Variant::Int(slot) = slot {
-        let slot = *slot as u32;
-        if (0..1000).contains(&slot) {
-            game_data.save_manager.set_savedata_requested(true);
-            game_data.save_manager.set_current_save_slot(slot);
-            if game_data.save_manager.is_savedata_prepared() {
-                if let Err(e) = game_data.save_manager.load_save_buff(slot, nls, &cache) {
-                    log::error!("save_write: failed to load save buff: {}", e);
-                }
-            }
+    let slot = match slot.as_int() {
+        Some(v) => v,
+        None => {
+            log::error!("save_write: invalid slot : {:?}", slot);
+            return Ok(Variant::Nil);
         }
+    };
+
+    if !(0..=199).contains(&slot) {
+        log::error!("save_write: invalid slot : {}", slot);
+        return Ok(Variant::Nil);
     }
+
+    // Request an async save. The actual file write (including thumbnail capture) is performed
+    // by the engine loop on a subsequent frame.
+    game_data.save_manager.set_savedata_requested(true);
+    game_data.save_manager.set_current_save_slot(slot as u32);
 
     Ok(Variant::Nil)
 }
 
 pub fn load(game_data: &mut GameData, slot: &Variant) -> Result<Variant> {
-    if let Variant::Int(slot) = slot {
-        let slot = *slot as u32;
-        if (0..1000).contains(&slot) {
-            game_data.save_manager.set_current_save_slot(slot);
-            game_data.save_manager.set_should_load(true);
-            game_data.thread_wrapper.should_break();
+    let slot = match slot.as_int() {
+        Some(v) => v,
+        None => {
+            log::error!("load: invalid slot : {:?}", slot);
+            return Ok(Variant::Nil);
         }
+    };
+
+    if !(0..=199).contains(&slot) {
+        log::error!("load: invalid slot : {}", slot);
+        return Ok(Variant::Nil);
     }
 
-    Ok(Variant::Nil)
+    let nls = game_data.get_nls();
+    match game_data.save_manager.load_savedata(slot as u32, nls) {
+        Ok(()) => {
+            // Break current context so the script can rebuild state based on loaded save content.
+            game_data.thread_wrapper.should_break();
+            Ok(Variant::True)
+        }
+        Err(e) => {
+            log::error!("load: failed to load slot {}: {:#}", slot, e);
+            Ok(Variant::Nil)
+        }
+    }
 }
+
 
 pub struct SaveCreate;
 impl Syscaller for SaveCreate {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
-        save_create(game_data, get_var!(args, 0), get_var!(args, 1))
+        save_create(
+            game_data,
+            get_var!(args, 0),
+            get_var!(args, 1),
+        )
     }
 }
 
 unsafe impl Send for SaveCreate {}
 unsafe impl Sync for SaveCreate {}
+
 
 pub struct SaveData;
 impl Syscaller for SaveData {
@@ -323,7 +348,11 @@ unsafe impl Sync for SaveData {}
 pub struct SaveThumbSize;
 impl Syscaller for SaveThumbSize {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
-        save_thumb_size(game_data, get_var!(args, 0), get_var!(args, 1))
+        save_thumb_size(
+            game_data,
+            get_var!(args, 0),
+            get_var!(args, 1),
+        )
     }
 }
 
@@ -333,7 +362,10 @@ unsafe impl Sync for SaveThumbSize {}
 pub struct SaveWrite;
 impl Syscaller for SaveWrite {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
-        save_write(game_data, get_var!(args, 0))
+        save_write(
+            game_data,
+            get_var!(args, 0),
+        )
     }
 }
 
@@ -343,9 +375,13 @@ unsafe impl Sync for SaveWrite {}
 pub struct Load;
 impl Syscaller for Load {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
-        load(game_data, get_var!(args, 0))
+        load( 
+            game_data,
+            get_var!(args, 0),
+        )
     }
 }
 
 unsafe impl Send for Load {}
 unsafe impl Sync for Load {}
+
