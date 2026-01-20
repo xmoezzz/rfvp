@@ -717,7 +717,7 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
     }
 
     pub fn tick_dissolve(&mut self, elapsed_ms: u32) {
-        println!("tick_dissolve: elapsed_ms = {}", elapsed_ms);
+        crate::trace::motion(format_args!("tick_dissolve: elapsed_ms={}", elapsed_ms));
         let typ = self.dissolve_type;
         if typ == DissolveType::None || typ == DissolveType::Static {
             self.dissolve_alpha = if typ == DissolveType::Static { 1.0 } else { 0.0 };
@@ -791,5 +791,48 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
             self.refresh_prims(graph_id);
         }
         Ok(())
+    }
+}
+
+
+impl MotionManager {
+    /// Dump motion-related state for debugging (counts and a small sample of running motions).
+    pub fn debug_dump_motion_state(&self, max_each: usize) -> String {
+        let mut out = String::new();
+
+        out.push_str(&format!(
+            "Dissolve: type={:?} elapsed_ms={} dur_ms={} alpha={:.3} color_id={}\n",
+            self.dissolve_type,
+            self.dissolve_elapsed_ms,
+            self.dissolve_duration_ms,
+            self.dissolve_alpha,
+            self.dissolve_color_id
+        ));
+
+        out.push_str(&format!(
+            "Running counts: alpha={} move={} rot={} scale={} z={} anim={} snow={}\n",
+            self.alpha_motion_container.debug_running_count(),
+            self.move_motion_container.debug_running_count(),
+            self.rotation_motion_container.debug_running_count(),
+            self.scale_motion_container.debug_running_count(),
+            self.z_motion_container.debug_running_count(),
+            self.sprite_anim_container.debug_running_count(),
+            self.snow_motion_container.debug_enabled_count()
+        ));
+
+        out.push_str(&self.v3d_motion_container.debug_dump());
+        out.push_str(&self.alpha_motion_container.debug_dump(max_each));
+        out.push_str(&self.move_motion_container.debug_dump(max_each));
+        out.push_str(&self.rotation_motion_container.debug_dump(max_each));
+        out.push_str(&self.scale_motion_container.debug_dump(max_each));
+        out.push_str(&self.z_motion_container.debug_dump(max_each));
+        out.push_str(&self.sprite_anim_container.debug_dump(max_each));
+        out.push_str(&self.snow_motion_container.debug_dump(2));
+        out
+    }
+
+    pub fn debug_dump_prim_tree(&self, max_nodes: usize, max_depth: usize) -> String {
+        let root = self.prim_manager.get_custom_root_prim_id() as i16;
+        self.prim_manager.debug_dump_tree(root, max_nodes, max_depth)
     }
 }

@@ -390,10 +390,24 @@ impl App {
             // Build primitive draw list and upload any modified GraphBuffs to the GPU.
             self.prim_renderer.rebuild(&self.resources, &gd.motion_manager);
 
+            let frame_no = self.debug_frame_no;
+            if crate::trace::should_dump_prim_tree(frame_no) {
+                let tree = gd.motion_manager.debug_dump_prim_tree(
+                    crate::trace::prim_tree_max_nodes(),
+                    crate::trace::prim_tree_max_depth(),
+                );
+                crate::trace::dump(crate::trace::TraceKind::PrimTree, &format!("prim_tree frame={}", frame_no), &tree);
+            }
+            if crate::trace::should_dump_motion(frame_no) {
+                let ms = gd.motion_manager.debug_dump_motion_state(crate::trace::motion_max());
+                crate::trace::dump(crate::trace::TraceKind::Motion, &format!("motion frame={}", frame_no), &ms);
+            }
+
+
             let dissolve_type = gd.motion_manager.get_dissolve_type();
             dissolve_color = if dissolve_type != DissolveType::None {
                 let alpha = gd.motion_manager.get_dissolve_alpha();
-                println!("Global dissolve alpha: {}", alpha);
+                    crate::trace::motion(format_args!("Global dissolve alpha: {}", alpha));
                 if alpha > 0.0 {
                     let cid = gd.motion_manager.get_dissolve_color_id() as u8;
                     let c = gd.motion_manager.color_manager.get_entry(cid);
@@ -1069,6 +1083,6 @@ mod tests {
         let filepath = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/testcase"));
 
         let hcb_path = App::find_hcb(filepath).unwrap();
-        println!("{:?}", hcb_path);
+        log::info!("{:?}", hcb_path);
     }
 }

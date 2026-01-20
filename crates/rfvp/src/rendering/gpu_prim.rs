@@ -378,8 +378,8 @@ impl GpuPrimRenderer {
         let x = acc_x + base_x;
         let y = acc_y + base_y;
 
-        println!(
-            "[prim] depth={} prim_id={} draw_id={} base(x,y)=({:.2},{:.2}) acc(x,y)=({:.2},{:.2}) => x,y=({:.2},{:.2}) alpha={:.3} type={:?} sprt_first={}",
+        crate::trace::render(format_args!(
+            "[prim] depth={} prim_id={} draw_id={} base(x,y)=({:.2},{:.2}) acc=({:.2},{:.2}) => x,y=({:.2},{:.2}) alpha={:.3} type={:?} sprt_first={}",
             depth,
             prim_id,
             draw_id,
@@ -392,7 +392,8 @@ impl GpuPrimRenderer {
             base_a,
             draw_prim.get_type(),
             base_prim.get_sprt(),
-        );
+        ));
+
 
         // Local transform for renderable prims: translate to (x,y), then pivot/rotate/scale around draw_prim.op.
         let model = {

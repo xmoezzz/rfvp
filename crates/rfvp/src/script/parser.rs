@@ -325,6 +325,6 @@ mod tests {
         ));
 
         let parser = Parser::new(filepath, Nls::ShiftJIS).unwrap();
-        println!("{:?}", parser);
+        log::debug!("{:?}", parser);
     }
 }

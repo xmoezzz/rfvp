@@ -12,7 +12,7 @@ pub fn prim_exit_group(game_data: &mut GameData, id: &Variant) -> Result<Variant
         return Ok(Variant::Nil);
     };
 
-    println!("prim_exit_group: called with id={}", id);
+    crate::trace::prim_evt(format_args!("prim_exit_group: id={}", id));
 
     // Match original engine: accept only 0..4095, ignore others.
     if !(0..=4095).contains(&id) {

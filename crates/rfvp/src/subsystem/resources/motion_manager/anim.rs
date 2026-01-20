@@ -100,3 +100,36 @@ impl SpriteAnimContainer {
         }
     }
 }
+
+
+impl SpriteAnimContainer {
+    pub fn debug_dump(&self, max: usize) -> String {
+        let mut out = String::new();
+        let mut n = 0usize;
+        for a in &self.anims {
+            if !a.running {
+                continue;
+            }
+            if n >= max {
+                break;
+            }
+            out.push_str(&format!(
+                "  [anim] prim={} base_graph={} range=[{},{}] cur={} elapsed_ms={} frame_interval_ms={}\n",
+                a.prim_id,
+                a.base_graph_id,
+                a.start,
+                a.end,
+                a.current,
+                a.elapsed_ms,
+                self.frame_interval_ms
+            ));
+            n += 1;
+        }
+        out
+    }
+
+    pub fn debug_running_count(&self) -> usize {
+        self.anims.iter().filter(|a| a.running).count()
+    }
+}
+

@@ -336,7 +336,7 @@ impl Context {
             // reverse the arguments
             args.reverse();
 
-            log::info!("syscall: {} {:?}", &syscall.name, &args);
+            crate::trace::syscall(format_args!("syscall: {} {:?}", &syscall.name, &args));
             let result = match sys.do_syscall(syscall.name.as_str(), args) {
                 Ok(result) => result,
                 Err(e) => {
@@ -345,6 +345,7 @@ impl Context {
                 }
             };
             self.return_value = result;
+            crate::trace::syscall(format_args!("syscall_ret: {} -> {:?}", &syscall.name, &self.return_value));
         } else {
             bail!("syscall not found: {}", id);
         }

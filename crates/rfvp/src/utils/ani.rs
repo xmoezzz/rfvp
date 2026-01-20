@@ -265,6 +265,6 @@ mod tests {
         let filepath = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../testcase/cursor1.ani"));
         let file = std::fs::File::open(filepath).unwrap();
         let cursor = Decoder::new(file).decode().unwrap();
-        println!("{:#?}", cursor.metadata);
+        crate::trace::vm(format_args!("ANI metadata: {:#?}", cursor.metadata));
     }
 }

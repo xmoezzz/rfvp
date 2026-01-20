@@ -684,6 +684,6 @@ mod tests {
         let filepath = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/testcase/s282.bin"));
 
         let save_item = SaveItem::load_from_file(filepath, Nls::ShiftJIS).unwrap();
-        println!("{:?}", save_item);
+        log::debug!("{:?}", save_item);
     }
 }

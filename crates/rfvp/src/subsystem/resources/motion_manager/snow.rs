@@ -611,3 +611,53 @@ impl SnowMotionContainer {
         }
     }
 }
+
+
+impl SnowMotionContainer {
+    pub fn debug_dump(&self, max: usize) -> String {
+        let mut out = String::new();
+        let mut shown = 0usize;
+        for (i, m) in self.motion.iter().enumerate() {
+            if !m.enabled {
+                continue;
+            }
+            if shown >= max {
+                break;
+            }
+            out.push_str(&format!(
+                "  [snow:{}] enabled=true intensity={} wind=({}, {}) area=({}, {})\n",
+                i,
+                m.intensity,
+                m.wind_x,
+                m.wind_y,
+                m.area_w,
+                m.area_h
+            ));
+            // Print a few flakes (using the current pointer order).
+            let sample = 3usize.min(m.flake_ptrs.len());
+            for k in 0..sample {
+                let idx = m.flake_ptrs[k];
+                if idx >= m.flakes.len() {
+                    continue;
+                }
+                let f = &m.flakes[idx];
+                out.push_str(&format!(
+                    "    flake[{}] var={} x={:.2} y={:.2} z={:.2} vx={:.2} vy={:.2}\n",
+                    idx,
+                    f.variant_idx,
+                    f.x,
+                    f.y,
+                    f.z,
+                    f.vx,
+                    f.vy
+                ));
+            }
+            shown += 1;
+        }
+        out
+    }
+
+    pub fn debug_enabled_count(&self) -> usize {
+        self.motion.iter().filter(|m| m.enabled).count()
+    }
+}

@@ -563,3 +563,109 @@ impl PrimManager {
         self.get_prim(id as i16).get_type()
     }
 }
+
+
+use std::collections::HashSet;
+
+impl PrimManager {
+    /// Dump the current primitive tree starting from `root`.
+    ///
+    /// This is intended for debugging only and is guarded by trace flags at call sites.
+    pub fn debug_dump_tree(&self, root: i16, max_nodes: usize, max_depth: usize) -> String {
+        let mut out = String::new();
+        out.push_str(&format!(
+            "PrimTree(root={}, custom_root={}, max_nodes={}, max_depth={})\n",
+            root,
+            self.custom_root_prim_id,
+            max_nodes,
+            max_depth
+        ));
+
+        if root < 0 || root as usize >= self.prims.len() {
+            out.push_str("  <invalid root>\n");
+            return out;
+        }
+
+        let mut visited: HashSet<i16> = HashSet::new();
+        let mut count: usize = 0;
+
+        fn dump_node(pm: &PrimManager, id: i16, depth: usize, max_nodes: usize, max_depth: usize,
+                     visited: &mut HashSet<i16>, count: &mut usize, out: &mut String) {
+            if *count >= max_nodes {
+                out.push_str("  <truncated: max_nodes reached>\n");
+                return;
+            }
+            if depth > max_depth {
+                out.push_str(&format!("{:indent$}<truncated: max_depth reached>\n", "", indent=depth*2));
+                return;
+            }
+            if id < 0 || id as usize >= pm.prims.len() {
+                out.push_str(&format!("{:indent$}<invalid prim id {}>\n", "", id, indent=depth*2));
+                return;
+            }
+            if !visited.insert(id) {
+                out.push_str(&format!("{:indent$}<cycle detected at {}>\n", "", id, indent=depth*2));
+                return;
+            }
+
+            let p = pm.get_prim_immutable(id);
+
+            let indent = depth * 2;
+            out.push_str(&format!(
+                "{:indent$}#{} type={:?} draw={} alpha={} blend={} paused={} parent={} sprt={} prev={} next={} first_child={} last_child={} \
+x={} y={} z={} w={} h={} u={} v={} op=({}, {}) angle={} factor=({}, {}) tile={} text_index={} attr=0x{:08x}\n",
+                "",
+                id,
+                p.get_type(),
+                p.get_draw_flag(),
+                p.get_alpha(),
+                p.get_blend(),
+                p.get_is_paused(),
+                p.get_parent(),
+                p.get_sprt(),
+                p.get_prev_sibling_idx(),
+                p.get_next_sibling_idx(),
+                p.get_first_child_idx(),
+                p.get_last_child_idx(),
+                p.get_x(),
+                p.get_y(),
+                p.get_z(),
+                p.get_w(),
+                p.get_h(),
+                p.get_u(),
+                p.get_v(),
+                p.get_opx(),
+                p.get_opy(),
+                p.get_angle(),
+                p.get_factor_x(),
+                p.get_factor_y(),
+                p.get_tile(),
+                p.get_text_index(),
+                p.get_attr(),
+                indent = indent
+            ));
+
+            let mut child = p.get_first_child_idx();
+            drop(p);
+
+            *count += 1;
+
+            // Walk the sibling chain from first_child via next_sibling_idx.
+            while child != INVAILD_PRIM_HANDLE {
+                if *count >= max_nodes {
+                    out.push_str(&format!("{:indent$}<truncated children: max_nodes reached>\n", "", indent=(depth+1)*2));
+                    break;
+                }
+                dump_node(pm, child, depth + 1, max_nodes, max_depth, visited, count, out);
+
+                let c = pm.get_prim_immutable(child);
+                let next = c.get_next_sibling_idx();
+                drop(c);
+                child = next;
+            }
+        }
+
+        dump_node(self, root, 0, max_nodes, max_depth, &mut visited, &mut count, &mut out);
+        out
+    }
+}

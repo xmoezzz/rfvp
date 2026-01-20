@@ -437,3 +437,37 @@ impl MoveMotionContainer {
     }
 }
 
+
+
+impl MoveMotionContainer {
+    pub fn debug_dump(&self, max: usize) -> String {
+        let mut out = String::new();
+        let mut n = 0usize;
+        for m in &self.motions {
+            if !m.running {
+                continue;
+            }
+            if n >= max {
+                break;
+            }
+            out.push_str(&format!(
+                "  [move] prim={} src=({}, {}) dst=({}, {}) elapsed={} dur={} type={:?} rev={}\n",
+                m.prim_id,
+                m.src_x,
+                m.src_y,
+                m.dst_x,
+                m.dst_y,
+                m.elapsed,
+                m.duration,
+                m.anm_type,
+                m.reverse
+            ));
+            n += 1;
+        }
+        out
+    }
+
+    pub fn debug_running_count(&self) -> usize {
+        self.motions.iter().filter(|m| m.running).count()
+    }
+}

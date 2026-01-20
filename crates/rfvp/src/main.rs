@@ -11,6 +11,7 @@ mod vm_worker;
 mod rfvp_render;
 mod rfvp_audio;
 mod vm_runner;
+mod trace;
 
 use script::parser::{Nls, Parser};
 use subsystem::{anzu_scene::AnzuScene, resources::thread_manager::ThreadManager};
@@ -87,7 +88,7 @@ mod tests {
         let buff = vfs.read_file("bgm/001").unwrap();
         // is oggs?
         assert!(&buff[0..4] == [0x4fu8, 0x67u8, 0x67u8, 0x53u8].as_slice(), "BGM file is not OGG format");
-        println!("BGM data size: {}", buff.len());
+        crate::trace::vm(format_args!("BGM data size: {}", buff.len()));
         world.bgm_player_mut().load(0, buff).unwrap();
         let mut fade_in = kira::Tween {
             duration: Duration::from_secs(0),
@@ -108,7 +109,7 @@ mod tests {
         // is oggs?
         assert!(&buff[0..4] == [0x4fu8, 0x67u8, 0x67u8, 0x53u8].as_slice(), "BGM file is not OGG format");
         assert!(&buff2[0..4] == [0x4fu8, 0x67u8, 0x67u8, 0x53u8].as_slice(), "BGM file is not OGG format");
-        println!("BGM data size: {}", buff.len());
+        crate::trace::vm(format_args!("BGM data size: {}", buff.len()));
         world.bgm_player_mut().load(0, buff).unwrap();
         let mut fade_in = kira::Tween {
             duration: Duration::from_secs(0),

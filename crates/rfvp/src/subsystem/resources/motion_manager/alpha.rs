@@ -1,5 +1,4 @@
 use anyhow::Result;
-use egui::debug_text::print;
 use crate::subsystem::resources::prim::{PrimManager, INVAILD_PRIM_HANDLE};
 
 
@@ -327,3 +326,35 @@ impl AlphaMotionContainer {
     }
 }
 
+
+
+impl AlphaMotionContainer {
+    pub fn debug_dump(&self, max: usize) -> String {
+        let mut out = String::new();
+        let mut n = 0usize;
+        for m in &self.motions {
+            if !m.running {
+                continue;
+            }
+            if n >= max {
+                break;
+            }
+            out.push_str(&format!(
+                "  [alpha] prim={} src={} dst={} elapsed={} dur={} type={:?} rev={}\n",
+                m.prim_id,
+                m.src_alpha,
+                m.dst_alpha,
+                m.elapsed,
+                m.duration,
+                m.anm_type,
+                m.reverse
+            ));
+            n += 1;
+        }
+        out
+    }
+
+    pub fn debug_running_count(&self) -> usize {
+        self.motions.iter().filter(|m| m.running).count()
+    }
+}

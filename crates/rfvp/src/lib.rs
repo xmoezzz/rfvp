@@ -11,3 +11,5 @@ pub mod rfvp_render;
 pub mod rfvp_audio;
 pub mod vm_worker;
 pub mod debug_ui;
+
+pub mod trace;

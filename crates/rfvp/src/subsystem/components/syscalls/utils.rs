@@ -278,7 +278,7 @@ mod tests {
     #[test]
     fn test_int_to_text() {
         let result = int_to_text(&mut GameData::default(), &Variant::Int(42), &Variant::Int(5)).unwrap();
-        println!("Result: {:?}", result);
+        crate::trace::syscall(format_args!("Result: {:?}", result));
     }
 }
 

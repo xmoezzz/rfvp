@@ -13,7 +13,7 @@ impl Scene for AnzuScene {
         let frame_ms = ((frame_us as u64) + 999) / 1000;
         let frame_duration = frame_ms as i64;
 
-        println!("AnzuScene: on_update called with frame_duration {}", frame_duration);
+        crate::trace::vm(format_args!("AnzuScene::on_update frame_duration={}", frame_duration));
 
         self.update_alpha_motions(game_data, frame_duration);
         self.update_move_motions(game_data, frame_duration);

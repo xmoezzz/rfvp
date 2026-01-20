@@ -392,3 +392,30 @@ impl V3dMotionContainer {
         true
     }
 }
+
+
+impl V3dMotionContainer {
+    pub fn debug_dump(&self) -> String {
+        let mut out = String::new();
+        out.push_str(&format!(
+            "  [v3d] current=({}, {}, {})\n",
+            self.current_x, self.current_y, self.current_z
+        ));
+        if self.motion.typ != V3dMotionType::None {
+            out.push_str(&format!(
+                "  [v3d] motion src=({}, {}, {}) dst=({}, {}, {}) elapsed={} dur={} type={:?} rev={}\n",
+                self.motion.src_x,
+                self.motion.src_y,
+                self.motion.src_z,
+                self.motion.dst_x,
+                self.motion.dst_y,
+                self.motion.dst_z,
+                self.motion.elapsed,
+                self.motion.duration,
+                self.motion.typ,
+                self.motion.reverse
+            ));
+        }
+        out
+    }
+}

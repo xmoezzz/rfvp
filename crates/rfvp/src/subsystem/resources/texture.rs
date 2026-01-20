@@ -534,16 +534,16 @@ mod tests {
         assert!(!container.slices.is_empty());
 
         // print all metadata
-        println!("type: {:?}", container.typ);
-        println!("width: {}", container.width);
-        println!("height: {}", container.height);
-        println!("offset_x: {}", container.offset_x);
-        println!("offset_y: {}", container.offset_y);
-        println!("u: {}", container.u);
-        println!("v: {}", container.v);
-        println!("entry_count: {}", container.entry_count);
-        println!("unknown3: {}", container.unknown3);
-        println!("unknown4: {}", container.unknown4);
+        crate::trace::vm(format_args!("type: {:?}", container.typ));
+        crate::trace::vm(format_args!("width: {}", container.width));
+        crate::trace::vm(format_args!("height: {}", container.height));
+        crate::trace::vm(format_args!("offset_x: {}", container.offset_x));
+        crate::trace::vm(format_args!("offset_y: {}", container.offset_y));
+        crate::trace::vm(format_args!("u: {}", container.u));
+        crate::trace::vm(format_args!("v: {}", container.v));
+        crate::trace::vm(format_args!("entry_count: {}", container.entry_count));
+        crate::trace::vm(format_args!("unknown3: {}", container.unknown3));
+        crate::trace::vm(format_args!("unknown4: {}", container.unknown4));
     }
 
     #[test]
