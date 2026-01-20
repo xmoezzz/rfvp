@@ -590,9 +590,7 @@ impl Renderer {
         // Flatten
         let mut fctx = FlattenCtx { drawables: Vec::new(), viewport: self.viewport };
         flatten_node(&tree.root, Affine2::identity(), 0.0, &mut fctx, &self.resources, now, dt);
-
-        // Sort by z, stable by insertion order
-        fctx.drawables.sort_by(|a, b| a.z.partial_cmp(&b.z).unwrap_or(std::cmp::Ordering::Equal));
+        // Note: original engine draws strictly in traversal/insertion order (no Z-based reordering).
 
         // Emit egui shapes
         for d in fctx.drawables {

@@ -399,7 +399,7 @@ impl ZMotionContainer {
                 m.dst_z,
                 m.elapsed,
                 m.duration,
-                m.anm_type,
+                m.typ,
                 m.reverse
             ));
             n += 1;

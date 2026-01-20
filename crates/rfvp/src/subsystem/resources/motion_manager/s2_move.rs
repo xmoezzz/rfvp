@@ -458,13 +458,13 @@ impl ScaleMotionContainer {
             out.push_str(&format!(
                 "  [scale] prim={} src=({}, {}) dst=({}, {}) elapsed={} dur={} type={:?} rev={}\n",
                 m.prim_id,
-                m.src_x,
-                m.src_y,
-                m.dst_x,
-                m.dst_y,
+                m.src_w_factor,
+                m.src_h_factor,
+                m.dst_w_factor,
+                m.dst_h_factor,
                 m.elapsed,
                 m.duration,
-                m.anm_type,
+                m.typ,
                 m.reverse
             ));
             n += 1;

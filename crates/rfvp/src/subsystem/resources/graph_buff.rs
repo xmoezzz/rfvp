@@ -247,78 +247,65 @@ impl GraphBuff {
         green_value: i32,
         blue_value: i32
     ) {
-        if let Some(texture) = &mut self.texture {
-            if let Some(texture) = texture.as_mut_rgba8() {
-                for y in 0..texture.height() {
-                    for x in 0..texture.width() {
-                        let pixel = texture.get_pixel_mut(x, y);
-                        let mut data = pixel.0;
-                        let r = data[0] as i32;
-                        let g = data[1] as i32;
-                        let b = data[2] as i32;
-                        let a = data[3] as i32;
-            
-                        let r = if red_value >= 100 {
-                            if red_value > 100 {
-                                let green = g;
-                                let adjusted_red =
-                                    r.saturating_add(green.saturating_mul(red_value - 100) / 0xFF);
-                                if adjusted_red > green {
-                                    green
-                                } else {
-                                    adjusted_red
-                                }
-                            } else {
-                                red_value * r / 100
-                            }
-                        } else {
-                            r
-                        };
-            
-                        let b = if green_value >= 100 {
-                            if green_value > 100 {
-                                let blue = b;
-                                let adjusted_green =
-                                    b.saturating_add(blue.saturating_mul(green_value - 100) / 0xFF);
-                                if adjusted_green > blue {
-                                    blue
-                                } else {
-                                    adjusted_green
-                                }
-                            } else {
-                                green_value * a / 100
-                            }
-                        } else {
-                            b
-                        };
-            
-                        let a = if blue_value < 100 {
-                            blue_value * a / 100
-                        } else if blue_value > 100 {
-                            let blue_value = b;
-                            let adjusted_blue =
-                                a.saturating_add(blue_value.saturating_mul(blue_value - 100) / 0xFF);
-                            if adjusted_blue > blue_value {
-                                blue_value
-                            } else {
-                                adjusted_blue
-                            }
-                        } else {
-                            a
-                        };
-            
-                        data[0] = r as u8;
-                        data[1] = g as u8;
-                        data[2] = b as u8;
-                        data[3] = a as u8;
-                        *pixel = image::Rgba(data);
-                    }
-                }
+        // IDA: GraphRGB -> color_tone_texture -> apply_color_tone.
+        // apply_color_tone operates on premultiplied-alpha BGRA pixels and clamps channels to alpha.
+        // For RGBA8 in Rust, we apply the same math per channel, clamping to A.
+
+        // Match the original engine: no-op if the texture is not ready.
+        if !self.texture_ready {
+            return;
+        };
+
+        let Some(texture) = &mut self.texture else {
+            return;
+        };
+        let Some(texture) = texture.as_mut_rgba8() else {
+            return;
+        };
+
+        // In the original engine, (100,100,100) is a no-op on pixels.
+        // Avoid bumping generation in this specific case to prevent misleading debug noise.
+        if red_value == 100 && green_value == 100 && blue_value == 100 {
+            self.r_value = 100;
+            self.g_value = 100;
+            self.b_value = 100;
+            return;
+        }
+
+        // Clamp inputs to the script contract (0..=200). This matches the syscall layer.
+        let r_adj = red_value.clamp(0, 200) as u32;
+        let g_adj = green_value.clamp(0, 200) as u32;
+        let b_adj = blue_value.clamp(0, 200) as u32;
+
+        #[inline]
+        fn apply_one(chan: u8, alpha: u8, adj: u32) -> u8 {
+            if adj == 100 {
+                return chan;
+            }
+            let c = chan as u32;
+            let a = alpha as u32;
+            if adj < 100 {
+                // Darken: C = adj * C / 100
+                ((adj * c) / 100).min(255) as u8
+            } else {
+                // Brighten: C = min(A, C + A * (adj - 100) / 255)
+                let inc = (a * (adj - 100)) / 255;
+                let out = c + inc;
+                out.min(a).min(255) as u8
             }
         }
-        self.r_value = red_value as u8;
-        self.g_value = green_value as u8;
-        self.b_value = blue_value as u8;
+
+        for px in texture.pixels_mut() {
+            let a = px.0[3];
+            // Clamp each channel to alpha to preserve premultiplied-alpha invariant.
+            px.0[0] = apply_one(px.0[0], a, r_adj).min(a);
+            px.0[1] = apply_one(px.0[1], a, g_adj).min(a);
+            px.0[2] = apply_one(px.0[2], a, b_adj).min(a);
+        }
+
+        self.r_value = r_adj as u8;
+        self.g_value = g_adj as u8;
+        self.b_value = b_adj as u8;
         self.mark_dirty();
     }
 }

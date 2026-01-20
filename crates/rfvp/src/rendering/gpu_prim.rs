@@ -41,6 +41,11 @@ pub struct GpuPrimRenderer {
     draws: Vec<DrawItem>,
     graph_cache: HashMap<u16, GraphGpuEntry>,
     white: GpuTexture,
+
+    // Debug HUD: prim tile preview (opt-in via env)
+    debug_tiles: Vec<DebugPrimTile>,
+    debug_tiles_enabled: bool,
+    debug_tiles_max: usize,
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -49,6 +54,32 @@ pub struct PrimRenderStats {
     pub vertex_count: usize,
     pub draw_calls: usize,
     pub cached_graphs: usize,
+}
+
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DebugPrimTileKind {
+    Sprt,
+    Text,
+    Snow,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DebugPrimTile {
+    pub prim_id: i16,
+    pub graph_id: u16,
+    pub kind: DebugPrimTileKind,
+
+    // Graph state snapshot (from GraphBuff) at the time the tile was collected.
+    // This is intentionally small and Copy so we can pass tiles through the HUD snapshot.
+    pub graph_gen: u64,
+    pub graph_ready: bool,
+    pub graph_has_cpu: bool,
+    pub graph_w: u16,
+    pub graph_h: u16,
+    pub graph_r: u8,
+    pub graph_g: u8,
+    pub graph_b: u8,
 }
 
 impl GpuPrimRenderer {
@@ -69,6 +100,10 @@ impl GpuPrimRenderer {
             draws: Vec::new(),
             graph_cache: HashMap::new(),
             white,
+
+            debug_tiles: Vec::new(),
+            debug_tiles_enabled: false,
+            debug_tiles_max: 0,
         }
     }
 
@@ -85,6 +120,105 @@ impl GpuPrimRenderer {
             vertex_count,
             draw_calls: self.draws.len(),
             cached_graphs: self.graph_cache.len(),
+        }
+    }
+
+
+    pub fn debug_tiles(&self) -> &[DebugPrimTile] {
+        &self.debug_tiles
+    }
+
+    pub fn debug_graph_native(&self, graph_id: u16) -> Option<(u64, &wgpu::TextureView, (u32, u32))> {
+        let e = self.graph_cache.get(&graph_id)?;
+        Some((e.generation, e.texture.raw_view(), e.texture.size()))
+    }
+
+    fn reload_debug_tile_cfg(&mut self) {
+        let enabled = std::env::var("FVP_TEST").as_deref() == Ok("1");
+
+        let max_tiles: usize = std::env::var("RFVP_HUD_PRIM_TILES_MAX")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(128);
+
+        self.debug_tiles_enabled = enabled;
+        self.debug_tiles_max = if enabled { max_tiles.max(1) } else { 0 };
+    }
+
+    fn push_debug_tile(
+        &mut self,
+        prim_id: i16,
+        graph_id: u16,
+        kind: DebugPrimTileKind,
+        graph: Option<&GraphBuff>,
+    ) {
+        if !self.debug_tiles_enabled {
+            return;
+        }
+        if self.debug_tiles.len() >= self.debug_tiles_max {
+            return;
+        }
+        // Dedup by prim id (one tile per prim is enough for debugging).
+        if self.debug_tiles.iter().any(|t| t.prim_id == prim_id) {
+            return;
+        }
+        let (gen, ready, has_cpu, w, h) = match graph {
+            Some(g) => (
+                g.get_generation(),
+                g.get_texture_ready(),
+                g.get_texture().is_some(),
+                g.get_width(),
+                g.get_height(),
+            ),
+            None => (0, false, false, 0, 0),
+        };
+        let (r, g, b) = match graph {
+            Some(gr) => (gr.get_r_value(), gr.get_g_value(), gr.get_b_value()),
+            None => (0, 0, 0),
+        };
+
+        self.debug_tiles.push(DebugPrimTile {
+            prim_id,
+            graph_id,
+            kind,
+            graph_gen: gen,
+            graph_ready: ready,
+            graph_has_cpu: has_cpu,
+            graph_w: w,
+            graph_h: h,
+            graph_r: r,
+            graph_g: g,
+            graph_b: b,
+        });
+    }
+
+    /// Best-effort: upload textures for tiles if CPU pixels exist but the render path did not
+    /// upload them (or upload was skipped due to earlier errors).
+    ///
+    /// This is debug-only and is meant to support HUD thumbnail previews.
+    pub fn debug_force_upload_tiles(&mut self, resources: &GpuCommonResources, graphs: &[GraphBuff]) {
+        if !self.debug_tiles_enabled {
+            return;
+        }
+
+        // Collect unique graph ids (avoid repeated lookups and uploads).
+        let mut gids: Vec<u16> = Vec::new();
+        gids.reserve(self.debug_tiles.len());
+        for t in &self.debug_tiles {
+            if !gids.contains(&t.graph_id) {
+                gids.push(t.graph_id);
+            }
+        }
+
+        for gid in gids {
+            let Some(g) = graphs.get(gid as usize) else {
+                continue;
+            };
+            // Only try to upload if CPU-side pixels exist.
+            if g.get_texture().is_none() {
+                continue;
+            }
+            self.upload_graph_if_needed(resources, gid, g);
         }
     }
 
@@ -427,6 +561,9 @@ impl GpuPrimRenderer {
 
                 if let Some(tex_id) = graph_id {
                     if let Some(g) = graphs.get(tex_id as usize) {
+                        // Collect a tile even if the graph is not loaded/uploaded yet.
+                        self.push_debug_tile(draw_id, tex_id, DebugPrimTileKind::Sprt, Some(g));
+
                         self.upload_graph_if_needed(resources, tex_id, g);
                         if self.graph_cache.contains_key(&tex_id) {
                             let (tw, th) = match g.get_texture().as_ref() {
@@ -503,6 +640,9 @@ impl GpuPrimRenderer {
                 if (0..=31).contains(&slot) {
                     let graph_id = 4064u16 + slot as u16;
                     if let Some(g) = graphs.get(graph_id as usize) {
+                        // Collect a tile even if the graph is not loaded/uploaded yet.
+                        self.push_debug_tile(draw_id, graph_id, DebugPrimTileKind::Text, Some(g));
+
                         self.upload_graph_if_needed(resources, graph_id, g);
                         if self.graph_cache.contains_key(&graph_id) {
                             let (tw, th) = match g.get_texture().as_ref() {
@@ -597,6 +737,7 @@ impl GpuPrimRenderer {
                             let tile_h_cfg = (sm.flake_h - 1) as f32;
 
                             let count = sm.flake_count.max(0).min(1024) as usize;
+                            let mut pushed_debug_tile = false;
                             for j in 0..count {
                                 let idx = sm.flake_ptrs[j];
                                 let flake = &sm.flakes[idx];
@@ -609,6 +750,12 @@ impl GpuPrimRenderer {
                                 let graph_id = graph_i32 as u16;
 
                                 if let Some(g) = graphs.get(graph_id as usize) {
+                                    if !pushed_debug_tile {
+                                        // Record one representative tile per snow prim (first valid graph).
+                                        self.push_debug_tile(draw_id, graph_id, DebugPrimTileKind::Snow, Some(g));
+                                        pushed_debug_tile = true;
+                                    }
+
                                     self.upload_graph_if_needed(resources, graph_id, g);
                                     if !self.graph_cache.contains_key(&graph_id) {
                                         continue;
@@ -722,13 +869,6 @@ impl GpuPrimRenderer {
             child = p.get_next_sibling_idx();
         }
 
-        if children.len() > 1 {
-            children.sort_by_key(|&cid| {
-                let p = prim_manager.get_prim_immutable(cid);
-                (p.get_z(), cid)
-            });
-        }
-
         for cid in children {
             self.collect_tree(
                 resources,
@@ -754,6 +894,9 @@ impl GpuPrimRenderer {
     pub fn build(&mut self, resources: &GpuCommonResources, motion: &MotionManager) {
         self.vertices.clear();
         self.draws.clear();
+
+        self.reload_debug_tile_cfg();
+        self.debug_tiles.clear();
 
         let prim_manager = motion.prim_manager();
         let graphs = motion.graphs();

@@ -625,13 +625,14 @@ impl SnowMotionContainer {
                 break;
             }
             out.push_str(&format!(
-                "  [snow:{}] enabled=true intensity={} wind=({}, {}) area=({}, {})\n",
+                "  [snow:{}] flake_count={} color=({}, {}, {}) period=({}, {})\n",
                 i,
-                m.intensity,
-                m.wind_x,
-                m.wind_y,
-                m.area_w,
-                m.area_h
+                m.flake_count,
+                m.color_r,
+                m.color_g,
+                m.color_b_or_extra,
+                m.period_min,
+                m.period_max
             ));
             // Print a few flakes (using the current pointer order).
             let sample = 3usize.min(m.flake_ptrs.len());
@@ -642,14 +643,12 @@ impl SnowMotionContainer {
                 }
                 let f = &m.flakes[idx];
                 out.push_str(&format!(
-                    "    flake[{}] var={} x={:.2} y={:.2} z={:.2} vx={:.2} vy={:.2}\n",
+                    "    flake[{}] var={} x={:.2} y={:.2} period={:.2}\n",
                     idx,
                     f.variant_idx,
                     f.x,
                     f.y,
-                    f.z,
-                    f.vx,
-                    f.vy
+                    f.period
                 ));
             }
             shown += 1;

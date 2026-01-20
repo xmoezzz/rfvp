@@ -620,7 +620,7 @@ x={} y={} z={} w={} h={} u={} v={} op=({}, {}) angle={} factor=({}, {}) tile={} 
                 p.get_draw_flag(),
                 p.get_alpha(),
                 p.get_blend(),
-                p.get_is_paused(),
+                p.get_paused(),
                 p.get_parent(),
                 p.get_sprt(),
                 p.get_prev_sibling_idx(),

@@ -18,7 +18,7 @@ use crate::{
 use winit::{dpi::{PhysicalSize, Size}, window::CustomCursor};
 use winit::{
     keyboard::{KeyCode, PhysicalKey},
-    event::{Event, WindowEvent},
+    event::{Event, WindowEvent, MouseButton, MouseScrollDelta},
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowAttributes},
 };
@@ -35,7 +35,7 @@ use crate::rfvp_render::vertices::{PosVertex, VertexSource};
 
 
 use crate::rendering::gpu_prim::GpuPrimRenderer;
-use crate::debug_ui::{self, hud::{DebugHud, HudSnapshot}};
+use crate::debug_ui::{self, hud::{DebugHud, HudInput, HudSnapshot}};
 use crate::debug_ui::log_ring::{self, LogRing};
 use crate::subsystem::resources::motion_manager::DissolveType;
 
@@ -91,6 +91,9 @@ pub struct App {
     debug_ring: Arc<LogRing>,
     debug_frame_no: u64,
     last_dt_ms: f32,
+    hud_cursor_pos: Option<(f64, f64)>,
+    hud_pointer_down: bool,
+    hud_scroll_delta_y: f32,
     // Tracks dissolve completion on the main thread so we can wake contexts
     // waiting on DISSOLVE_WAIT immediately via an EngineEvent.
     last_dissolve_type: DissolveType,
@@ -241,6 +244,34 @@ impl App {
                     match event {
                         WindowEvent::CloseRequested => {
                             self.set_hud_visible(false);
+                        }
+                        WindowEvent::CursorMoved { position, .. } => {
+                            self.hud_cursor_pos = Some((position.x, position.y));
+                        }
+                        WindowEvent::CursorLeft { .. } => {
+                            self.hud_cursor_pos = None;
+                        }
+                        WindowEvent::MouseInput { state, button, .. } => {
+                            if *button == MouseButton::Left {
+                                self.hud_pointer_down = state.is_pressed();
+                            }
+                        }
+                        WindowEvent::MouseWheel { delta, .. } => {
+                            // Store a per-frame scroll delta (in points). Roughly match egui's
+                            // usual "line" scroll scale.
+                            match delta {
+                                MouseScrollDelta::LineDelta(_, y) => {
+                                    self.hud_scroll_delta_y += *y * 24.0;
+                                }
+                                MouseScrollDelta::PixelDelta(pos) => {
+                                    let ppp = self
+                                        .hud_window
+                                        .as_ref()
+                                        .map(|w| w.scale_factor() as f32)
+                                        .unwrap_or(1.0);
+                                    self.hud_scroll_delta_y += (pos.y as f32) / ppp.max(0.5);
+                                }
+                            }
                         }
                         WindowEvent::Resized(physical_size) => {
                             if let (Some(surf), Some(cfg)) = (
@@ -646,15 +677,73 @@ impl App {
         if let Some(hud) = self.debug_hud.as_mut() {
             let snap = {
                 let gd = gd_read(&self.game_data);
-                let mut textures: Vec<String> = gd
-                    .motion_manager
-                    .graphs()
-                    .iter()
-                    .filter(|g| g.texture_ready && !g.texture_path.is_empty())
-                    .map(|g| g.texture_path.clone())
-                    .collect();
-                textures.sort();
-                textures.dedup();
+                let graphs = gd.motion_manager.graphs();
+
+                let prim_tiles_enabled = std::env::var("RFVP_HUD_PRIM_TILES").as_deref() == Ok("1")
+                    || std::env::var("RFVP_TRACE_PRIM_TILES").as_deref() == Ok("1");
+
+                let prim_tiles = if prim_tiles_enabled {
+                    self.prim_renderer.debug_tiles().to_vec()
+                } else {
+                    Vec::new()
+                };
+
+                // Debug-only: ensure that graphs referenced by prim tiles are uploaded so the HUD can
+                // show real thumbnails (when CPU pixels exist).
+                if !prim_tiles.is_empty() {
+                    self.prim_renderer
+                        .debug_force_upload_tiles(self.resources.as_ref(), graphs);
+                }
+
+                // Texture list: show state, not just file names. This helps identify "not loaded"
+                // cases (no cpu pixels / not ready).
+                let list_max: usize = std::env::var("RFVP_HUD_TEXTURE_LIST_MAX")
+                    .ok()
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .unwrap_or(200);
+                let list_all = std::env::var("RFVP_HUD_TEXTURE_LIST_ALL").as_deref() == Ok("1");
+
+                let mut textures: Vec<String> = Vec::new();
+                textures.reserve(list_max.min(graphs.len()));
+
+                let mut with_path = 0usize;
+                let mut ready = 0usize;
+                let mut cpu = 0usize;
+                for (i, g) in graphs.iter().enumerate() {
+                    if !g.texture_path.is_empty() {
+                        with_path += 1;
+                    }
+                    if g.texture_ready {
+                        ready += 1;
+                    }
+                    if g.texture.is_some() {
+                        cpu += 1;
+                    }
+
+                    let interesting = g.texture_ready || g.texture.is_some() || !g.texture_path.is_empty();
+                    if !list_all && !interesting {
+                        continue;
+                    }
+                    if textures.len() >= list_max {
+                        continue;
+                    }
+                    let path = if g.texture_path.is_empty() { "<none>" } else { g.texture_path.as_str() };
+                    textures.push(format!(
+                        "[{:04}] ready={} cpu={} gen={} size={}x{} path={}",
+                        i,
+                        if g.texture_ready { 1 } else { 0 },
+                        if g.texture.is_some() { 1 } else { 0 },
+                        g.generation,
+                        g.width,
+                        g.height,
+                        path
+                    ));
+                }
+
+                textures.insert(0, format!(
+                    "graphs: total={} with_path={} ready={} cpu_img={} (set RFVP_HUD_TEXTURE_LIST_ALL=1 to show empty slots)",
+                    graphs.len(), with_path, ready, cpu
+                ));
 
                 let text_lines = gd.motion_manager.text_manager.debug_lines();
 
@@ -668,12 +757,28 @@ impl App {
                     textures,
                     text_slots: gd.motion_manager.text_manager.debug_lines(),
                     text_lines,
+                    prim_tiles,
                 }
             };
 
+            if !snap.prim_tiles.is_empty() {
+                hud.sync_prim_tile_textures(&self.resources.device, &self.prim_renderer, &snap.prim_tiles);
+            }
+
+
             let ws = hud_window.inner_size();
             let ppp = hud_window.scale_factor() as f32;
-            hud.prepare_frame((ws.width, ws.height), ppp, &snap);
+            let pointer_pos = self
+                .hud_cursor_pos
+                .map(|(x, y)| (x as f32 / ppp.max(0.5), y as f32 / ppp.max(0.5)));
+            let inp = HudInput {
+                pointer_pos,
+                pointer_down: self.hud_pointer_down,
+                scroll_delta_y: self.hud_scroll_delta_y,
+            };
+            // Scroll is a per-frame delta.
+            self.hud_scroll_delta_y = 0.0;
+            hud.prepare_frame((ws.width, ws.height), ppp, &snap, Some(inp));
             hud.render(&self.resources.device, &self.resources.queue, &mut encoder, &view);
         }
 
@@ -1064,6 +1169,9 @@ impl AppBuilder {
             debug_ring: debug_ring.clone(),
             debug_frame_no: 0,
             last_dt_ms: 0.0,
+            hud_cursor_pos: None,
+            hud_pointer_down: false,
+            hud_scroll_delta_y: 0.0,
         };
 
         app.setup();

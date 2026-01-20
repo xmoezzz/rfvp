@@ -399,7 +399,7 @@ impl RotationMotionContainer {
                 m.dst_angle,
                 m.elapsed,
                 m.duration,
-                m.anm_type,
+                m.typ,
                 m.reverse
             ));
             n += 1;

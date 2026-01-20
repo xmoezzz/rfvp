@@ -830,46 +830,42 @@ pub fn prim_set_z(game_data: &mut GameData, id: &Variant, z: &Variant) -> Result
         return Ok(Variant::Nil);
     }
 
-    let z = match z.as_int() {
-        Some(z) => {
-            if z < 100 {
-                100
-            } else if z > 10000 {
-                10000
-            } else {
-                z
-            }
-        }
-        None => {
-            log::error!("prim_set_z: invalid z : {:?}", z);
-            return Ok(Variant::Nil);
-        },
-    };
+    // Reverse-engineered semantics (do not reorder prim tree here):
+    // - If z is Int: clamp to [100, 10000], set prim.z, and enable attr bit 0x04.
+    // - If z is Float: do NOT change prim.z, but still enable attr bit 0x04.
+    // - Otherwise: disable attr bit 0x04.
+    // In all cases, mark dirty via attr bit 0x40.
 
-    game_data.motion_manager.prim_manager.prim_set_z(id, z);
-    match game_data.motion_manager.prim_manager.prim_get_type(id) {
-        PrimType::PrimTypeNone => {}
-        PrimType::PrimTypeGroup | PrimType::PrimTypeTile => {
-            game_data
-                .motion_manager
-                .prim_manager
-                .prim_add_attr(id, 0x40);
-            game_data.motion_manager.prim_manager.prim_add_attr(id, 4);
-        }
-        _ => {
-            game_data
-                .motion_manager
-                .prim_manager
-                .prim_add_attr(id, 0x40);
-            game_data
-                .motion_manager
-                .prim_manager
-                .prim_remove_attr(id, 0xFB);
-        }
-    };
+    if let Some(z_i) = z.as_int() {
+        let z_i = z_i.clamp(100, 10000);
+        game_data.motion_manager.prim_manager.prim_set_z(id, z_i);
+        game_data.motion_manager.prim_manager.prim_add_attr(id, 0x04);
+        game_data.motion_manager.prim_manager.prim_add_attr(id, 0x40);
+        return Ok(Variant::Nil);
+    }
+
+    if z.as_float().is_some() {
+        game_data.motion_manager.prim_manager.prim_add_attr(id, 0x04);
+        game_data.motion_manager.prim_manager.prim_add_attr(id, 0x40);
+        return Ok(Variant::Nil);
+    }
+
+    // nil/other types: clear 0x04, keep other bits as-is.
+    {
+        let attr = {
+            let p = game_data.motion_manager.prim_manager.get_prim_immutable(id as i16);
+            p.get_attr()
+        };
+        game_data
+            .motion_manager
+            .prim_manager
+            .prim_set_attr(id, (attr & !0x04) as i32);
+        game_data.motion_manager.prim_manager.prim_add_attr(id, 0x40);
+    }
 
     Ok(Variant::Nil)
 }
+
 
 pub fn prim_hit(game_data: &mut GameData, id: &Variant, flag: &Variant) -> Result<Variant> {
     let id = match id.as_int() {
