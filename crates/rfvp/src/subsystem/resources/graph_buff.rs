@@ -328,11 +328,95 @@ pub fn copy_rect(
     };
     for y in 0..src_h {
         for x in 0..src_w {
-            let src_pixel = src.get_pixel(x + src_x, y + src_y);
+            // NOTE: `src` is already a sub-view starting at (src_x, src_y).
+            // Coordinates here are view-local.
+            let src_pixel = src.get_pixel(x, y);
             let dest_pixel = dest.get_pixel_mut(x + dest_x, y + dest_y);
             *dest_pixel = src_pixel;
         }
     }
     
+    Ok(())
+}
+
+/// Copy a source rectangle into destination with clipping.
+///
+/// - `dest_x`/`dest_y` are allowed to be negative.
+/// - Pixels outside the destination are silently dropped.
+/// - This is the semantic required by the original engine's Parts overlay path.
+pub fn copy_rect_clipped(
+    src: &DynamicImage,
+    src_x: u32,
+    src_y: u32,
+    src_w: u32,
+    src_h: u32,
+    dest: &mut DynamicImage,
+    dest_x: i32,
+    dest_y: i32,
+) -> Result<()> {
+    let dest_rgba = match dest.as_mut_rgba8() {
+        Some(dest) => dest,
+        None => return Err(anyhow!("copy_rect_clipped: dest image is not in RGBA8 format")),
+    };
+
+    let dw = dest_rgba.width() as i32;
+    let dh = dest_rgba.height() as i32;
+    let sw = src_w as i32;
+    let sh = src_h as i32;
+
+    // Destination rectangle in dest space.
+    let dx0 = dest_x;
+    let dy0 = dest_y;
+    let dx1 = dest_x + sw;
+    let dy1 = dest_y + sh;
+
+    // Clip against destination bounds.
+    let cx0 = dx0.max(0);
+    let cy0 = dy0.max(0);
+    let cx1 = dx1.min(dw);
+    let cy1 = dy1.min(dh);
+
+    if cx1 <= cx0 || cy1 <= cy0 {
+        return Ok(());
+    }
+
+    // Source start point after clipping.
+    let sx0 = src_x as i32 + (cx0 - dx0);
+    let sy0 = src_y as i32 + (cy0 - dy0);
+
+    let copy_w = cx1 - cx0;
+    let copy_h = cy1 - cy0;
+
+    // Sanity: ensure we never read outside the declared source rectangle.
+    if sx0 < src_x as i32
+        || sy0 < src_y as i32
+        || sx0 + copy_w > (src_x + src_w) as i32
+        || sy0 + copy_h > (src_y + src_h) as i32
+    {
+        return Err(anyhow!(
+            "copy_rect_clipped: computed source rect out of bounds (sx0={},sy0={},w={},h={}, src=({}, {}, {}, {}))",
+            sx0,
+            sy0,
+            copy_w,
+            copy_h,
+            src_x,
+            src_y,
+            src_w,
+            src_h
+        ));
+    }
+
+    for y in 0..copy_h {
+        for x in 0..copy_w {
+            let sx = (sx0 + x) as u32;
+            let sy = (sy0 + y) as u32;
+            let dx = (cx0 + x) as u32;
+            let dy = (cy0 + y) as u32;
+            let src_pixel = src.get_pixel(sx, sy);
+            let dest_pixel = dest_rgba.get_pixel_mut(dx, dy);
+            *dest_pixel = src_pixel;
+        }
+    }
+
     Ok(())
 }

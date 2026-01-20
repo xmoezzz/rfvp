@@ -85,6 +85,18 @@ impl PartsItem {
         self.texture.get_offset_y()
     }
 
+    /// Parts offsets are treated as signed in the original engine.
+    ///
+    /// Some assets intentionally place the overlay partially outside the destination graph.
+    /// The copy path must therefore support negative offsets via clipping.
+    pub fn get_offset_x_i16(&self) -> i16 {
+        self.texture.get_offset_x() as i16
+    }
+
+    pub fn get_offset_y_i16(&self) -> i16 {
+        self.texture.get_offset_y() as i16
+    }
+
     pub fn get_running(&self) -> bool {
         self.running
     }
@@ -190,20 +202,31 @@ impl PartsManager {
         self.parts[id as usize].set_color_tone(r, g, b);
     }
 
-    pub fn next_free_id(&mut self, parts_id: u8) -> Option<u8> {
-        let mut i = 0;
-        while !self.parts_motions[i].running || self.parts_motions[i].parts_id != parts_id {
-            i += 1;
-            if i >= 8 {
-                return None;
+    /// Stop (and recycle) any running PartsMotion for this parts id.
+    ///
+    /// The original engine uses a small fixed-size pool for PartsMotion slots.
+    /// We model it as a stack of free slot IDs (`allocation_pool`) plus a handle count (`current_id`).
+    fn unload_motion_for_parts(&mut self, parts_id: u8) {
+        for i in 0..self.parts_motions.len() {
+            if self.parts_motions[i].get_running() && self.parts_motions[i].get_parts_id() == parts_id {
+                let slot_id = self.parts_motions[i].get_id();
+                self.parts_motions[i].set_running(false);
+                // Recycle slot id.
+                if self.current_id > 0 {
+                    self.current_id -= 1;
+                    self.allocation_pool[self.current_id as usize] = slot_id;
+                }
+                return;
             }
         }
-        self.parts_motions[i].running = false;
-        if self.current_id > 0 {
-            self.current_id -= 1;
-        }
-        self.allocation_pool[self.current_id as usize] = self.parts_motions[i].get_id();
-        Some(self.current_id)
+    }
+
+    /// Back-compat helper (older call sites used it as "free the motion slot").
+    ///
+    /// Note: this does **not** allocate; allocation is done by `set_motion`.
+    pub fn next_free_id(&mut self, parts_id: u8) -> Option<u8> {
+        self.unload_motion_for_parts(parts_id);
+        None
     }
 
     pub fn get(&self, id: u8) -> &PartsItem {
@@ -215,54 +238,81 @@ impl PartsManager {
     }
 
     pub fn set_motion(&mut self, parts_id: u8, entry_id: u8, time: u32) -> Result<()> {
-        if let Some(id) = self.next_free_id(parts_id) {
-            let id = self.allocation_pool[id as usize];
-            self.current_id += 1;
-            let parts_motion = &mut self.parts_motions[id as usize];
+        // Only one motion per parts_id.
+        self.unload_motion_for_parts(parts_id);
 
-            parts_motion.set_id(id);
-            parts_motion.set_running(true);
-            parts_motion.set_parts_id(parts_id);
-            parts_motion.set_entry_id(entry_id);
-            parts_motion.set_duration(time);
-            parts_motion.set_elapsed(0);
+        // Pool exhausted.
+        if self.current_id as usize >= self.allocation_pool.len() {
+            return Ok(());
         }
+
+        // Allocate a motion slot from the free stack.
+        let slot_id = self.allocation_pool[self.current_id as usize];
+        self.current_id += 1;
+
+        let parts_motion = &mut self.parts_motions[slot_id as usize];
+        parts_motion.set_id(slot_id);
+        parts_motion.set_running(true);
+        parts_motion.set_parts_id(parts_id);
+        parts_motion.set_entry_id(entry_id);
+        parts_motion.set_duration(time);
+        parts_motion.set_elapsed(0);
 
         Ok(())
     }
 
     pub fn test_motion(&self, parts_id: u8) -> bool {
-        let mut i = 0;
-        while !self.parts_motions[i].get_running()
-            || self.parts_motions[i].get_parts_id() != parts_id
-        {
-            i += 1;
-            if i >= 8 {
-                return false;
-            }
-        }
-
-        self.parts_motions[i].get_running()
+        self.parts_motions
+            .iter()
+            .any(|m| m.get_running() && m.get_parts_id() == parts_id)
     }
 
     pub fn stop_motion(&mut self, parts_id: u8) -> Result<()> {
-        let mut i = 0;
-        while !self.parts_motions[i].get_running()
-            || self.parts_motions[i].get_parts_id() != parts_id
-        {
-            i += 1;
-            if i >= 8 {
-                return Ok(());
-            }
-        }
-
-        self.parts_motions[i].set_running(false);
-        if self.current_id > 0 {
-            self.current_id -= 1;
-        }
-        self.allocation_pool[self.current_id as usize] = self.parts_motions[i].get_id();
+        self.unload_motion_for_parts(parts_id);
 
         Ok(())
+    }
+
+    /// Advance all running parts motions and emit completed ones.
+    ///
+    /// The caller is responsible for applying the completed entry to the destination graph.
+    pub fn tick_motions(&mut self, elapsed_ms: u32, completed: &mut Vec<(u8, u8)>) {
+        if elapsed_ms == 0 {
+            return;
+        }
+
+        for i in 0..self.parts_motions.len() {
+            if !self.parts_motions[i].get_running() {
+                continue;
+            }
+
+            let parts_id = self.parts_motions[i].get_parts_id();
+
+            // PartsMotionPause toggles this flag per parts_id.
+            // Here we interpret it as a "paused" switch.
+            if self.parts[parts_id as usize].get_running() {
+                continue;
+            }
+
+            let elapsed = self.parts_motions[i].get_elapsed().saturating_add(elapsed_ms);
+            self.parts_motions[i].set_elapsed(elapsed);
+
+            let duration = self.parts_motions[i].get_duration();
+            if duration != 0 && elapsed >= duration {
+                let entry_id = self.parts_motions[i].get_entry_id();
+                let slot_id = self.parts_motions[i].get_id();
+
+                self.parts_motions[i].set_running(false);
+
+                // Recycle slot id.
+                if self.current_id > 0 {
+                    self.current_id -= 1;
+                    self.allocation_pool[self.current_id as usize] = slot_id;
+                }
+
+                completed.push((parts_id, entry_id));
+            }
+        }
     }
 
     pub fn assign_prim_id(&mut self, parts_id: u8, prim_id: u16) {

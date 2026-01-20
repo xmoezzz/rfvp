@@ -22,6 +22,7 @@ impl Scene for AnzuScene {
         self.update_z_motions(game_data, frame_duration);
         self.update_v3d_motions(game_data, frame_duration);
         self.update_anim_motions(game_data, frame_duration);
+        self.update_parts_motions(game_data, frame_duration);
         self.update_snow_motions(game_data, frame_duration);
         self.update_text_reveal(game_data, frame_duration);
         self.update_dissolve(game_data, frame_duration);
@@ -63,6 +64,10 @@ impl AnzuScene {
 
     fn update_anim_motions(&mut self, game_data: &mut GameData, elapsed: i64) {
         game_data.motion_manager.update_anim_motions(elapsed);
+    }
+
+    fn update_parts_motions(&mut self, game_data: &mut GameData, elapsed: i64) {
+        game_data.motion_manager.update_parts_motions(elapsed);
     }
 
     fn update_snow_motions(&mut self, game_data: &mut GameData, elapsed: i64) {

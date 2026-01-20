@@ -11,7 +11,7 @@ use self::snow::SnowMotionContainer;
 use self::anim::SpriteAnimContainer;
 
 use super::gaiji_manager::GaijiManager;
-use super::graph_buff::{copy_rect, GraphBuff};
+use super::graph_buff::{copy_rect, copy_rect_clipped, GraphBuff};
 pub use super::motion_manager::alpha::{AlphaMotionContainer, AlphaMotionType};
 pub use super::motion_manager::normal_move::{MoveMotionContainer, MoveMotionType};
 pub use super::motion_manager::rotation_move::{RotationMotionContainer, RotationMotionType};
@@ -116,6 +116,26 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
 
     pub fn update_anim_motions(&mut self, elapsed: i64) {
         self.sprite_anim_container.update(&self.prim_manager, elapsed as i32);
+    }
+
+    /// Advance PartsMotion timers and apply completed entries to their destination primitives.
+    pub fn update_parts_motions(&mut self, elapsed: i64) {
+        if elapsed <= 0 {
+            return;
+        }
+        let elapsed_ms = elapsed as u32;
+
+        let mut completed: Vec<(u8, u8)> = Vec::new();
+        {
+            let mut pm = self.parts_manager.borrow_mut();
+            pm.tick_motions(elapsed_ms, &mut completed);
+        }
+
+        for (parts_id, entry_id) in completed {
+            if let Err(e) = self.draw_parts_to_texture(parts_id, entry_id as u32) {
+                log::warn!("update_parts_motions: failed to apply parts_id={} entry_id={}: {}", parts_id, entry_id, e);
+            }
+        }
     }
 
     pub fn update_snow_motions(&mut self, elapsed: i64, screen_w: i32, screen_h: i32) {
@@ -438,31 +458,33 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
             bail!("draw_parts_to_texture: texture not ready");
         }
 
-        if texture.get_width() < parts.get_width() + parts.get_offset_x()
-            || texture.get_height() < parts.get_height() + parts.get_offset_y()
-        {
+        // Signed offsets (negative offsets are allowed and handled via clipping).
+        let dx = parts.get_offset_x_i16() as i32;
+        let dy = parts.get_offset_y_i16() as i32;
+        let end_x = dx + parts.get_width() as i32;
+        let end_y = dy + parts.get_height() as i32;
+
+        if end_x > texture.get_width() as i32 || end_y > texture.get_height() as i32 {
             bail!("draw_parts_to_texture: invalid texture size");
         }
 
         let parts_texture = parts.get_texture(entry_id as usize)?;
 
-        if let Some(dest) = texture.get_texture_mut() {
+        if let Some(dest) = texture.get_texture_mut().as_mut() {
             let src_x = 0;
             let src_y = 0;
             let src_w = parts.get_width() as u32;
             let src_h = parts.get_height() as u32;
-            let dest_x = parts.get_offset_x() as u32;
-            let dest_y = parts.get_offset_y() as u32;
 
-            if let Err(e) = copy_rect(
+            if let Err(e) = copy_rect_clipped(
                 &parts_texture,
                 src_x,
                 src_y,
                 src_w,
                 src_h,
                 dest,
-                dest_x,
-                dest_y,
+                dx,
+                dy,
             ) {
                 log::warn!("draw_parts_to_texture: {}", e);
             }
