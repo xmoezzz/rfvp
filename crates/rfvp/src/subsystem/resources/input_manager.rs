@@ -377,6 +377,17 @@ impl InputManager {
         self.control_is_pulse = true;
     }
 
+    /// Consume the one-frame ControlPulse flag.
+    ///
+    /// In the original engine, `ControlPulse` sets a scene flag that is checked during
+    /// the next frame update and then cleared immediately. That makes it a *pulse*,
+    /// not a persistent mode toggle.
+    pub fn take_control_pulse(&mut self) -> bool {
+        let v = self.control_is_pulse;
+        self.control_is_pulse = false;
+        v
+    }
+
     // ignore both control and shift when masked
     pub fn set_control_mask(&mut self, mask: bool) {
         self.control_is_masked = mask;

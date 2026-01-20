@@ -120,10 +120,14 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
 
     /// Advance PartsMotion timers and apply completed entries to their destination primitives.
     pub fn update_parts_motions(&mut self, elapsed: i64) {
-        if elapsed <= 0 {
+        // The original engine passes a *negative* elapsed in "Ctrl/ControlPulse" fast-forward
+        // mode. For PartsMotion, a negative elapsed means: skip interpolation and commit the
+        // final bitmap immediately.
+        if elapsed == 0 {
             return;
         }
-        let elapsed_ms = elapsed as u32;
+
+        let elapsed_ms: u32 = if elapsed < 0 { u32::MAX } else { elapsed as u32 };
 
         let mut completed: Vec<(u8, u8)> = Vec::new();
         {
@@ -156,7 +160,13 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
 
     /// Tick reveal-by-time for all text slots and upload dirty slots.
     pub fn update_text_reveal(&mut self, elapsed: i64, fonts: &crate::subsystem::resources::text_manager::FontEnumerator) {
-        self.text_manager.tick(elapsed as u32);
+        // In the original engine, holding Ctrl (or issuing ControlPulse) forces text reveal
+        // to complete immediately for the current frame.
+        if elapsed < 0 {
+            self.text_manager.force_reveal_all_non_suspended();
+        } else {
+            self.text_manager.tick(elapsed as u32);
+        }
         self.text_reprint(fonts);
     }
 

@@ -1,4 +1,5 @@
 use super::{scene::Scene, world::GameData};
+use crate::subsystem::resources::input_manager::KeyCode;
 
 #[derive(Default)]
 pub struct AnzuScene {}
@@ -15,17 +16,32 @@ impl Scene for AnzuScene {
 
         crate::trace::vm(format_args!("AnzuScene::on_update frame_duration={}", frame_duration));
 
-        self.update_alpha_motions(game_data, frame_duration);
-        self.update_move_motions(game_data, frame_duration);
-        self.update_rotation_motions(game_data, frame_duration);
-        self.update_scale_motions(game_data, frame_duration);
-        self.update_z_motions(game_data, frame_duration);
-        self.update_v3d_motions(game_data, frame_duration);
-        self.update_anim_motions(game_data, frame_duration);
-        self.update_parts_motions(game_data, frame_duration);
-        self.update_snow_motions(game_data, frame_duration);
-        self.update_text_reveal(game_data, frame_duration);
-        self.update_dissolve(game_data, frame_duration);
+        // --- ControlPulse semantics (from original engine) ---
+        //
+        // Original update loop:
+        //   if (Ctrl is held) || (scene.control_is_pulse) {
+        //     elapsed = -elapsed;
+        //     scene.control_is_pulse = 0;
+        //   }
+        // A negative elapsed is a "fast-forward" signal: most motion containers treat
+        // elapsed < 0 as "commit final state immediately".
+        // Text reveal is handled separately, but it uses the same Ctrl/ControlPulse condition.
+        let ctrl_down = (game_data.inputs_manager.get_input_state() & (1u32 << (KeyCode::Ctrl as u32))) != 0;
+        let pulse = game_data.inputs_manager.take_control_pulse();
+        let fast_forward = ctrl_down || pulse;
+        let elapsed = if fast_forward { -frame_duration } else { frame_duration };
+
+        self.update_alpha_motions(game_data, elapsed);
+        self.update_move_motions(game_data, elapsed);
+        self.update_rotation_motions(game_data, elapsed);
+        self.update_scale_motions(game_data, elapsed);
+        self.update_z_motions(game_data, elapsed);
+        self.update_v3d_motions(game_data, elapsed);
+        self.update_anim_motions(game_data, elapsed);
+        self.update_parts_motions(game_data, elapsed);
+        self.update_snow_motions(game_data, elapsed);
+        self.update_text_reveal(game_data, elapsed);
+        self.update_dissolve(game_data, frame_duration, fast_forward);
     }
 }
 
@@ -83,8 +99,16 @@ impl AnzuScene {
             .update_text_reveal(elapsed, &game_data.fontface_manager);
     }
 
-    fn update_dissolve(&mut self, game_data: &mut GameData, elapsed: i64) {
+    fn update_dissolve(&mut self, game_data: &mut GameData, elapsed: i64, fast_forward: bool) {
         // Dissolve progression is global (not per-prim).
+        //
+        // Our dissolve state machine is time-based (u32 milliseconds). In the original engine,
+        // Ctrl/ControlPulse turns elapsed negative for the render/update pipeline. For dissolve,
+        // the intended observable behavior is "finish quickly" so that DISSOLVE_WAIT can unblock.
+        if fast_forward {
+            game_data.motion_manager.tick_dissolve(u32::MAX);
+            return;
+        }
         if elapsed <= 0 {
             return;
         }

@@ -743,20 +743,28 @@ pub fn prim_set_xy(
         return Ok(Variant::Nil);
     }
 
-    let x = match x.as_int() {
-        Some(x) => x,
-        None => {
-            log::error!("prim_set_xy: invalid x : {:?}", x);
-            return Ok(Variant::Nil);
-        },
+    let x = if !x.is_nil() {
+        match x.as_int() {
+            Some(x) => x,
+            None => {
+                log::error!("prim_set_xy: invalid x : {:?}", x);
+                return Ok(Variant::Nil);
+            },
+        }
+    } else {
+        game_data.motion_manager.prim_manager.get_prim(id as i16).get_x().into()
     };
 
-    let y = match y.as_int() {
-        Some(y) => y,
-        None => {
-            log::error!("prim_set_xy: invalid y : {:?}", y);
-            return Ok(Variant::Nil);
-        },
+    let y = if !y.is_nil() {
+        match y.as_int() {
+            Some(y) => y,
+            None => {
+                log::error!("prim_set_xy: invalid y : {:?}", y);
+                return Ok(Variant::Nil);
+            },
+        }
+    } else {
+        game_data.motion_manager.prim_manager.get_prim(id as i16).get_y().into()
     };
 
     game_data.motion_manager.prim_manager.prim_set_pos(id, x, y);
@@ -787,20 +795,28 @@ pub fn prim_set_wh(
         return Ok(Variant::Nil);
     }
 
-    let w = match w.as_int() {
-        Some(w) => w,
-        None => {
-            log::error!("prim_set_wh: invalid w : {:?}", w);
-            return Ok(Variant::Nil);
-        },
+    let w = if !w.is_nil() {
+        match w.as_int() {
+            Some(w) => w,
+            None => {
+                log::error!("prim_set_wh: invalid w : {:?}", w);
+                return Ok(Variant::Nil);
+            },
+        }
+    } else {
+        game_data.motion_manager.prim_manager.get_prim(id as i16).get_w().into()
     };
 
-    let h = match h.as_int() {
-        Some(h) => h,
-        None => {
-            log::error!("prim_set_wh: invalid h : {:?}", h);
-            return Ok(Variant::Nil);
-        },
+    let h = if !h.is_nil() {
+        match h.as_int() {
+            Some(h) => h,
+            None => {
+                log::error!("prim_set_wh: invalid h : {:?}", h);
+                return Ok(Variant::Nil);
+            },
+        }
+    } else {
+        game_data.motion_manager.prim_manager.get_prim(id as i16).get_h().into()
     };
 
     game_data

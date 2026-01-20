@@ -834,6 +834,28 @@ impl TextManager {
         }
     }
 
+    /// Force-reveal all characters for every loaded, non-suspended slot.
+    ///
+    /// This is used to implement the original engine's behavior where holding Ctrl
+    /// (or issuing `ControlPulse`) makes the current line render immediately.
+    ///
+    /// Note: the original engine skips text updates entirely while a `TextPause`
+    /// is active; we preserve that by ignoring suspended slots here.
+    pub fn force_reveal_all_non_suspended(&mut self) {
+        for t in self.items.iter_mut() {
+            if !t.loaded {
+                continue;
+            }
+            if t.is_suspended {
+                continue;
+            }
+            if t.visible_chars != t.total_chars {
+                t.visible_chars = t.total_chars;
+                t.dirty = true;
+            }
+        }
+    }
+
 
     /// Debug helper for HUD: one-line summary per text slot.
     pub fn debug_lines(&self) -> Vec<String> {
