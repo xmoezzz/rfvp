@@ -61,23 +61,50 @@ pub struct GpuTexture {
 
 impl GpuTexture {
     pub fn new(resources: &GpuCommonResources, img: &DynamicImage, label: Option<&str>) -> Self {
+        Self::new_with_format(resources, img, label, wgpu::TextureFormat::Rgba8UnormSrgb)
+    }
+
+    /// Create a non-sRGB RGBA8 texture.
+    ///
+    /// This is used for linear data such as 8-bit mask textures (e.g., dissolve masks).
+    pub fn new_rgba8_unorm(
+        resources: &GpuCommonResources,
+        img: &DynamicImage,
+        label: Option<&str>,
+    ) -> Self {
+        Self::new_with_format(resources, img, label, wgpu::TextureFormat::Rgba8Unorm)
+    }
+
+    fn new_with_format(
+        resources: &GpuCommonResources,
+        img: &DynamicImage,
+        label: Option<&str>,
+        format: wgpu::TextureFormat,
+    ) -> Self {
         let rgba = img.to_rgba8();
         let (w, h) = rgba.dimensions();
 
-                let texture_desc = wgpu::TextureDescriptor {
+        let texture_desc = wgpu::TextureDescriptor {
             label,
-            size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         };
 
-        let texture = resources
-            .device
-            .create_texture_with_data(&resources.queue, &texture_desc, wgpu::util::TextureDataOrder::LayerMajor, &rgba);
+        let texture = resources.device.create_texture_with_data(
+            &resources.queue,
+            &texture_desc,
+            wgpu::util::TextureDataOrder::LayerMajor,
+            &rgba,
+        );
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let sampler = resources.device.create_sampler(&wgpu::SamplerDescriptor {
@@ -95,8 +122,14 @@ impl GpuTexture {
             label: Some("rfvp_render.texture_bind_group"),
             layout: &resources.bind_group_layouts.texture,
             entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) },
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
             ],
         });
 

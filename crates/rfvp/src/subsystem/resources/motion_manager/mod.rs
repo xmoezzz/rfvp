@@ -6,9 +6,11 @@ mod v3d;
 mod z_move;
 pub(crate) mod snow;
 mod anim;
+mod dissolve2;
 
 use self::snow::SnowMotionContainer;
 use self::anim::SpriteAnimContainer;
+use self::dissolve2::Dissolve2State;
 
 use super::gaiji_manager::GaijiManager;
 use super::graph_buff::{copy_rect, copy_rect_clipped, GraphBuff};
@@ -61,6 +63,7 @@ pub struct MotionManager {
     dissolve_duration_ms: u32,
     dissolve_elapsed_ms: u32,
     dissolve_alpha: f32,
+    dissolve2: Dissolve2State,
 }
 
 impl Default for MotionManager {
@@ -111,6 +114,7 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
             dissolve_duration_ms: 0,
             dissolve_elapsed_ms: 0,
             dissolve_alpha: 0.0,
+            dissolve2: Dissolve2State::new(),
         }
     }
 
@@ -789,6 +793,45 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
         self.dissolve_alpha
     }
 
+    // -----------------------------
+    // Dissolve2 (engine-internal overlay fade)
+    // -----------------------------
+    pub fn start_dissolve2_hold(&mut self, color_id: u32) {
+        self.dissolve2.start_hold(color_id);
+    }
+
+    pub fn start_dissolve2_fade_in(&mut self, color_id: u32, duration_ms: u32) {
+        self.dissolve2.start_fade_in(color_id, duration_ms);
+    }
+
+    pub fn start_dissolve2_fade_out(&mut self, duration_ms: u32) {
+        self.dissolve2.start_fade_out(duration_ms);
+    }
+
+    pub fn start_dissolve2_in_out(&mut self, color_id: u32, duration_ms: u32) {
+        self.dissolve2.start_in_out(color_id, duration_ms);
+    }
+
+    pub fn tick_dissolve2(&mut self, elapsed_ms: u32) {
+        self.dissolve2.tick(elapsed_ms);
+    }
+
+    pub fn get_dissolve2_alpha(&self) -> f32 {
+        self.dissolve2.alpha()
+    }
+
+    pub fn get_dissolve2_color_id(&self) -> u32 {
+        self.dissolve2.color_id()
+    }
+
+    pub fn get_dissolve2_mode(&self) -> u8 {
+        self.dissolve2.mode()
+    }
+
+    pub fn is_dissolve2_transitioning(&self) -> bool {
+        self.dissolve2.is_transitioning()
+    }
+
     pub fn load_texture_from_buff(&mut self, id: u16, buff: Vec<u8>, width: u32, height: u32) -> Result<()> {
         let graph = &mut self.textures[id as usize];
         graph.load_from_buff(buff, width, height)
@@ -839,6 +882,14 @@ impl MotionManager {
             self.dissolve_duration_ms,
             self.dissolve_alpha,
             self.dissolve_color_id
+        ));
+
+        out.push_str(&format!(
+            "Dissolve2: mode={} elapsed_ms=? dur_ms=? alpha={:.3} color_id={} transitioning={}\n",
+            self.get_dissolve2_mode(),
+            self.get_dissolve2_alpha(),
+            self.get_dissolve2_color_id(),
+            self.is_dissolve2_transitioning()
         ));
 
         out.push_str(&format!(

@@ -50,6 +50,7 @@ impl VmRunner {
 
         // In the original engine, dissolve is a global visual state that can unblock VM waits.
         let dissolve_type = game.motion_manager.get_dissolve_type();
+        let dissolve2_transitioning = game.motion_manager.is_dissolve2_transitioning();
 
         // Hard cap of opcode dispatches per frame to avoid the VM monopolizing the engine loop.
         // This is critical for games that spin in script (polling input, timers, etc.).
@@ -71,7 +72,7 @@ impl VmRunner {
                 continue;
             }
 
-            self.advance_timers_and_state(tid, dissolve_type, frame_time_ms);
+            self.advance_timers_and_state(tid, dissolve_type, dissolve2_transitioning, frame_time_ms);
 
             let status = self.tm.get_context_status(tid);
             if status.contains(ThreadState::CONTEXT_STATUS_RUNNING)
@@ -90,7 +91,7 @@ impl VmRunner {
         Ok(())
     }
 
-    fn advance_timers_and_state(&mut self, tid: u32, dissolve_type: DissolveType, frame_time_ms: u64) {
+    fn advance_timers_and_state(&mut self, tid: u32, dissolve_type: DissolveType, dissolve2_transitioning: bool, frame_time_ms: u64) {
         let status = self.tm.get_context_status(tid);
 
         // WAIT timer
@@ -123,9 +124,10 @@ impl VmRunner {
             }
         }
 
-        // Dissolve wait is unblocked when dissolve is completed / static.
+        // Dissolve wait is unblocked when dissolve is completed / static, and dissolve2 is not transitioning.
         if status.contains(ThreadState::CONTEXT_STATUS_DISSOLVE_WAIT)
             && (dissolve_type == DissolveType::None || dissolve_type == DissolveType::Static)
+            && !dissolve2_transitioning
         {
             let mut new_status = status.clone();
             new_status.remove(ThreadState::CONTEXT_STATUS_DISSOLVE_WAIT);

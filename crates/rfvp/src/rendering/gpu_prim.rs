@@ -39,6 +39,9 @@ pub struct GpuPrimRenderer {
     vb_capacity: u32,
     vertices: Vec<PosColTexVertex>,
     draws: Vec<DrawItem>,
+    /// Draw boundary: items [0..root0_draw_end) belong to the root=0 prim tree.
+    /// Items [root0_draw_end..] belong to the overlay/custom root prim tree.
+    root0_draw_end: usize,
     graph_cache: HashMap<u16, GraphGpuEntry>,
     white: GpuTexture,
 
@@ -98,6 +101,7 @@ impl GpuPrimRenderer {
             vb_capacity,
             vertices: Vec::with_capacity(vb_capacity as usize),
             draws: Vec::new(),
+            root0_draw_end: 0,
             graph_cache: HashMap::new(),
             white,
 
@@ -289,8 +293,19 @@ impl GpuPrimRenderer {
         let theta = -(prim.get_angle() as f32) * std::f32::consts::PI / 180.0;
 
         let attr = prim.get_attr();
+        // IDA: (m_Attribute & 2) enables OP-based pivot behavior.
+        let use_op_pivot = (attr & 2) != 0;
         if (attr & 4) != 0 {
             // V3D prim: center-based space + perspective scaling by depth.
+            //
+            // IDA (sub_42B740) behavior summary:
+            //   - If (attr & 2) != 0: vertices are pre-shifted by (-OPX, -OPY).
+            //   - Then rotate/scale about origin.
+            //   - Then translate by (x,y) with camera shift, and finally apply screen-center shift.
+            //
+            // In matrix form for our top-left vertex quad (0..w, 0..h):
+            //   M = T(center + pos - camShift) * R * S * T(-OP)
+            // (the T(-OP) term is omitted when (attr & 2) == 0).
             let (vw, vh) = (self.virtual_size.0 as f32, self.virtual_size.1 as f32);
             let center_x = vw * 0.5;
             let center_y = vh * 0.5;
@@ -312,22 +327,31 @@ impl GpuPrimRenderer {
             let px = (world_x + off_x) - cam_shift_x;
             let py = (world_y + off_y) - cam_shift_y;
 
-            Mat4::from_translation(vec3(center_x, center_y, 0.0))
-                * Mat4::from_translation(vec3(px, py, 0.0))
-                * Mat4::from_translation(vec3(opx, opy, 0.0))
-                * Mat4::from_rotation_z(theta)
-                * Mat4::from_scale(vec3(sx, sy, 1.0))
-                * Mat4::from_translation(vec3(-opx, -opy, 0.0))
+            let t = Mat4::from_translation(vec3(center_x + px, center_y + py, 0.0));
+            let r = Mat4::from_rotation_z(theta);
+            let s = Mat4::from_scale(vec3(sx, sy, 1.0));
+            let pre = if use_op_pivot {
+                Mat4::from_translation(vec3(-opx, -opy, 0.0))
+            } else {
+                Mat4::IDENTITY
+            };
+
+            t * r * s * pre
         } else {
             // Non-V3D prim: standard 2D transform in top-left space.
             let sx = prim.get_factor_x() as f32 / 1000.0;
             let sy = prim.get_factor_y() as f32 / 1000.0;
 
-            Mat4::from_translation(vec3(world_x + off_x, world_y + off_y, 0.0))
-                * Mat4::from_translation(vec3(opx, opy, 0.0))
-                * Mat4::from_rotation_z(theta)
-                * Mat4::from_scale(vec3(sx, sy, 1.0))
-                * Mat4::from_translation(vec3(-opx, -opy, 0.0))
+            let t = Mat4::from_translation(vec3(world_x + off_x, world_y + off_y, 0.0));
+            let r = Mat4::from_rotation_z(theta);
+            let s = Mat4::from_scale(vec3(sx, sy, 1.0));
+
+            if use_op_pivot {
+                t * Mat4::from_translation(vec3(opx, opy, 0.0)) * r * s
+                    * Mat4::from_translation(vec3(-opx, -opy, 0.0))
+            } else {
+                t * r * s
+            }
         }
     }
 
@@ -928,6 +952,10 @@ impl GpuPrimRenderer {
             );
         }
 
+        // Record the draw boundary for root=0 so the caller can insert overlays (e.g. dissolves)
+        // between the main scene tree and the overlay/custom root tree.
+        self.root0_draw_end = self.draws.len();
+
         // 2) draw optional overlay root if non-zero
         let root = prim_manager.get_custom_root_prim_id() as i16;
         if root != 0 {
@@ -954,16 +982,26 @@ impl GpuPrimRenderer {
     }
 
 
+    fn draw_items_with_proj<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        sprite_pipeline: &'a SpritePipeline,
+        proj: Mat4,
+        items: &'a [DrawItem],
+    ) {
+        for item in items {
+            let src = self.vb.vertex_source_slice(item.vertex_range.clone());
+            sprite_pipeline.draw(render_pass, src, self.texture_bind_group(item.tex), proj);
+        }
+    }
+
     fn draw_with_proj<'a>(
         &'a self,
         render_pass: &mut wgpu::RenderPass<'a>,
         sprite_pipeline: &'a SpritePipeline,
         proj: Mat4,
     ) {
-        for item in &self.draws {
-            let src = self.vb.vertex_source_slice(item.vertex_range.clone());
-            sprite_pipeline.draw(render_pass, src, self.texture_bind_group(item.tex), proj);
-        }
+        self.draw_items_with_proj(render_pass, sprite_pipeline, proj, &self.draws);
     }
 
     pub fn draw<'a>(
@@ -983,5 +1021,33 @@ impl GpuPrimRenderer {
         projection_matrix: Mat4,
     ) {
         self.draw_with_proj(render_pass, sprite_pipeline, projection_matrix);
+    }
+
+    /// Draw only the root=0 prim tree portion.
+    ///
+    /// This lets the caller insert full-screen overlays (e.g. dissolves) between the scene tree
+    /// and the overlay/custom root tree while preserving original engine draw order.
+    pub fn draw_virtual_root0<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        sprite_pipeline: &'a SpritePipeline,
+        projection_matrix: Mat4,
+    ) {
+        let end = self.root0_draw_end.min(self.draws.len());
+        self.draw_items_with_proj(render_pass, sprite_pipeline, projection_matrix, &self.draws[..end]);
+    }
+
+    /// Draw only the overlay/custom root prim tree portion.
+    pub fn draw_virtual_overlay<'a>(
+        &'a self,
+        render_pass: &mut wgpu::RenderPass<'a>,
+        sprite_pipeline: &'a SpritePipeline,
+        projection_matrix: Mat4,
+    ) {
+        let end = self.root0_draw_end.min(self.draws.len());
+        if end >= self.draws.len() {
+            return;
+        }
+        self.draw_items_with_proj(render_pass, sprite_pipeline, projection_matrix, &self.draws[end..]);
     }
 }

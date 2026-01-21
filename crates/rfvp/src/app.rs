@@ -97,6 +97,7 @@ pub struct App {
     // Tracks dissolve completion on the main thread so we can wake contexts
     // waiting on DISSOLVE_WAIT immediately via an EngineEvent.
     last_dissolve_type: DissolveType,
+    last_dissolve2_transitioning: bool,
 }
 
 impl App {
@@ -332,6 +333,7 @@ impl App {
             frame_ms = frame_duration.as_millis() as u64;
 
             let prev_dissolve = self.last_dissolve_type;
+            let prev_dissolve2 = self.last_dissolve2_transitioning;
 
             // Movie update must run even when the VM/scheduler is halted for modal playback.
             let mut video_tick_failed = false;
@@ -370,6 +372,13 @@ impl App {
             {
                 notify_dissolve_done = true;
             }
+
+            // Dissolve2 completion should also wake contexts waiting on DISSOLVE_WAIT.
+            let cur_dissolve2 = gd.motion_manager.is_dissolve2_transitioning();
+            if prev_dissolve2 && !cur_dissolve2 {
+                notify_dissolve_done = true;
+            }
+            self.last_dissolve2_transitioning = cur_dissolve2;
             self.last_dissolve_type = cur_dissolve;
 
             if gd.get_halt() {
@@ -415,6 +424,7 @@ impl App {
 
     fn render_frame(&mut self) -> anyhow::Result<()> {
         let dissolve_color: Option<glam::Vec4>;
+        let dissolve2_color: Option<glam::Vec4>;
         {
             let gd = gd_read(&self.game_data);
 
@@ -454,6 +464,22 @@ impl App {
             } else {
                 None
             };
+
+            // Dissolve2 is a pure full-screen color fade used by engine-internal flows
+            // (save/load/transition), rendered between root=0 and the overlay/custom root.
+            let alpha2 = gd.motion_manager.get_dissolve2_alpha();
+            dissolve2_color = if alpha2 > 0.0 {
+                let cid = gd.motion_manager.get_dissolve2_color_id() as u8;
+                let c = gd.motion_manager.color_manager.get_entry(cid);
+                Some(vec4(
+                    c.get_r() as f32 / 255.0,
+                    c.get_g() as f32 / 255.0,
+                    c.get_b() as f32 / 255.0,
+                    (c.get_a() as f32 / 255.0) * alpha2,
+                ))
+            } else {
+                None
+            };
         }
 
 
@@ -475,27 +501,34 @@ impl App {
             let mut pass = self
                 .render_target
                 .begin_srgb_render_pass(&mut encoder, Some("rfvp virtual pass"));
-            self.prim_renderer.draw_virtual(
-                &mut pass,
-                &self.resources.pipelines.sprite,
-                self.render_target.projection_matrix(),
-            );
+
+            let proj = self.render_target.projection_matrix();
+
+            // Match original engine draw order:
+            //   1) root=0 prim tree
+            //   2) dissolve (mask/color)
+            //   3) dissolve2 (full-screen color fade)
+            //   4) overlay/custom root prim tree
+            self.prim_renderer.draw_virtual_root0(&mut pass, &self.resources.pipelines.sprite, proj);
+
+            let mk_fill_src = || VertexSource::VertexIndexBuffer {
+                vertex_buffer: &self.dissolve_vertex_buffer,
+                index_buffer: &self.dissolve_index_buffer,
+                indices: 0..self.dissolve_num_indices,
+                instances: 0..1,
+            };
 
             // Global dissolve overlay (rendered in virtual space).
             if let Some(color) = dissolve_color {
-                let src = VertexSource::VertexIndexBuffer {
-                    vertex_buffer: &self.dissolve_vertex_buffer,
-                    index_buffer: &self.dissolve_index_buffer,
-                    indices: 0..self.dissolve_num_indices,
-                    instances: 0..1,
-                };
-                self.resources.pipelines.fill.draw(
-                    &mut pass,
-                    src,
-                    self.render_target.projection_matrix(),
-                    color,
-                );
+                self.resources.pipelines.fill.draw(&mut pass, mk_fill_src(), proj, color);
             }
+
+            // Engine dissolve2 overlay (rendered in virtual space).
+            if let Some(color) = dissolve2_color {
+                self.resources.pipelines.fill.draw(&mut pass, mk_fill_src(), proj, color);
+            }
+
+            self.prim_renderer.draw_virtual_overlay(&mut pass, &self.resources.pipelines.sprite, proj);
         }
 
 
@@ -1157,6 +1190,7 @@ impl AppBuilder {
             dissolve_index_buffer,
             dissolve_num_indices,
             last_dissolve_type: DissolveType::None,
+            last_dissolve2_transitioning: false,
             debug_hud: if debug_ui::enabled() {
                 Some(DebugHud::new(&resources.device, hud_surface_format, debug_ring.clone()))
             } else {

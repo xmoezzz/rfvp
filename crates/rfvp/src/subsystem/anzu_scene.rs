@@ -5,8 +5,7 @@ use crate::subsystem::resources::input_manager::KeyCode;
 pub struct AnzuScene {}
 
 impl Scene for AnzuScene {
-    fn on_start(&mut self, _data: &mut GameData) {
-    }
+    fn on_start(&mut self, _data: &mut GameData) {}
 
     fn on_update(&mut self, game_data: &mut GameData) {
         let frame_duration = game_data.time_mut_ref().delta_duration();
@@ -14,7 +13,10 @@ impl Scene for AnzuScene {
         let frame_ms = ((frame_us as u64) + 999) / 1000;
         let frame_duration = frame_ms as i64;
 
-        crate::trace::vm(format_args!("AnzuScene::on_update frame_duration={}", frame_duration));
+        crate::trace::vm(format_args!(
+            "AnzuScene::on_update frame_duration={}",
+            frame_duration
+        ));
 
         // --- ControlPulse semantics (from original engine) ---
         //
@@ -26,10 +28,15 @@ impl Scene for AnzuScene {
         // A negative elapsed is a "fast-forward" signal: most motion containers treat
         // elapsed < 0 as "commit final state immediately".
         // Text reveal is handled separately, but it uses the same Ctrl/ControlPulse condition.
-        let ctrl_down = (game_data.inputs_manager.get_input_state() & (1u32 << (KeyCode::Ctrl as u32))) != 0;
+        let ctrl_down =
+            (game_data.inputs_manager.get_input_state() & (1u32 << (KeyCode::Ctrl as u32))) != 0;
         let pulse = game_data.inputs_manager.take_control_pulse();
         let fast_forward = ctrl_down || pulse;
-        let elapsed = if fast_forward { -frame_duration } else { frame_duration };
+        let elapsed = if fast_forward {
+            -frame_duration
+        } else {
+            frame_duration
+        };
 
         self.update_alpha_motions(game_data, elapsed);
         self.update_move_motions(game_data, elapsed);
@@ -51,11 +58,15 @@ impl AnzuScene {
     }
 
     fn update_alpha_motions(&mut self, game_data: &mut GameData, elapsed: i64) {
-        game_data.motion_manager.update_alpha_motions(elapsed, game_data.get_game_should_exit());
+        game_data
+            .motion_manager
+            .update_alpha_motions(elapsed, game_data.get_game_should_exit());
     }
 
     fn update_move_motions(&mut self, game_data: &mut GameData, elapsed: i64) {
-        game_data.motion_manager.update_move_motions(elapsed, game_data.get_game_should_exit());
+        game_data
+            .motion_manager
+            .update_move_motions(elapsed, game_data.get_game_should_exit());
     }
 
     fn update_scale_motions(&mut self, game_data: &mut GameData, elapsed: i64) {
@@ -71,11 +82,15 @@ impl AnzuScene {
     }
 
     fn update_z_motions(&mut self, game_data: &mut GameData, elapsed: i64) {
-        game_data.motion_manager.update_z_motions(elapsed, game_data.get_game_should_exit());
+        game_data
+            .motion_manager
+            .update_z_motions(elapsed, game_data.get_game_should_exit());
     }
 
     fn update_v3d_motions(&mut self, game_data: &mut GameData, elapsed: i64) {
-        game_data.motion_manager.update_v3d_motions(elapsed, game_data.get_game_should_exit());
+        game_data
+            .motion_manager
+            .update_v3d_motions(elapsed, game_data.get_game_should_exit());
     }
 
     fn update_anim_motions(&mut self, game_data: &mut GameData, elapsed: i64) {
@@ -102,20 +117,21 @@ impl AnzuScene {
     fn update_dissolve(&mut self, game_data: &mut GameData, elapsed: i64, fast_forward: bool) {
         // Dissolve progression is global (not per-prim).
         //
-        // Our dissolve state machine is time-based (u32 milliseconds). In the original engine,
-        // Ctrl/ControlPulse turns elapsed negative for the render/update pipeline. For dissolve,
-        // the intended observable behavior is "finish quickly" so that DISSOLVE_WAIT can unblock.
+        // Ctrl/ControlPulse fast-forward: for dissolve, the intended observable behavior is
+        // "finish quickly" so that DISSOLVE_WAIT can unblock.
         if fast_forward {
             game_data.motion_manager.tick_dissolve(u32::MAX);
+            game_data.motion_manager.tick_dissolve2(u32::MAX);
             return;
         }
         if elapsed <= 0 {
             return;
         }
-        game_data.motion_manager.tick_dissolve(elapsed as u32);
+
+        let ms = elapsed as u32;
+        game_data.motion_manager.tick_dissolve(ms);
+        game_data.motion_manager.tick_dissolve2(ms);
     }
 
-
     fn update_prim(&mut self, _game_data: &mut GameData, _elapsed: u64) {}
-
 }

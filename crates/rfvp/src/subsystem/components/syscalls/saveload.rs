@@ -1,9 +1,15 @@
-use anyhow::{Result};
+use anyhow::Result;
 
 use crate::subsystem::world::GameData;
 use crate::{script::Variant, subsystem::resources::save_manager::SaveDataFunction};
 
 use super::{get_var, Syscaller};
+
+/// These match the current ColorManager defaults:
+///   1 => black
+///   2 => white
+const DISSOLVE2_LOAD_COLOR_ID: u32 = 1;
+const DISSOLVE2_LOAD_DURATION_MS: u32 = 600;
 
 /// prepare a save data for writing
 /// this syscall has 4 functions:
@@ -55,7 +61,6 @@ pub fn save_create(game_data: &mut GameData, fnid: &Variant, value: &Variant) ->
 
     Ok(Variant::Nil)
 }
-
 
 pub fn save_data(
     game_data: &mut GameData,
@@ -244,11 +249,7 @@ pub fn save_data(
     Ok(Variant::Nil)
 }
 
-pub fn save_thumb_size(
-    game_data: &mut GameData,
-    width: &Variant,
-    height: &Variant,
-) -> Result<Variant> {
+pub fn save_thumb_size(game_data: &mut GameData, width: &Variant, height: &Variant) -> Result<Variant> {
     if let Variant::Int(width) = width {
         if let Variant::Int(height) = height {
             let width = *width;
@@ -303,8 +304,21 @@ pub fn load(game_data: &mut GameData, slot: &Variant) -> Result<Variant> {
     let nls = game_data.get_nls();
     match game_data.save_manager.load_savedata(slot as u32, nls) {
         Ok(()) => {
+            // Trigger dissolve2 (engine-internal overlay fade) around the post-load rebuild window.
+            //
+            // NOTE: This is a pragmatic porting choice: the original engine fades to black,
+            // performs the blocking load, then fades back. Here we start an in/out sequence and
+            // let the VM yield via DissolveWait so the frame loop can render it.
+            game_data
+                .motion_manager
+                .start_dissolve2_in_out(DISSOLVE2_LOAD_COLOR_ID, DISSOLVE2_LOAD_DURATION_MS);
+
+            // Yield until dissolve completes (VmRunner unblocks when dissolve1 is idle AND dissolve2 is not transitioning).
+            game_data.thread_wrapper.dissolve_wait();
+
             // Break current context so the script can rebuild state based on loaded save content.
             game_data.thread_wrapper.should_break();
+
             Ok(Variant::True)
         }
         Err(e) => {
@@ -314,74 +328,47 @@ pub fn load(game_data: &mut GameData, slot: &Variant) -> Result<Variant> {
     }
 }
 
-
 pub struct SaveCreate;
 impl Syscaller for SaveCreate {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
-        save_create(
-            game_data,
-            get_var!(args, 0),
-            get_var!(args, 1),
-        )
+        save_create(game_data, get_var!(args, 0), get_var!(args, 1))
     }
 }
-
 unsafe impl Send for SaveCreate {}
 unsafe impl Sync for SaveCreate {}
-
 
 pub struct SaveData;
 impl Syscaller for SaveData {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
-        save_data(
-            game_data,
-            get_var!(args, 0),
-            get_var!(args, 1),
-            get_var!(args, 2),
-        )
+        save_data(game_data, get_var!(args, 0), get_var!(args, 1), get_var!(args, 2))
     }
 }
-
 unsafe impl Send for SaveData {}
 unsafe impl Sync for SaveData {}
 
 pub struct SaveThumbSize;
 impl Syscaller for SaveThumbSize {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
-        save_thumb_size(
-            game_data,
-            get_var!(args, 0),
-            get_var!(args, 1),
-        )
+        save_thumb_size(game_data, get_var!(args, 0), get_var!(args, 1))
     }
 }
-
 unsafe impl Send for SaveThumbSize {}
 unsafe impl Sync for SaveThumbSize {}
 
 pub struct SaveWrite;
 impl Syscaller for SaveWrite {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
-        save_write(
-            game_data,
-            get_var!(args, 0),
-        )
+        save_write(game_data, get_var!(args, 0))
     }
 }
-
 unsafe impl Send for SaveWrite {}
 unsafe impl Sync for SaveWrite {}
 
 pub struct Load;
 impl Syscaller for Load {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
-        load( 
-            game_data,
-            get_var!(args, 0),
-        )
+        load(game_data, get_var!(args, 0))
     }
 }
-
 unsafe impl Send for Load {}
 unsafe impl Sync for Load {}
-
