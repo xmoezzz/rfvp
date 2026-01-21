@@ -505,6 +505,11 @@ pub fn vm_add(a: Variant, b: Variant) -> Variant {
         (Variant::String(a), Variant::String(b)) => Variant::String(a + &b),
         (Variant::String(a), Variant::ConstString(b, _)) => Variant::String(a + &b),
         (Variant::ConstString(a, _), Variant::String(b)) => Variant::String(a + &b),
+        // The original engine uses the ADD opcode for string concatenation.
+        // Our PushString opcode yields ConstString; scripts frequently build paths like
+        //   "graph/" + filename
+        // which becomes (ConstString, ConstString) here.
+        (Variant::ConstString(a, _), Variant::ConstString(b, _)) => Variant::String(a + &b),
         _ => Variant::Nil,
     }
 }
