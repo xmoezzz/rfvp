@@ -893,14 +893,14 @@ impl Context {
     }
 
     /// 0x25 setle
-    /// set the top of the stack to true if the top two values on the stack are less or equal
+    /// set the top of the stack to true if the top two values on the stack are greater or equal
     pub fn setle(&mut self) -> Result<()> {
         self.cursor += 1;
         let b = self.pop()?;
         let mut a = self.pop()?;
 
         // log::info!("setle: {:?} {:?}", &a, &b);
-        a.less_equal(&b);
+        a.greater_equal(&b);
         self.push(a)?;
         Ok(())
     }
@@ -919,14 +919,14 @@ impl Context {
     }
 
     /// 0x27 setge
-    /// set the top of the stack to true if the top two values on the stack are greater or equal
+    /// set the top of the stack to true if the top two values on the stack are less or equal
     pub fn setge(&mut self) -> Result<()> {
         self.cursor += 1;
         let b = self.pop()?;
         let mut a = self.pop()?;
 
         // log::info!("setge: {:?} {:?}", &a, &b);
-        a.greater_equal(&b);
+        a.less_equal(&b);
         self.push(a)?;
         Ok(())
     }

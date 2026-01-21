@@ -34,15 +34,25 @@ impl Table {
     }
 
     pub fn push(&mut self, value: Variant) {
-        self.table.insert(self.next_index, value);
-        self.count += 1;
-        self.next_index += 1;
+        // Array-style append.
+        // Keep count consistent if a key is unexpectedly overwritten.
+        let existed = self.table.insert(self.next_index, value).is_some();
+        if !existed {
+            self.count += 1;
+        }
+        self.next_index = self.next_index.saturating_add(1);
     }
 
     pub fn insert(&mut self, key: u32, value: Variant) {
-        self.table.insert(key, value);
-        self.count += 1;
-        self.next_index += 1;
+        // Map-style insert. Overwriting an existing key must not bump the element count.
+        let existed = self.table.insert(key, value).is_some();
+        if !existed {
+            self.count += 1;
+        }
+        // Maintain a monotonic "next append index".
+        if key >= self.next_index {
+            self.next_index = key.saturating_add(1);
+        }
     }
 
 
@@ -187,7 +197,7 @@ impl Variant {
 
     pub fn neg(&mut self) {
         match self {
-            Variant::Int(i) => *i = -*i,
+            Variant::Int(i) => *i = i.wrapping_neg(),
             Variant::Float(f) => *f = -*f,
             _ => {},
         }
@@ -214,75 +224,42 @@ impl Variant {
     }
 
     pub fn equal(&mut self, other: &Variant) {
-        let result = match (self.clone(), other) {
-            (Variant::Nil, Variant::Nil) => Variant::True, // 0
-            (Variant::True, Variant::True) => Variant::True, // 8 = 7 + 1
-            (Variant::True, Variant::Int(_)) => Variant::True, // 9 = 7 + 2
-            (Variant::True, Variant::Float(_)) => Variant::True, // 10 = 7 + 3
-            (Variant::True, Variant::String(_)) => Variant::True, // 11 = 7 + 4
-            (Variant::True, Variant::Table(_)) => Variant::True, // 13 = 7 + 6
-            (Variant::Int(a), Variant::Int(b)) => { // 16 = 2 * 7 + 2
-                if a == *b {
-                    Variant::True
-                } else {
-                    Variant::Nil
-                }
+        // Equality returns True (truthy) or Nil (falsey).
+        // NOTE: The original engine dispatches equality via a 7x7 routine table.
+        // Cross-type numeric equality is not implemented there, so we treat it as false.
+        let result = match (&*self, other) {
+            (Variant::Nil, Variant::Nil) => Variant::True,
+            (Variant::True, Variant::True) => Variant::True,
+
+            (Variant::Int(a), Variant::Int(b)) => {
+                if a == b { Variant::True } else { Variant::Nil }
             },
-            (Variant::Float(_), Variant::True) => Variant::True, // 22 = 3 * 7 + 1
-            (Variant::Float(a), Variant::Float(b)) => { // 24 = 3 * 7 + 3
-                let wrapped_a = TwoFloat::from(a);
+
+            (Variant::Float(a), Variant::Float(b)) => {
+                let wrapped_a = TwoFloat::from(*a);
                 let wrapped_b = TwoFloat::from(*b);
+                if wrapped_a == wrapped_b { Variant::True } else { Variant::Nil }
+            },
 
-                if wrapped_a == wrapped_b {
-                    Variant::True
-                } else {
-                    Variant::Nil
-                }
+            (Variant::String(a), Variant::String(b)) => {
+                if a == b { Variant::True } else { Variant::Nil }
             },
-            // (Variant::Int(a), Variant::Float(b)) => { 
-            //     let wrapped_a = TwoFloat::from(a);
-            //     let wrapped_b = TwoFloat::from(*b);
+            (Variant::String(a), Variant::ConstString(b, _)) => {
+                if a == b { Variant::True } else { Variant::Nil }
+            },
+            (Variant::ConstString(a, _), Variant::String(b)) => {
+                if a == b { Variant::True } else { Variant::Nil }
+            },
+            (Variant::ConstString(a, _), Variant::ConstString(b, _)) => {
+                if a == b { Variant::True } else { Variant::Nil }
+            },
 
-            //     if wrapped_a == wrapped_b {
-            //         Variant::True
-            //     } else {
-            //         Variant::Nil
-            //     }
-            // },
-            // (Variant::Float(a), Variant::Int(b)) => {
-            //     let wrapped_a = TwoFloat::from(a);
-            //     let wrapped_b = TwoFloat::from(*b);
+            // The original engine compares tables by identity; our current Table is value-based,
+            // so the safest approximation is pointer equality on the in-memory Variant payload.
+            (Variant::Table(a), Variant::Table(b)) => {
+                if std::ptr::eq(a, b) { Variant::True } else { Variant::Nil }
+            },
 
-            //     if wrapped_a == wrapped_b {
-            //         Variant::True
-            //     } else {
-            //         Variant::Nil
-            //     }
-            // },
-            (Variant::String(_), Variant::True) => Variant::True, // 29 = 4 * 7 + 1
-            (Variant::String(a), Variant::String(b)) => { // 32 = 4 * 7 + 4
-                if a == *b {
-                    Variant::True
-                } else {
-                    Variant::Nil
-                }
-            },
-            (Variant::String(a), Variant::ConstString(b, _)) => { // 33 = 4 * 7 + 5
-                if a == *b {
-                    Variant::True
-                } else {
-                    Variant::Nil
-                }
-            },
-            (Variant::ConstString(_, _), Variant::True) => Variant::True, // 36 = 5 * 7 + 1
-            (Variant::ConstString(a, _), Variant::String(b)) => {  // 40 = 5 * 7 + 5
-                if a == *b {
-                    Variant::True
-                } else {
-                    Variant::Nil
-                }
-            },
-            (Variant::Table(_), Variant::True) => Variant::True, // 43 = 6 * 7 + 1
             _ => Variant::Nil,
         };
 
@@ -382,102 +359,69 @@ impl Variant {
     }
 
     pub fn less(&mut self, other: &Variant) {
-        let _result = match (self.clone(), other) {
-            (Variant::Int(a), Variant::Int(b)) => { // 16 = 2 * 7 + 2
-                if a < *b {
-                    Variant::True
-                } else {
-                    Variant::Nil
-                }
-            },
-            (Variant::Int(a), Variant::Float(b)) => { // 17 = 2 * 7 + 3
+        let result = match (self.clone(), other) {
+            (Variant::Int(a), Variant::Int(b)) => {
+                if a < *b { Variant::True } else { Variant::Nil }
+            }
+            (Variant::Int(a), Variant::Float(b)) => {
                 let wrapped_a = TwoFloat::from(a);
                 let wrapped_b = TwoFloat::from(*b);
-
-                if wrapped_a < wrapped_b {
-                    Variant::True
-                } else {
-                    Variant::Nil
-                }
-            },
-            (Variant::Float(a), Variant::Int(b)) => { // 23 = 3 * 7 + 2
+                if wrapped_a < wrapped_b { Variant::True } else { Variant::Nil }
+            }
+            (Variant::Float(a), Variant::Int(b)) => {
                 let wrapped_a = TwoFloat::from(a);
                 let wrapped_b = TwoFloat::from(*b);
-
-                if wrapped_a < wrapped_b {
-                    Variant::True
-                } else {
-                    Variant::Nil
-                }
-            },
-            (Variant::Float(a), Variant::Float(b)) => { // 24 = 3 * 7 + 3
+                if wrapped_a < wrapped_b { Variant::True } else { Variant::Nil }
+            }
+            (Variant::Float(a), Variant::Float(b)) => {
                 let wrapped_a = TwoFloat::from(a);
                 let wrapped_b = TwoFloat::from(*b);
-
-                if wrapped_a < wrapped_b {
-                    Variant::True
-                } else {
-                    Variant::Nil
-                }
-            },
-            (Variant::String(a), Variant::String(b)) => { //32 = 4 * 7 + 4
-                if a < *b {
-                    Variant::True
-                } else {
-                    Variant::Nil
-                }
-            },
-            (Variant::String(a), Variant::ConstString(b, _)) => { // 33 = 4 * 7 + 5
-                if a < *b {
-                    Variant::True
-                } else {
-                    Variant::Nil
-                }
-            },
-            (Variant::ConstString(a, _), Variant::String(b)) => { // 39 = 5 * 7 + 4
-                if a < *b {
-                    Variant::True
-                } else {
-                    Variant::Nil
-                }
-            },
-            (Variant::ConstString(a, _), Variant::ConstString(b, _)) => { // 40 = 5 * 7 + 5
-                if a < *b {
-                    Variant::True
-                } else {
-                    Variant::Nil
-                }
-            },
+                if wrapped_a < wrapped_b { Variant::True } else { Variant::Nil }
+            }
+            (Variant::String(a), Variant::String(b)) => {
+                if a < *b { Variant::True } else { Variant::Nil }
+            }
+            (Variant::String(a), Variant::ConstString(b, _)) => {
+                if a < *b { Variant::True } else { Variant::Nil }
+            }
+            (Variant::ConstString(a, _), Variant::String(b)) => {
+                if a < *b { Variant::True } else { Variant::Nil }
+            }
+            (Variant::ConstString(a, _), Variant::ConstString(b, _)) => {
+                if a < *b { Variant::True } else { Variant::Nil }
+            }
             _ => Variant::Nil,
         };
+
+        *self = result;
     }
 
     pub fn greater_equal(&mut self, other: &Variant) {
-        let mut lhs = self.clone();
-        lhs.less(other);
-        if lhs.is_nil() {
+        // Engine semantics: implemented as !(lhs < rhs) (i.e., invert strict-less).
+        let mut tmp = self.clone();
+        tmp.less(other);
+        if tmp.is_nil() {
             *self = Variant::True;
-            return;
+        } else {
+            *self = Variant::Nil;
         }
-        
-        *self = Variant::Nil;
     }
 
     pub fn less_equal(&mut self, other: &Variant) {
-        let mut lhs = self.clone();
-        lhs.greater(other);
-        if lhs.is_nil() {
+        // Engine semantics: implemented as !(lhs > rhs) (i.e., invert strict-greater).
+        let mut tmp = self.clone();
+        tmp.greater(other);
+        if tmp.is_nil() {
             *self = Variant::True;
-            return;
+        } else {
+            *self = Variant::Nil;
         }
-        
-        *self = Variant::Nil;
     }
 }
 
 pub fn vm_add(a: Variant, b: Variant) -> Variant {
     match (a, b) {
-        (Variant::Int(a), Variant::Int(b)) => Variant::Int(a + b),
+        (Variant::Int(a), Variant::Int(b)) => Variant::Int(a.wrapping_add(b)),
         (Variant::Float(a), Variant::Float(b)) => {
             let wrapped_a = TwoFloat::from(a);
             let wrapped_b = TwoFloat::from(b);
@@ -510,7 +454,7 @@ pub fn vm_add(a: Variant, b: Variant) -> Variant {
 
 pub fn vm_sub(a: Variant, b: Variant) -> Variant {
     match (a, b) {
-        (Variant::Int(a), Variant::Int(b)) => Variant::Int(a - b),
+        (Variant::Int(a), Variant::Int(b)) => Variant::Int(a.wrapping_sub(b)),
         (Variant::Float(a), Variant::Float(b)) => {
             let wrapped_a = TwoFloat::from(a);
             let wrapped_b = TwoFloat::from(b);
@@ -535,10 +479,7 @@ pub fn vm_sub(a: Variant, b: Variant) -> Variant {
 
 pub fn vm_mul(a: Variant, b: Variant) -> Variant {
     match (a, b) {
-        (Variant::Int(a), Variant::Int(b)) => {
-            let result = a * b;
-            Variant::Int(result)
-        },
+        (Variant::Int(a), Variant::Int(b)) => Variant::Int(a.wrapping_mul(b)),
         (Variant::Float(a), Variant::Float(b)) => {
             let wrapped_a = TwoFloat::from(a);
             let wrapped_b = TwoFloat::from(b);
@@ -563,7 +504,13 @@ pub fn vm_mul(a: Variant, b: Variant) -> Variant {
 
 pub fn vm_div(a: Variant, b: Variant) -> Variant {
     match (a, b) {
-        (Variant::Int(a), Variant::Int(b)) => Variant::Int(a / b),
+        (Variant::Int(a), Variant::Int(b)) => {
+            if b == 0 || (a == i32::MIN && b == -1) {
+                Variant::Nil
+            } else {
+                Variant::Int(a / b)
+            }
+        },
         (Variant::Float(a), Variant::Float(b)) => {
             let wrapped_a = TwoFloat::from(a);
             let wrapped_b = TwoFloat::from(b);
@@ -588,11 +535,17 @@ pub fn vm_div(a: Variant, b: Variant) -> Variant {
             }
         },
         (Variant::Float(a), Variant::Int(b)) => {
+            if b == 0 {
+                return Variant::Nil;
+            }
             let wrapped_a = TwoFloat::from(a);
             let wrapped_b = TwoFloat::from(b);
             let result = wrapped_a / wrapped_b;
-            Variant::Float(result.into())
-        
+            if result.is_valid() {
+                Variant::Float(result.into())
+            } else {
+                Variant::Nil
+            }
         },
         _ => Variant::Nil,
     }
@@ -600,7 +553,13 @@ pub fn vm_div(a: Variant, b: Variant) -> Variant {
 
 fn vm_mod(a: Variant, b: Variant) -> Variant {
     match (a, b) {
-        (Variant::Int(a), Variant::Int(b)) => Variant::Int(a % b),
+        (Variant::Int(a), Variant::Int(b)) => {
+            if b == 0 || (a == i32::MIN && b == -1) {
+                Variant::Nil
+            } else {
+                Variant::Int(a % b)
+            }
+        },
         _ => Variant::Nil,
     }
 }
