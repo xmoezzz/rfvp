@@ -513,7 +513,7 @@ impl GpuPrimRenderer {
         let y = acc_y + base_y;
 
         crate::trace::render(format_args!(
-            "[prim] depth={} prim_id={} draw_id={} base(x,y)=({:.2},{:.2}) acc=({:.2},{:.2}) => x,y=({:.2},{:.2}) alpha={:.3} type={:?} sprt_first={}",
+            "[prim] depth={} prim_id={} draw_id={} base(x,y)=({:.2},{:.2}) acc=({:.2},{:.2}) => x,y=({:.2},{:.2}) alpha={:.3} op={:.2}-{:.2} scale={:.2}-{:.2} wh={}-{} type={:?} sprt_first={}",
             depth,
             prim_id,
             draw_id,
@@ -524,6 +524,12 @@ impl GpuPrimRenderer {
             x,
             y,
             base_a,
+            draw_prim.get_opx() as f32,
+            draw_prim.get_opy() as f32,
+            draw_prim.get_factor_x() as f32 / 1000.0,
+            draw_prim.get_factor_y() as f32 / 1000.0,
+            draw_prim.get_w() as f32,
+            draw_prim.get_h() as f32,
             draw_prim.get_type(),
             base_prim.get_sprt(),
         ));

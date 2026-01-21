@@ -295,11 +295,14 @@ pub struct PrimManager {
 
 impl PrimManager {
     pub fn new() -> Self {
-        Self {
+        let mut pm = Self {
             // allocate 4096 prims
             prims: (0..4096).map(|_| AtomicRefCell::new(Prim::new())).collect(),
             custom_root_prim_id: 0,
-        }
+        };
+        pm.prim_init_with_type(0, PrimType::PrimTypeGroup);
+        pm.get_prim(0).set_alpha(255);
+        pm
     }
 
     pub fn get_custom_root_prim_id(&self) -> u16 {
