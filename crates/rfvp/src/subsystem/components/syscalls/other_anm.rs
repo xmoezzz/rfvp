@@ -69,7 +69,8 @@ pub fn dissolve(
             let mut graph = GraphBuff::new();
             graph.load_mask(s, buff)?;
             game_data.motion_manager.set_dissolve_mask_graph(graph);
-            if inout.is_true() {
+            // IDA (original engine): boolean args are evaluated as (Type != 0).
+            if inout.canbe_true() {
                 game_data.motion_manager.start_dissolve(duration as u32, DissolveType::MaskFadeOut);
             } else {
                 game_data.motion_manager.start_dissolve(duration as u32, DissolveType::MaskFadeIn);

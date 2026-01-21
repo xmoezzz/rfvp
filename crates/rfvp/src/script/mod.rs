@@ -106,16 +106,10 @@ impl Variant {
     }
 
     pub fn canbe_true(&self) -> bool {
-        match self {
-            Variant::Nil => false,
-            Variant::True => true,
-            Variant::Int(i) => *i != 0,
-            Variant::Float(f) => *f != 0.0,
-            Variant::String(s) => !s.is_empty(),
-            Variant::ConstString(s, _) => !s.is_empty(),
-            Variant::Table(_) => true,
-            Variant::SavedStackInfo(_) => true,
-        }
+        // IDA semantics (original engine): conditions and many syscalls treat
+        // a Variant as "true" iff its Type != 0. There is no dedicated False
+        // value; false is represented as Nil.
+        !matches!(self, Variant::Nil)
     }
 
     pub fn cast_table(&mut self) {

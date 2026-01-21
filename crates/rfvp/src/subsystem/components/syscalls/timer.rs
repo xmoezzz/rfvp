@@ -78,7 +78,8 @@ pub fn timer_get(game_data: &GameData, id: &Variant, default_value: &Variant) ->
 
 
 pub fn timer_suspend(game_data: &mut GameData, on: &Variant) -> Result<Variant> {
-    game_data.timer_manager.set_suspend(!on.is_true());
+    // IDA (original engine): boolean args are evaluated as (Type != 0).
+    game_data.timer_manager.set_suspend(!on.canbe_true());
 
     Ok(Variant::Nil)
 }
