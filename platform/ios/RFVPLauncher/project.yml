@@ -1,0 +1,40 @@
+name: RFVPLauncher
+
+options:
+  deploymentTarget:
+    iOS: "13.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "13.0"
+    PRODUCT_BUNDLE_IDENTIFIER: com.chino.rfvp
+    DEVELOPMENT_TEAM: ${TEAM_ID}
+    CODE_SIGN_STYLE: Automatic
+
+targets:
+  RFVPLauncher:
+    type: application
+    platform: iOS
+
+    sources:
+      - path: RFVPLauncher
+
+    resources:
+      - path: RFVPLauncher/Assets.xcassets
+      - path: RFVPLauncher/LaunchScreen.storyboard
+      - path: RFVPLauncher/config.toml
+
+    info:
+      path: RFVPLauncher/Info.plist
+
+    dependencies:
+      - framework: Vendor/RFVP.xcframework
+      - sdk: UIKit.framework
+      - sdk: Foundation.framework
+      - sdk: Metal.framework
+      - sdk: MetalKit.framework
+      - sdk: QuartzCore.framework
+      - sdk: CoreGraphics.framework
+      - sdk: AudioToolbox.framework
+      - sdk: AVFoundation.framework
