@@ -1,5 +1,6 @@
 # rfvp: A Non-Official Rust cross-platform implementation of the FVP engine
 
+<img src="images/flake.png" width="20%">
 
 ### Status
 * Bootable, But still WIP
