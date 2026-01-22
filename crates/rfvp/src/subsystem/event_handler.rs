@@ -55,6 +55,10 @@ pub fn update_input_events(window_event: &WindowEvent, data: &mut GameData) {
             // Without this, we can keep stale pressed bits when focus transitions happen
             // (including the initial activation), which leads to unintended auto-click/skip.
             data.inputs_manager.set_flash();
+            if *focused {
+                // Eat the activation click (common on some platforms / backends).
+                data.inputs_manager.suppress_next_mouse_click();
+            }
             if !*focused {
                 data.inputs_manager.set_mouse_in(false);
             }

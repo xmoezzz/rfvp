@@ -126,6 +126,7 @@ pub struct InputManager {
     wheel_value: i32,
     control_is_masked: bool,
     control_is_pulse: bool,
+    suppress_next_mouse: bool,
 
     cs: CriticalSection,
 }
@@ -154,6 +155,7 @@ impl InputManager {
             wheel_value: 0,
             control_is_masked: false,
             control_is_pulse: false,
+            suppress_next_mouse: false,
             current_index: 0,
             next_index: 0,
             new_input_state: 0,
@@ -175,6 +177,11 @@ impl InputManager {
         self.input_state = 0;
         self.input_down = 0;
         self.input_up = 0;
+    }
+
+    pub fn suppress_next_mouse_click(&mut self) {
+        let _g = self.cs.enter();
+        self.suppress_next_mouse = true;
     }
 
     pub fn get_cursor_in(&self) -> bool {
@@ -298,8 +305,6 @@ impl InputManager {
     // see https://wiki.winehq.org/List_Of_Windows_Messages
     pub fn notify_keydown(&mut self, key: winit::keyboard::Key, repeat: bool) {
         if let Some(keycode) = self.keymap(key) {
-            let (x, y) = (self.cursor_x, self.cursor_y);
-
             {
                 let _g = self.cs.enter();
                 if !repeat {
@@ -308,10 +313,11 @@ impl InputManager {
                 self.input_repeat |= 1 << (keycode.clone() as u32);
             }
 
-            // Record the keydown event regardless of repeat. The original engine
-            // exposes key events via InputGetEvent; if we only record repeats,
-            // the first press (e.g., Enter to advance) is invisible to scripts.
-            self.record_keydown_or_up(keycode, 0, 0);
+            // IDA: key events are only enqueued for keycode >= 2 (Shift/Ctrl are excluded).
+            // KeyUp does not enqueue events at all.
+            if (keycode.clone() as u8) >= 2 {
+                self.record_keydown_or_up(keycode, 0, 0);
+            }
         }
     }
 
@@ -325,8 +331,6 @@ impl InputManager {
                 let _g = self.cs.enter();
                 self.new_input_state &= !(1u32 << (keycode.clone() as u32));
             } // _g dropped here
-
-            self.record_keydown_or_up(keycode, 0, 0);
         }
     }
 
@@ -336,6 +340,12 @@ impl InputManager {
 
         {
             let _g = self.cs.enter();
+            if self.suppress_next_mouse {
+                // Eat the first mouse click after (re)activation to match the original Win32 behavior
+                // where the activation click is not delivered to the application.
+                self.suppress_next_mouse = false;
+                return;
+            }
             self.new_input_state |= 1u32 << (keycode.clone() as u32);
         } // _g dropped here
 
@@ -350,6 +360,12 @@ impl InputManager {
 
         {
             let _g = self.cs.enter();
+            if self.suppress_next_mouse {
+                // Eat the first mouse click after (re)activation to match the original Win32 behavior
+                // where the activation click is not delivered to the application.
+                self.suppress_next_mouse = false;
+                return;
+            }
             self.new_input_state &= !(1u32 << (keycode.clone() as u32));
         } // _g dropped here
 

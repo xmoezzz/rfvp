@@ -817,9 +817,26 @@ impl Context {
         let b = self.pop()?;
         let a = self.pop()?;
 
-        // log::info!("bittest: {:?} {:?}", &a, &b);
-        if let (Some(a), Some(b)) = (a.as_int(), b.as_int()) {
-            self.push(Variant::Int(a & (1 << b)))?;
+        // Matches the original VM semantics: the result is a boolean Variant.
+        // - push True if bit `b` is set in integer `a`
+        // - otherwise push Nil
+        // Note: in this VM, *any non-nil Variant is considered true* by `jz`,
+        // so returning Int(0) here would incorrectly behave as true.
+        if let (Some(a_i), Some(bit_i)) = (a.as_int(), b.as_int()) {
+            let bit_u: Option<u32> = if bit_i >= 0 && bit_i < 32 {
+                Some(bit_i as u32)
+            } else {
+                None
+            };
+
+            let is_set = if let Some(shift) = bit_u {
+                let mask = 1u32.wrapping_shl(shift);
+                ((a_i as u32) & mask) != 0
+            } else {
+                false
+            };
+
+            self.push(if is_set { Variant::True } else { Variant::Nil })?;
         } else {
             self.push(Variant::Nil)?;
             log::warn!("bittest only works for integers");
