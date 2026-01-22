@@ -567,7 +567,7 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
                 return false;
             }
             PrimType::PrimTypeSprt => {
-                let texture_id = sprite.get_text_index();
+                let texture_id = sprite.get_texture_id();
                 let texture = self.get_texture(texture_id as u32);
                 let total_x = x + texture.get_offset_x() as i32 + sprite.get_x() as i32;
                 let total_y = y + texture.get_offset_y() as i32 + sprite.get_y() as i32;
@@ -608,18 +608,9 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
                 }
 
                 if let Some(tex) = texture.get_texture() {
-                    if adjusted_x >= cursor_x
-                        && adjusted_x < texture.get_width() as i32
-                        && adjusted_y >= 0
-                        && adjusted_y < texture.get_height() as i32
-                    {
-                        let left = adjusted_x;
-                        let top = adjusted_y;
-                        let pixel = tex.get_pixel(left as u32, top as u32);
-                        let alpha_value = pixel.0[3];
-                        if alpha_value != 0 {
-                            return true;
-                        }
+                    let pixel = tex.get_pixel(adjusted_x as u32, adjusted_y as u32);
+                    if pixel.0[3] != 0 {
+                        return true;
                     }
                 }
             }

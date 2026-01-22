@@ -558,6 +558,21 @@ impl GpuPrimRenderer {
             base_prim.get_sprt(),
         ));
 
+        let tex_id = draw_prim.get_texture_id() as u16;
+        if let Some(g) = graphs.get(tex_id as usize) {
+            if self.graph_cache.contains_key(&tex_id) {
+                crate::trace::render(format_args!(
+                    "[prim-graph] prim_id={} draw_id={} offset(x,y)=({},{}) uv=({},{}))",
+                    prim_id,
+                    draw_id,
+                    g.get_offset_x(),
+                    g.get_offset_y(),
+                    g.get_u(),
+                    g.get_v(),
+                ));
+            }
+        }
+
 
         // Local transform for renderable prims: translate to (x,y), then pivot/rotate/scale around draw_prim.op.
         let model = {

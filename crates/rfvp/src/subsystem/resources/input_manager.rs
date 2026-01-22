@@ -280,13 +280,6 @@ impl InputManager {
             return;
         }
 
-        // Mouse events are only recorded when click recording is enabled.
-        if matches!(keycode, KeyCode::MouseLeft | KeyCode::MouseRight) {
-            if self.click != 1 {
-                return;
-            }
-        }
-
         let event = &mut self.press_items[self.current_index as usize];
         event.keycode = keycode.clone() as u8;
         if matches!(keycode, KeyCode::MouseLeft | KeyCode::MouseRight) {
@@ -346,7 +339,9 @@ impl InputManager {
             self.new_input_state |= 1u32 << (keycode.clone() as u32);
         } // _g dropped here
 
-        self.record_keydown_or_up(keycode, x, y);
+        if self.click == 1 {
+            self.record_keydown_or_up(keycode, x, y);
+        }
     }
 
     pub fn notify_mouse_up(&mut self, keycode: KeyCode) {
@@ -358,9 +353,10 @@ impl InputManager {
             self.new_input_state &= !(1u32 << (keycode.clone() as u32));
         } // _g dropped here
 
-        self.record_keydown_or_up(keycode, x, y);
+        if self.click == 0 {
+            self.record_keydown_or_up(keycode, x, y);
+        }
     }
-
 
     pub fn notify_mouse_move(&mut self, x: i32, y: i32) {
         let _g = self.cs.enter();

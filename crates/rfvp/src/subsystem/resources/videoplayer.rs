@@ -283,8 +283,9 @@ impl VideoPlayerManager {
     fn ensure_layer(&self, motion: &mut MotionManager, screen_w: i16, screen_h: i16) {
         let pm = &mut motion.prim_manager;
 
-        // Root is typically 0; scripts usually operate on 1..=4095.
-        let root = pm.get_custom_root_prim_id() as i32;
+        // Match the original engine draw order: the movie layer belongs to the root=0 prim tree
+        // (drawn in the "root0" pass), not the custom/overlay root.
+        let root = 0i32;
 
         // Group container.
         pm.prim_init_with_type(MOVIE_GROUP_PRIM_ID, PrimType::PrimTypeGroup);

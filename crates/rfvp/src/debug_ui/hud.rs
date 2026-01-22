@@ -21,6 +21,8 @@ pub struct HudInput {
 pub struct HudSnapshot {
     pub frame_no: u64,
     pub dt_ms: f32,
+    /// Human-readable input summary line (keys/mouse state).
+    pub input_line: String,
     pub render: PrimRenderStats,
     pub se: SeDebugSummary,
     pub bgm: BgmDebugSummary,
@@ -238,6 +240,7 @@ impl DebugHud {
                 ui.separator();
                 let fps = if snap.dt_ms > 0.0 { 1000.0 / snap.dt_ms } else { 0.0 };
                 ui.label(format!("frame={}  dt={:.2}ms  fps={:.1}", snap.frame_no, snap.dt_ms, fps));
+                ui.label(&snap.input_line);
                 ui.separator();
                 ui.label(format!("render: quads={} verts={} draws={} textures={}",
                     snap.render.quad_count,

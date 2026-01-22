@@ -474,6 +474,14 @@ impl PrimManager {
         let mut prim = self.get_prim(id as i16);
         prim.set_opx(opx as i16);
         prim.set_opy(opy as i16);
+
+        // Matches the original engine behavior:
+        // - (attr & 0x02) enables OP-based pivot semantics in the renderer.
+        // - 0x40 is the common "dirty" bit used across many prim mutations.
+        if prim.get_type() == PrimType::PrimTypeSprt {
+            prim.apply_attr(0x02);
+        }
+        prim.apply_attr(0x40);
     }
 
     pub fn prim_set_alpha(&mut self, id: i32, alpha: i32) {

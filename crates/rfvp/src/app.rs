@@ -780,9 +780,59 @@ impl App {
 
                 let text_lines = gd.motion_manager.text_manager.debug_lines();
 
+                // Input summary (keys/mouse) to quickly diagnose "auto click" and key state.
+                let input_line = {
+                    const NAMES: [&str; 26] = [
+                        "Shift", "Ctrl", "LClick", "RClick", "MouseL", "MouseR", "Esc", "Enter", "Space",
+                        "Up", "Down", "Left", "Right",
+                        "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
+                        "Tab",
+                    ];
+
+                    let fmt_bits = |bits: u32| -> String {
+                        if bits == 0 {
+                            return "-".to_string();
+                        }
+                        let mut parts: Vec<&'static str> = Vec::new();
+                        for (i, name) in NAMES.iter().enumerate() {
+                            if ((bits >> i) & 1) != 0 {
+                                parts.push(*name);
+                            }
+                        }
+                        if parts.is_empty() {
+                            "-".to_string()
+                        } else {
+                            parts.join("|")
+                        }
+                    };
+
+                    let im = &gd.inputs_manager;
+                    let state = im.get_input_state();
+                    let down = im.get_input_down();
+                    let up = im.get_input_up();
+                    let rep = im.get_repeat();
+                    let wheel = im.get_wheel_value();
+                    let cin = im.get_cursor_in();
+                    let cx = im.get_cursor_x();
+                    let cy = im.get_cursor_y();
+
+                    format!(
+                        "input: state=[{}]  down=[{}]  up=[{}]  repeat=0x{:08X}  cursor_in={}  cursor=({}, {})  wheel={}",
+                        fmt_bits(state),
+                        fmt_bits(down),
+                        fmt_bits(up),
+                        rep,
+                        if cin { 1 } else { 0 },
+                        cx,
+                        cy,
+                        wheel
+                    )
+                };
+
                 HudSnapshot {
                     frame_no: self.debug_frame_no,
                     dt_ms: self.last_dt_ms,
+                    input_line,
                     render: self.prim_renderer.stats(),
                     se: gd.se_player_ref().debug_summary(),
                     bgm: gd.bgm_player_ref().debug_summary(),

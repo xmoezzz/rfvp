@@ -50,6 +50,15 @@ pub fn update_input_events(window_event: &WindowEvent, data: &mut GameData) {
         WindowEvent::CursorLeft {..} => {
             data.inputs_manager.set_mouse_in(false);
         }
+        WindowEvent::Focused(focused) => {
+            // Original engine flushes input states on WM_ACTIVATEAPP.
+            // Without this, we can keep stale pressed bits when focus transitions happen
+            // (including the initial activation), which leads to unintended auto-click/skip.
+            data.inputs_manager.set_flash();
+            if !*focused {
+                data.inputs_manager.set_mouse_in(false);
+            }
+        }
         _ => {}
     };
 }

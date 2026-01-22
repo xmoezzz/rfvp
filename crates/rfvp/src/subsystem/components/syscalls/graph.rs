@@ -897,19 +897,19 @@ pub fn prim_hit(game_data: &mut GameData, id: &Variant, flag: &Variant) -> Resul
         return Ok(Variant::Nil);
     }
 
-    let flag = flag.canbe_true();
+    // Original engine behavior: the 2nd argument is treated as "enabled" if its Variant type is non-Nil.
+    // It does NOT use Lua truthiness; only Nil disables it.
+    let flag_non_nil = !flag.is_nil();
 
-    game_data
-        .motion_manager
-        .prim_hit(
-            id, 
-            flag, 
-            game_data.inputs_manager.get_cursor_in(), 
-            game_data.inputs_manager.get_cursor_x(),
-            game_data.inputs_manager.get_cursor_y(),
-        );
+    let hit = game_data.motion_manager.prim_hit(
+        id,
+        flag_non_nil,
+        game_data.inputs_manager.get_cursor_in(),
+        game_data.inputs_manager.get_cursor_x(),
+        game_data.inputs_manager.get_cursor_y(),
+    );
 
-    Ok(Variant::Nil)
+    Ok(if hit { Variant::True } else { Variant::Nil })
 }
 
 
