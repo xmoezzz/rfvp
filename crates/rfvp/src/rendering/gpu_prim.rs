@@ -768,12 +768,13 @@ impl GpuPrimRenderer {
                             && sm.flake_w > 1
                             && sm.flake_h > 1
                         {
-                            let color = vec4(
-                                sm.color_r as f32 / 255.0,
-                                sm.color_g as f32 / 255.0,
-                                sm.color_b_or_extra as f32 / 255.0,
-                                base_a,
-                            );
+                            let a0 = sm.color_r as f32;
+                            let a1 = sm.color_b_or_extra as f32;
+                            let a2 = sm.color_g as f32;
+
+                            let p0 = sm.period_min as f32;
+                            let p1 = sm.time_override as f32;
+                            let p2 = sm.period_max as f32;
 
                             let base_tex = sm.texture_id as i32;
                             let vcnt = sm.variant_count.max(1) as u32;
@@ -786,6 +787,19 @@ impl GpuPrimRenderer {
                             for j in 0..count {
                                 let idx = sm.flake_ptrs[j];
                                 let flake = &sm.flakes[idx];
+                                let period = flake.period;
+                                let alpha_u8 = if period <= p0 || p1 <= p0 {
+                                    a0
+                                } else if period <= p1 {
+                                    a0 + (period - p0) * (a1 - a0) / (p1 - p0)
+                                } else if period <= p2 && p2 > p1 {
+                                    a1 + (period - p1) * (a2 - a1) / (p2 - p1)
+                                } else {
+                                    a2
+                                };
+
+                                let alpha = (alpha_u8.clamp(0.0, 255.0) / 255.0) * base_a;
+                                let color = vec4(1.0, 1.0, 1.0, alpha);
 
                                 let vi = (flake.variant_idx % vcnt) as i32;
                                 let graph_i32 = base_tex + vi;
