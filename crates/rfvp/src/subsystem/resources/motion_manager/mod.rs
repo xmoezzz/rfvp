@@ -857,7 +857,7 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
             return Ok(());
         }
         let graph_id: u16 = 4064u16 + slot as u16;
-        if let Some((rgba, w, h)) = self.text_manager.build_slot_rgba(slot, fonts, force_render)? {
+        if let Some((rgba, w, h)) = self.text_manager.build_slot_rgba(slot, fonts, &self.gaiji_manager, force_render)? {
             self.load_texture_from_buff(graph_id, rgba, w, h)?;
             self.refresh_prims(graph_id);
         }

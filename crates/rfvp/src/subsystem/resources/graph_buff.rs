@@ -123,6 +123,50 @@ impl GraphBuff {
         self.height
     }
 
+    /// Export this graph as an 8-bit coverage mask (alpha plane) for text rendering.
+    ///
+    /// This is primarily used for gaiji (external glyph) rendering where the NVSG payload is
+    /// stored as `LumaA8` (coverage in alpha).
+    ///
+    /// Returns (w, h, offset_x, offset_y, mask), where mask is row-major and each byte is 0..255.
+    pub fn export_alpha_mask(&self) -> Option<(u16, u16, i16, i16, Vec<u8>)> {
+        let tex = self.texture.as_ref()?;
+        let (w, h) = tex.dimensions();
+        if w == 0 || h == 0 {
+            return None;
+        }
+
+        let ox = self.offset_x as i16;
+        let oy = self.offset_y as i16;
+
+        let px_count = (w as usize).checked_mul(h as usize)?;
+        let mut out = Vec::with_capacity(px_count);
+
+        match tex {
+            DynamicImage::ImageLumaA8(img) => {
+                let raw = img.as_raw();
+                if raw.len() < px_count * 2 {
+                    return None;
+                }
+                for i in 0..px_count {
+                    out.push(raw[i * 2 + 1]);
+                }
+            }
+            _ => {
+                let img = tex.to_rgba8();
+                let raw = img.as_raw();
+                if raw.len() < px_count * 4 {
+                    return None;
+                }
+                for i in 0..px_count {
+                    out.push(raw[i * 4 + 3]);
+                }
+            }
+        }
+
+        Some((w as u16, h as u16, ox, oy, out))
+    }
+
     pub fn get_texture_mut(&mut self) -> &mut Option<DynamicImage> {
         &mut self.texture
     }

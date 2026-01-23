@@ -1034,6 +1034,11 @@ pub fn gaiji_load(game_data: &mut GameData, code: &Variant, size: &Variant, fnam
         },
     };
 
+    if !(12..=64).contains(&size) {
+        log::error!("gaiji_load: size out of range {} (expected 12..=64)", size);
+        return Ok(Variant::Nil);
+    }
+
     let code = match code.as_string() {
         Some(code) => code,
         None => {
@@ -1754,27 +1759,25 @@ unsafe impl Send for GraphRGB {}
 unsafe impl Sync for GraphRGB {}
 
 ///
-/// Load a custom gaiji (special character image 外字) for use in dialogue or UI rendering.
-/// Also see wiki: https://zh.wikipedia.org/zh-hk/%E5%A4%96%E5%AD%97
-///
-/// Arg1: path to the gaiji image folder (string)
-///       - Example: "graph/gaiji_ikari"
+/// Arg1: code (string)
+///       - The character or symbol that should be substituted by a gaiji glyph.
+///       - Example: "怒", "汗", "♪"
 /// Arg2: size slot (integer 12–64)
-///       - Corresponds to the text size or rendering slot where this gaiji will be used
-///       - Different slots allow the same character to appear at multiple sizes in dialogue
-/// Arg3: keyword (string)
-///       - The character or symbol this gaiji represents
-///       - Example: "怒", "汗", "汁", "ハ"
+///       - The text-size slot where this gaiji mapping applies.
+/// Arg3: path (string)
+///       - NVSG gaiji glyph resource path.
+///       - Example: "graph/gaiji_ikari"
 ///
 /// Notes:
-/// - The gaiji image is mapped to the keyword in the engine’s gaiji table for the given size.
+/// - This syscall registers an "external glyph" for text rendering: when the text renderer
+///   encounters `code` at the corresponding size slot, it draws the gaiji bitmap instead of
+///   rasterizing the font glyph.
 ///
 /// Example usage (script):
 /// ```text
-/// GaijiLoad("graph/gaiji_ikari", 28, "怒")   // Slot 28, kanji for "anger"
-/// GaijiLoad("graph/gaiji_ase", 28, "汗")    // Slot 28, kanji for "sweat"
-/// GaijiLoad("graph/gaiji_ikari156", 39, "怒") // Slot 39, larger size
-/// GaijiLoad("graph/gaiji_heart68", 17, "ハ") // Slot 17, small heart symbol
+/// GaijiLoad("怒", 28, "graph/gaiji_ikari")
+/// GaijiLoad("汗", 28, "graph/gaiji_ase")
+/// GaijiLoad("怒", 39, "graph/gaiji_ikari156")
 /// ```
 pub struct GaijiLoad;
 impl Syscaller for GaijiLoad {

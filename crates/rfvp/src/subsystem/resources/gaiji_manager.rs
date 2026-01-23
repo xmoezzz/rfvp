@@ -67,6 +67,17 @@ impl GaijiManager {
             entry.insert(size, item);
         }
     }
+
+    /// Lookup a gaiji mapping for the given trigger character and size slot.
+    pub fn get(&self, code: char, size: u8) -> Option<&GaijiItem> {
+        self.item.get(&code)?.get(&size)
+    }
+
+    /// Convenience helper to access the mapped texture, if any.
+    pub fn get_texture(&self, code: char, size: u8) -> Option<&GraphBuff> {
+        self.get(code, size).map(|it| it.get_texture())
+    }
+
 }
 
 // ----------------------------

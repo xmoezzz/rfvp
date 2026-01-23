@@ -7,6 +7,7 @@ use crate::{
 use anyhow::{anyhow, bail, Result};
 use atomic_refcell::AtomicRefCell;
 use serde::{Deserialize, Serialize};
+use super::gaiji_manager::GaijiManager;
 
 // ＭＳ ゴシック
 pub const FONTFACE_MS_GOTHIC: i32 = -4;
@@ -614,6 +615,8 @@ impl TextItem {
         bh: u32,
         font: &fontdue::Font,
         size: f32,
+        gaiji: &GaijiManager,
+        size_slot: u8,
         x: i32,
         y: i32,
         ch: char,
@@ -623,6 +626,42 @@ impl TextItem {
         shadow_dist: u8,
         shadow_color: &ColorItem,
     ) -> i32 {
+        // Gaiji (external glyph) substitution: if a gaiji entry exists for (ch, size_slot),
+        // render its alpha mask instead of rasterizing the font glyph.
+        if let Some(gb) = gaiji.get_texture(ch, size_slot) {
+            if let Some((mw, mh, ox, oy, mask)) = gb.export_alpha_mask() {
+                let gx = x + ox as i32;
+                let gy = y + oy as i32;
+                let mw_usize = mw as usize;
+                let mh_usize = mh as usize;
+
+                // shadow
+                if shadow_dist != 0 {
+                    let d = shadow_dist as i32;
+                    Self::draw_glyph_mask(buf, bw, bh, gx + d, gy + d, &mask, mw_usize, mh_usize, shadow_color);
+                }
+
+                // outline
+                if outline != 0 {
+                    let r = outline as i32;
+                    for oy2 in -r..=r {
+                        for ox2 in -r..=r {
+                            if ox2 == 0 && oy2 == 0 {
+                                continue;
+                            }
+                            Self::draw_glyph_mask(buf, bw, bh, gx + ox2, gy + oy2, &mask, mw_usize, mh_usize, outline_color);
+                        }
+                    }
+                }
+
+                // fill
+                Self::draw_glyph_mask(buf, bw, bh, gx, gy, &mask, mw_usize, mh_usize, color);
+
+                // Treat gaiji width as advance.
+                return mw as i32;
+            }
+        }
+
         let (metrics, bitmap) = font.rasterize(ch, size);
         let gx = x + metrics.xmin;
         let gy = y + metrics.ymin;
@@ -652,7 +691,7 @@ impl TextItem {
         metrics.advance_width.ceil() as i32
     }
 
-    fn rasterize_full(&mut self, fonts: &FontEnumerator) -> Result<()> {
+    fn rasterize_full(&mut self, fonts: &FontEnumerator, gaiji: &GaijiManager) -> Result<()> {
         self.ensure_buffer();
         if !self.loaded {
             return Ok(());
@@ -668,6 +707,10 @@ impl TextItem {
 
         let main_size = if self.main_text_size == 0 { 16.0 } else { self.main_text_size as f32 };
         let ruby_size = if self.ruby_text_size == 0 { (main_size * 0.6).max(8.0) } else { self.ruby_text_size as f32 };
+
+        // Gaiji key uses the size slot (12..64) passed by GaijiLoad; we align it with text size.
+        let main_slot: u8 = if self.main_text_size == 0 { 16 } else { self.main_text_size };
+        let ruby_slot: u8 = if self.ruby_text_size == 0 { (main_slot as f32 * 0.6).round().clamp(8.0, 64.0) as u8 } else { self.ruby_text_size };
 
         let line_h = main_size.ceil() as i32 + self.space_vertical as i32;
 
@@ -705,6 +748,8 @@ impl TextItem {
                         bh,
                         &font_ref,
                         main_size,
+                        gaiji,
+                        main_slot,
                         pen_x,
                         baseline_y + pen_y,
                         ch,
@@ -742,6 +787,8 @@ impl TextItem {
                             bh,
                             &font_ref,
                             main_size,
+                            gaiji,
+                            main_slot,
                             pen_x,
                             baseline_y + pen_y,
                             *ch,
@@ -781,6 +828,8 @@ impl TextItem {
                             bh,
                             &font_ref,
                             ruby_size,
+                            gaiji,
+                            ruby_slot,
                             ruby_x,
                             ruby_y,
                             rch,
@@ -1063,6 +1112,7 @@ impl TextManager {
         &mut self,
         id: i32,
         fonts: &FontEnumerator,
+        gaiji: &GaijiManager,
         force: bool,
     ) -> Result<Option<(Vec<u8>, u32, u32)>> {
         if !(0..32).contains(&id) {
@@ -1073,7 +1123,7 @@ impl TextManager {
             return Ok(None);
         }
         if force || t.dirty {
-            t.rasterize_full(fonts)?;
+            t.rasterize_full(fonts, gaiji)?;
             t.dirty = false;
         }
         let w = t.w as u32;
