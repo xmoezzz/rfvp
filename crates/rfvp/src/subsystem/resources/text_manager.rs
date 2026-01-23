@@ -6,6 +6,7 @@ use crate::{
 };
 use anyhow::{anyhow, bail, Result};
 use atomic_refcell::AtomicRefCell;
+use serde::{Deserialize, Serialize};
 
 // ＭＳ ゴシック
 pub const FONTFACE_MS_GOTHIC: i32 = -4;
@@ -1085,5 +1086,189 @@ impl TextManager {
             bail!("build_slot_rgba: invalid buffer length");
         }
         Ok(Some((t.pixel_buffer.clone(), w, h)))
+    }
+}
+
+// ----------------------------
+// Save/Load snapshots
+// ----------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextItemSnapshotV1 {
+    pub offset_x: u16,
+    pub offset_y: u16,
+    pub suspend_chrs: Vec<char>,
+
+    pub text_content: String,
+    pub content_text: String,
+
+    pub font_name_id: i32,
+    pub font_text_id: i32,
+    pub main_text_size: u8,
+    pub ruby_text_size: u8,
+    pub main_text_outline: u8,
+    pub ruby_text_outline: u8,
+    pub distance: u8,
+    pub color1: ColorItem,
+    pub color2: ColorItem,
+    pub color3: ColorItem,
+    pub func1: u8,
+    pub func2: u8,
+    pub func3: u8,
+    pub space_vertical: i16,
+    pub space_horizon: i16,
+    pub text_start_horizon: u16,
+    pub text_start_vertical: u16,
+    pub ruby_vertical: i16,
+    pub ruby_horizon: i16,
+    pub suspend_margin: i16,
+
+    pub skip_mode: u8,
+    pub is_suspended: bool,
+    pub x: u16,
+    pub y: u16,
+    pub w: u16,
+    pub h: u16,
+    pub speed: i32,
+    pub loaded: bool,
+    pub pixel_buffer: Vec<u8>,
+    pub dirty: bool,
+    pub elapsed: u32,
+    pub total_chars: usize,
+    pub visible_chars: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextManagerSnapshotV1 {
+    pub items: Vec<TextItemSnapshotV1>,
+    pub readed_text: Vec<u32>,
+}
+
+impl TextItem {
+    fn capture_snapshot_v1(&self) -> TextItemSnapshotV1 {
+        TextItemSnapshotV1 {
+            offset_x: self.offset_x,
+            offset_y: self.offset_y,
+            suspend_chrs: self.suspend_chrs.clone(),
+            text_content: self.text_content.clone(),
+            content_text: self.content_text.clone(),
+            font_name_id: self.font_name_id,
+            font_text_id: self.font_text_id,
+            main_text_size: self.main_text_size,
+            ruby_text_size: self.ruby_text_size,
+            main_text_outline: self.main_text_outline,
+            ruby_text_outline: self.ruby_text_outline,
+            distance: self.distance,
+            color1: self.color1.clone(),
+            color2: self.color2.clone(),
+            color3: self.color3.clone(),
+            func1: self.func1,
+            func2: self.func2,
+            func3: self.func3,
+            space_vertical: self.space_vertical,
+            space_horizon: self.space_horizon,
+            text_start_horizon: self.text_start_horizon,
+            text_start_vertical: self.text_start_vertical,
+            ruby_vertical: self.ruby_vertical,
+            ruby_horizon: self.ruby_horizon,
+            suspend_margin: self.suspend_margin,
+            skip_mode: self.skip_mode,
+            is_suspended: self.is_suspended,
+            x: self.x,
+            y: self.y,
+            w: self.w,
+            h: self.h,
+            speed: self.speed,
+            loaded: self.loaded,
+            pixel_buffer: self.pixel_buffer.clone(),
+            dirty: self.dirty,
+            elapsed: self.elapsed,
+            total_chars: self.total_chars,
+            visible_chars: self.visible_chars,
+        }
+    }
+
+    fn apply_snapshot_v1(&mut self, snap: &TextItemSnapshotV1) {
+        self.offset_x = snap.offset_x;
+        self.offset_y = snap.offset_y;
+        self.suspend_chrs = snap.suspend_chrs.clone();
+
+        self.text_content = snap.text_content.clone();
+        self.content_text = snap.content_text.clone();
+
+        self.font_name_id = snap.font_name_id;
+        self.font_text_id = snap.font_text_id;
+        self.main_text_size = snap.main_text_size;
+        self.ruby_text_size = snap.ruby_text_size;
+        self.main_text_outline = snap.main_text_outline;
+        self.ruby_text_outline = snap.ruby_text_outline;
+        self.distance = snap.distance;
+        self.color1 = snap.color1.clone();
+        self.color2 = snap.color2.clone();
+        self.color3 = snap.color3.clone();
+        self.func1 = snap.func1;
+        self.func2 = snap.func2;
+        self.func3 = snap.func3;
+        self.space_vertical = snap.space_vertical;
+        self.space_horizon = snap.space_horizon;
+        self.text_start_horizon = snap.text_start_horizon;
+        self.text_start_vertical = snap.text_start_vertical;
+        self.ruby_vertical = snap.ruby_vertical;
+        self.ruby_horizon = snap.ruby_horizon;
+        self.suspend_margin = snap.suspend_margin;
+
+        self.skip_mode = snap.skip_mode;
+        self.is_suspended = snap.is_suspended;
+        self.x = snap.x;
+        self.y = snap.y;
+        self.w = snap.w;
+        self.h = snap.h;
+        self.speed = snap.speed;
+        self.loaded = snap.loaded;
+        self.pixel_buffer = snap.pixel_buffer.clone();
+        self.dirty = snap.dirty;
+        self.elapsed = snap.elapsed;
+        self.total_chars = snap.total_chars;
+        self.visible_chars = snap.visible_chars;
+
+        // Rebuild derived token list to keep future incremental rendering functional.
+        self.content_items = self.content_items.clone();
+
+        // Buffer size must match w/h.
+        self.ensure_buffer();
+
+        // If buffer is present in snapshot and size matches, prefer it.
+        let expected = (self.w as usize)
+            .checked_mul(self.h as usize)
+            .and_then(|v| v.checked_mul(4))
+            .unwrap_or(0);
+        if self.pixel_buffer.len() != expected {
+            // Snapshot buffer missing or inconsistent. Force re-render on next tick.
+            self.pixel_buffer = vec![0; expected];
+            self.dirty = true;
+        }
+    }
+}
+
+impl TextManager {
+    pub fn capture_snapshot_v1(&self) -> TextManagerSnapshotV1 {
+        TextManagerSnapshotV1 {
+            items: self.items.iter().map(|t| t.capture_snapshot_v1()).collect(),
+            readed_text: self.readed_text.clone(),
+        }
+    }
+
+    pub fn apply_snapshot_v1(&mut self, snap: &TextManagerSnapshotV1) {
+        // Resize if needed, but keep at least 32.
+        if self.items.len() != snap.items.len() {
+            self.items = vec![TextItem::new(); snap.items.len().max(32)];
+        }
+
+        let n = self.items.len().min(snap.items.len());
+        for i in 0..n {
+            self.items[i].apply_snapshot_v1(&snap.items[i]);
+        }
+
+        self.readed_text = snap.readed_text.clone();
     }
 }

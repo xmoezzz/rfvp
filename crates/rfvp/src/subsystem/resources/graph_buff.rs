@@ -1,7 +1,28 @@
 use image::{DynamicImage, GenericImageView, ImageBuffer};
 use anyhow::{Result, anyhow};
+use serde::{Deserialize, Serialize};
 
 use super::texture::NvsgTexture;
+use super::vfs::Vfs;
+
+/// How this [`GraphBuff`] was last populated.
+///
+/// Save/load needs this information because different NVSG payload types must be decoded
+/// using different loaders.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize, Default)]
+pub enum GraphBuffLoadKind {
+    /// Unknown or unloaded.
+    #[default]
+    Unknown,
+    /// Normal 24/32-bit NVSG texture.
+    Texture,
+    /// 8-bit mask NVSG texture.
+    Mask,
+    /// 1-bit gaiji glyph.
+    GaijiGlyph,
+    /// Raw RGBA8 pixel buffer.
+    RawRgba,
+}
 
 #[derive(Debug, Clone)]
 pub struct GraphBuff {
@@ -23,6 +44,9 @@ pub struct GraphBuff {
     /// Any CPU-side pixel mutation (including replacing the texture) must bump this counter so the
     /// GPU cache can refresh the corresponding texture.
     pub generation: u64,
+
+    /// Track how this graph was populated so it can be restored correctly.
+    pub load_kind: GraphBuffLoadKind,
 }
 
 impl GraphBuff {
@@ -41,6 +65,7 @@ impl GraphBuff {
             u: 0,
             v: 0,
             generation: 0,
+            load_kind: GraphBuffLoadKind::Unknown,
         }
     }
 
@@ -116,6 +141,7 @@ impl GraphBuff {
         self.height = 0;
         self.u = 0;
         self.v = 0;
+        self.load_kind = GraphBuffLoadKind::Unknown;
         self.mark_dirty();
     }
 
@@ -140,6 +166,7 @@ impl GraphBuff {
         self.u = nvsg_texture.get_u();
         self.v = nvsg_texture.get_v();
         self.texture_path = file_name.to_string();
+        self.load_kind = GraphBuffLoadKind::Texture;
         self.mark_dirty();
     
         Ok(())
@@ -164,6 +191,7 @@ impl GraphBuff {
         self.u = nvsg_texture.get_u();
         self.v = nvsg_texture.get_v();
         self.texture_path = file_name.to_string();
+        self.load_kind = GraphBuffLoadKind::GaijiGlyph;
         self.mark_dirty();
     
         Ok(())
@@ -188,6 +216,7 @@ impl GraphBuff {
         self.u = nvsg_texture.get_u();
         self.v = nvsg_texture.get_v();
         self.texture_path = file_name.to_string();
+        self.load_kind = GraphBuffLoadKind::Mask;
         self.mark_dirty();
     
         Ok(())
@@ -238,6 +267,7 @@ impl GraphBuff {
         self.v = 0;
 
         self.mark_dirty();
+        self.load_kind = GraphBuffLoadKind::RawRgba;
         Ok(())
     }
 
@@ -419,4 +449,133 @@ pub fn copy_rect_clipped(
     }
 
     Ok(())
+}
+
+// ----------------------------
+// Save/Load snapshots
+// ----------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphBuffSnapshotV1 {
+    pub id: u16,
+    pub r_value: u8,
+    pub g_value: u8,
+    pub b_value: u8,
+    pub texture_ready: bool,
+    pub texture_path: String,
+    pub offset_x: u16,
+    pub offset_y: u16,
+    pub width: u16,
+    pub height: u16,
+    pub u: u16,
+    pub v: u16,
+    pub load_kind: GraphBuffLoadKind,
+    /// Raw RGBA8 pixels (width*height*4). Only present for non-VFS textures.
+    pub rgba: Option<Vec<u8>>,
+}
+
+impl GraphBuff {
+    pub fn capture_snapshot_with_id(&self, id: u16) -> GraphBuffSnapshotV1 {
+        // Skip empty graphs.
+        if !self.texture_ready && self.texture.is_none() && self.texture_path.is_empty() {
+            return GraphBuffSnapshotV1 {
+                id,
+                r_value: self.r_value,
+                g_value: self.g_value,
+                b_value: self.b_value,
+                texture_ready: self.texture_ready,
+                texture_path: self.texture_path.clone(),
+                offset_x: self.offset_x,
+                offset_y: self.offset_y,
+                width: self.width,
+                height: self.height,
+                u: self.u,
+                v: self.v,
+                load_kind: self.load_kind,
+                rgba: None,
+            };
+        }
+
+        GraphBuffSnapshotV1 {
+            id,
+            r_value: self.r_value,
+            g_value: self.g_value,
+            b_value: self.b_value,
+            texture_ready: self.texture_ready,
+            texture_path: self.texture_path.clone(),
+            offset_x: self.offset_x,
+            offset_y: self.offset_y,
+            width: self.width,
+            height: self.height,
+            u: self.u,
+            v: self.v,
+            load_kind: self.load_kind,
+            rgba: if self.texture_path.is_empty() {
+                // In-memory textures (text buffers, intermediate results). Persist raw RGBA.
+                self.texture.as_ref().map(|img| img.to_rgba8().into_raw())
+            } else {
+                None
+            },
+        }
+    }
+
+    pub fn apply_snapshot_v1(&mut self, snap: &GraphBuffSnapshotV1, vfs: &Vfs) -> Result<()> {
+        // Always reset, then rehydrate.
+        self.unload();
+
+        self.r_value = snap.r_value;
+        self.g_value = snap.g_value;
+        self.b_value = snap.b_value;
+
+        // Prefer VFS re-load if we have a path.
+        if !snap.texture_path.is_empty() {
+            let bytes = match vfs.read_file(&snap.texture_path) {
+                Ok(b) => b,
+                Err(e) => {
+                    // Fall back to embedded pixels if provided.
+                    if let Some(rgba) = &snap.rgba {
+                        self.load_from_buff(rgba.clone(), snap.width as u32, snap.height as u32)?;
+                        self.offset_x = snap.offset_x;
+                        self.offset_y = snap.offset_y;
+                        self.u = snap.u;
+                        self.v = snap.v;
+                        self.texture_path = snap.texture_path.clone();
+                        self.texture_ready = snap.texture_ready;
+                        self.load_kind = snap.load_kind;
+                        self.mark_dirty();
+                        return Ok(());
+                    }
+                    return Err(anyhow!(
+                        "apply_snapshot_v1: failed to read {} from vfs: {}",
+                        snap.texture_path,
+                        e
+                    ));
+                }
+            };
+
+            match snap.load_kind {
+                GraphBuffLoadKind::Mask => self.load_mask(&snap.texture_path, bytes)?,
+                GraphBuffLoadKind::GaijiGlyph => self.load_gaiji_fontface_glyph(&snap.texture_path, bytes)?,
+                _ => self.load_texture(&snap.texture_path, bytes)?,
+            }
+
+            // load_* already sets offsets/u/v/size/ready/path/kind.
+            return Ok(());
+        }
+
+        // No path: require pixels.
+        if let Some(rgba) = &snap.rgba {
+            self.load_from_buff(rgba.clone(), snap.width as u32, snap.height as u32)?;
+            self.offset_x = snap.offset_x;
+            self.offset_y = snap.offset_y;
+            self.u = snap.u;
+            self.v = snap.v;
+            self.texture_ready = snap.texture_ready;
+            self.load_kind = snap.load_kind;
+            self.mark_dirty();
+            return Ok(());
+        }
+
+        Ok(())
+    }
 }

@@ -1,6 +1,9 @@
 use super::texture::{NvsgTexture, TextureType};
 use anyhow::Result;
 use image::DynamicImage;
+use serde::{Deserialize, Serialize};
+
+use super::vfs::Vfs;
 
 #[derive(Debug, Clone)]
 pub struct PartsItem {
@@ -323,5 +326,132 @@ impl PartsManager {
 impl Default for PartsManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ----------------------------
+// Save/Load snapshots
+// ----------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PartsItemSnapshotV1 {
+    pub prim_id: u16,
+    pub r_value: u8,
+    pub g_value: u8,
+    pub b_value: u8,
+    pub running: bool,
+    pub texture_name: String,
+    pub loaded: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PartsMotionSnapshotV1 {
+    pub running: bool,
+    pub parts_id: u8,
+    pub entry_id: u8,
+    pub id: u8,
+    pub elapsed: u32,
+    pub duration: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PartsManagerSnapshotV1 {
+    pub parts: Vec<PartsItemSnapshotV1>,
+    pub parts_motions: Vec<PartsMotionSnapshotV1>,
+    pub allocation_pool: Vec<u8>,
+    pub current_id: u8,
+}
+
+impl PartsItem {
+    fn capture_snapshot_v1(&self) -> PartsItemSnapshotV1 {
+        PartsItemSnapshotV1 {
+            prim_id: self.prim_id,
+            r_value: self.r_value,
+            g_value: self.g_value,
+            b_value: self.b_value,
+            running: self.running,
+            texture_name: self.texture_name.clone(),
+            loaded: self.loaded,
+        }
+    }
+
+    fn apply_snapshot_v1(&mut self, snap: &PartsItemSnapshotV1, vfs: &Vfs) -> Result<()> {
+        self.prim_id = snap.prim_id;
+        self.r_value = snap.r_value;
+        self.g_value = snap.g_value;
+        self.b_value = snap.b_value;
+        self.running = snap.running;
+
+        self.texture_name = snap.texture_name.clone();
+        self.loaded = false;
+        self.texture = NvsgTexture::new("");
+
+        if snap.loaded && !snap.texture_name.is_empty() {
+            let bytes = vfs.read_file(&snap.texture_name)?;
+            self.load_texture(&snap.texture_name, bytes)?;
+            self.set_color_tone(snap.r_value, snap.g_value, snap.b_value);
+        }
+        self.loaded = snap.loaded;
+        Ok(())
+    }
+}
+
+impl PartsMotion {
+    fn capture_snapshot_v1(&self) -> PartsMotionSnapshotV1 {
+        PartsMotionSnapshotV1 {
+            running: self.running,
+            parts_id: self.parts_id,
+            entry_id: self.entry_id,
+            id: self.id,
+            elapsed: self.elapsed,
+            duration: self.duration,
+        }
+    }
+
+    fn apply_snapshot_v1(&mut self, snap: &PartsMotionSnapshotV1) {
+        self.running = snap.running;
+        self.parts_id = snap.parts_id;
+        self.entry_id = snap.entry_id;
+        self.id = snap.id;
+        self.elapsed = snap.elapsed;
+        self.duration = snap.duration;
+    }
+}
+
+impl PartsManager {
+    pub fn capture_snapshot_v1(&self) -> PartsManagerSnapshotV1 {
+        PartsManagerSnapshotV1 {
+            parts: self.parts.iter().map(|p| p.capture_snapshot_v1()).collect(),
+            parts_motions: self
+                .parts_motions
+                .iter()
+                .map(|m| m.capture_snapshot_v1())
+                .collect(),
+            allocation_pool: self.allocation_pool.clone(),
+            current_id: self.current_id,
+        }
+    }
+
+    pub fn apply_snapshot_v1(&mut self, snap: &PartsManagerSnapshotV1, vfs: &Vfs) -> Result<()> {
+        if self.parts.len() != snap.parts.len() {
+            self.parts = vec![PartsItem::new(); snap.parts.len().max(64)];
+        }
+        if self.parts_motions.len() != snap.parts_motions.len() {
+            self.parts_motions = vec![PartsMotion::new(); snap.parts_motions.len().max(8)];
+        }
+
+        let n = self.parts.len().min(snap.parts.len());
+        for i in 0..n {
+            self.parts[i].apply_snapshot_v1(&snap.parts[i], vfs)?;
+        }
+
+        let m = self.parts_motions.len().min(snap.parts_motions.len());
+        for i in 0..m {
+            self.parts_motions[i].apply_snapshot_v1(&snap.parts_motions[i]);
+        }
+
+        self.allocation_pool = snap.allocation_pool.clone();
+        self.current_id = snap.current_id;
+        Ok(())
     }
 }

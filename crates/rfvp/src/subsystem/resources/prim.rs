@@ -1,4 +1,5 @@
 use atomic_refcell::{AtomicRef, AtomicRefCell, AtomicRefMut};
+use serde::{Deserialize, Serialize};
 
 
 
@@ -13,6 +14,19 @@ pub enum PrimType {
     PrimTypeSprt = 4,
     PrimTypeText = 5,
     PrimTypeSnow = 7,
+}
+
+impl From<u8> for PrimType {
+    fn from(v: u8) -> Self {
+        match v {
+            1 => PrimType::PrimTypeGroup,
+            2 => PrimType::PrimTypeTile,
+            4 => PrimType::PrimTypeSprt,
+            5 => PrimType::PrimTypeText,
+            7 => PrimType::PrimTypeSnow,
+            _ => PrimType::PrimTypeNone,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -678,5 +692,146 @@ x={} y={} z={} w={} h={} u={} v={} op=({}, {}) angle={} factor=({}, {}) tile={} 
 
         dump_node(self, root, 0, max_nodes, max_depth, &mut visited, &mut count, &mut out);
         out
+    }
+}
+
+// ----------------------------
+// Save/Load snapshots
+// ----------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrimSnapshotV1 {
+    pub typ: u8,
+    pub draw_flag: bool,
+    pub alpha: u8,
+    pub blend: bool,
+    pub is_paused: bool,
+    pub parent: i16,
+    pub sprt: i16,
+    pub prev_sibling: i16,
+    pub next_sibling: i16,
+    pub first_child: i16,
+    pub last_child: i16,
+
+    pub x: i16,
+    pub y: i16,
+    pub w: i16,
+    pub h: i16,
+    pub u: i16,
+    pub v: i16,
+
+    pub opx: i16,
+    pub opy: i16,
+    pub rotation: i16,
+    pub factor_x: i16,
+    pub factor_y: i16,
+
+    pub texture_id: i16,
+
+    pub z: i16,
+    pub tile: i16,
+    pub text_index: i16,
+    pub attr: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrimManagerSnapshotV1 {
+    pub custom_root_prim_id: u16,
+    pub prims: Vec<PrimSnapshotV1>,
+}
+
+impl Prim {
+    pub fn capture_snapshot_v1(&self) -> PrimSnapshotV1 {
+        PrimSnapshotV1 {
+            typ: self.typ as u8,
+            draw_flag: self.draw_flag,
+            alpha: self.alpha,
+            blend: self.blend,
+            is_paused: self.is_paused,
+            parent: self.parent,
+            sprt: self.sprt,
+            prev_sibling: self.prev_sibling_idx,
+            next_sibling: self.next_sibling_idx,
+            first_child: self.first_child_idx,
+            last_child: self.last_child_idx,
+
+            x: self.x,
+            y: self.y,
+            w: self.w,
+            h: self.h,
+            u: self.u,
+            v: self.v,
+
+            opx: self.opx,
+            opy: self.opy,
+            rotation: self.rotation,
+            factor_x: self.factor_x,
+            factor_y: self.factor_y,
+
+            texture_id: self.texture_id,
+
+            z: self.z,
+            tile: self.tile,
+            text_index: self.text_index,
+            attr: self.attr,
+        }
+    }
+
+    pub fn apply_snapshot_v1(&mut self, snap: &PrimSnapshotV1) {
+        self.typ = PrimType::from(snap.typ);
+        self.draw_flag = snap.draw_flag;
+        self.alpha = snap.alpha;
+        self.blend = snap.blend;
+        self.is_paused = snap.is_paused;
+        self.parent = snap.parent;
+        self.sprt = snap.sprt;
+        self.prev_sibling_idx = snap.prev_sibling;
+        self.next_sibling_idx = snap.next_sibling;
+        self.first_child_idx = snap.first_child;
+        self.last_child_idx = snap.last_child;
+
+        self.x = snap.x;
+        self.y = snap.y;
+        self.w = snap.w;
+        self.h = snap.h;
+        self.u = snap.u;
+        self.v = snap.v;
+
+        self.opx = snap.opx;
+        self.opy = snap.opy;
+        self.rotation = snap.rotation;
+        self.factor_x = snap.factor_x;
+        self.factor_y = snap.factor_y;
+        self.texture_id = snap.texture_id;
+
+        self.z = snap.z;
+        self.tile = snap.tile;
+        self.text_index = snap.text_index;
+        self.attr = snap.attr;
+    }
+}
+
+impl PrimManager {
+    pub fn capture_snapshot_v1(&self) -> PrimManagerSnapshotV1 {
+        let mut prims = Vec::with_capacity(self.prims.len());
+        for cell in &self.prims {
+            let p = cell.borrow();
+            prims.push(p.capture_snapshot_v1());
+        }
+
+        PrimManagerSnapshotV1 {
+            custom_root_prim_id: self.custom_root_prim_id,
+            prims,
+        }
+    }
+
+    pub fn apply_snapshot_v1(&mut self, snap: &PrimManagerSnapshotV1) {
+        self.custom_root_prim_id = snap.custom_root_prim_id;
+
+        let n = self.prims.len().min(snap.prims.len());
+        for i in 0..n {
+            let mut p = self.prims[i].borrow_mut();
+            p.apply_snapshot_v1(&snap.prims[i]);
+        }
     }
 }

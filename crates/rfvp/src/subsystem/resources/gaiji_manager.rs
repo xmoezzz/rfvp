@@ -1,5 +1,10 @@
 use std::collections::HashMap;
-use super::graph_buff::GraphBuff;
+
+use serde::{Deserialize, Serialize};
+use anyhow::Result;
+
+use super::graph_buff::{GraphBuff, GraphBuffSnapshotV1};
+use super::vfs::Vfs;
 
 #[derive(Debug, Clone)]
 pub struct GaijiItem {
@@ -61,5 +66,48 @@ impl GaijiManager {
         if let Some(entry) = self.item.get_mut(&code) {
             entry.insert(size, item);
         }
+    }
+}
+
+// ----------------------------
+// Save/Load snapshots
+// ----------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GaijiEntrySnapshotV1 {
+    pub code: char,
+    pub size: u8,
+    pub texture: GraphBuffSnapshotV1,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GaijiManagerSnapshotV1 {
+    pub entries: Vec<GaijiEntrySnapshotV1>,
+}
+
+impl GaijiManager {
+    pub fn capture_snapshot_v1(&self) -> GaijiManagerSnapshotV1 {
+        let mut entries = Vec::new();
+        for (code, size_map) in &self.item {
+            for (size, item) in size_map {
+                // Gaiji textures are always 1bpp glyph images, so we keep load_kind.
+                entries.push(GaijiEntrySnapshotV1 {
+                    code: *code,
+                    size: *size,
+                    texture: item.texture.capture_snapshot_with_id(0),
+                });
+            }
+        }
+        GaijiManagerSnapshotV1 { entries }
+    }
+
+    pub fn apply_snapshot_v1(&mut self, snap: &GaijiManagerSnapshotV1, vfs: &Vfs) -> Result<()> {
+        self.item.clear();
+        for e in &snap.entries {
+            let mut gb = GraphBuff::new();
+            gb.apply_snapshot_v1(&e.texture, vfs)?;
+            self.set_gaiji(e.code, e.size, gb);
+        }
+        Ok(())
     }
 }

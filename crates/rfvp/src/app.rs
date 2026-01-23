@@ -635,8 +635,9 @@ impl App {
 
             let mut gd = gd_write(&self.game_data);
             let nls = gd.get_nls();
-            gd.save_manager
-                .finish_save_write_from_thumb(slot, nls, &thumb_rgba)?;
+            let state_snap = crate::subsystem::save_state::SaveStateSnapshotV1::capture(&gd);
+            gd.save_manager.finalize_save_write(nls, thumb_w, thumb_h, &thumb_rgba, Some(&state_snap))?;
+            gd.save_manager.consume_save_write_result();
         }
 
         output.present();

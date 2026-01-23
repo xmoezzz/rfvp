@@ -13,7 +13,7 @@ use self::anim::SpriteAnimContainer;
 use self::dissolve2::Dissolve2State;
 
 use super::gaiji_manager::GaijiManager;
-use super::graph_buff::{copy_rect, copy_rect_clipped, GraphBuff};
+use super::graph_buff::{copy_rect, copy_rect_clipped, GraphBuff, GraphBuffSnapshotV1};
 pub use super::motion_manager::alpha::{AlphaMotionContainer, AlphaMotionType};
 pub use super::motion_manager::normal_move::{MoveMotionContainer, MoveMotionType};
 pub use super::motion_manager::rotation_move::{RotationMotionContainer, RotationMotionType};
@@ -25,6 +25,11 @@ use crate::subsystem::resources::color_manager::ColorManager;
 use crate::subsystem::resources::prim::{PrimType, Prim};
 use super::parts_manager::PartsManager;
 use super::prim::{PrimManager, INVAILD_PRIM_HANDLE};
+use super::prim::{PrimManagerSnapshotV1, PrimSnapshotV1};
+use super::parts_manager::PartsManagerSnapshotV1;
+use super::gaiji_manager::GaijiManagerSnapshotV1;
+use super::text_manager::TextManagerSnapshotV1;
+use serde::{Deserialize, Serialize};
 use anyhow::{bail, Result};
 use atomic_refcell::{AtomicRefCell, AtomicRefMut};
 use image::GenericImageView;
@@ -908,5 +913,149 @@ impl MotionManager {
     pub fn debug_dump_prim_tree(&self, max_nodes: usize, max_depth: usize) -> String {
         let root = self.prim_manager.get_custom_root_prim_id() as i16;
         self.prim_manager.debug_dump_tree(root, max_nodes, max_depth)
+    }
+}
+
+// ----------------------------
+// Save/Load snapshots
+// ----------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Dissolve1SnapshotV1 {
+    pub dissolve_type: u8,
+    pub dissolve_color_id: u32,
+    pub dissolve_duration_ms: u32,
+    pub dissolve_elapsed_ms: u32,
+    pub dissolve_alpha: f32,
+    pub mask_prim: PrimSnapshotV1,
+    pub dissolve_mask_graph: GraphBuffSnapshotV1,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Dissolve2SnapshotV1 {
+    pub mode: u8,
+    pub color_id: u32,
+    pub duration_ms: u32,
+    pub elapsed_ms: u32,
+    pub alpha: f32,
+    pub pending_fade_out: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MotionManagerSnapshotV1 {
+    pub color_manager: ColorManager,
+    pub prim_manager: PrimManagerSnapshotV1,
+    pub textures: Vec<GraphBuffSnapshotV1>,
+    pub text_manager: TextManagerSnapshotV1,
+    pub parts_manager: PartsManagerSnapshotV1,
+    pub gaiji_manager: GaijiManagerSnapshotV1,
+    pub dissolve1: Dissolve1SnapshotV1,
+    pub dissolve2: Dissolve2SnapshotV1,
+}
+
+impl MotionManager {
+    pub fn capture_snapshot_v1(&self) -> MotionManagerSnapshotV1 {
+        let mut textures: Vec<GraphBuffSnapshotV1> = Vec::new();
+        for (id, gb) in self.textures.iter().enumerate() {
+            if gb.texture_ready || gb.texture.is_some() || !gb.texture_path.is_empty() {
+                textures.push(gb.capture_snapshot_with_id(id as u16));
+            }
+        }
+
+        let parts_snap = self.parts_manager.borrow().capture_snapshot_v1();
+
+        let dissolve1 = Dissolve1SnapshotV1 {
+            dissolve_type: self.dissolve_type as u8,
+            dissolve_color_id: self.dissolve_color_id,
+            dissolve_duration_ms: self.dissolve_duration_ms,
+            dissolve_elapsed_ms: self.dissolve_elapsed_ms,
+            dissolve_alpha: self.dissolve_alpha,
+            mask_prim: self.mask_prim.capture_snapshot_v1(),
+            dissolve_mask_graph: self.dissolve_mask_graph.capture_snapshot_with_id(0),
+        };
+
+        let d2 = self.dissolve2.capture_snapshot_v1();
+        let dissolve2 = Dissolve2SnapshotV1 {
+            mode: d2.mode,
+            color_id: d2.color_id,
+            duration_ms: d2.duration_ms,
+            elapsed_ms: d2.elapsed_ms,
+            alpha: d2.alpha,
+            pending_fade_out: d2.pending_fade_out,
+        };
+
+        MotionManagerSnapshotV1 {
+            color_manager: self.color_manager.clone(),
+            prim_manager: self.prim_manager.capture_snapshot_v1(),
+            textures,
+            text_manager: self.text_manager.capture_snapshot_v1(),
+            parts_manager: parts_snap,
+            gaiji_manager: self.gaiji_manager.capture_snapshot_v1(),
+            dissolve1,
+            dissolve2,
+        }
+    }
+
+    pub fn apply_snapshot_v1(&mut self, snap: &MotionManagerSnapshotV1, vfs: &super::vfs::Vfs) -> Result<()> {
+        self.color_manager = snap.color_manager.clone();
+        self.prim_manager.apply_snapshot_v1(&snap.prim_manager);
+
+        // Reset textures, then apply snapshots.
+        if self.textures.len() != 4096 {
+            self.textures = vec![GraphBuff::new(); 4096];
+        }
+        for gb in &mut self.textures {
+            gb.unload();
+        }
+        for t in &snap.textures {
+            let id = t.id as usize;
+            if id < self.textures.len() {
+                self.textures[id].apply_snapshot_v1(t, vfs)?;
+            }
+        }
+
+        self.text_manager.apply_snapshot_v1(&snap.text_manager);
+        {
+            let mut pm = self.parts_manager.borrow_mut();
+            pm.apply_snapshot_v1(&snap.parts_manager, vfs)?;
+        }
+        self.gaiji_manager.apply_snapshot_v1(&snap.gaiji_manager, vfs)?;
+
+        // Dissolve 1
+        self.dissolve_type = match snap.dissolve1.dissolve_type {
+            1 => DissolveType::Static,
+            2 => DissolveType::ColoredFadeIn,
+            3 => DissolveType::ColoredFadeOut,
+            _ => DissolveType::None,
+        };
+        self.dissolve_color_id = snap.dissolve1.dissolve_color_id;
+        self.dissolve_duration_ms = snap.dissolve1.dissolve_duration_ms;
+        self.dissolve_elapsed_ms = snap.dissolve1.dissolve_elapsed_ms;
+        self.dissolve_alpha = snap.dissolve1.dissolve_alpha;
+        self.mask_prim.apply_snapshot_v1(&snap.dissolve1.mask_prim);
+        self.dissolve_mask_graph.apply_snapshot_v1(&snap.dissolve1.dissolve_mask_graph, vfs)?;
+
+        // Dissolve 2
+        self.dissolve2.apply_snapshot_v1(&dissolve2::Dissolve2SnapshotV1 {
+            mode: snap.dissolve2.mode,
+            color_id: snap.dissolve2.color_id,
+            duration_ms: snap.dissolve2.duration_ms,
+            elapsed_ms: snap.dissolve2.elapsed_ms,
+            alpha: snap.dissolve2.alpha,
+            pending_fade_out: snap.dissolve2.pending_fade_out,
+        });
+
+        // Stop time-based motions on load. Scene state (prims/textures/text) is already restored,
+        // but resuming in-flight motions without accurate timestamps causes more harm than good.
+        self.alpha_motion_container = AlphaMotionContainer::new();
+        self.move_motion_container = MoveMotionContainer::new();
+        self.rotation_motion_container = RotationMotionContainer::new();
+        self.scale_motion_container = ScaleMotionContainer::new();
+        self.z_motion_container = ZMotionContainer::new();
+        self.v3d_motion_container = V3dMotionContainer::new();
+        self.sprite_anim_container = SpriteAnimContainer::new();
+        self.snow_motion_container = SnowMotionContainer::new();
+
+        Ok(())
     }
 }

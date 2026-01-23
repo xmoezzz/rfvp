@@ -21,6 +21,16 @@ pub(crate) struct Dissolve2State {
     pending_fade_out: bool,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub(crate) struct Dissolve2SnapshotV1 {
+    pub mode: u8,
+    pub color_id: u32,
+    pub duration_ms: u32,
+    pub elapsed_ms: u32,
+    pub alpha: f32,
+    pub pending_fade_out: bool,
+}
+
 impl Dissolve2State {
     pub(crate) fn new() -> Self {
         Self {
@@ -159,6 +169,26 @@ impl Dissolve2State {
                 self.pending_fade_out = false;
             }
         }
+    }
+
+    pub(crate) fn capture_snapshot_v1(&self) -> Dissolve2SnapshotV1 {
+        Dissolve2SnapshotV1 {
+            mode: self.mode,
+            color_id: self.color_id,
+            duration_ms: self.duration_ms,
+            elapsed_ms: self.elapsed_ms,
+            alpha: self.alpha,
+            pending_fade_out: self.pending_fade_out,
+        }
+    }
+
+    pub(crate) fn apply_snapshot_v1(&mut self, snap: &Dissolve2SnapshotV1) {
+        self.mode = snap.mode;
+        self.color_id = snap.color_id;
+        self.duration_ms = snap.duration_ms.max(1);
+        self.elapsed_ms = snap.elapsed_ms;
+        self.alpha = snap.alpha;
+        self.pending_fade_out = snap.pending_fade_out;
     }
 }
 

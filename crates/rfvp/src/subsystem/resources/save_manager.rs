@@ -228,7 +228,7 @@ impl SaveItem {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct SaveManager {
     thumb_width: u32,
     thumb_height: u32,
@@ -241,6 +241,12 @@ pub struct SaveManager {
     savedata_prepared: bool,
     should_load: bool,
     slots: Vec<Option<SaveItem>>,
+}
+
+impl Default for SaveManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SaveManager {
@@ -256,9 +262,7 @@ impl SaveManager {
             save_requested: false,
             savedata_prepared: false,
             should_load: false,
-            slots: std::iter::repeat_with(|| Option::<SaveItem>::None)
-                .take(1000)
-                .collect::<Vec<_>>(),
+            slots: vec![None; 1000],
         }
     }
 
@@ -490,13 +494,23 @@ impl SaveManager {
     }
 
     pub fn load_savedata(&mut self, slot: u32, nls: Nls) -> Result<()> {
-        let _save_item = SaveItem::load_from_file(
-            app_base_path()
-                .get_path()
-                .join("save")
-                .join(format!("s{}.bin", slot)),
-            nls,
-        )?;
+        let path = app_base_path()
+            .get_path()
+            .join("save")
+            .join(format!("s{}.bin", slot));
+
+        // Missing save slots are not fatal for callers that enumerate all slots.
+        if !path.exists() {
+            if slot < 1000 {
+                self.slots[slot as usize] = None;
+            }
+            return Ok(());
+        }
+
+        let save_item = SaveItem::load_from_file(path, nls)?;
+        if slot < 1000 {
+            self.slots[slot as usize] = Some(save_item);
+        }
         Ok(())
     }
 
@@ -533,6 +547,7 @@ impl SaveManager {
         thumb_w: u32,
         thumb_h: u32,
         thumb_rgba: &[u8],
+        state: Option<&crate::subsystem::save_state::SaveStateSnapshotV1>,
     ) -> Result<()> {
         if !self.save_requested || self.current_save_slot == u32::MAX {
             return Ok(());
@@ -548,7 +563,10 @@ impl SaveManager {
             );
         }
 
-        let bytes = self.build_save_file_bytes(nls, thumb_rgba)?;
+        let mut bytes = self.build_save_file_bytes(nls, thumb_rgba)?;
+        if let Some(snap) = state {
+            crate::subsystem::save_state::append_state_chunk_v1(&mut bytes, snap)?;
+        }
         let path = SaveItem::get_save_path(self.current_save_slot);
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
@@ -596,7 +614,11 @@ impl SaveManager {
     pub fn load_slot_into_current(&mut self, slot: u32, nls: Nls) -> Result<()> {
         let path = SaveItem::get_save_path(slot);
         let bytes = std::fs::read(&path)?;
-        let item = SaveItem::load_from_mem(&bytes, nls)?;
+        self.load_slot_into_current_from_bytes(slot, nls, &bytes)
+    }
+
+    pub fn load_slot_into_current_from_bytes(&mut self, slot: u32, nls: Nls, bytes: &[u8]) -> Result<()> {
+        let item = SaveItem::load_from_mem(&bytes.to_vec(), nls)?;
         self.current_save_slot = slot;
         self.current_title = item.title.clone();
         self.current_scene_title = item.scene_title.clone();
@@ -608,6 +630,8 @@ impl SaveManager {
     }
 
     fn build_save_file_bytes(&self, nls: Nls, thumb_rgba: &[u8]) -> Result<Vec<u8>> {
+        use chrono::Datelike;
+        use chrono::Timelike;
         use encoding_rs::Encoding;
 
         fn enc(nls: Nls, s: &str) -> Vec<u8> {
@@ -625,38 +649,58 @@ impl SaveManager {
             }
         }
 
+        // -----------------------------
+        // Save file prefix format (IDA):
+        //   offset 0:  u16 year (LE)
+        //   offset 2:  u8  month
+        //   offset 3:  u8  day
+        //   offset 4:  u8  day_of_week (0..6, Sunday=0)
+        //   offset 5:  u8  hour
+        //   offset 6:  u8  minute
+        //   offset 7:  u16 title_len (LE) + title bytes
+        //              u16 scene_len (LE) + scene bytes
+        //              u16 script_len (LE) + script bytes
+        //              RGBA8 thumbnail: 4 * thumb_w * thumb_h bytes
+        // -----------------------------
         let now = chrono::Local::now();
-        let mut out: Vec<u8> = Vec::new();
+        let year: u16 = (now.year().clamp(0, 65535)) as u16;
+        let month: u8 = now.month().clamp(0, 255) as u8;
+        let day: u8 = now.day().clamp(0, 255) as u8;
+        let day_of_week: u8 = now.weekday().num_days_from_sunday() as u8;
+        let hour: u8 = now.hour().clamp(0, 255) as u8;
+        let minute: u8 = now.minute().clamp(0, 255) as u8;
 
-        // 7 x i32 timestamp fields (matches SaveItem::load_from_mem expectations).
-        let fields: [i32; 7] = [
-            now.year() as i32,
-            now.month() as i32,
-            now.day() as i32,
-            now.hour() as i32,
-            now.minute() as i32,
-            now.second() as i32,
-            now.weekday().num_days_from_sunday() as i32,
-        ];
-        for v in fields {
-            out.extend_from_slice(&v.to_le_bytes());
-        }
-
-        let title_b = enc(nls, &self.current_title);
-        let scene_b = enc(nls, &self.current_scene_title);
+        let title_b = enc(nls.clone(), &self.current_title);
+        let scene_b = enc(nls.clone(), &self.current_scene_title);
         let script_b = enc(nls, &self.current_script_content);
 
-        let title_sz = title_b.len() as i32;
-        let scene_sz = scene_b.len() as i32;
-        let script_sz = script_b.len() as i32;
+        let title_len: u16 = title_b.len().min(u16::MAX as usize) as u16;
+        let scene_len: u16 = scene_b.len().min(u16::MAX as usize) as u16;
+        let script_len: u16 = script_b.len().min(u16::MAX as usize) as u16;
 
-        out.extend_from_slice(&title_sz.to_le_bytes());
-        out.extend_from_slice(&scene_sz.to_le_bytes());
-        out.extend_from_slice(&script_sz.to_le_bytes());
+        let mut out: Vec<u8> = Vec::with_capacity(
+            7
+                + 2 + (title_len as usize)
+                + 2 + (scene_len as usize)
+                + 2 + (script_len as usize)
+                + thumb_rgba.len(),
+        );
 
-        out.extend_from_slice(&title_b);
-        out.extend_from_slice(&scene_b);
-        out.extend_from_slice(&script_b);
+        out.extend_from_slice(&year.to_le_bytes());
+        out.push(month);
+        out.push(day);
+        out.push(day_of_week);
+        out.push(hour);
+        out.push(minute);
+
+        out.extend_from_slice(&title_len.to_le_bytes());
+        out.extend_from_slice(&title_b[..(title_len as usize)]);
+
+        out.extend_from_slice(&scene_len.to_le_bytes());
+        out.extend_from_slice(&scene_b[..(scene_len as usize)]);
+
+        out.extend_from_slice(&script_len.to_le_bytes());
+        out.extend_from_slice(&script_b[..(script_len as usize)]);
 
         out.extend_from_slice(thumb_rgba);
 
@@ -664,13 +708,12 @@ impl SaveManager {
     }
 
     pub fn finish_save_write_from_thumb(&mut self, slot: u32, nls: Nls, thumb_rgba: &[u8]) -> Result<()> {
-        let save_manager = SaveManager::new();
-        let bytes = save_manager.build_save_file_bytes(nls, thumb_rgba)?;
-        let path = SaveItem::get_save_path(slot);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::write(&path, &bytes)?;
+        // Deprecated entrypoint kept for compatibility with older call sites.
+        // Prefer `finalize_save_write()` which validates state and refreshes caches.
+        self.current_save_slot = slot;
+        self.save_requested = true;
+        self.savedata_prepared = false;
+        self.finalize_save_write(nls, self.thumb_width.max(1), self.thumb_height.max(1), thumb_rgba, None)?;
         Ok(())
     }
 }

@@ -1,12 +1,35 @@
 use std::sync::Arc;
+use anyhow::{anyhow, Context, Result};
 
+use kira::Tween;
 use kira::track::{TrackBuilder, TrackHandle};
 use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings};
 use crate::rfvp_audio::AudioManager;
 use kira::sound::Region;
+use serde::{Deserialize, Serialize};
 use tracing::warn;
 
+use crate::subsystem::resources::vfs::Vfs;
+
 pub const SE_SLOT_COUNT: usize = 256;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SeSlotSnapshotV1 {
+    pub slot: u16,
+    pub path: Option<String>,
+    pub sound_type: Option<i32>,
+    pub volume: f32,
+    pub muted: bool,
+    pub playing: bool,
+    pub repeat: bool,
+    pub pan: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SePlayerSnapshotV1 {
+    pub version: u16,
+    pub slots: Vec<SeSlotSnapshotV1>,
+}
 
 pub struct SePlayer {
     audio_manager: Arc<AudioManager>,
@@ -17,6 +40,9 @@ pub struct SePlayer {
     se_names: [Option<String>; SE_SLOT_COUNT],
     se_muted: [bool; SE_SLOT_COUNT],
     se_volumes: [f32; SE_SLOT_COUNT],
+
+    se_repeat: [bool; SE_SLOT_COUNT],
+    se_pan: [f64; SE_SLOT_COUNT],
 }
 
 impl SePlayer {
@@ -40,6 +66,8 @@ impl SePlayer {
             se_names: [(); SE_SLOT_COUNT].map(|_| None),
             se_muted: [false; SE_SLOT_COUNT],
             se_volumes: [1.0; SE_SLOT_COUNT],
+            se_repeat: [false; SE_SLOT_COUNT],
+            se_pan: [0.5; SE_SLOT_COUNT],
         }
     }
 
@@ -67,7 +95,8 @@ impl SePlayer {
     ) -> anyhow::Result<()> {
         let slot = slot as usize;
 
-        
+        self.se_repeat[slot] = repeat;
+        self.se_pan[slot] = pan;
         self.se_volumes[slot] = volume;
         let actual_volume = if self.se_muted[slot] { 0.0 } else { volume };let bgm = match &self.se_datas[slot] {
             Some(data) => data.clone(),
@@ -124,6 +153,8 @@ impl SePlayer {
 
     pub fn set_panning(&mut self, slot: i32, pan: f64, tween: kira::Tween) {
         let slot = slot as usize;
+
+        self.se_pan[slot] = pan;
 
         let pan = kira::Panning::from(pan as f32);
         if let Some(handle) = self.se_slots[slot].as_mut() {
@@ -203,6 +234,86 @@ impl SePlayer {
             playing_slots,
             slots,
         }
+    }
+
+    pub fn capture_snapshot_v1(&self) -> SePlayerSnapshotV1 {
+        let mut slots: Vec<SeSlotSnapshotV1> = Vec::new();
+
+        for i in 0..SE_SLOT_COUNT {
+            let has_any = self.se_datas[i].is_some() || self.se_slots[i].is_some() || self.se_names[i].is_some();
+            if !has_any {
+                continue;
+            }
+
+            slots.push(SeSlotSnapshotV1 {
+                slot: i as u16,
+                path: self.se_names[i].clone(),
+                sound_type: self.se_kinds[i],
+                volume: self.se_volumes[i] as f32,
+                muted: self.se_muted[i],
+                playing: self.se_slots[i].is_some(),
+                repeat: self.se_repeat[i],
+                pan: self.se_pan[i] as f32,
+            });
+        }
+
+        SePlayerSnapshotV1 { version: 1, slots }
+    }
+
+    pub fn apply_snapshot_v1(&mut self, snap: &SePlayerSnapshotV1, vfs: &Vfs) -> Result<()> {
+        if snap.version != 1 {
+            return Err(anyhow!("unsupported SePlayerSnapshotV1 version: {}", snap.version));
+        }
+
+        // Stop and clear current state.
+        for i in 0..SE_SLOT_COUNT {
+            self.stop(i as i32, Tween::default());
+            self.se_datas[i] = None;
+            self.se_kinds[i] = None;
+            self.se_names[i] = None;
+            self.se_muted[i] = false;
+            self.se_volumes[i] = 100.0;
+            self.se_repeat[i] = false;
+            self.se_pan[i] = 0.5;
+        }
+
+        for s in &snap.slots {
+            let slot = s.slot as usize;
+            if slot >= SE_SLOT_COUNT {
+                continue;
+            }
+
+            self.se_kinds[slot] = s.sound_type;
+            self.se_muted[slot] = s.muted;
+            self.se_volumes[slot] = s.volume;
+            self.se_repeat[slot] = s.repeat;
+            self.se_pan[slot] = s.pan as f64;
+
+            if let Some(path) = s.path.clone() {
+                let data = vfs
+                    .read_file(&path)
+                    .with_context(|| format!("read SE from vfs: {}", path))?;
+                self.load_named(slot as i32, path, data)?;
+            }
+
+            if s.playing {
+                if self.se_datas[slot].is_some() {
+                    self.play(
+                        slot as i32,
+                        self.se_repeat[slot],
+                        self.se_volumes[slot] as f32,
+                        self.se_pan[slot],
+                        Tween::default(),
+                    )?;
+
+                    if self.se_muted[slot] {
+                        self.silent_on(slot as i32, Tween::default());
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 
