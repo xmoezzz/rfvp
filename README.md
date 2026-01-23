@@ -4,7 +4,7 @@
 
 ### Status
 * Bootable, But still WIP
-* See [setsusme](setsumei/README.md) for details.
+* See [setsusmei](setsumei/README.md) for details.
 
 ### rfvp debug HUD
 * Enable it with F2 hotkey (Fn + F2 on MacOS)
