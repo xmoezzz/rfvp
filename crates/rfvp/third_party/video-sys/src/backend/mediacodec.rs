@@ -19,7 +19,11 @@ struct AMediaFormat;
 struct AMediaCrypto;
 
 #[repr(C)]
-struct AMediaImage;
+struct AImageReader;
+#[repr(C)]
+struct AImage;
+#[repr(C)]
+struct ANativeWindow;
 
 #[repr(C)]
 #[derive(Default, Debug, Clone, Copy)]
@@ -34,6 +38,9 @@ const AMEDIACODEC_INFO_TRY_AGAIN_LATER: i32 = -1;
 const AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED: i32 = -2;
 const AMEDIACODEC_INFO_OUTPUT_BUFFERS_CHANGED: i32 = -3;
 
+// Java ImageFormat.YUV_420_888
+const AIMAGE_FORMAT_YUV_420_888: i32 = 35;
+
 #[link(name = "mediandk")]
 unsafe extern "C" {
     fn AMediaCodec_createDecoderByType(mime_type: *const i8) -> *mut AMediaCodec;
@@ -42,7 +49,7 @@ unsafe extern "C" {
     fn AMediaCodec_configure(
         codec: *mut AMediaCodec,
         format: *mut AMediaFormat,
-        surface: *mut libc::c_void,
+        surface: *mut libc::c_void, // actually ANativeWindow*
         crypto: *mut AMediaCrypto,
         flags: u32,
     ) -> MediaStatus;
@@ -70,8 +77,6 @@ unsafe extern "C" {
 
     fn AMediaCodec_releaseOutputBuffer(codec: *mut AMediaCodec, idx: usize, render: bool) -> MediaStatus;
 
-    fn AMediaCodec_getOutputImage(codec: *mut AMediaCodec, idx: usize) -> *mut AMediaImage;
-
     fn AMediaCodec_getOutputFormat(codec: *mut AMediaCodec) -> *mut AMediaFormat;
 
     fn AMediaFormat_new() -> *mut AMediaFormat;
@@ -82,19 +87,36 @@ unsafe extern "C" {
     fn AMediaFormat_setBuffer(format: *mut AMediaFormat, name: *const i8, data: *const libc::c_void, size: usize);
     fn AMediaFormat_getInt32(format: *mut AMediaFormat, name: *const i8, out: *mut i32) -> bool;
 
-    fn AMediaImage_delete(image: *mut AMediaImage);
+    // AImageReader / AImage APIs (stable NDK)
+    fn AImageReader_new(
+        width: i32,
+        height: i32,
+        format: i32,
+        maxImages: i32,
+        reader: *mut *mut AImageReader,
+    ) -> MediaStatus;
+    fn AImageReader_delete(reader: *mut AImageReader) -> MediaStatus;
+    fn AImageReader_getWindow(reader: *mut AImageReader, window: *mut *mut ANativeWindow) -> MediaStatus;
 
-    fn AMediaImage_getWidth(image: *const AMediaImage) -> i32;
-    fn AMediaImage_getHeight(image: *const AMediaImage) -> i32;
-    fn AMediaImage_getPlaneData(image: *const AMediaImage, planeIdx: i32, data: *mut *mut u8, out_len: *mut usize) -> MediaStatus;
-    fn AMediaImage_getPlaneRowStride(image: *const AMediaImage, planeIdx: i32) -> i32;
-    fn AMediaImage_getPlanePixelStride(image: *const AMediaImage, planeIdx: i32) -> i32;
+    fn AImageReader_acquireLatestImage(reader: *mut AImageReader, image: *mut *mut AImage) -> MediaStatus;
+
+    fn AImage_delete(image: *mut AImage) -> MediaStatus;
+
+    fn AImage_getWidth(image: *const AImage, width: *mut i32) -> MediaStatus;
+    fn AImage_getHeight(image: *const AImage, height: *mut i32) -> MediaStatus;
+
+    fn AImage_getPlaneData(image: *const AImage, planeIdx: i32, data: *mut *mut u8, dataLength: *mut i32) -> MediaStatus;
+    fn AImage_getPlaneRowStride(image: *const AImage, planeIdx: i32, rowStride: *mut i32) -> MediaStatus;
+    fn AImage_getPlanePixelStride(image: *const AImage, planeIdx: i32, pixelStride: *mut i32) -> MediaStatus;
 }
 
 pub struct AndroidH264Decoder {
     cfg: H264Config,
     codec: *mut AMediaCodec,
     format: *mut AMediaFormat,
+
+    reader: *mut AImageReader,
+    window: *mut ANativeWindow,
 
     in_queue: VecDeque<EncodedSample>,
     eos_sent: bool,
@@ -105,15 +127,34 @@ unsafe impl Sync for AndroidH264Decoder {}
 
 impl AndroidH264Decoder {
     pub fn new(cfg: H264Config) -> Result<Self> {
+        // Create AImageReader + ANativeWindow surface for decoder output.
+        let mut reader: *mut AImageReader = ptr::null_mut();
+        let st = unsafe {
+            AImageReader_new(cfg.width as i32, cfg.height as i32, AIMAGE_FORMAT_YUV_420_888, 4, &mut reader)
+        };
+        if st != 0 || reader.is_null() {
+            bail!("AImageReader_new failed: status={}", st);
+        }
+        let mut window: *mut ANativeWindow = ptr::null_mut();
+        let st = unsafe { AImageReader_getWindow(reader, &mut window) };
+        if st != 0 || window.is_null() {
+            unsafe { let _ = AImageReader_delete(reader); }
+            bail!("AImageReader_getWindow failed: status={}", st);
+        }
+
         let mime = CString::new("video/avc")?;
         let codec = unsafe { AMediaCodec_createDecoderByType(mime.as_ptr() as *const i8) };
         if codec.is_null() {
+            unsafe { let _ = AImageReader_delete(reader); }
             bail!("AMediaCodec_createDecoderByType(video/avc) returned null");
         }
 
         let format = unsafe { AMediaFormat_new() };
         if format.is_null() {
-            unsafe { AMediaCodec_delete(codec) };
+            unsafe {
+                AMediaCodec_delete(codec);
+                let _ = AImageReader_delete(reader);
+            }
             bail!("AMediaFormat_new returned null");
         }
 
@@ -128,7 +169,6 @@ impl AndroidH264Decoder {
             AMediaFormat_setInt32(format, key_w.as_ptr() as *const i8, cfg.width as i32);
             AMediaFormat_setInt32(format, key_h.as_ptr() as *const i8, cfg.height as i32);
 
-            // For H.264, `csd-0` is SPS and `csd-1` is PPS. Both are typically provided in Annex B form.
             let mut csd0 = Vec::new();
             csd0.extend_from_slice(&[0, 0, 0, 1]);
             csd0.extend_from_slice(&cfg.sps[0]);
@@ -140,10 +180,12 @@ impl AndroidH264Decoder {
             AMediaFormat_setBuffer(format, key_csd0.as_ptr() as *const i8, csd0.as_ptr() as *const libc::c_void, csd0.len());
             AMediaFormat_setBuffer(format, key_csd1.as_ptr() as *const i8, csd1.as_ptr() as *const libc::c_void, csd1.len());
 
-            let st = AMediaCodec_configure(codec, format, ptr::null_mut(), ptr::null_mut(), 0);
+            // IMPORTANT: pass ANativeWindow* as the output surface.
+            let st = AMediaCodec_configure(codec, format, window as *mut libc::c_void, ptr::null_mut(), 0);
             if st != 0 {
                 AMediaFormat_delete(format);
                 AMediaCodec_delete(codec);
+                let _ = AImageReader_delete(reader);
                 bail!("AMediaCodec_configure failed: status={}", st);
             }
 
@@ -151,6 +193,7 @@ impl AndroidH264Decoder {
             if st != 0 {
                 AMediaFormat_delete(format);
                 AMediaCodec_delete(codec);
+                let _ = AImageReader_delete(reader);
                 bail!("AMediaCodec_start failed: status={}", st);
             }
         }
@@ -159,6 +202,8 @@ impl AndroidH264Decoder {
             cfg,
             codec,
             format,
+            reader,
+            window,
             in_queue: VecDeque::new(),
             eos_sent: false,
         })
@@ -170,7 +215,6 @@ impl AndroidH264Decoder {
         }
 
         while let Some(s) = self.in_queue.front() {
-            // Convert to Annex B for MediaCodec input.
             let annexb = self.cfg.avcc_sample_to_annexb(&s.data_avcc)?;
             let idx = unsafe { AMediaCodec_dequeueInputBuffer(self.codec, 0) };
             if idx < 0 {
@@ -188,14 +232,7 @@ impl AndroidH264Decoder {
 
             unsafe {
                 ptr::copy_nonoverlapping(annexb.as_ptr(), in_ptr, annexb.len());
-                let st = AMediaCodec_queueInputBuffer(
-                    self.codec,
-                    idx as usize,
-                    0,
-                    annexb.len(),
-                    s.pts_us,
-                    0,
-                );
+                let st = AMediaCodec_queueInputBuffer(self.codec, idx as usize, 0, annexb.len(), s.pts_us, 0);
                 if st != 0 {
                     bail!("AMediaCodec_queueInputBuffer failed: status={}", st);
                 }
@@ -205,28 +242,6 @@ impl AndroidH264Decoder {
         }
 
         Ok(())
-    }
-
-    fn get_output_dims(&mut self) -> Option<(u32, u32)> {
-        let fmt = unsafe { AMediaCodec_getOutputFormat(self.codec) };
-        if fmt.is_null() {
-            return None;
-        }
-
-        unsafe {
-            let mut w: i32 = 0;
-            let mut h: i32 = 0;
-            let key_w = CString::new("width").ok()?;
-            let key_h = CString::new("height").ok()?;
-            let ok_w = AMediaFormat_getInt32(fmt, key_w.as_ptr() as *const i8, &mut w as *mut i32);
-            let ok_h = AMediaFormat_getInt32(fmt, key_h.as_ptr() as *const i8, &mut h as *mut i32);
-            AMediaFormat_delete(fmt);
-            if ok_w && ok_h && w > 0 && h > 0 {
-                Some((w as u32, h as u32))
-            } else {
-                None
-            }
-        }
     }
 }
 
@@ -242,6 +257,11 @@ impl Drop for AndroidH264Decoder {
                 AMediaFormat_delete(self.format);
                 self.format = ptr::null_mut();
             }
+            if !self.reader.is_null() {
+                let _ = AImageReader_delete(self.reader);
+                self.reader = ptr::null_mut();
+                self.window = ptr::null_mut();
+            }
         }
     }
 }
@@ -256,15 +276,13 @@ impl H264Decoder for AndroidH264Decoder {
         if self.codec.is_null() || self.eos_sent {
             return Ok(());
         }
-
-        // Send EOS when we can get an input buffer.
         loop {
             let idx = unsafe { AMediaCodec_dequeueInputBuffer(self.codec, 0) };
             if idx < 0 {
                 break;
             }
             unsafe {
-                let st = AMediaCodec_queueInputBuffer(self.codec, idx as usize, 0, 0, 0, 4 /* AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM */);
+                let st = AMediaCodec_queueInputBuffer(self.codec, idx as usize, 0, 0, 0, 4);
                 if st != 0 {
                     bail!("AMediaCodec_queueInputBuffer(EOS) failed: status={}", st);
                 }
@@ -279,71 +297,90 @@ impl H264Decoder for AndroidH264Decoder {
         self.try_feed()?;
 
         let mut info = AMediaCodecBufferInfo::default();
-
         let idx = unsafe { AMediaCodec_dequeueOutputBuffer(self.codec, &mut info as *mut _, 0) };
+
         if idx == AMEDIACODEC_INFO_TRY_AGAIN_LATER {
             return Ok(None);
         }
         if idx == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED || idx == AMEDIACODEC_INFO_OUTPUT_BUFFERS_CHANGED {
-            // No frame produced; try again next tick.
             return Ok(None);
         }
         if idx < 0 {
             return Err(anyhow!("AMediaCodec_dequeueOutputBuffer returned {}", idx));
         }
 
-        let image = unsafe { AMediaCodec_getOutputImage(self.codec, idx as usize) };
-        if image.is_null() {
-            unsafe {
-                let _ = AMediaCodec_releaseOutputBuffer(self.codec, idx as usize, false);
+        // Render this output buffer into the AImageReader surface.
+        unsafe {
+            let st = AMediaCodec_releaseOutputBuffer(self.codec, idx as usize, true);
+            if st != 0 {
+                bail!("AMediaCodec_releaseOutputBuffer(render=true) failed: status={}", st);
             }
-            bail!("AMediaCodec_getOutputImage returned null");
         }
 
-        let width = unsafe { AMediaImage_getWidth(image) };
-        let height = unsafe { AMediaImage_getHeight(image) };
+        // Acquire the latest image (drops older ones).
+        let mut image: *mut AImage = ptr::null_mut();
+        let st = unsafe { AImageReader_acquireLatestImage(self.reader, &mut image) };
+        if st != 0 || image.is_null() {
+            return Ok(None);
+        }
 
-        let (width, height) = if width > 0 && height > 0 {
-            (width as u32, height as u32)
-        } else {
-            self.get_output_dims().unwrap_or((self.cfg.width, self.cfg.height))
-        };
+        let mut w: i32 = 0;
+        let mut h: i32 = 0;
+        unsafe {
+            let _ = AImage_getWidth(image, &mut w);
+            let _ = AImage_getHeight(image, &mut h);
+        }
+        let width = if w > 0 { w as u32 } else { self.cfg.width };
+        let height = if h > 0 { h as u32 } else { self.cfg.height };
 
-        // Planes: 0=Y, 1=U, 2=V for YUV_420_888.
         let mut y_ptr: *mut u8 = ptr::null_mut();
         let mut u_ptr: *mut u8 = ptr::null_mut();
         let mut v_ptr: *mut u8 = ptr::null_mut();
-        let mut y_len: usize = 0;
-        let mut u_len: usize = 0;
-        let mut v_len: usize = 0;
+        let mut y_len: i32 = 0;
+        let mut u_len: i32 = 0;
+        let mut v_len: i32 = 0;
 
-        let st0 = unsafe { AMediaImage_getPlaneData(image, 0, &mut y_ptr as *mut _, &mut y_len as *mut _) };
-        let st1 = unsafe { AMediaImage_getPlaneData(image, 1, &mut u_ptr as *mut _, &mut u_len as *mut _) };
-        let st2 = unsafe { AMediaImage_getPlaneData(image, 2, &mut v_ptr as *mut _, &mut v_len as *mut _) };
+        let st0 = unsafe { AImage_getPlaneData(image, 0, &mut y_ptr, &mut y_len) };
+        let st1 = unsafe { AImage_getPlaneData(image, 1, &mut u_ptr, &mut u_len) };
+        let st2 = unsafe { AImage_getPlaneData(image, 2, &mut v_ptr, &mut v_len) };
+
         if st0 != 0 || st1 != 0 || st2 != 0 || y_ptr.is_null() || u_ptr.is_null() || v_ptr.is_null() {
-            unsafe {
-                AMediaImage_delete(image);
-                let _ = AMediaCodec_releaseOutputBuffer(self.codec, idx as usize, false);
-            }
-            bail!("AMediaImage_getPlaneData failed");
+            unsafe { let _ = AImage_delete(image); }
+            bail!("AImage_getPlaneData failed");
         }
 
-        let y_rs = unsafe { AMediaImage_getPlaneRowStride(image, 0) } as usize;
-        let u_rs = unsafe { AMediaImage_getPlaneRowStride(image, 1) } as usize;
-        let v_rs = unsafe { AMediaImage_getPlaneRowStride(image, 2) } as usize;
-        let u_ps = unsafe { AMediaImage_getPlanePixelStride(image, 1) } as usize;
-        let v_ps = unsafe { AMediaImage_getPlanePixelStride(image, 2) } as usize;
-
-        let y = unsafe { std::slice::from_raw_parts(y_ptr as *const u8, y_len) };
-        let u = unsafe { std::slice::from_raw_parts(u_ptr as *const u8, u_len) };
-        let v = unsafe { std::slice::from_raw_parts(v_ptr as *const u8, v_len) };
-
-        let rgba = yuv420_888_to_rgba(width, height, y_rs, u_rs, v_rs, u_ps, v_ps, y, u, v);
+        let mut y_rs: i32 = 0;
+        let mut u_rs: i32 = 0;
+        let mut v_rs: i32 = 0;
+        let mut u_ps: i32 = 0;
+        let mut v_ps: i32 = 0;
 
         unsafe {
-            AMediaImage_delete(image);
-            let _ = AMediaCodec_releaseOutputBuffer(self.codec, idx as usize, false);
+            let _ = AImage_getPlaneRowStride(image, 0, &mut y_rs);
+            let _ = AImage_getPlaneRowStride(image, 1, &mut u_rs);
+            let _ = AImage_getPlaneRowStride(image, 2, &mut v_rs);
+            let _ = AImage_getPlanePixelStride(image, 1, &mut u_ps);
+            let _ = AImage_getPlanePixelStride(image, 2, &mut v_ps);
         }
+
+        let y = unsafe { std::slice::from_raw_parts(y_ptr as *const u8, y_len.max(0) as usize) };
+        let u = unsafe { std::slice::from_raw_parts(u_ptr as *const u8, u_len.max(0) as usize) };
+        let v = unsafe { std::slice::from_raw_parts(v_ptr as *const u8, v_len.max(0) as usize) };
+
+        let rgba = yuv420_888_to_rgba(
+            width,
+            height,
+            y_rs.max(0) as usize,
+            u_rs.max(0) as usize,
+            v_rs.max(0) as usize,
+            u_ps.max(0) as usize,
+            v_ps.max(0) as usize,
+            y,
+            u,
+            v,
+        );
+
+        unsafe { let _ = AImage_delete(image); }
 
         Ok(Some(VideoFrame {
             width,

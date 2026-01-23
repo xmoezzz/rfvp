@@ -62,7 +62,7 @@ Encoding is controlled by `nls` in YAML (`ShiftJIS`, `UTF-8`, `GB18030`).
 
 ## YAML meta format
 
-Minimal example (your current format):
+example:
 
 ```yaml
 nls: ShiftJIS
