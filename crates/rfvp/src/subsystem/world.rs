@@ -136,6 +136,14 @@ pub struct GameData {
     pub(crate) se_player: SePlayer,
     pub(crate) bgm_player: BgmPlayer,
     root_prim: Option<i16>,
+
+    // --- Window/lifecycle flags (used by WindowMode/ExitMode syscalls) ---
+    // Track original-engine semantics; the winit backend may choose to honor them.
+    render_flag: i32,
+    can_fullscreen: bool,
+    is_first_frame: bool,
+    pending_render_flag: Option<i32>,
+
     close_immediate: bool,
     lock_scripter: bool,
     close_pending: bool,
@@ -174,6 +182,12 @@ impl Default for GameData {
             bgm_player: BgmPlayer::new(audio_manager.clone()),
             audio_manager,
             root_prim: None,
+
+            render_flag: 0,
+            can_fullscreen: false,
+            is_first_frame: true,
+            pending_render_flag: None,
+
             close_immediate: true,
             lock_scripter: false,
             close_pending: false,
@@ -218,6 +232,32 @@ impl GameData {
 
     pub fn set_window(&mut self, window: Window) {
         self.window = window;
+    }
+
+    pub fn get_can_fullscreen(&self) -> bool {
+        self.can_fullscreen
+    }
+
+    pub fn set_can_fullscreen(&mut self, v: bool) {
+        self.can_fullscreen = v;
+    }
+
+    pub fn get_is_first_frame(&self) -> bool {
+        self.is_first_frame
+    }
+
+    pub fn set_is_first_frame(&mut self, v: bool) {
+        self.is_first_frame = v;
+    }
+
+    /// Request that the platform backend applies a new render flag.
+    pub fn request_render_flag_apply(&mut self, v: i32) {
+        self.pending_render_flag = Some(v);
+    }
+
+    /// Take the pending render flag request (consumes it).
+    pub fn take_pending_render_flag(&mut self) -> Option<i32> {
+        self.pending_render_flag.take()
     }
 
     pub fn set_cursor_table(&mut self, table: HashMap<u32, CursorBundle>) {
@@ -299,6 +339,22 @@ impl GameData {
     
     pub fn set_last_current_thread(&mut self, id: u32) {
         self.last_current_thread = id;
+    }
+
+    // --- Window/lifecycle flags (WindowMode/ExitMode) ---
+    pub fn get_render_flag(&self) -> i32 {
+        self.render_flag
+    }
+
+    /// Set the render flag and request the backend to apply it.
+    pub fn set_render_flag(&mut self, value: i32) {
+        self.render_flag = value;
+        self.pending_render_flag = Some(value);
+    }
+
+    /// Update the stored flag without requesting a backend change.
+    pub fn set_render_flag_local(&mut self, value: i32) {
+        self.render_flag = value;
     }
 
     pub fn get_close_immediate(&self) -> bool {

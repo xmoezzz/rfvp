@@ -7,10 +7,12 @@ mod z_move;
 pub(crate) mod snow;
 mod anim;
 mod dissolve2;
+mod lip;
 
 use self::snow::SnowMotionContainer;
 use self::anim::SpriteAnimContainer;
 use self::dissolve2::Dissolve2State;
+use self::lip::LipMotionContainer;
 
 use super::gaiji_manager::GaijiManager;
 use super::graph_buff::{copy_rect, copy_rect_clipped, GraphBuff, GraphBuffSnapshotV1};
@@ -55,6 +57,7 @@ pub struct MotionManager {
     v3d_motion_container: V3dMotionContainer,
     snow_motion_container: SnowMotionContainer,
     sprite_anim_container: SpriteAnimContainer,
+    lip_motion_container: LipMotionContainer,
     pub(crate) color_manager: ColorManager,
     pub(crate) prim_manager: PrimManager,
     pub(crate) parts_manager: AtomicRefCell<PartsManager>,
@@ -106,6 +109,7 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
             v3d_motion_container: V3dMotionContainer::new(),
             snow_motion_container: SnowMotionContainer::new(),
             sprite_anim_container: SpriteAnimContainer::new(),
+            lip_motion_container: LipMotionContainer::new(),
             prim_manager: PrimManager::new(),
             color_manager: ColorManager::new(),
             parts_manager,
@@ -125,6 +129,43 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
 
     pub fn update_anim_motions(&mut self, elapsed: i64) {
         self.sprite_anim_container.update(&self.prim_manager, elapsed as i32);
+    }
+
+    /// Tick lip animation (LipAnim/LipSync).
+    ///
+    /// In the original engine, lip animation is driven by a BGM slot (0..3). When that slot is
+    /// playing, the target sprite's texture id is cycled through configured frames.
+    pub fn update_lip_motions(
+        &mut self,
+        elapsed: i64,
+        freeze: bool,
+        bgm_playing_slots: &[bool],
+    ) {
+        self.lip_motion_container
+            .tick(&mut self.prim_manager, bgm_playing_slots, elapsed as i32, freeze);
+    }
+
+    pub fn set_lip_motion(
+        &mut self,
+        prim_id: i16,
+        bgm_slot: i32,
+        id2: i32,
+        t2: u32,
+        id3: i32,
+        t3: u32,
+        id4: i32,
+        t4: u32,
+    ) -> Result<()> {
+        self.lip_motion_container
+            .set_motion(prim_id, bgm_slot, id2, t2, id3, t3, id4, t4)
+    }
+
+    pub fn set_lip_sync(&mut self, prim_id: i16, enable: bool) {
+        self.lip_motion_container.set_lipsync(prim_id, enable)
+    }
+
+    pub fn stop_lip_motion(&mut self, prim_id: i16) {
+        self.lip_motion_container.stop_for_prim(prim_id)
     }
 
     /// Advance PartsMotion timers and apply completed entries to their destination primitives.

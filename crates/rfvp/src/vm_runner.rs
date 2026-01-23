@@ -84,6 +84,17 @@ impl VmRunner {
             }
         }
 
+        // When the script requests termination (ExitMode(3)), the original engine
+        // closes the game window once the last-running context finishes.
+        // Without this, the backend can get stuck on a black screen after a fade-out.
+        if game.get_game_should_exit() {
+            let last_tid = game.get_last_current_thread();
+            let last_status = self.tm.get_context_status(last_tid);
+            if last_status == ThreadState::CONTEXT_STATUS_NONE || self.tm.get_should_break() {
+                game.set_main_thread_exited(true);
+            }
+        }
+
         if debug_ui::enabled() {
             game.debug_vm_mut().update_from_thread_manager(&self.tm);
         }

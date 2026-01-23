@@ -189,7 +189,26 @@ impl App {
                             | WindowEvent::CursorLeft { .. }
                     );
                     match event {
-                        WindowEvent::CloseRequested => loopd.exit(),
+                        WindowEvent::CloseRequested => {
+                            // ExitMode(2) can disable immediate close; in that case the engine
+                            // marks "close pending" and lets the script decide when to exit.
+                            let mut gd = gd_write(&self.game_data);
+                            if gd.get_close_immediate() {
+                                loopd.exit();
+                            } else {
+                                gd.set_close_pending(true);
+                            }
+                        }
+                        WindowEvent::Focused(focused) => {
+                            // Original engine: when in render_flag==2 and "first frame" is set,
+                            // losing focus resets the render flag to 0.
+                            if !*focused {
+                                let mut gd = gd_write(&self.game_data);
+                                if gd.get_is_first_frame() && gd.get_render_flag() == 2 {
+                                    gd.set_render_flag(0);
+                                }
+                            }
+                        }
                         WindowEvent::Resized(physical_size) => {
                             gd_write(&self.game_data).window_mut().set_dimensions(physical_size.width, physical_size.height);
 
@@ -308,6 +327,16 @@ impl App {
                         self.pending_vm_frame_ms_valid = false;
                     }
 
+                    // ExitMode(3) requests a graceful termination driven by script (fade-out, cleanup, etc.).
+                    // Close the event loop as soon as the VM signals that the last-running context has finished.
+                    {
+                        let gd = gd_read(&self.game_data);
+                        if gd.get_game_should_exit() && gd.get_main_thread_exited() {
+                            loopd.exit();
+                            return;
+                        }
+                    }
+
                     // Schedule the next redraw. This keeps the event loop responsive while
                     // avoiding a hard-coded FPS cap.
                     self.window.as_mut().unwrap().request_redraw();
@@ -407,7 +436,35 @@ impl App {
         if notify_dissolve_done {
             self.vm_worker.send_dissolve_done();
         }
+
+        // Apply WindowMode requests (if any) at frame boundaries.
+        self.apply_window_mode_requests();
         self.update_cursor();
+    }
+
+    fn apply_window_mode_requests(&mut self) {
+        use winit::window::Fullscreen;
+
+        let requested = {
+            let mut gd = gd_write(&self.game_data);
+            gd.take_pending_render_flag()
+        };
+        let Some(flag) = requested else { return; };
+
+        let w = self.window.as_mut().expect("A window is mandatory to run this game !");
+        match flag {
+            0 | 1 => {
+                // Treat both as "windowed" in the backend; we still preserve the script-visible flag.
+                w.set_fullscreen(None);
+            }
+            2 | 3 => {
+                // Best-effort: use borderless fullscreen. This is broadly supported on modern desktops.
+                w.set_fullscreen(Some(Fullscreen::Borderless(None)));
+            }
+            _ => {
+                // Unknown flags are ignored at the backend layer.
+            }
+        }
     }
 
 
@@ -1084,6 +1141,10 @@ impl AppBuilder {
             .expect("An error occured while building the main game window");
 
         let window = Arc::new(window);
+
+        // Expose a best-effort "fullscreen capable" flag to scripts via WindowMode(3).
+        // The original engine checks platform capabilities; here we treat having a monitor as "capable".
+        self.world.set_can_fullscreen(window.current_monitor().is_some());
 
         // Debug HUD window (created hidden, toggled via F2).
         let hud_window: Option<Arc<Window>> = if debug_ui::enabled() {

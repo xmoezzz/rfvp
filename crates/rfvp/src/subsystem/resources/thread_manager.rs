@@ -96,11 +96,12 @@ impl ThreadManager {
 
     pub fn thread_start(&mut self, id: u32, addr: u32) {
         if id == 0 {
+            self.thread_break = false;
             for i in 0..self.total_contexts() {
                 let mut context = Context::new(0, i as u32);
                 context.set_status(ThreadState::CONTEXT_STATUS_NONE);
                 context.set_should_break(true);
-                self.contexts[id as usize] = context;
+                self.contexts[i] = context;
             }
         }
 

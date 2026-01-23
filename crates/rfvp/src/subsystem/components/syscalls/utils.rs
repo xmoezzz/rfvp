@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 
 use crate::script::Variant;
 use crate::subsystem::world::GameData;
@@ -74,59 +74,88 @@ pub fn system_at_skipname(
     Ok(Variant::Nil)
 }
 
-pub enum WinMode {
-    _Unknown = -1,
-    Windowed = 0,
-    Fullscreen = 1,
-    GetWindowed = 2,
-    GetResizable = 3,
-    Resizable = 4,
-    NonResizable = 5,
-    _UnUsed = 6,
-}
-
-impl TryFrom<i32> for WinMode {
-    type Error = anyhow::Error;
-
-    fn try_from(value: i32) -> anyhow::Result<Self> {
-        match value {
-            -1 => Ok(WinMode::_Unknown),
-            0 => Ok(WinMode::Windowed),
-            1 => Ok(WinMode::Fullscreen),
-            2 => Ok(WinMode::GetWindowed),
-            3 => Ok(WinMode::GetResizable),
-            4 => Ok(WinMode::Resizable),
-            5 => Ok(WinMode::NonResizable),
-            6 => Ok(WinMode::_UnUsed),
-            _ => bail!("Invalid value for WinMode"),
-        }
-    }
-}
-
-pub fn window_mode(_game_data: &mut GameData, mode: &Variant) -> Result<Variant> {
+/// WindowMode(mode)
+///
+/// This syscall is lifecycle-critical in the original engine; it is not a simple "flag".
+/// The script uses it to:
+///   - switch between windowed/fullscreen rendering modes (via an internal `render_flag`)
+///   - query the current mode
+///   - query fullscreen capability
+///   - control a special "first frame" behavior used by the engine when losing focus
+///
+/// We preserve observable semantics at the script level, while the backend (winit) may
+/// choose to honor the requested mode change.
+pub fn window_mode(game_data: &mut GameData, mode: &Variant) -> Result<Variant> {
     let mode = match mode {
-        Variant::Int(mode) => WinMode::try_from(*mode)?,
+        Variant::Int(m) => *m,
         _ => {
-            log::error!("window_mode: Invalid mode type: {:?}", mode);
-            return Ok(Variant::True);
-        },
+            log::error!("window_mode: invalid mode type: {:?}", mode);
+            return Ok(Variant::Nil);
+        }
     };
 
-    // emulate the behavior of the original engine
     match mode {
-        WinMode::_Unknown => return Ok(Variant::Int(0)),
-        WinMode::Windowed => return Ok(Variant::Int(0)),
-        WinMode::Fullscreen => return Ok(Variant::Int(1)),
-        WinMode::GetWindowed => return Ok(Variant::Int(0)),
-        WinMode::GetResizable => {},
-        WinMode::Resizable => {},
-        WinMode::NonResizable => {},
-        WinMode::_UnUsed => {
-            log::warn!("window_mode: Unused mode");
-        },
+        // -1: try fullscreen. Returns 1 if fullscreen is not supported; otherwise returns -1.
+        -1 => {
+            if game_data.get_can_fullscreen() {
+                // Original engine: render_flag = 2 indicates fullscreen request.
+                game_data.set_render_flag(2);
+                return Ok(Variant::Int(-1));
+            }
+            return Ok(Variant::Int(1));
+        }
+        // 0: windowed.
+        0 => {
+            game_data.set_render_flag(0);
+            return Ok(Variant::Int(0));
+        }
+        // 1: fullscreen (engine uses a distinct path from -1).
+        1 => {
+            game_data.set_render_flag(1);
+            return Ok(Variant::Int(1));
+        }
+        // 2: query current mode. Special return values for render_flag 2/3.
+        2 => {
+            let rf = game_data.get_render_flag();
+            if rf == 2 {
+                return Ok(Variant::Int(-1));
+            }
+            if rf == 3 {
+                return Ok(Variant::Int(-2));
+            }
+            return Ok(Variant::Int(rf));
+        }
+        // 3: query fullscreen capability.
+        3 => {
+            return Ok(if game_data.get_can_fullscreen() {
+                Variant::True
+            } else {
+                Variant::Nil
+            });
+        }
+        // 4: set "first frame" flag.
+        4 => {
+            game_data.set_is_first_frame(true);
+            return Ok(Variant::Nil);
+        }
+        // 5: clear "first frame" flag.
+        5 => {
+            game_data.set_is_first_frame(false);
+            return Ok(Variant::Nil);
+        }
+        // 6: query "first frame" flag.
+        6 => {
+            return Ok(if game_data.get_is_first_frame() {
+                Variant::True
+            } else {
+                Variant::Nil
+            });
+        }
+        _ => {
+            log::warn!("window_mode: unsupported mode {}", mode);
+            Ok(Variant::Nil)
+        }
     }
-
-    Ok(Variant::Nil)
 }
 
 pub fn title_menu(_game_data: &mut GameData, _title: &Variant) -> Result<Variant> {

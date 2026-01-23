@@ -50,7 +50,7 @@ pub struct Context {
 }
 
 bitflags! {
-    #[derive(Debug, Clone)]
+    #[derive(Debug, Clone, PartialEq, Eq)]
     pub struct ThreadState: u32 {
         const CONTEXT_STATUS_NONE = 0;
         const CONTEXT_STATUS_RUNNING = 1;
