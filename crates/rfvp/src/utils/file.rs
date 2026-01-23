@@ -37,6 +37,11 @@ pub fn open_file(path: &Path) -> Result<File, FileReaderError> {
     }
 }
 
+
+pub fn set_base_path(path: &str) {
+    env::set_var("FVP_BASE_PATH", path);
+}
+
 /// This will give you the path to the executable (when in build mode) or to the root of the current project.
 pub fn app_base_path() -> PathBuilder {
     if env::var_os("FVP_TEST").is_some() {
@@ -46,6 +51,10 @@ pub fn app_base_path() -> PathBuilder {
             p.push("testcase");
             return PathBuilder { path_buff: p };
         }
+    }
+
+    if let Ok(base_path) = env::var("FVP_BASE_PATH") {
+        return PathBuilder { path_buff: PathBuf::from(base_path) };
     }
 
     match env::current_exe() {

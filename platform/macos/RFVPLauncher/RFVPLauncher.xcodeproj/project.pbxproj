@@ -1,0 +1,368 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0CDAC3F54C71A0234F8C1617 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3134F1F054B35CA2C95472FA /* Security.framework */; };
+		2D422ACE345732C642C3B4E6 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9B60164A5C2CD9AD187DC6B5 /* QuartzCore.framework */; };
+		3D9FE48EBBD88DCDF0F5FC5B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55457AF6F100CE2FB28AE5CA /* ContentView.swift */; };
+		43C78C6BA074E60474AC80DC /* GameLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73D3E8ADA27AE1A8DC8FFB00 /* GameLibrary.swift */; };
+		9902F5B708E1370A984FC529 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7E78F17D659337F732A942A5 /* AppKit.framework */; };
+		9FA6B7C89810F764E879F3F3 /* RFVPLauncherApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA1AA367ED7D1EC3B6D48423 /* RFVPLauncherApp.swift */; };
+		A9B0AB4BC5861FA8B77DF0B5 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5F55589B189453B19297782F /* Metal.framework */; };
+		C55A0B6665A91C210E1526EF /* RFVP.icns in Resources */ = {isa = PBXBuildFile; fileRef = 6A9F65651DDFE3669F10801E /* RFVP.icns */; };
+		F570D2A66643C63EA3A975BF /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2426F235079AEE1CB5793120 /* SwiftUI.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		1F0D0A49E9B1B13C001C89D7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		2426F235079AEE1CB5793120 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		3134F1F054B35CA2C95472FA /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		55457AF6F100CE2FB28AE5CA /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		5F55589B189453B19297782F /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		6128D40757D403E2872BEBED /* RFVPLauncher.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RFVPLauncher.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		6A9F65651DDFE3669F10801E /* RFVP.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = RFVP.icns; sourceTree = "<group>"; };
+		73D3E8ADA27AE1A8DC8FFB00 /* GameLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameLibrary.swift; sourceTree = "<group>"; };
+		7E78F17D659337F732A942A5 /* AppKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppKit.framework; path = System/Library/Frameworks/AppKit.framework; sourceTree = SDKROOT; };
+		9B60164A5C2CD9AD187DC6B5 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+		DA1AA367ED7D1EC3B6D48423 /* RFVPLauncherApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RFVPLauncherApp.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		867A042A52D08E744D460AF4 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9902F5B708E1370A984FC529 /* AppKit.framework in Frameworks */,
+				F570D2A66643C63EA3A975BF /* SwiftUI.framework in Frameworks */,
+				0CDAC3F54C71A0234F8C1617 /* Security.framework in Frameworks */,
+				A9B0AB4BC5861FA8B77DF0B5 /* Metal.framework in Frameworks */,
+				2D422ACE345732C642C3B4E6 /* QuartzCore.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		5FFEE22DC355174A54656059 /* RFVPLauncher */ = {
+			isa = PBXGroup;
+			children = (
+				55457AF6F100CE2FB28AE5CA /* ContentView.swift */,
+				73D3E8ADA27AE1A8DC8FFB00 /* GameLibrary.swift */,
+				1F0D0A49E9B1B13C001C89D7 /* Info.plist */,
+				DA1AA367ED7D1EC3B6D48423 /* RFVPLauncherApp.swift */,
+				B425BDC3824EF3A966858177 /* Resources */,
+			);
+			path = RFVPLauncher;
+			sourceTree = "<group>";
+		};
+		940CB14D1884F5B61A699132 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				7E78F17D659337F732A942A5 /* AppKit.framework */,
+				5F55589B189453B19297782F /* Metal.framework */,
+				9B60164A5C2CD9AD187DC6B5 /* QuartzCore.framework */,
+				3134F1F054B35CA2C95472FA /* Security.framework */,
+				2426F235079AEE1CB5793120 /* SwiftUI.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		ABC4A715DCE23DCFC823E387 = {
+			isa = PBXGroup;
+			children = (
+				5FFEE22DC355174A54656059 /* RFVPLauncher */,
+				940CB14D1884F5B61A699132 /* Frameworks */,
+				F7185C75DFED00D447BDB608 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		B425BDC3824EF3A966858177 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				6A9F65651DDFE3669F10801E /* RFVP.icns */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		F7185C75DFED00D447BDB608 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				6128D40757D403E2872BEBED /* RFVPLauncher.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		7786517854B96E37AB97099B /* RFVPLauncher */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = BD1AE29B884820D870BE1301 /* Build configuration list for PBXNativeTarget "RFVPLauncher" */;
+			buildPhases = (
+				5E1C82C2FA9FCA1E69148C8E /* Sources */,
+				FD9FA4104E0EC08107F2C617 /* Resources */,
+				867A042A52D08E744D460AF4 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = RFVPLauncher;
+			packageProductDependencies = (
+			);
+			productName = RFVPLauncher;
+			productReference = 6128D40757D403E2872BEBED /* RFVPLauncher.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		8359B64E3DC7BDD37300410F /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+			};
+			buildConfigurationList = 044C3CAA4B5095FFE17282FC /* Build configuration list for PBXProject "RFVPLauncher" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = ABC4A715DCE23DCFC823E387;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				7786517854B96E37AB97099B /* RFVPLauncher */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		FD9FA4104E0EC08107F2C617 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C55A0B6665A91C210E1526EF /* RFVP.icns in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		5E1C82C2FA9FCA1E69148C8E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				3D9FE48EBBD88DCDF0F5FC5B /* ContentView.swift in Sources */,
+				43C78C6BA074E60474AC80DC /* GameLibrary.swift in Sources */,
+				9FA6B7C89810F764E879F3F3 /* RFVPLauncherApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		153BAB10949A78F69C713A69 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = RFVPLauncher/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"@executable_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(PROJECT_DIR)/Vendor",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 11.0;
+				OTHER_LDFLAGS = (
+					"-L$(PROJECT_DIR)/Vendor",
+					"-lrfvp",
+					"-Wl,-rpath,@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.rfvp.launcher;
+				PRODUCT_NAME = RFVP;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		6EE942CC4B852BA6E133BB95 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 11.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		8CFD77F533E78C6F05447E8C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 11.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		ED7EDF23742A83DE4B0D84C8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = RFVPLauncher/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"@executable_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(PROJECT_DIR)/Vendor",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 11.0;
+				OTHER_LDFLAGS = (
+					"-L$(PROJECT_DIR)/Vendor",
+					"-lrfvp",
+					"-Wl,-rpath,@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.rfvp.launcher;
+				PRODUCT_NAME = RFVP;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		044C3CAA4B5095FFE17282FC /* Build configuration list for PBXProject "RFVPLauncher" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8CFD77F533E78C6F05447E8C /* Debug */,
+				6EE942CC4B852BA6E133BB95 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		BD1AE29B884820D870BE1301 /* Build configuration list for PBXNativeTarget "RFVPLauncher" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				153BAB10949A78F69C713A69 /* Debug */,
+				ED7EDF23742A83DE4B0D84C8 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 8359B64E3DC7BDD37300410F /* Project object */;
+}

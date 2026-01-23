@@ -106,7 +106,7 @@ unsafe impl Sync for AndroidH264Decoder {}
 impl AndroidH264Decoder {
     pub fn new(cfg: H264Config) -> Result<Self> {
         let mime = CString::new("video/avc")?;
-        let codec = unsafe { AMediaCodec_createDecoderByType(mime.as_ptr()) };
+        let codec = unsafe { AMediaCodec_createDecoderByType(mime.as_ptr() as *const i8) };
         if codec.is_null() {
             bail!("AMediaCodec_createDecoderByType(video/avc) returned null");
         }
@@ -124,9 +124,9 @@ impl AndroidH264Decoder {
             let key_csd0 = CString::new("csd-0")?;
             let key_csd1 = CString::new("csd-1")?;
 
-            AMediaFormat_setString(format, key_mime.as_ptr(), mime.as_ptr());
-            AMediaFormat_setInt32(format, key_w.as_ptr(), cfg.width as i32);
-            AMediaFormat_setInt32(format, key_h.as_ptr(), cfg.height as i32);
+            AMediaFormat_setString(format, key_mime.as_ptr() as *const i8, mime.as_ptr() as *const i8);
+            AMediaFormat_setInt32(format, key_w.as_ptr() as *const i8, cfg.width as i32);
+            AMediaFormat_setInt32(format, key_h.as_ptr() as *const i8, cfg.height as i32);
 
             // For H.264, `csd-0` is SPS and `csd-1` is PPS. Both are typically provided in Annex B form.
             let mut csd0 = Vec::new();
@@ -137,8 +137,8 @@ impl AndroidH264Decoder {
             csd1.extend_from_slice(&[0, 0, 0, 1]);
             csd1.extend_from_slice(&cfg.pps[0]);
 
-            AMediaFormat_setBuffer(format, key_csd0.as_ptr(), csd0.as_ptr() as *const libc::c_void, csd0.len());
-            AMediaFormat_setBuffer(format, key_csd1.as_ptr(), csd1.as_ptr() as *const libc::c_void, csd1.len());
+            AMediaFormat_setBuffer(format, key_csd0.as_ptr() as *const i8, csd0.as_ptr() as *const libc::c_void, csd0.len());
+            AMediaFormat_setBuffer(format, key_csd1.as_ptr() as *const i8, csd1.as_ptr() as *const libc::c_void, csd1.len());
 
             let st = AMediaCodec_configure(codec, format, ptr::null_mut(), ptr::null_mut(), 0);
             if st != 0 {
@@ -218,8 +218,8 @@ impl AndroidH264Decoder {
             let mut h: i32 = 0;
             let key_w = CString::new("width").ok()?;
             let key_h = CString::new("height").ok()?;
-            let ok_w = AMediaFormat_getInt32(fmt, key_w.as_ptr(), &mut w as *mut i32);
-            let ok_h = AMediaFormat_getInt32(fmt, key_h.as_ptr(), &mut h as *mut i32);
+            let ok_w = AMediaFormat_getInt32(fmt, key_w.as_ptr() as *const i8, &mut w as *mut i32);
+            let ok_h = AMediaFormat_getInt32(fmt, key_h.as_ptr() as *const i8, &mut h as *mut i32);
             AMediaFormat_delete(fmt);
             if ok_w && ok_h && w > 0 && h > 0 {
                 Some((w as u32, h as u32))

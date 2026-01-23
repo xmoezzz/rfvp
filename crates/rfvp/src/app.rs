@@ -226,7 +226,12 @@ impl App {
                     }
                     {
                         let mut gd = gd_write(&self.game_data);
-                        update_input_events(event, &mut gd);
+                        update_input_events(
+                            event,
+                            &mut gd,
+                            (self.surface_config.width, self.surface_config.height),
+                            self.virtual_size,
+                        );
                     }
                     // Wake the VM immediately on user input so scripts that poll
                     // InputGetEvent/InputGetDown respond without waiting for the next frame.

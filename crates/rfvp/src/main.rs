@@ -12,46 +12,15 @@ mod rfvp_render;
 mod rfvp_audio;
 mod vm_runner;
 mod trace;
+mod boot;
 
 use script::parser::{Nls, Parser};
 use subsystem::{anzu_scene::AnzuScene, resources::thread_manager::ThreadManager};
 
-use crate::{
-    config::{
-        logger_config::LoggerConfig, app_config::{AppConfigBuilder, AppConfig},
-        window_config::WindowConfigBuilder,
-    },
-    app::App,
-    utils::file::app_base_path,
-};
-
-use crate::subsystem::world::GameData;
-
 use anyhow::Result;
 use log::LevelFilter;
-
-
-fn app_config(title: &str, size: (u32, u32)) -> AppConfig {
-    AppConfigBuilder::new()
-        .with_app_name(title.to_string())
-        .with_logger_config(LoggerConfig { app_level_filter: LevelFilter::Info, level_filter: LevelFilter::Debug })
-        .with_window_config(
-            WindowConfigBuilder::new()
-                .with_dimensions(size)
-                .with_resizable(false)
-                .get(),
-        )
-        .get()
-}
-
-
-fn load_script(nls: Nls) -> Result<Parser> {
-    let base_path = app_base_path();
-    let opcode_path = App::find_hcb(base_path.get_path())?;
-
-    Parser::new(opcode_path, nls)
-}
-
+use boot::{app_config, load_script};
+use crate::app::App;
 
 fn main() -> Result<()> {
     // env_logger::init();
@@ -79,6 +48,7 @@ fn main() -> Result<()> {
 mod tests {
     use std::{thread::sleep, time::Duration};
     use super::*;
+    use crate::subsystem::world::GameData;
 
     #[test]
     fn test_audio_system() {

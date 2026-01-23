@@ -3,7 +3,22 @@ use crate::subsystem::world::GameData;
 
 use super::resources::input_manager::KeyCode;
 
-pub fn update_input_events(window_event: &WindowEvent, data: &mut GameData) {
+/// Update the engine input state from a winit [`WindowEvent`].
+///
+/// Winit reports cursor positions in *physical pixels* of the window. The original
+/// engine, however, uses the game's virtual resolution (the script/game coordinate
+/// space) for cursor hit-tests and input syscalls.
+///
+/// Because we present the virtual render target into the window using an
+/// aspect-ratio-preserving scale + letterboxing (see `App::render_frame` present
+/// pass), we must apply the inverse transform here so that `cursor_x/cursor_y`
+/// match the coordinate space expected by `PrimHit` and all input syscalls.
+pub fn update_input_events(
+    window_event: &WindowEvent,
+    data: &mut GameData,
+    surface_size: (u32, u32),
+    virtual_size: (u32, u32),
+) {
     match window_event {
         WindowEvent::KeyboardInput { event,.. } => {
             match event.state {
@@ -42,7 +57,40 @@ pub fn update_input_events(window_event: &WindowEvent, data: &mut GameData) {
             }
         }
         WindowEvent::CursorMoved { position, .. } => {
-            data.inputs_manager.notify_mouse_move(position.x as i32, position.y as i32);
+            // Map from window physical pixels -> virtual game pixels.
+            let (sw, sh) = surface_size;
+            let (vw, vh) = virtual_size;
+
+            let sw = sw.max(1) as f64;
+            let sh = sh.max(1) as f64;
+            let vw = vw.max(1) as f64;
+            let vh = vh.max(1) as f64;
+
+            let scale = (sw / vw).min(sh / vh);
+            let dst_w = vw * scale;
+            let dst_h = vh * scale;
+            let off_x = (sw - dst_w) * 0.5;
+            let off_y = (sh - dst_h) * 0.5;
+
+            let px = position.x;
+            let py = position.y;
+
+            let in_content = px >= off_x && px < (off_x + dst_w) && py >= off_y && py < (off_y + dst_h);
+
+            // Convert to virtual coordinates (clamped to the virtual bounds when inside).
+            let mut vx = ((px - off_x) / scale) as i32;
+            let mut vy = ((py - off_y) / scale) as i32;
+            if in_content {
+                let max_x = (vw as i32).saturating_sub(1);
+                let max_y = (vh as i32).saturating_sub(1);
+                vx = vx.clamp(0, max_x);
+                vy = vy.clamp(0, max_y);
+            }
+
+            data.inputs_manager.notify_mouse_move(vx, vy);
+            // Treat the cursor as "in screen" only when it is inside the presented
+            // virtual content area (exclude letterboxed regions).
+            data.inputs_manager.set_mouse_in(in_content);
         }
         WindowEvent::CursorEntered {..} => {
             data.inputs_manager.set_mouse_in(true);

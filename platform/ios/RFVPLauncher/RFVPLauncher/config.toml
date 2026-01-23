@@ -1,2 +1,0 @@
-# RFVP runtime config used by the launcher-enabled distribution build.
-RFVP_LAUNCHER = true

@@ -1,0 +1,12 @@
+# Gradle
+.gradle/
+build/
+**/build/
+
+# Android Studio
+.idea/
+*.iml
+local.properties
+
+# Rust outputs placed by the build script
+app/src/main/jniLibs/

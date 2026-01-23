@@ -1,0 +1,31 @@
+name: RFVPLauncher
+options:
+  bundleIdPrefix: com.rfvp
+settings:
+  base:
+    MACOSX_DEPLOYMENT_TARGET: "11.0"
+targets:
+  RFVPLauncher:
+    type: application
+    platform: macOS
+    deploymentTarget: "11.0"
+    sources:
+      - path: RFVPLauncher
+    resources:
+      - path: RFVPLauncher/Resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rfvp.launcher
+        PRODUCT_NAME: RFVP
+        SWIFT_VERSION: "5.0"
+        INFOPLIST_FILE: RFVPLauncher/Info.plist
+        # Link-time search path for librfvp.dylib copied into Vendor/
+        LIBRARY_SEARCH_PATHS: ["$(PROJECT_DIR)/Vendor"]
+        OTHER_LDFLAGS: ["-L$(PROJECT_DIR)/Vendor", "-lrfvp", "-Wl,-rpath,@executable_path/../Frameworks"]
+        LD_RUNPATH_SEARCH_PATHS: ["@executable_path/../Frameworks"]
+    dependencies:
+      - sdk: AppKit.framework
+      - sdk: SwiftUI.framework
+      - sdk: Security.framework
+      - sdk: Metal.framework
+      - sdk: QuartzCore.framework
