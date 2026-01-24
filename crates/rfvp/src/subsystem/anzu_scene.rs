@@ -1,5 +1,7 @@
+use crate::script::Variant;
+
 use super::{scene::Scene, world::GameData};
-use crate::subsystem::resources::input_manager::KeyCode;
+use crate::{script::global::GLOBAL, subsystem::resources::input_manager::KeyCode};
 
 #[derive(Default)]
 pub struct AnzuScene {}
@@ -113,9 +115,24 @@ impl AnzuScene {
 
     fn update_text_reveal(&mut self, game_data: &mut GameData, elapsed: i64) {
         // Text reveal and upload runs from the same tick as other motions.
+        let global = GLOBAL
+            .lock()
+            .unwrap();
+        let speed = global.get(0);
+        let speed = match speed {
+            Some(v) => {
+                if let Variant::Int(i) = v {
+                    *i
+                } else {
+                    0
+                }
+            }
+            None => 0,
+        };
+        let global_speed_var0 = speed.max(0);
         game_data
             .motion_manager
-            .update_text_reveal(elapsed, &game_data.fontface_manager);
+            .update_text_reveal(elapsed, global_speed_var0, &game_data.fontface_manager);
     }
 
     fn update_dissolve(&mut self, game_data: &mut GameData, elapsed: i64, fast_forward: bool) {

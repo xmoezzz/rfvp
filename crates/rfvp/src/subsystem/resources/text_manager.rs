@@ -500,8 +500,11 @@ impl TextItem {
         self.content_items = items;
 
         self.total_chars = self.content_items.iter().map(fontitem_char_count).sum();
-        // When speed <= 0 (including -1) or skip_mode != 0, show all immediately.
-        if self.speed <= 0 || self.skip_mode != 0 {
+        // Typewriter semantics (matches the original engine at a high level):
+        //   - speed == 0: immediate (no typewriter)
+        //   - speed  < 0: use the engine default speed (resolved in tick_reveal)
+        //   - speed  > 0: per-character reveal
+        if self.speed == 0 || self.skip_mode != 0 {
             self.visible_chars = self.total_chars;
         } else {
             self.visible_chars = 0;
@@ -509,18 +512,27 @@ impl TextItem {
         self.dirty = true;
     }
 
-    fn tick_reveal(&mut self, delta_ms: u32) {
+    fn tick_reveal(&mut self, delta_ms: u32, global_speed_var0: i32) {
         if !self.loaded {
             return;
         }
 
-        // TextPause freezes reveal-by-time. We still allow immediate modes
-        // (speed <= 0) and skip-mode to force full visibility.
-        if self.is_suspended && !(self.speed <= 0 || self.skip_mode != 0) {
+        // Resolve effective speed. In the original engine, speed == -1 (and other
+        // negatives) means "use default speed", which is derived from a global var.
+        // The default speed is in microseconds; we convert it to milliseconds.
+        let mut speed_us = self.speed;
+        if speed_us < 0 {
+            let v0 = global_speed_var0.max(0);
+            speed_us = 700i32.saturating_mul(v0);
+        }
+
+        let immediate = self.skip_mode != 0 || self.speed == 0 || speed_us <= 0;
+
+        // TextPause freezes reveal-by-time, but must not block immediate modes.
+        if self.is_suspended && !immediate {
             return;
         }
-        if self.speed <= 0 || self.skip_mode != 0 {
-            // Immediate.
+        if immediate {
             if self.visible_chars != self.total_chars {
                 self.visible_chars = self.total_chars;
                 self.dirty = true;
@@ -528,14 +540,9 @@ impl TextItem {
             return;
         }
 
-        // speed: milliseconds per visible character (baseline assumption)
-        let speed_ms = self.speed as u32;
+        let mut speed_ms = (speed_us as u32 + 999) / 1000;
         if speed_ms == 0 {
-            if self.visible_chars != self.total_chars {
-                self.visible_chars = self.total_chars;
-                self.dirty = true;
-            }
-            return;
+            speed_ms = 1;
         }
 
         self.elapsed = self.elapsed.saturating_add(delta_ms);
@@ -714,9 +721,15 @@ impl TextItem {
 
         let line_h = main_size.ceil() as i32 + self.space_vertical as i32;
 
-        let mut pen_x = self.text_start_horizon as i32;
+        // The engine keeps a per-text-object pen position (x, y). `TextClear` resets it
+        // to (text_start_horizon, 0) and `TextPos` can reposition it.
+        //
+        // We also add a small top padding derived from outline size to avoid clipping
+        // on glyphs that extend above the baseline.
+        let mut pen_x = self.x as i32;
         let mut pen_y = 0i32;
-        let baseline_y = self.text_start_vertical as i32;
+        let pad_y = (self.main_text_outline as i32).saturating_add(1);
+        let baseline_y = (self.text_start_vertical as i32) + (self.y as i32) + pad_y;
 
         // Reveal budget: count in "characters" (newline counts as one; ruby counts by base text length).
         let mut remaining = self.visible_chars;
@@ -878,9 +891,9 @@ impl TextManager {
     }
 
     /// Tick reveal-by-time for all text slots.
-    pub fn tick(&mut self, delta_ms: u32) {
+    pub fn tick(&mut self, delta_ms: u32, global_speed_var0: i32) {
         for t in self.items.iter_mut() {
-            t.tick_reveal(delta_ms);
+            t.tick_reveal(delta_ms, global_speed_var0);
         }
     }
 

@@ -209,13 +209,18 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
     }
 
     /// Tick reveal-by-time for all text slots and upload dirty slots.
-    pub fn update_text_reveal(&mut self, elapsed: i64, fonts: &crate::subsystem::resources::text_manager::FontEnumerator) {
+    pub fn update_text_reveal(
+        &mut self,
+        elapsed: i64,
+        global_speed_var0: i32,
+        fonts: &crate::subsystem::resources::text_manager::FontEnumerator,
+    ) {
         // In the original engine, holding Ctrl (or issuing ControlPulse) forces text reveal
         // to complete immediately for the current frame.
         if elapsed < 0 {
             self.text_manager.force_reveal_all_non_suspended();
         } else {
-            self.text_manager.tick(elapsed as u32);
+            self.text_manager.tick(elapsed as u32, global_speed_var0);
         }
         self.text_reprint(fonts);
     }

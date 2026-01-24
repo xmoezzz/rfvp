@@ -290,6 +290,14 @@ impl App {
                             (self.surface_config.width, self.surface_config.height),
                             self.virtual_size,
                         );
+
+                        // The script VM can block waiting for user input (e.g., in-game click-to-advance).
+                        // In that case, waking the VM on input events is not sufficient: it must also be
+                        // able to observe the edge-triggered state (Down/Up) immediately, without waiting
+                        // for the next frame boundary.
+                        if is_input_event {
+                            gd.inputs_manager.refresh_input();
+                        }
                     }
                     // Wake the VM immediately on user input so scripts that poll
                     // InputGetEvent/InputGetDown respond without waiting for the next frame.
