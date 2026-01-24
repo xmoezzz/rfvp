@@ -29,6 +29,9 @@ pub fn update_input_events(
                     data.inputs_manager.notify_keyup(event.logical_key.clone());
                 }
             }
+            // Keep InputGetState/InputGetDown/InputGetUp usable even when the VM is
+            // advanced by an input signal (i.e. before the next frame boundary).
+            data.inputs_manager.refresh_input();
         }
         WindowEvent::MouseInput { state, button, .. } => {
             match state {
@@ -47,6 +50,7 @@ pub fn update_input_events(
                     }
                 }
             }
+            data.inputs_manager.refresh_input();
         }
         WindowEvent::MouseWheel { delta, .. } => {
             match delta {
@@ -58,39 +62,59 @@ pub fn update_input_events(
         }
         WindowEvent::CursorMoved { position, .. } => {
             // Map from window physical pixels -> virtual game pixels.
-            let (sw, sh) = surface_size;
-            let (vw, vh) = virtual_size;
+            // render_flag==2 uses stretch-to-fill (no letterbox); other modes use keep-aspect letterbox.
+            let render_flag = data.get_render_flag();
 
-            let sw = sw.max(1) as f64;
-            let sh = sh.max(1) as f64;
-            let vw = vw.max(1) as f64;
-            let vh = vh.max(1) as f64;
+            let (sw_u, sh_u) = surface_size;
+            let (vw_u, vh_u) = virtual_size;
 
-            let scale = (sw / vw).min(sh / vh);
-            let dst_w = vw * scale;
-            let dst_h = vh * scale;
-            let off_x = (sw - dst_w) * 0.5;
-            let off_y = (sh - dst_h) * 0.5;
+            let sw = sw_u.max(1) as f64;
+            let sh = sh_u.max(1) as f64;
+            let vw = vw_u.max(1) as f64;
+            let vh = vh_u.max(1) as f64;
 
             let px = position.x;
             let py = position.y;
 
-            let in_content = px >= off_x && px < (off_x + dst_w) && py >= off_y && py < (off_y + dst_h);
-
-            // Convert to virtual coordinates (clamped to the virtual bounds when inside).
-            let mut vx = ((px - off_x) / scale) as i32;
-            let mut vy = ((py - off_y) / scale) as i32;
-            if in_content {
+            if render_flag == 2 {
+                // Stretch: window maps directly to the full virtual space.
+                let mut vx = (px * vw / sw) as i32;
+                let mut vy = (py * vh / sh) as i32;
                 let max_x = (vw as i32).saturating_sub(1);
                 let max_y = (vh as i32).saturating_sub(1);
                 vx = vx.clamp(0, max_x);
                 vy = vy.clamp(0, max_y);
-            }
 
-            data.inputs_manager.notify_mouse_move(vx, vy);
-            // Treat the cursor as "in screen" only when it is inside the presented
-            // virtual content area (exclude letterboxed regions).
-            data.inputs_manager.set_mouse_in(in_content);
+                data.inputs_manager.notify_mouse_move(vx, vy);
+                data.inputs_manager.set_mouse_in(true);
+            } else {
+                // Keep-aspect letterbox.
+                let scale = (sw / vw).min(sh / vh);
+                let dst_w = vw * scale;
+                let dst_h = vh * scale;
+                let off_x = (sw - dst_w) * 0.5;
+                let off_y = (sh - dst_h) * 0.5;
+
+                let in_content = px >= off_x
+                    && px < (off_x + dst_w)
+                    && py >= off_y
+                    && py < (off_y + dst_h);
+
+                // Convert to virtual coordinates (clamped to the virtual bounds when inside).
+                let mut vx = ((px - off_x) / scale) as i32;
+                let mut vy = ((py - off_y) / scale) as i32;
+                if in_content {
+                    let max_x = (vw as i32).saturating_sub(1);
+                    let max_y = (vh as i32).saturating_sub(1);
+                    vx = vx.clamp(0, max_x);
+                    vy = vy.clamp(0, max_y);
+                }
+
+                data.inputs_manager.notify_mouse_move(vx, vy);
+                // Treat the cursor as "in screen" only when it is inside the presented
+                // virtual content area (exclude letterboxed regions).
+                data.inputs_manager.set_mouse_in(in_content);
+            }
         }
         WindowEvent::CursorEntered {..} => {
             data.inputs_manager.set_mouse_in(true);

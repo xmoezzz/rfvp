@@ -173,6 +173,14 @@ impl BgmPlayer {
         self.bgm_slots[slot].is_some()
     }
 
+    pub fn get_playing_slots(&self) -> Vec<bool> {
+        let mut playing = Vec::with_capacity(BGM_SLOT_COUNT);
+        for i in 0..BGM_SLOT_COUNT {
+            playing.push(self.bgm_slots[i].is_some());
+        }
+        playing
+    }
+
     pub fn set_type(&mut self, slot: i32, kind: i32) {
         let slot = slot as usize;
         self.bgm_kinds[slot] = Some(kind);

@@ -643,8 +643,6 @@ impl GpuPrimRenderer {
                                     (g.get_width() as f32, g.get_height() as f32, 0.0, 0.0)
                                 };
 
-                                let u = draw_prim.get_u() as f32;
-                                let v = draw_prim.get_v() as f32;
                                 let uv0 = vec2(u / tw as f32, v / th as f32);
                                 let uv1 = vec2((u + w) / tw as f32, (v + h) / th as f32);
 
@@ -722,8 +720,6 @@ impl GpuPrimRenderer {
                                     (g.get_width() as f32, g.get_height() as f32, 0.0, 0.0)
                                 };
 
-                                let u = draw_prim.get_u() as f32;
-                                let v = draw_prim.get_v() as f32;
                                 let uv0 = vec2(u / tw as f32, v / th as f32);
                                 let uv1 = vec2((u + w) / tw as f32, (v + h) / th as f32);
 

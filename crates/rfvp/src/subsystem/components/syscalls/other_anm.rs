@@ -25,14 +25,151 @@ pub fn lip_anim(
     id4: &Variant,
     duration3: &Variant,
 ) -> Result<Variant> {
-    UNUSED!(game_data, id, typ, id2, duration, id3, duration2, id4, duration3);
-    log::error!("lip_anim: not implemented");
+    let prim_id = match id.as_int() {
+        Some(v) => v,
+        None => {
+            log::error!("lip_anim: invalid id: {:?}", id);
+            return Ok(Variant::Nil);
+        }
+    };
+    if !(1..=4095).contains(&prim_id) {
+        log::error!("lip_anim: invalid id: {}", prim_id);
+        return Ok(Variant::Nil);
+    }
+
+    // typ is either NIL (stop) or an integer 0..=3 selecting the BGM slot for lipsync.
+    let bgm_slot: Option<i32> = match typ {
+        Variant::Nil => None,
+        Variant::Int(v) if (0..=3).contains(v) => Some(*v),
+        _ => {
+            log::error!("lip_anim: invalid typ: {:?}", typ);
+            return Ok(Variant::Nil);
+        }
+    };
+
+    if bgm_slot.is_none() {
+        game_data.motion_manager.stop_lip_motion(prim_id as i16);
+        return Ok(Variant::Nil);
+    }
+    let bgm_slot = bgm_slot.unwrap();
+
+    let id2 = match id2.as_int() {
+        Some(v) => v,
+        None => {
+            log::error!("lip_anim: invalid id2: {:?}", id2);
+            return Ok(Variant::Nil);
+        }
+    };
+    if !(1..=4095).contains(&id2) {
+        log::error!("lip_anim: invalid id2: {}", id2);
+        return Ok(Variant::Nil);
+    }
+
+    let t2 = match duration.as_int() {
+        Some(v) => v,
+        None => {
+            log::error!("lip_anim: invalid duration: {:?}", duration);
+            return Ok(Variant::Nil);
+        }
+    };
+    if !(1..=300000).contains(&t2) {
+        log::error!("lip_anim: invalid duration: {}", t2);
+        return Ok(Variant::Nil);
+    }
+
+    let id3 = match id3.as_int() {
+        Some(v) => v,
+        None => {
+            log::error!("lip_anim: invalid id3: {:?}", id3);
+            return Ok(Variant::Nil);
+        }
+    };
+    if !(1..=4095).contains(&id3) {
+        log::error!("lip_anim: invalid id3: {}", id3);
+        return Ok(Variant::Nil);
+    }
+
+    let t3 = match duration2.as_int() {
+        Some(v) => v,
+        None => {
+            log::error!("lip_anim: invalid duration2: {:?}", duration2);
+            return Ok(Variant::Nil);
+        }
+    };
+    if !(1..=300000).contains(&t3) {
+        log::error!("lip_anim: invalid duration2: {}", t3);
+        return Ok(Variant::Nil);
+    }
+
+    let id4 = match id4 {
+        Variant::Nil => 0,
+        Variant::Int(v) => *v,
+        _ => {
+            log::error!("lip_anim: invalid id4: {:?}", id4);
+            return Ok(Variant::Nil);
+        }
+    };
+    if !(0..=4095).contains(&id4) {
+        log::error!("lip_anim: invalid id4: {}", id4);
+        return Ok(Variant::Nil);
+    }
+
+    let t4 = match duration3.as_int() {
+        Some(v) => v,
+        None => {
+            log::error!("lip_anim: invalid duration3: {:?}", duration3);
+            return Ok(Variant::Nil);
+        }
+    };
+    if !(1..=300000).contains(&t4) {
+        log::error!("lip_anim: invalid duration3: {}", t4);
+        return Ok(Variant::Nil);
+    }
+
+    // Store motion config; actual playback is controlled by LipSync and BGM slot playback.
+    game_data.motion_manager.set_lip_motion(
+        prim_id as i16,
+        bgm_slot,
+        id2,
+        t2 as u32,
+        id3,
+        t3 as u32,
+        id4,
+        t4 as u32,
+    )?;
+
     Ok(Variant::Nil)
 }
 
 pub fn lip_sync(game_data: &mut GameData, id: &Variant, sync: &Variant) -> Result<Variant> {
-    UNUSED!(game_data, id, sync);
-    log::error!("lip_sync: not implemented");
+    let prim_id = match id.as_int() {
+        Some(v) => v,
+        None => {
+            log::error!("lip_sync: invalid id: {:?}", id);
+            return Ok(Variant::Nil);
+        }
+    };
+    if !(1..=4095).contains(&prim_id) {
+        log::error!("lip_sync: invalid id: {}", prim_id);
+        return Ok(Variant::Nil);
+    }
+
+    let enable = match sync {
+        Variant::Int(v) => *v != 0,
+        Variant::True => true,
+        Variant::Nil => false,
+        _ => {
+            log::error!("lip_sync: invalid sync flag: {:?}", sync);
+            return Ok(Variant::Nil);
+        }
+    };
+
+    // When disabling, the original engine resets the animation to the first frame.
+    if !enable {
+        let bgm_playing_slots = game_data.bgm_player.get_playing_slots();
+        game_data.motion_manager.update_lip_motions(-1, false, &bgm_playing_slots);
+    }
+    game_data.motion_manager.set_lip_sync(prim_id as i16, enable);
     Ok(Variant::Nil)
 }
 

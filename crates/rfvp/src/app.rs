@@ -15,7 +15,7 @@ use crate::{
     utils::ani::{self, icondir_to_custom_cursor, CursorBundle},
 };
 
-use winit::{dpi::{PhysicalSize, Size}, window::CustomCursor};
+use winit::{dpi::{PhysicalPosition, PhysicalSize, Size}, window::CustomCursor};
 use winit::{
     keyboard::{KeyCode, PhysicalKey},
     event::{Event, WindowEvent, MouseButton, MouseScrollDelta},
@@ -58,6 +58,13 @@ fn gd_write<'a>(gd: &'a Arc<RwLock<GameData>>) -> RwLockWriteGuard<'a, GameData>
     }
 }
 
+
+#[derive(Clone, Copy, Debug)]
+struct WindowedRestoreState {
+    size: PhysicalSize<u32>,
+    pos: Option<PhysicalPosition<i32>>,
+}
+
 pub struct App {
     config: AppConfig,
     game_data: Arc<RwLock<GameData>>,
@@ -68,6 +75,11 @@ pub struct App {
     scheduler: Scheduler,
     layer_machine: SceneMachine,
     window: Option<Arc<Window>>,
+
+    // WindowMode support
+    windowed_restore: Option<WindowedRestoreState>,
+    last_fullscreen_flag: i32,
+
     render_target: RenderTarget,
     resources: Arc<GpuCommonResources>,
     surface: wgpu::Surface<'static>,
@@ -189,7 +201,20 @@ impl App {
                             | WindowEvent::CursorLeft { .. }
                     );
                     match event {
-                        WindowEvent::CloseRequested => loopd.exit(),
+                        WindowEvent::CloseRequested => {
+                            // ExitMode(2) can disable immediate close; in that case the engine
+                            // marks "close pending" and lets the script decide when to exit.
+                            let mut gd = gd_write(&self.game_data);
+                            if gd.get_close_immediate() {
+                                loopd.exit();
+                            } else {
+                                gd.set_close_pending(true);
+                            }
+                        }
+                        WindowEvent::Focused(_focused) => {
+                            // Do not introduce WindowMode side effects on focus changes.
+                            // Input focus transitions are handled in update_input_events().
+                        }
                         WindowEvent::Resized(physical_size) => {
                             gd_write(&self.game_data).window_mut().set_dimensions(physical_size.width, physical_size.height);
 
@@ -206,7 +231,20 @@ impl App {
                         }
                         WindowEvent::RedrawRequested => {
                             // Drive the simulation from redraws so we do not busy-spin.
-                            self.next_frame();
+                            let (frame_ms, notify_dissolve_done) = self.next_frame();
+
+                            // Wake dissolve waiters before advancing the VM for this frame.
+                            if notify_dissolve_done {
+                                self.vm_worker.send_dissolve_done_sync();
+                            }
+
+                            // Run the script VM before rendering so scene changes become visible immediately.
+                            self.vm_worker.send_frame_ms_sync(frame_ms);
+
+                            // Apply WindowMode/Cursor requests that may have been issued during the VM tick.
+                            self.apply_window_mode_requests();
+                            self.update_cursor();
+
                             {
                                 let mut gd = gd_write(&self.game_data);
                                 self.layer_machine.apply_scene_action(SceneAction::EndFrame, &mut gd);
@@ -214,14 +252,34 @@ impl App {
                             if let Err(e) = self.render_frame() {
                                 log::error!("render_frame: {e:?}");
                             }
+
+                            // Clear per-frame transient input signals only after the VM had a
+                            // chance to observe them (InputGetDown/InputGetUp/InputGetRepeat/Wheel).
+                            gd_write(&self.game_data).inputs_manager.frame_reset();
                         }
                         WindowEvent::KeyboardInput { event, .. } => {
-                        if event.state == winit::event::ElementState::Pressed && !event.repeat {
-                            if matches!(event.physical_key, PhysicalKey::Code(KeyCode::F2)) {
-                                self.toggle_hud_window();
+                            if event.state == winit::event::ElementState::Pressed && !event.repeat {
+                                match event.physical_key {
+                                    PhysicalKey::Code(KeyCode::F2) => {
+                                        self.toggle_hud_window();
+                                    }
+                                    PhysicalKey::Code(KeyCode::F11) => {
+                                        // Fallback toggler (useful when a title does not expose a UI affordance
+                                        // to return from fullscreen).
+                                        let mut gd = gd_write(&self.game_data);
+                                        let cur = gd.get_render_flag();
+                                        let last = if self.last_fullscreen_flag == 2 || self.last_fullscreen_flag == 3 {
+                                            self.last_fullscreen_flag
+                                        } else {
+                                            3
+                                        };
+                                        let next = if cur == 2 || cur == 3 { 0 } else { last };
+                                        gd.set_render_flag(next);
+                                    }
+                                    _ => {}
+                                }
                             }
                         }
-                    }
                     _ => {}
                     }
                     {
@@ -300,12 +358,14 @@ impl App {
                     }
                 }
                 Event::AboutToWait => {
-                    // Allow the VM to run between frames. We only advance the VM once per
-                    // simulation frame (set in `next_frame`) to avoid the event loop calling
-                    // AboutToWait multiple times and over-advancing scripts.
-                    if self.pending_vm_frame_ms_valid {
-                        self.vm_worker.send_frame_ms(self.pending_vm_frame_ms);
-                        self.pending_vm_frame_ms_valid = false;
+                    // ExitMode(3): after the main script context exits, terminate the host loop.
+                    let (should_exit, main_exited) = {
+                        let gd = gd_read(&self.game_data);
+                        (gd.get_game_should_exit(), gd.get_main_thread_exited())
+                    };
+                    if should_exit && main_exited {
+                        loopd.exit();
+                        return;
                     }
 
                     // Schedule the next redraw. This keeps the event loop responsive while
@@ -323,7 +383,7 @@ impl App {
         });
     }
 
-    fn next_frame(&mut self) {
+    fn next_frame(&mut self) -> (u64, bool) {
         let mut notify_dissolve_done = false;
         let frame_ms: u64;
 
@@ -386,28 +446,77 @@ impl App {
             self.last_dissolve2_transitioning = cur_dissolve2;
             self.last_dissolve_type = cur_dissolve;
 
+            // Input state must be updated every frame (including during modal playback/halt),
+            // otherwise InputGetDown/InputGetUp will remain stale while InputGetEvent continues
+            // to receive queued events.
+            gd.inputs_manager.refresh_input();
+            gd.set_current_thread(0);
+
             if gd.get_halt() {
                 // Preserve halt while a modal Movie is active.
                 if !gd.video_manager.is_modal_active() {
                     gd.set_halt(false);
                 }
-            } else {
-                gd.inputs_manager.refresh_input();
-                gd.set_current_thread(0);
             }
-            gd.inputs_manager.frame_reset();
+
         }
 
         self.last_dt_ms = frame_ms as f32;
         self.debug_frame_no = self.debug_frame_no.wrapping_add(1);
 
-        self.pending_vm_frame_ms = frame_ms;
-        self.pending_vm_frame_ms_valid = true;
+        (frame_ms, notify_dissolve_done)
+    }
 
-        if notify_dissolve_done {
-            self.vm_worker.send_dissolve_done();
+    fn apply_window_mode_requests(&mut self) {
+        use winit::window::Fullscreen;
+
+        let requested = {
+            let mut gd = gd_write(&self.game_data);
+            gd.take_pending_render_flag()
+        };
+        let Some(flag) = requested else { return; };
+
+        let w = self.window.as_ref().expect("A window is mandatory to run this game !");
+
+        match flag {
+            0 => {
+                // Windowed
+                w.set_fullscreen(None);
+                w.set_decorations(true);
+                w.set_maximized(false);
+
+                if let Some(st) = self.windowed_restore.take() {
+                    w.request_inner_size(st.size);
+                    if let Some(pos) = st.pos {
+                        let _ = w.set_outer_position(pos);
+                    }
+                }
+            }
+            1 => {
+                // "Full window" (maximize), distinct from fullscreen.
+                w.set_fullscreen(None);
+                w.set_decorations(true);
+                w.set_maximized(true);
+            }
+            2 | 3 => {
+                // Fullscreen.
+                self.last_fullscreen_flag = flag;
+
+                // Capture current window bounds so we can restore them when returning to windowed.
+                if self.windowed_restore.is_none() {
+                    let size = w.inner_size();
+                    let pos = w.outer_position().ok();
+                    self.windowed_restore = Some(WindowedRestoreState { size, pos });
+                }
+
+                // Best-effort borderless fullscreen on the current monitor.
+                let monitor = w.current_monitor();
+                w.set_fullscreen(Some(Fullscreen::Borderless(monitor)));
+            }
+            _ => {
+                // Unknown flags are ignored at the backend layer.
+            }
         }
-        self.update_cursor();
     }
 
 
@@ -425,7 +534,7 @@ impl App {
             let mut window = gd.window_mut();
             window.reset_future_settings()
         }
-}
+    }
 
     fn render_frame(&mut self) -> anyhow::Result<()> {
         let dissolve_color: Option<glam::Vec4>;
@@ -590,11 +699,20 @@ impl App {
             let sw = self.surface_config.width.max(1) as f32;
             let sh = self.surface_config.height.max(1) as f32;
 
-            let scale = (sw / vw).min(sh / vh);
-            let dst_w = vw * scale;
-            let dst_h = vh * scale;
-            let off_x = (sw - dst_w) * 0.5;
-            let off_y = (sh - dst_h) * 0.5;
+            // Two fullscreen presentation modes exist in the original engine:
+            // - render_flag==2: stretch-to-fill (may distort aspect ratio)
+            // - render_flag==3: keep-aspect (letterbox)
+            // For windowed modes (0/1), keep-aspect matches typical behavior.
+            let render_flag = gd_read(&self.game_data).get_render_flag();
+
+            let (scale_x, scale_y, off_x, off_y) = if render_flag == 2 {
+                (sw / vw, sh / vh, 0.0f32, 0.0f32)
+            } else {
+                let s = (sw / vw).min(sh / vh);
+                let dst_w = vw * s;
+                let dst_h = vh * s;
+                ((s), (s), (sw - dst_w) * 0.5, (sh - dst_h) * 0.5)
+            };
 
             let proj_surface = mat4(
                 vec4(2.0 / sw, 0.0, 0.0, 0.0),
@@ -603,7 +721,7 @@ impl App {
                 vec4(-1.0, 1.0, 0.0, 1.0),
             );
             let to_surface_px = Mat4::from_translation(vec3(off_x, off_y, 0.0))
-                * Mat4::from_scale(vec3(scale, scale, 1.0));
+                * Mat4::from_scale(vec3(scale_x, scale_y, 1.0));
 
             let present_m = proj_surface * to_surface_px;
 
@@ -1085,6 +1203,10 @@ impl AppBuilder {
 
         let window = Arc::new(window);
 
+        // Expose a best-effort "fullscreen capable" flag to scripts via WindowMode(3).
+        // The original engine checks platform capabilities; here we treat having a monitor as "capable".
+        self.world.set_can_fullscreen(window.current_monitor().is_some());
+
         // Debug HUD window (created hidden, toggled via F2).
         let hud_window: Option<Arc<Window>> = if debug_ui::enabled() {
             let ms = window.inner_size();
@@ -1232,6 +1354,9 @@ impl AppBuilder {
                 current_scene: self.scene,
             },
             window: Some(window.clone()),
+            windowed_restore: None,
+            last_fullscreen_flag: 3,
+
             vm_worker,
             pending_vm_frame_ms: 0,
             pending_vm_frame_ms_valid: false,

@@ -14,12 +14,18 @@ pub enum EngineEvent {
     /// Advance the script VM by one frame worth of time.
     Frame { frame_ms: u64 },
 
+    /// Same as `Frame`, but the sender waits until the VM tick completes.
+    FrameSync { frame_ms: u64, done: Sender<()> },
+
     /// Notify the VM that a global dissolve has finished.
     ///
     /// This is used to unblock contexts waiting on DISSOLVE_WAIT without
     /// having to wait for the next frame event. The VM will run a zero-delta
     /// tick to process state transitions.
     DissolveDone,
+
+    /// Same as `DissolveDone`, but the sender waits until the VM tick completes.
+    DissolveDoneSync { done: Sender<()> },
 
     /// Notify the VM that an input event was received on the main thread.
     ///
@@ -76,6 +82,18 @@ impl VmWorker {
                                 // Keep running; scripts may recover depending on engine behavior.
                             }
                         }
+                        EngineEvent::FrameSync { frame_ms, done } => {
+                            let mut gd = match game_data.write() {
+                                Ok(g) => g,
+                                Err(poisoned) => poisoned.into_inner(),
+                            };
+                            if !gd.get_halt() {
+                                if let Err(e) = vm.tick(&mut gd, &mut parser, frame_ms) {
+                                    log::error!("VM thread tick error: {e:?}");
+                                }
+                            }
+                            let _ = done.send(());
+                        }
                         EngineEvent::DissolveDone => {
                             let mut gd = match game_data.write() {
                                 Ok(g) => g,
@@ -89,6 +107,18 @@ impl VmWorker {
                             if let Err(e) = vm.tick(&mut gd, &mut parser, 0) {
                                 log::error!("VM thread tick error (dissolve done): {e:?}");
                             }
+                        }
+                        EngineEvent::DissolveDoneSync { done } => {
+                            let mut gd = match game_data.write() {
+                                Ok(g) => g,
+                                Err(poisoned) => poisoned.into_inner(),
+                            };
+                            if !gd.get_halt() {
+                                if let Err(e) = vm.tick(&mut gd, &mut parser, 0) {
+                                    log::error!("VM thread tick error (dissolve done): {e:?}");
+                                }
+                            }
+                            let _ = done.send(());
                         }
                         EngineEvent::InputSignal => {
                             let mut gd = match game_data.write() {
@@ -127,4 +157,20 @@ impl VmWorker {
     pub fn send_input_signal(&self) {
         let _ = self.tx.send(EngineEvent::InputSignal);
     }
+
+    #[inline]
+    pub fn send_frame_ms_sync(&self, frame_ms: u64) {
+        let (done_tx, done_rx) = mpsc::channel::<()>();
+        let _ = self.tx.send(EngineEvent::FrameSync { frame_ms, done: done_tx });
+        // If the VM thread is gone, treat it as a no-op.
+        let _ = done_rx.recv();
+    }
+
+    #[inline]
+    pub fn send_dissolve_done_sync(&self) {
+        let (done_tx, done_rx) = mpsc::channel::<()>();
+        let _ = self.tx.send(EngineEvent::DissolveDoneSync { done: done_tx });
+        let _ = done_rx.recv();
+    }
+
 }

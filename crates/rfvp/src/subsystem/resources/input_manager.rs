@@ -307,10 +307,15 @@ impl InputManager {
         if let Some(keycode) = self.keymap(key) {
             {
                 let _g = self.cs.enter();
-                if !repeat {
-                    self.new_input_state |= 1 << (keycode.clone() as u32);
-                }
-                self.input_repeat |= 1 << (keycode.clone() as u32);
+                // Maintain key-down state regardless of platform repeat behavior.
+                // Some platforms can report repeat=true even for the first press; gating the
+                // state update on !repeat breaks InputGetDown/InputGetUp while InputGetEvent
+                // still receives key events.
+                self.new_input_state |= 1u32 << (keycode.clone() as u32);
+
+                // Keep legacy behavior: treat any keydown as eligible for repeat bookkeeping.
+                // (The engine uses per-frame frame_reset() to clear this bitfield.)
+                self.input_repeat |= 1u32 << (keycode.clone() as u32);
             }
 
             // IDA: key events are only enqueued for keycode >= 2 (Shift/Ctrl are excluded).
@@ -406,8 +411,12 @@ impl InputManager {
     }
 
     pub fn frame_reset(&mut self) {
+        // Per-frame transient signals.
+        // NOTE: input_state/new_input_state are NOT cleared here.
         self.input_repeat = 0;
         self.wheel_value = 0;
+        self.input_down = 0;
+        self.input_up = 0;
     }
 
     // TODO: use flags to make it more clear
@@ -434,8 +443,9 @@ impl InputManager {
         }
 
         let changed = self.input_state ^ self.old_input_state;
-        self.input_down = self.input_state & changed;        // prev 0 -> now 1
-        self.input_up = (!self.input_state) & changed;       // prev 1 -> now 0
+        // Accumulate edge-triggered bits until the next frame_reset().
+        self.input_down |= self.input_state & changed;        // prev 0 -> now 1
+        self.input_up |= (!self.input_state) & changed;       // prev 1 -> now 0
     }
 
 }

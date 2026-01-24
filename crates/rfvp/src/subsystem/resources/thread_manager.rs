@@ -96,11 +96,13 @@ impl ThreadManager {
 
     pub fn thread_start(&mut self, id: u32, addr: u32) {
         if id == 0 {
+            // Reset the global break flag when restarting the main thread.
+            self.thread_break = false;
             for i in 0..self.total_contexts() {
                 let mut context = Context::new(0, i as u32);
                 context.set_status(ThreadState::CONTEXT_STATUS_NONE);
                 context.set_should_break(true);
-                self.contexts[id as usize] = context;
+                self.contexts[i] = context;
             }
         }
 
@@ -164,7 +166,7 @@ impl ThreadManager {
                 let mut ctx = Context::new(0, i as u32);
                 ctx.set_status(ThreadState::CONTEXT_STATUS_NONE);
                 ctx.set_should_break(true);
-                self.contexts[id as usize] = ctx;
+                self.contexts[i] = ctx;
             }
 
             self.thread_break = true;

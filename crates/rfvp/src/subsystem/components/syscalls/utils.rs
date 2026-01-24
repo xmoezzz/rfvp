@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 
 use crate::script::Variant;
 use crate::subsystem::world::GameData;
@@ -74,60 +74,97 @@ pub fn system_at_skipname(
     Ok(Variant::Nil)
 }
 
-pub enum WinMode {
-    _Unknown = -1,
-    Windowed = 0,
-    Fullscreen = 1,
-    GetWindowed = 2,
-    GetResizable = 3,
-    Resizable = 4,
-    NonResizable = 5,
-    _UnUsed = 6,
-}
-
-impl TryFrom<i32> for WinMode {
-    type Error = anyhow::Error;
-
-    fn try_from(value: i32) -> anyhow::Result<Self> {
-        match value {
-            -1 => Ok(WinMode::_Unknown),
-            0 => Ok(WinMode::Windowed),
-            1 => Ok(WinMode::Fullscreen),
-            2 => Ok(WinMode::GetWindowed),
-            3 => Ok(WinMode::GetResizable),
-            4 => Ok(WinMode::Resizable),
-            5 => Ok(WinMode::NonResizable),
-            6 => Ok(WinMode::_UnUsed),
-            _ => bail!("Invalid value for WinMode"),
-        }
-    }
-}
-
-pub fn window_mode(_game_data: &mut GameData, mode: &Variant) -> Result<Variant> {
-    let mode = match mode {
-        Variant::Int(mode) => WinMode::try_from(*mode)?,
+/// WindowMode(mode)
+///
+/// This syscall is lifecycle-critical in the original engine; it is not a simple "flag".
+/// The script uses it to:
+///   - switch between windowed/fullscreen rendering modes (via an internal `render_flag`)
+///   - query the current mode
+///   - query fullscreen capability
+///   - control a special "first frame" behavior used by the engine when losing focus
+///
+/// We preserve observable semantics at the script level, while the backend (winit) may
+/// choose to honor the requested mode change.
+pub fn window_mode(game_data: &mut GameData, mode: &Variant) -> Result<Variant> {
+    let v = match mode {
+        Variant::Int(m) => *m,
         _ => {
-            log::error!("window_mode: Invalid mode type: {:?}", mode);
-            return Ok(Variant::True);
-        },
+            log::error!("window_mode: invalid mode type");
+            return Ok(Variant::Nil);
+        }
     };
 
-    // emulate the behavior of the original engine
-    match mode {
-        WinMode::_Unknown => return Ok(Variant::Int(0)),
-        WinMode::Windowed => return Ok(Variant::Int(0)),
-        WinMode::Fullscreen => return Ok(Variant::Int(1)),
-        WinMode::GetWindowed => return Ok(Variant::Int(0)),
-        WinMode::GetResizable => {},
-        WinMode::Resizable => {},
-        WinMode::NonResizable => {},
-        WinMode::_UnUsed => {
-            log::warn!("window_mode: Unused mode");
-        },
+    // Original engine accepts -1..6 (inclusive).
+    if v < -1 || v > 6 {
+        log::error!("window_mode: invalid mode value {v}");
+        return Ok(Variant::Nil);
     }
 
-    Ok(Variant::Nil)
+    match v {
+        0 => {
+            // Windowed
+            game_data.set_render_flag(0);
+            Ok(Variant::Int(0))
+        }
+        1 => {
+            // Maximized (non-fullscreen)
+            game_data.set_render_flag(1);
+            Ok(Variant::Int(1))
+        }
+        -1 => {
+            // If fullscreen is supported, enter fullscreen-stretch (render_flag=2) and return -1.
+            // Otherwise return 1 and do not change mode.
+            if game_data.get_can_fullscreen() {
+                game_data.set_render_flag(2);
+                Ok(Variant::Int(-1))
+            } else {
+                Ok(Variant::Int(1))
+            }
+        }
+        2 => {
+            // Query current mode. Script-visible mapping: render_flag 2 -> -1, 3 -> -2.
+            let rf = game_data.get_render_flag();
+            let out = match rf {
+                2 => -1,
+                3 => -2,
+                _ => rf,
+            };
+            Ok(Variant::Int(out))
+        }
+        3 => {
+            // Query fullscreen capability.
+            if game_data.get_can_fullscreen() {
+                Ok(Variant::True)
+            } else {
+                Ok(Variant::Nil)
+            }
+        }
+        4 => {
+            // Set the legacy flag (semantics are title-dependent).
+            game_data.set_is_first_frame(true);
+            Ok(Variant::Nil)
+        }
+        5 => {
+            // Clear the legacy flag.
+            game_data.set_is_first_frame(false);
+            Ok(Variant::Nil)
+        }
+        6 => {
+            // Query the legacy flag.
+            if game_data.get_is_first_frame() {
+                Ok(Variant::True)
+            } else {
+                Ok(Variant::Nil)
+            }
+        }
+        _ => Ok(Variant::Nil),
+    }
 }
+
+
+
+
+
 
 pub fn title_menu(_game_data: &mut GameData, _title: &Variant) -> Result<Variant> {
     Ok(Variant::Nil)
@@ -158,10 +195,13 @@ pub fn exit_mode(game_data: &mut GameData, mode: &Variant) -> Result<Variant> {
         game_data.set_lock_scripter(true);
         game_data.set_last_current_thread(game_data.get_current_thread());
         game_data.set_game_should_exit(true);
+        // A new exit sequence starts; clear the completion latch.
+        game_data.set_main_thread_exited(false);
     }
     else if mode == 4 {
         game_data.set_lock_scripter(false);
         game_data.set_game_should_exit(false);
+        game_data.set_main_thread_exited(false);
     }
 
     Ok(Variant::Nil)

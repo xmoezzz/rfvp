@@ -84,6 +84,15 @@ impl VmRunner {
             }
         }
 
+        // ExitMode(3): once the designated "last current" context has exited, signal the host loop.
+        if game.get_game_should_exit() {
+            let main_tid = game.get_last_current_thread();
+            let st = self.tm.get_context_status(main_tid);
+            if st == ThreadState::CONTEXT_STATUS_NONE || self.tm.get_should_break() {
+                game.set_main_thread_exited(true);
+            }
+        }
+
         if debug_ui::enabled() {
             game.debug_vm_mut().update_from_thread_manager(&self.tm);
         }
