@@ -75,27 +75,31 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Install build tools
+      - name: Install build tools (xcodegen)
         run: |
-          brew update
           brew install xcodegen
 
       - name: Build macOS .app (script)
         run: |
           chmod +x platform/scripts/package_macos_app.sh
-          ./platform/scripts/package_macos_app.sh || true
+          set +e
+          ./platform/scripts/package_macos_app.sh
+          rc=$?
+          set -e
+          # Do not trust exit code; trust outputs.
+          test -d dist/macos/RFVP.app
+          echo "[macos] package_macos_app.sh exit code: $rc"
 
       - name: Build macOS .dmg (script)
         run: |
           chmod +x platform/scripts/package_macos_dmg.sh
-          ./platform/scripts/package_macos_dmg.sh || true
-
-      - name: Verify outputs
-        run: |
-          test -d dist/macos/RFVP.app
-          ls -la dist/macos || true
-          # DMG name may vary; accept any dmg in dist/macos
+          set +e
+          ./platform/scripts/package_macos_dmg.sh
+          rc=$?
+          set -e
+          # Accept any dmg in dist/macos
           test "$(ls -1 dist/macos/*.dmg 2>/dev/null | wc -l)" -ge 1
+          echo "[macos] package_macos_dmg.sh exit code: $rc"
 
       - name: Upload artifact (DMG + app)
         uses: actions/upload-artifact@v4
@@ -130,33 +134,33 @@ jobs:
         shell: cmd
         run: |
           call build_windows_msvc.cmd x64
-          rem do not trust exit code; continue
           exit /b 0
 
-      - name: Verify x64 output
+      - name: Verify + stage x64 output
         shell: cmd
         run: |
           if not exist target\x86_64-pc-windows-msvc\release\%RFVP_CARGO_PKG%.exe exit /b 1
+          if not exist dist\windows mkdir dist\windows
+          copy /Y target\x86_64-pc-windows-msvc\release\%RFVP_CARGO_PKG%.exe dist\windows\%RFVP_CARGO_PKG%-windows-x64.exe
 
       - name: Build arm64 (script)
         shell: cmd
         run: |
           call build_windows_msvc.cmd arm64
-          rem do not trust exit code; continue
           exit /b 0
 
-      - name: Verify arm64 output
+      - name: Verify + stage arm64 output
         shell: cmd
         run: |
           if not exist target\aarch64-pc-windows-msvc\release\%RFVP_CARGO_PKG%.exe exit /b 1
+          if not exist dist\windows mkdir dist\windows
+          copy /Y target\aarch64-pc-windows-msvc\release\%RFVP_CARGO_PKG%.exe dist\windows\%RFVP_CARGO_PKG%-windows-arm64.exe
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: rfvp-windows
-          path: |
-            target\x86_64-pc-windows-msvc\release\rfvp.exe
-            target\aarch64-pc-windows-msvc\release\rfvp.exe
+          path: dist/windows/*.exe
           if-no-files-found: error
 
   release:
@@ -175,7 +179,7 @@ jobs:
 
       - name: List artifacts
         run: |
-          find _artifacts -maxdepth 4 -type f -print
+          find _artifacts -maxdepth 6 -type f -print
 
       - name: Create Release and upload assets
         uses: softprops/action-gh-release@v2
