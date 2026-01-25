@@ -797,14 +797,14 @@ pub fn text_space(
         game_data
             .motion_manager
             .text_manager
-            .set_text_space_vertical(id, space_vertical as i16);
+            .set_text_vertical_space(id, space_vertical as i16);
     }
 
     if (-32..=32).contains(&space_horizon) {
         game_data
             .motion_manager
             .text_manager
-            .set_text_space_horizon(id, space_horizon as i16);
+            .set_text_horizon_space(id, space_horizon as i16);
     }
 
     Ok(Variant::Nil)
