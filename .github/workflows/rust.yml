@@ -1,73 +1,15 @@
-name: Build Artifacts
-
-on:
-  push:
-    branches: ["main"]
-    tags: ["v*"]
-  pull_request:
-    branches: ["main"]
-
-env:
-  CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-A static_mut_refs"
-  RFVP_CARGO_PKG: rfvp
-
-jobs:
-  linux:
-    name: linux-x86_64 (ubuntu-20.04)
-    runs-on: ubuntu-20.04
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Rust cache
-        uses: Swatinem/rust-cache@v2
-
-      - name: Install system deps (GStreamer, audio)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            pkg-config \
-            libasound2-dev \
-            libgstreamer1.0-dev \
-            libgstreamer-plugins-base1.0-dev \
-            gstreamer1.0-plugins-base \
-            gstreamer1.0-plugins-good \
-            gstreamer1.0-plugins-bad \
-            gstreamer1.0-plugins-ugly \
-            gstreamer1.0-libav \
-            libgstrtspserver-1.0-dev \
-            libges-1.0-dev
-
-      - name: Build (release)
-        run: |
-          cargo build --release -p "${RFVP_CARGO_PKG}" --verbose
-
-      - name: Package artifact (tar.gz)
-        run: |
-          mkdir -p dist/linux
-          BIN="target/release/${RFVP_CARGO_PKG}"
-          test -f "$BIN"
-          tar -C "target/release" -czf "dist/linux/${RFVP_CARGO_PKG}-linux-x86_64.tar.gz" "${RFVP_CARGO_PKG}"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: rfvp-linux-x86_64
-          path: dist/linux/*.tar.gz
-          if-no-files-found: error
-
   macos:
     name: macos (app + dmg)
-    runs-on: macos-14
+    runs-on: macos-15
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Select Xcode (16.x)
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
 
       - name: Setup Rust (stable)
         uses: dtolnay/rust-toolchain@stable
@@ -75,31 +17,24 @@ jobs:
       - name: Rust cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Install build tools (xcodegen)
+      - name: Install build tools
         run: |
           brew install xcodegen
 
       - name: Build macOS .app (script)
         run: |
           chmod +x platform/scripts/package_macos_app.sh
-          set +e
-          ./platform/scripts/package_macos_app.sh
-          rc=$?
-          set -e
-          # Do not trust exit code; trust outputs.
-          test -d dist/macos/RFVP.app
-          echo "[macos] package_macos_app.sh exit code: $rc"
+          ./platform/scripts/package_macos_app.sh || true
 
       - name: Build macOS .dmg (script)
         run: |
           chmod +x platform/scripts/package_macos_dmg.sh
-          set +e
-          ./platform/scripts/package_macos_dmg.sh
-          rc=$?
-          set -e
-          # Accept any dmg in dist/macos
+          ./platform/scripts/package_macos_dmg.sh || true
+
+      - name: Verify outputs
+        run: |
+          test -d dist/macos/RFVP.app
           test "$(ls -1 dist/macos/*.dmg 2>/dev/null | wc -l)" -ge 1
-          echo "[macos] package_macos_dmg.sh exit code: $rc"
 
       - name: Upload artifact (DMG + app)
         uses: actions/upload-artifact@v4
@@ -133,57 +68,23 @@ jobs:
       - name: Build x64 (script)
         shell: cmd
         run: |
-          call build_windows_msvc.cmd x64
+          call platform\scripts\build_windows_msvc.cmd x64
+          rem do not trust exit code; continue
           exit /b 0
 
-      - name: Verify + stage x64 output
+      - name: Verify x64 output
         shell: cmd
         run: |
           if not exist target\x86_64-pc-windows-msvc\release\%RFVP_CARGO_PKG%.exe exit /b 1
-          if not exist dist\windows mkdir dist\windows
-          copy /Y target\x86_64-pc-windows-msvc\release\%RFVP_CARGO_PKG%.exe dist\windows\%RFVP_CARGO_PKG%-windows-x64.exe
 
       - name: Build arm64 (script)
         shell: cmd
         run: |
-          call build_windows_msvc.cmd arm64
+          call platform\scripts\build_windows_msvc.cmd arm64
+          rem do not trust exit code; continue
           exit /b 0
 
-      - name: Verify + stage arm64 output
+      - name: Verify arm64 output
         shell: cmd
         run: |
           if not exist target\aarch64-pc-windows-msvc\release\%RFVP_CARGO_PKG%.exe exit /b 1
-          if not exist dist\windows mkdir dist\windows
-          copy /Y target\aarch64-pc-windows-msvc\release\%RFVP_CARGO_PKG%.exe dist\windows\%RFVP_CARGO_PKG%-windows-arm64.exe
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: rfvp-windows
-          path: dist/windows/*.exe
-          if-no-files-found: error
-
-  release:
-    name: Publish GitHub Release (tags only)
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [linux, macos, windows]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Download all workflow artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: _artifacts
-
-      - name: List artifacts
-        run: |
-          find _artifacts -maxdepth 6 -type f -print
-
-      - name: Create Release and upload assets
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            _artifacts/**/*
-          fail_on_unmatched_files: true

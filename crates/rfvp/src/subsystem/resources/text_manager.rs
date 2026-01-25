@@ -879,7 +879,9 @@ impl TextManager {
 
     /// Tick reveal-by-time for all text slots.
     pub fn tick(&mut self, delta_ms: u32, global_speed_var0: i32) {
-        let gs: u32 = if global_speed_var0 <= 0 { 100 } else { global_speed_var0 as u32 };
+        // global speed (G[0]) is a percentage-like factor (100 = normal).
+        // Negative values are treated as "default" (100). Zero means "no progress".
+        let gs: u32 = if global_speed_var0 < 0 { 100 } else { global_speed_var0 as u32 };
         let scaled_delta_ms: u32 = (((delta_ms as u64) * (gs as u64) + 50) / 100)
             .min(u32::MAX as u64) as u32;
 
