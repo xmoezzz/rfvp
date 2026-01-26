@@ -201,50 +201,43 @@ pub fn audio_vol(
     volume: &Variant,
     crossfade: &Variant,
 ) -> Result<Variant> {
-    let channel = match channel {
-        Variant::Int(channel) => *channel,
-        _ => {
-            log::error!("audio_vol: Invalid channel {:?}", channel);
-            return Ok(Variant::Nil);
-        }
+    // Original engine behavior (IDA decompilation):
+    // - Only acts when channel is int < 4, volume is int <= 100.
+    // - Crossfade is optional; if int <= 300000, it is used, otherwise 0.
+    let Some(channel) = channel.as_int() else {
+        return Ok(Variant::Nil);
     };
-
     if !(0..4).contains(&channel) {
-        log::error!("audio_set_volume: Invalid channel {}", channel);
         return Ok(Variant::Nil);
     }
 
-    let volume = match volume {
-        Variant::Int(volume) => *volume,
-        _ => {
-            log::error!("audio_vol: Invalid volume {:?}", volume);
-            return Ok(Variant::Nil);
-        }
+    let Some(vol_i) = volume.as_int() else {
+        return Ok(Variant::Nil);
     };
-
-    if !(0..=100).contains(&volume) {
-        log::error!("audio_vol: Invalid volume {}", volume);
+    if !(0..=100).contains(&vol_i) {
         return Ok(Variant::Nil);
     }
 
-    let volume = volume as f64 / 100.0;
-
-    let mut crossfade = crossfade.as_int().unwrap_or(0);
-    if !(0..=300000).contains(&crossfade) {
-        crossfade = 0;
+    let mut crossfade_ms: i32 = 0;
+    if let Some(cf) = crossfade.as_int() {
+        if (0..=300_000).contains(&cf) {
+            crossfade_ms = cf;
+        }
     }
 
-    let cross_fade = kira::Tween {
-        duration: Duration::from_millis(crossfade as u64),
+    let vol = vol_i as f64 / 100.0;
+    let tween = kira::Tween {
+        duration: Duration::from_millis(crossfade_ms as u64),
         ..Default::default()
     };
 
     game_data
         .bgm_player_mut()
-        .set_volume(channel, volume as f32, cross_fade);
+        .set_volume(channel, vol as f32, tween);
 
     Ok(Variant::Nil)
 }
+
 
 /// load sound on a specific channel, used for voice and sound effects
 pub fn sound_load(game_data: &mut GameData, channel: &Variant, path: &Variant) -> Result<Variant> {

@@ -8,138 +8,90 @@ use super::Syscaller;
 
 pub fn prim_exit_group(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     let Some(id) = id.as_int() else {
-        log::error!("prim_exit_group: invalid id : {:?}", id);
         return Ok(Variant::Nil);
     };
 
     crate::trace::prim_evt(format_args!("prim_exit_group: id={}", id));
 
-    // Match original engine: accept only 0..4095, ignore others.
-    if !(0..=4095).contains(&id) {
-        // Optional: warn instead of error to match "silently ignore"
-        log::warn!("prim_exit_group: ignored out-of-range id={}", id);
-        return Ok(Variant::Nil);
+    // Original engine behavior (IDA decompilation):
+    // if (id is int && id < 4096) root_prim_id = id;
+    if (0..=4095).contains(&id) {
+        // Store scene root prim index.
+        game_data.set_prim_root(id as i16);
+
+        // Keep renderer traversal root in sync.
+        game_data
+            .motion_manager
+            .prim_manager
+            .set_custom_root_prim_id(id as u16);
     }
-
-    // Store scene root prim index.
-    game_data.set_prim_root(id as i16);
-
-    // Keep renderer traversal root in sync.
-    game_data
-        .motion_manager
-        .prim_manager
-        .set_custom_root_prim_id(id as u16);
 
     Ok(Variant::Nil)
 }
 
 
 pub fn prim_group_in(game_data: &mut GameData, id: &Variant, id2: &Variant) -> Result<Variant> {
-    let id = match id.as_int() {
-        Some(id) => id,
-        None => {
-            log::error!("prim_group_in: invalid id : {:?}", id);
-            return Ok(Variant::Nil);
-        },
+    // Original engine behavior (IDA decompilation):
+    // if (id is int && 1 <= id < 4096 && id2 is int && id2 < 4096) set_prim_group_in(scene, id2, id);
+    let Some(id) = id.as_int() else {
+        return Ok(Variant::Nil);
+    };
+    let Some(id2) = id2.as_int() else {
+        return Ok(Variant::Nil);
     };
 
-    if !(1..=4095).contains(&id) {
-        log::error!("prim_group_in: invalid id : {}", id);
-        return Ok(Variant::Nil);
+    if (1..=4095).contains(&id) && (0..=4095).contains(&id2) {
+        game_data
+            .motion_manager
+            .prim_manager
+            .set_prim_group_in(id2, id);
     }
-
-    let id2 = match id2.as_int() {
-        Some(id2) => id2,
-        None => {
-            log::error!("prim_group_in: invalid id2 : {:?}", id2);
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if !(0..=4095).contains(&id2) {
-        log::error!("prim_group_in: invalid id2 : {}", id2);
-        return Ok(Variant::Nil);
-    }
-
-    game_data
-        .motion_manager
-        .prim_manager
-        .set_prim_group_in(id2, id);
 
     Ok(Variant::Nil)
 }
 
 pub fn prim_group_move(game_data: &mut GameData, id: &Variant, id2: &Variant) -> Result<Variant> {
-    let id = match id.as_int() {
-        Some(id) => id,
-        None => {
-            log::error!("prim_group_move: invalid id : {:?}", id);
-            return Ok(Variant::Nil);
-        },
+    // Original engine behavior (IDA decompilation):
+    // if (id is int && 1 <= id < 4096 && id2 is int && 1 <= id2 < 4096) prim_move(scene, id2, id);
+    let Some(id) = id.as_int() else {
+        return Ok(Variant::Nil);
+    };
+    let Some(id2) = id2.as_int() else {
+        return Ok(Variant::Nil);
     };
 
-    if !(1..=4095).contains(&id) {
-        log::error!("prim_group_move: invalid id : {}", id);
-        return Ok(Variant::Nil);
+    if (1..=4095).contains(&id) && (1..=4095).contains(&id2) {
+        game_data.motion_manager.prim_manager.prim_move(id2, id);
     }
-
-    let id2 = match id2.as_int() {
-        Some(id2) => id2,
-        None => {
-            log::error!("prim_group_move: invalid id2 : {:?}", id2);
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if !(1..=4095).contains(&id2) {
-        log::error!("prim_group_move: invalid id2 : {}", id2);
-        return Ok(Variant::Nil);
-    }
-
-    game_data.motion_manager.prim_manager.prim_move(id2, id);
 
     Ok(Variant::Nil)
 }
 
 pub fn prim_group_out(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
-    let id = match id.as_int() {
-        Some(id) => id,
-        None => {
-            log::error!("prim_group_out: invalid id : {:?}", id);
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if !(1..=4095).contains(&id) {
-        log::error!("prim_group_out: invalid id : {}", id);
+    // Original engine behavior (IDA decompilation):
+    // if (id is int && 1 <= id < 4096) unlink_prim(scene, id);
+    let Some(id) = id.as_int() else {
         return Ok(Variant::Nil);
+    };
+    if (1..=4095).contains(&id) {
+        game_data.motion_manager.prim_manager.unlink_prim(id as i16);
     }
-
-    game_data.motion_manager.prim_manager.unlink_prim(id as i16);
-
     Ok(Variant::Nil)
 }
 
 /// reset the primitive
 pub fn prim_set_null(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
-    let id = match id.as_int() {
-        Some(id) => id,
-        None => {
-            log::error!("prim_set_null_parent: invalid id : {:?}", id);
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if !(1..=4095).contains(&id) {
-        log::error!("prim_set_null_parent: invalid id : {}", id);
+    // Original engine behavior (IDA decompilation):
+    // if (id is int && 1 <= id <= 4095) prim_init_with_typ(scene, id, 0);
+    let Some(id) = id.as_int() else {
         return Ok(Variant::Nil);
+    };
+    if (1..=4095).contains(&id) {
+        game_data
+            .motion_manager
+            .prim_manager
+            .prim_init_with_type(id as i16, PrimType::PrimTypeNone);
     }
-
-    game_data
-        .motion_manager
-        .prim_manager
-        .prim_init_with_type(id as i16, PrimType::PrimTypeNone);
-
     Ok(Variant::Nil)
 }
 

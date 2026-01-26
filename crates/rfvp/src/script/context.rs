@@ -547,7 +547,8 @@ impl Context {
             self.push(value.clone())?;
             // log::info!("global: {:?}", &value);
         } else {
-            bail!("global variable not found");
+            // Match original engine: uninitialized globals read as Nil.
+            self.push(Variant::Nil)?;
         }
         Ok(())
     }
@@ -576,30 +577,22 @@ impl Context {
         self.cursor += size_of::<u16>();
 
         let top = self.pop()?;
-        // log::info!("push_global_table: {:x} {:?}", key, &top);
-        if let Some(table) = GLOBAL.lock().unwrap().get_mut(key) {
-            if let Some(table) = table.as_table() {
-                if let Some(table_key) = top.as_int() {
-                    if let Some(value) = table.get(table_key as u32) {
-                        self.push(value.clone())?;
-                    } else {
-                        self.push(Variant::Nil)?;
-                        log::warn!("key not found in the global table");
+
+        // Original engine behavior (IDA decompilation):
+        // - If global[key] is a table and top is int and entry exists: push that value.
+        // - Otherwise: push Nil. No warnings/errors.
+        let mut out = Variant::Nil;
+        if let Some(v) = GLOBAL.lock().unwrap().get_mut(key) {
+            if let Some(tbl) = v.as_table() {
+                if let Some(k) = top.as_int() {
+                    if let Some(found) = tbl.get(k as u32) {
+                        out = found.clone();
                     }
-                } else {
-                    self.push(Variant::Nil)?;
-                    log::warn!("top of the stack is not an integer");
                 }
-            } else {
-                // TODO:
-                // Should create a new table for the corresponding key?
-                self.push(Variant::Nil)?;
-                log::warn!("the value in the global table is not a table");
             }
-        } else {
-            self.push(Variant::Nil)?;
-            log::error!("global table not found: {}", key);
         }
+
+        self.push(out)?;
         Ok(())
     }
 
@@ -610,25 +603,22 @@ impl Context {
         let idx = parser.read_i8(self.cursor)?;
         self.cursor += size_of::<i8>();
 
-        let key = self.pop()?.as_int();
+        let top = self.pop()?;
 
+        // Original engine behavior (IDA decompilation):
+        // - If local[idx] is a table and top is int and entry exists: push that value.
+        // - Otherwise: push Nil. No warnings/errors.
+        let mut out = Variant::Nil;
         let mut local = self.get_local(idx)?;
-        if let Some(table) = local.as_table() {
-            if let Some(table_key) = key {
-                if let Some(value) = table.get(table_key as u32) {
-                    self.push(value.clone())?;
-                } else {
-                    self.push(Variant::Nil)?;
-                    log::warn!("key not found in the local table");
+        if let Some(tbl) = local.as_table() {
+            if let Some(k) = top.as_int() {
+                if let Some(found) = tbl.get(k as u32) {
+                    out = found.clone();
                 }
-            } else {
-                self.push(Variant::Nil)?;
-                log::warn!("key is not an integer");
             }
-        } else {
-            self.push(Variant::Nil)?;
-            log::warn!("local is not a table");
         }
+
+        self.push(out)?;
         Ok(())
     }
 
@@ -685,23 +675,22 @@ impl Context {
         let value = self.pop()?;
         let mkey = self.pop()?;
 
-        if let Some(table) = GLOBAL.lock().unwrap().get_mut(key) {
-            // cast to table if it is not
-            if !table.is_table() {
-                table.cast_table();
-            }
+        // Original engine behavior (IDA decompilation):
+        // - Only performs the store when mkey is an integer.
+        // - If the destination is not a table, it is created on demand.
+        // - If mkey is not an integer, the destination is cleared.
+        let Some(mkey_i) = mkey.as_int() else {
+            GLOBAL.lock().unwrap().set(key, Variant::Nil);
+            return Ok(());
+        };
 
-            if let Some(table) = table.as_table() {
-                if let Some(mkey) = mkey.as_int() {
-                    table.insert(mkey as u32, value);
-                } else {
-                    log::warn!("top of the stack is not an integer");
-                }
-            } else {
-                log::warn!("the value in the global table is not a table");
+        if let Some(dst) = GLOBAL.lock().unwrap().get_mut(key) {
+            if !dst.is_table() {
+                dst.cast_table();
             }
-        } else {
-            log::error!("global table not found: {}", key);
+            if let Some(tbl) = dst.as_table() {
+                tbl.insert(mkey_i as u32, value);
+            }
         }
         Ok(())
     }
@@ -714,20 +703,23 @@ impl Context {
         self.cursor += size_of::<i8>();
 
         let value = self.pop()?;
-        let key = self.pop()?.as_int();
+        let key = self.pop()?;
+
+        // Original engine behavior (IDA decompilation):
+        // - Only performs the store when key is an integer.
+        // - If the destination is not a table, it is created on demand.
+        // - If key is not an integer, the destination is cleared.
+        let Some(k) = key.as_int() else {
+            self.set_local(idx, Variant::Nil)?;
+            return Ok(());
+        };
 
         let local = self.get_local_mut(idx)?;
         if !local.is_table() {
             local.cast_table();
         }
-        if let Some(table) = local.as_table() {
-            if let Some(table_key) = key {
-                table.insert(table_key as u32, value);
-            } else {
-                log::warn!("key is not an integer");
-            }
-        } else {
-            log::warn!("local is not a table");
+        if let Some(tbl) = local.as_table() {
+            tbl.insert(k as u32, value);
         }
         Ok(())
     }
@@ -839,7 +831,6 @@ impl Context {
             self.push(if is_set { Variant::True } else { Variant::Nil })?;
         } else {
             self.push(Variant::Nil)?;
-            log::warn!("bittest only works for integers");
         }
         Ok(())
     }

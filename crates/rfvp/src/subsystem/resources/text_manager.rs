@@ -377,7 +377,8 @@ impl TextItem {
     }
 
     pub fn set_shadow_dist(&mut self, dist: u8) {
-        self.distance = dist;
+        // IDA: TextShadowDist writes to func2 (shadow offset), not to char spacing.
+        self.func2 = dist;
         self.dirty = true;
     }
 
@@ -664,7 +665,9 @@ impl TextItem {
 
         let (metrics, bitmap) = font.rasterize(ch, size);
         let gx = x + metrics.xmin;
-        let gy = y + metrics.ymin;
+        // fontdue Metrics are baseline-relative; convert to top-left.
+        // top_y = baseline_y - height - ymin
+        let gy = y - metrics.height as i32 - metrics.ymin;
 
         // shadow
         if shadow_dist != 0 {
