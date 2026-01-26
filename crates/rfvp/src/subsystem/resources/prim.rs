@@ -495,6 +495,32 @@ impl PrimManager {
         if prim.get_type() == PrimType::PrimTypeSprt {
             prim.apply_attr(0x02);
         }
+    }
+
+    /// Optional OP setter matching the original PrimSetOP semantics:
+    /// - Only sprite prims (PrimTypeSprt) are affected.
+    /// - opx/opy are applied independently when provided.
+    /// - 0x02 is enabled only when at least one of opx/opy is provided.
+    /// - 0x40 is always set for sprite prims when invoked.
+    pub fn prim_set_op_partial(&mut self, id: i32, opx: Option<i32>, opy: Option<i32>) {
+        let mut prim = self.get_prim(id as i16);
+        if prim.get_type() != PrimType::PrimTypeSprt {
+            return;
+        }
+
+        let mut any = false;
+        if let Some(v) = opx {
+            prim.set_opx(v as i16);
+            any = true;
+        }
+        if let Some(v) = opy {
+            prim.set_opy(v as i16);
+            any = true;
+        }
+
+        if any {
+            prim.apply_attr(0x02);
+        }
         prim.apply_attr(0x40);
     }
 

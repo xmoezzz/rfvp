@@ -159,12 +159,16 @@ pub fn text_font(
     font_id: &Variant,
     font_id2: &Variant,
 ) -> Result<Variant> {
+    // IDA (TextFont):
+    // - args[1] and args[2] are optional ints:
+    //     if (Type==2 && -5 <= v <= max_font_idx) set_font_idx1/2(...)
+    // - If an argument is Nil/other, it is ignored (keep previous value).
     let id = match id {
         Variant::Int(id) => *id,
         _ => {
             log::error!("text_font: invalid id type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..32).contains(&id) {
@@ -172,50 +176,32 @@ pub fn text_font(
         return Ok(Variant::Nil);
     }
 
-    let font_id = match font_id {
-        Variant::Int(id) => *id,
-        _ => {
-            log::error!("text_font: invalid font_id type");
-            return Ok(Variant::Nil);
-        },
-    };
+    // In our FontfaceManager, user-loaded fonts are 1..=count; built-ins are negative ids.
+    // IDA computes a max index for the current font enumeration; we approximate it as the
+    // maximum positive id we can address (== count).
+    let max_font_idx = game_data.fontface_manager.get_font_count();
 
-    let max_count = game_data.fontface_manager.get_font_count();
-
-    if font_id >= -5 && font_id < max_count && max_count != 0 {
-        game_data
-            .motion_manager
-            .text_manager
-            .set_text_font_name(id, font_id);
-    } else {
-        game_data
-            .motion_manager
-            .text_manager
-            .set_text_font_name(id, FONTFACE_MS_GOTHIC);
+    if let Variant::Int(fid) = font_id {
+        if *fid >= -5 && *fid <= max_font_idx {
+            game_data
+                .motion_manager
+                .text_manager
+                .set_text_font_name(id, *fid);
+        }
     }
 
-    let font_id2 = match font_id2 {
-        Variant::Int(id) => *id,
-        _ => {
-            log::error!("text_font: invalid font_id2 type");
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if font_id2 >= -5 && font_id2 < max_count && max_count != 0 {
-        game_data
-            .motion_manager
-            .text_manager
-            .set_text_font_name(id, font_id2);
-    } else {
-        game_data
-            .motion_manager
-            .text_manager
-            .set_text_font_name(id, FONTFACE_MS_GOTHIC);
+    if let Variant::Int(fid2) = font_id2 {
+        if *fid2 >= -5 && *fid2 <= max_font_idx {
+            game_data
+                .motion_manager
+                .text_manager
+                .set_text_font_text(id, *fid2);
+        }
     }
 
     Ok(Variant::Nil)
 }
+
 
 pub fn text_font_count(game_data: &GameData) -> Result<Variant> {
     Ok(Variant::Int(game_data.fontface_manager.get_font_count()))
@@ -451,12 +437,15 @@ pub fn text_out_size(
     outline: &Variant,
     ruby_outline: &Variant,
 ) -> Result<Variant> {
+    // IDA (TextOutSize):
+    // - outline is optional int, applied when (Type==2 && value <= 12)
+    // - ruby_outline is optional int, applied when (Type==2 && value <= 8)
     let id = match id {
         Variant::Int(id) => *id,
         _ => {
             log::error!("text_out_size: invalid id type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..32).contains(&id) {
@@ -464,38 +453,27 @@ pub fn text_out_size(
         return Ok(Variant::Nil);
     }
 
-    let outline = match outline {
-        Variant::Int(outline) => *outline,
-        _ => {
-            log::error!("text_out_size: invalid outline type");
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if (0..=12).contains(&outline) {
-        game_data
-            .motion_manager
-            .text_manager
-            .set_text_main_text_outline(id, outline as u8);
+    if let Variant::Int(v) = outline {
+        if (0..=12).contains(v) {
+            game_data
+                .motion_manager
+                .text_manager
+                .set_text_main_text_outline(id, *v as u8);
+        }
     }
 
-    let ruby_outline = match ruby_outline {
-        Variant::Int(outline) => *outline,
-        _ => {
-            log::error!("text_out_size: invalid ruby_outline type");
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if (0..=8).contains(&ruby_outline) {
-        game_data
-            .motion_manager
-            .text_manager
-            .set_text_ruby_text_outline(id, ruby_outline as u8);
+    if let Variant::Int(v) = ruby_outline {
+        if (0..=8).contains(v) {
+            game_data
+                .motion_manager
+                .text_manager
+                .set_text_ruby_text_outline(id, *v as u8);
+        }
     }
 
     Ok(Variant::Nil)
 }
+
 
 pub fn text_pause(game_data: &mut GameData, id: &Variant, pause: &Variant) -> Result<Variant> {
     let id = match id {
@@ -680,12 +658,15 @@ pub fn text_size(
     size: &Variant,
     ruby_size: &Variant,
 ) -> Result<Variant> {
+    // IDA (TextSize):
+    // - size is optional int in [12, 64]
+    // - ruby_size is optional int in [8, 32]
     let id = match id {
         Variant::Int(id) => *id,
         _ => {
             log::error!("text_size: invalid id type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..32).contains(&id) {
@@ -693,38 +674,27 @@ pub fn text_size(
         return Ok(Variant::Nil);
     }
 
-    let size = match size {
-        Variant::Int(size) => *size,
-        _ => {
-            log::error!("text_size: invalid size type");
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if (12..=64).contains(&size) {
-        game_data
-            .motion_manager
-            .text_manager
-            .set_text_main_text_size(id, size as u8);
+    if let Variant::Int(v) = size {
+        if (12..=64).contains(v) {
+            game_data
+                .motion_manager
+                .text_manager
+                .set_text_main_text_size(id, *v as u8);
+        }
     }
 
-    let ruby_size = match ruby_size {
-        Variant::Int(size) => *size,
-        _ => {
-            log::error!("text_size: invalid ruby_size type");
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if (8..=32).contains(&ruby_size) {
-        game_data
-            .motion_manager
-            .text_manager
-            .set_text_ruby_text_size(id, ruby_size as u8);
+    if let Variant::Int(v) = ruby_size {
+        if (8..=32).contains(v) {
+            game_data
+                .motion_manager
+                .text_manager
+                .set_text_ruby_text_size(id, *v as u8);
+        }
     }
 
     Ok(Variant::Nil)
 }
+
 
 pub fn text_skip(game_data: &mut GameData, id: &Variant, skip: &Variant) -> Result<Variant> {
     let id = match id {
@@ -764,12 +734,15 @@ pub fn text_space(
     space_vertical: &Variant,
     space_horizon: &Variant,
 ) -> Result<Variant> {
+    // IDA (TextSpace):
+    // - space_vertical is optional int in [-32, 32]
+    // - space_horizon is optional int in [-32, 32]
     let id = match id {
         Variant::Int(id) => *id,
         _ => {
             log::error!("text_space: invalid id type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..32).contains(&id) {
@@ -777,38 +750,27 @@ pub fn text_space(
         return Ok(Variant::Nil);
     }
 
-    let space_vertical = match space_vertical {
-        Variant::Int(space) => *space,
-        _ => {
-            log::error!("text_space: invalid space_vertical type");
-            return Ok(Variant::Nil);
-        },
-    };
-
-    let space_horizon = match space_horizon {
-        Variant::Int(space) => *space,
-        _ => {
-            log::error!("text_space: invalid space_horizon type");
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if (-32..=32).contains(&space_vertical) {
-        game_data
-            .motion_manager
-            .text_manager
-            .set_text_vertical_space(id, space_vertical as i16);
+    if let Variant::Int(v) = space_vertical {
+        if (-32..=32).contains(v) {
+            game_data
+                .motion_manager
+                .text_manager
+                .set_text_vertical_space(id, *v as i16);
+        }
     }
 
-    if (-32..=32).contains(&space_horizon) {
-        game_data
-            .motion_manager
-            .text_manager
-            .set_text_horizon_space(id, space_horizon as i16);
+    if let Variant::Int(v) = space_horizon {
+        if (-32..=32).contains(v) {
+            game_data
+                .motion_manager
+                .text_manager
+                .set_text_horizon_space(id, *v as i16);
+        }
     }
 
     Ok(Variant::Nil)
 }
+
 
 /// set the text speed for the corresponding text id
 /// 0 is for immediate display

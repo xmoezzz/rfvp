@@ -18,6 +18,19 @@ pub struct VmRunner {
     tm: ThreadManager,
 }
 
+#[derive(Debug, Default, Clone, Copy)]
+pub struct VmTickReport {
+    /// True if at least one context was force-yielded due to opcode budget exhaustion.
+    pub forced_yield: bool,
+    /// Number of contexts that hit the opcode budget in this tick.
+    pub forced_yield_contexts: u32,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+struct VmContextReport {
+    forced_yield: bool,
+}
+
 impl VmRunner {
     pub fn new(tm: ThreadManager) -> Self {
         Self { tm }
@@ -38,14 +51,14 @@ impl VmRunner {
     /// Execute one engine frame worth of script VM work.
     ///
     /// `frame_time_ms` is the elapsed time budget for timers (wait/sleep/etc.).
-    pub fn tick(&mut self, game: &mut GameData, parser: &mut Parser, frame_time_ms: u64) -> Result<()> {
+    pub fn tick(&mut self, game: &mut GameData, parser: &mut Parser, frame_time_ms: u64) -> Result<VmTickReport> {
         // The VM itself is cooperative; the engine decides when to advance contexts.
         // If the game is halted (e.g. waiting for IO / modal UI), we do not advance contexts.
         if game.get_halt() {
             if debug_ui::enabled() {
                 game.debug_vm_mut().update_from_thread_manager(&self.tm);
             }
-            return Ok(());
+            return Ok(VmTickReport::default());
         }
 
         // In the original engine, dissolve is a global visual state that can unblock VM waits.
@@ -60,6 +73,8 @@ impl VmRunner {
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
             .unwrap_or(2000);
+
+        let mut report = VmTickReport::default();
 
         let total = self.tm.total_contexts() as u32;
         for tid in 0..total {
@@ -80,7 +95,11 @@ impl VmRunner {
                 && !status.contains(ThreadState::CONTEXT_STATUS_SLEEP)
                 && !status.contains(ThreadState::CONTEXT_STATUS_DISSOLVE_WAIT)
             {
-                self.run_one_context(tid, game, parser, max_ops_per_context)?;
+                let ctx_report = self.run_one_context(tid, game, parser, max_ops_per_context)?;
+                if ctx_report.forced_yield {
+                    report.forced_yield = true;
+                    report.forced_yield_contexts = report.forced_yield_contexts.saturating_add(1);
+                }
             }
         }
 
@@ -97,7 +116,7 @@ impl VmRunner {
             game.debug_vm_mut().update_from_thread_manager(&self.tm);
         }
 
-        Ok(())
+        Ok(report)
     }
 
     fn advance_timers_and_state(&mut self, tid: u32, dissolve_type: DissolveType, dissolve2_transitioning: bool, frame_time_ms: u64) {
@@ -152,15 +171,20 @@ impl VmRunner {
         game: &mut GameData,
         parser: &mut Parser,
         mut opcode_budget: usize,
-    ) -> Result<()> {
+    ) -> Result<VmContextReport> {
         // Keep the VM's notion of current thread aligned with GameData.
         self.tm.set_current_id(tid);
         game.set_current_thread(tid);
 
         self.tm.set_context_should_break(tid, false);
+        let mut forced_yield = false;
         while !self.tm.get_context_should_break(tid) {
             if opcode_budget == 0 {
                 // Force-yield to keep the engine responsive.
+                // Note: this is an artificial yield point (not requested by script). The host loop may
+                // want to keep pumping the VM in the same render frame to avoid showing intermediate
+                // scene states.
+                forced_yield = true;
                 self.tm.set_context_should_break(tid, true);
                 break;
             }
@@ -225,6 +249,6 @@ impl VmRunner {
             }
         }
 
-        Ok(())
+        Ok(VmContextReport { forced_yield })
     }
 }

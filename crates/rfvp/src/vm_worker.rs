@@ -6,7 +6,7 @@ use std::thread;
 use crate::script::parser::Parser;
 use crate::subsystem::resources::thread_manager::ThreadManager;
 use crate::subsystem::world::GameData;
-use crate::vm_runner::VmRunner;
+use crate::vm_runner::{VmRunner, VmTickReport};
 
 /// Events delivered from the main thread to the VM thread.
 #[derive(Debug, Clone)]
@@ -15,7 +15,7 @@ pub enum EngineEvent {
     Frame { frame_ms: u64 },
 
     /// Same as `Frame`, but the sender waits until the VM tick completes.
-    FrameSync { frame_ms: u64, done: Sender<()> },
+    FrameSync { frame_ms: u64, done: Sender<VmTickReport> },
 
     /// Notify the VM that a global dissolve has finished.
     ///
@@ -87,12 +87,16 @@ impl VmWorker {
                                 Ok(g) => g,
                                 Err(poisoned) => poisoned.into_inner(),
                             };
+                            let mut report = VmTickReport::default();
                             if !gd.get_halt() {
-                                if let Err(e) = vm.tick(&mut gd, &mut parser, frame_ms) {
-                                    log::error!("VM thread tick error: {e:?}");
+                                match vm.tick(&mut gd, &mut parser, frame_ms) {
+                                    Ok(r) => report = r,
+                                    Err(e) => {
+                                        log::error!("VM thread tick error: {e:?}");
+                                    }
                                 }
                             }
-                            let _ = done.send(());
+                            let _ = done.send(report);
                         }
                         EngineEvent::DissolveDone => {
                             let mut gd = match game_data.write() {
@@ -159,11 +163,11 @@ impl VmWorker {
     }
 
     #[inline]
-    pub fn send_frame_ms_sync(&self, frame_ms: u64) {
-        let (done_tx, done_rx) = mpsc::channel::<()>();
+    pub fn send_frame_ms_sync(&self, frame_ms: u64) -> VmTickReport {
+        let (done_tx, done_rx) = mpsc::channel::<VmTickReport>();
         let _ = self.tx.send(EngineEvent::FrameSync { frame_ms, done: done_tx });
         // If the VM thread is gone, treat it as a no-op.
-        let _ = done_rx.recv();
+        done_rx.recv().unwrap_or_default()
     }
 
     #[inline]

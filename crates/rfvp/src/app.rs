@@ -239,7 +239,29 @@ impl App {
                             }
 
                             // Run the script VM before rendering so scene changes become visible immediately.
-                            self.vm_worker.send_frame_ms_sync(frame_ms);
+                            //
+                            // Important: the VM enforces a per-context opcode budget (see VmRunner). Hitting that
+                            // budget introduces an artificial yield point which can expose transient scene states
+                            // (e.g., prim init defaults to draw=1, later hidden by script). The original engine is
+                            // effectively single-threaded here and would not present in the middle of such a burst.
+                            //
+                            // To better match the original presentation semantics, keep pumping the VM in the same
+                            // redraw until it reaches a script-requested yield (WAIT/SLEEP/NEXT/etc.), or until a
+                            // small drain limit is reached.
+                            let max_drain_ticks: usize = std::env::var("RFVP_VM_DRAIN_TICKS")
+                                .ok()
+                                .and_then(|v| v.parse::<usize>().ok())
+                                .unwrap_or(16);
+
+                            let mut drain_ticks: usize = 0;
+                            let mut rep = self.vm_worker.send_frame_ms_sync(frame_ms);
+                            drain_ticks += 1;
+
+                            while rep.forced_yield && drain_ticks < max_drain_ticks {
+                                // Subsequent drains in the same redraw are zero-delta: timers already advanced.
+                                rep = self.vm_worker.send_frame_ms_sync(0);
+                                drain_ticks += 1;
+                            }
 
                             // Apply WindowMode/Cursor requests that may have been issued during the VM tick.
                             self.apply_window_mode_requests();

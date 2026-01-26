@@ -208,12 +208,17 @@ pub fn prim_set_op(
     opx: &Variant,
     opy: &Variant,
 ) -> Result<Variant> {
+    // IDA (PrimSetOP):
+    // - Only applies when prim type == sprite (m_Type == 4 in the original).
+    // - Each of opx/opy is optional: only applied if the Variant type is integer.
+    // - Setting either opx or opy enables the "OP pivot" attribute bit (0x02).
+    // - Dirty bit (0x40) is always set for sprite prims when this syscall is invoked.
     let id = match id.as_int() {
         Some(id) => id,
         None => {
             log::error!("prim_set_op: invalid id : {:?}", id);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..=4095).contains(&id) {
@@ -221,29 +226,22 @@ pub fn prim_set_op(
         return Ok(Variant::Nil);
     }
 
-    let opx = match opx.as_int() {
-        Some(op) => op,
-        None => {
-            log::error!("prim_set_op: invalid op : {:?}", opx);
-            return Ok(Variant::Nil);
-        },
-    };
+    // Original engine restricts this syscall to sprite prims.
+    if game_data.motion_manager.prim_manager.prim_get_type(id) != PrimType::PrimTypeSprt {
+        return Ok(Variant::Nil);
+    }
 
-    let opy = match opy.as_int() {
-        Some(op) => op,
-        None => {
-            log::error!("prim_set_op: invalid op : {:?}", opy);
-            return Ok(Variant::Nil);
-        },
-    };
+    let opx_v = opx.as_int();
+    let opy_v = opy.as_int();
 
     game_data
         .motion_manager
         .prim_manager
-        .prim_set_op(id, opx, opy);
+        .prim_set_op_partial(id, opx_v, opy_v);
 
     Ok(Variant::Nil)
 }
+
 
 /// set the primitive's rotation and scale, and the scale value is the same in x and y
 pub fn prim_set_rs(
@@ -578,12 +576,17 @@ pub fn prim_set_tile(
     w: &Variant,
     h: &Variant,
 ) -> Result<Variant> {
+    // IDA (PrimSetTile):
+    // - initializes prim as Tile
+    // - defaults: tile=255, x/y/w/h=0, alpha=255, blend=0
+    // - for each arg, only applies if the Variant type is integer
+    // - tile is accepted in range [-1, 255] (where -1 behaves as 255 in later u8 usage)
     let id = match id.as_int() {
         Some(id) => id,
         None => {
             log::error!("prim_set_tile: invalid id : {:?}", id);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..=4095).contains(&id) {
@@ -591,45 +594,35 @@ pub fn prim_set_tile(
         return Ok(Variant::Nil);
     }
 
-    let tile_id = match tile_id.as_int() {
-        Some(tile_id) => tile_id,
-        None => {
-            log::error!("prim_set_tile: invalid tile_id : {:?}", tile_id);
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if !(0..=31).contains(&tile_id) {
-        log::error!("prim_set_tile: invalid tile_id : {}", tile_id);
-        return Ok(Variant::Nil);
-    }
-
-    let x = x.as_int().unwrap_or(0);
-    let y = y.as_int().unwrap_or(0);
-    let w = w.as_int().unwrap_or(0);
-    let h = h.as_int().unwrap_or(0);
-
+    // Per original engine: always re-init as tile primitive.
     game_data
         .motion_manager
         .prim_manager
         .prim_init_with_type(id as i16, PrimType::PrimTypeTile);
-    game_data
-        .motion_manager
-        .prim_manager
-        .prim_set_alpha(id, 255i32);
+
+    // Defaults (IDA): tile=255, alpha=255, blend=0, x/y/w/h=0.
+    game_data.motion_manager.prim_manager.prim_set_alpha(id, 255);
     game_data.motion_manager.prim_manager.prim_set_blend(id, 0);
-    game_data.motion_manager.prim_manager.prim_set_pos(id, x, y);
     game_data
         .motion_manager
         .prim_manager
-        .prim_set_size(id, w, h);
+        .prim_set_pos(id, x.as_int().unwrap_or(0), y.as_int().unwrap_or(0));
     game_data
         .motion_manager
         .prim_manager
-        .prim_set_tile(id, tile_id);
+        .prim_set_size(id, w.as_int().unwrap_or(0), h.as_int().unwrap_or(0));
+
+    // Default tile id is 255; override only if a valid int is supplied.
+    game_data.motion_manager.prim_manager.prim_set_tile(id, 255);
+    if let Some(t) = tile_id.as_int() {
+        if (-1..=255).contains(&t) {
+            game_data.motion_manager.prim_manager.prim_set_tile(id, t);
+        }
+    }
 
     Ok(Variant::Nil)
 }
+
 
 pub fn prim_set_uv(
     game_data: &mut GameData,
