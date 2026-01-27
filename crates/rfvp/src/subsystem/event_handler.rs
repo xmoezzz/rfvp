@@ -31,7 +31,6 @@ pub fn update_input_events(
             }
             // Keep InputGetState/InputGetDown/InputGetUp usable even when the VM is
             // advanced by an input signal (i.e. before the next frame boundary).
-            data.inputs_manager.refresh_input();
         }
         WindowEvent::MouseInput { state, button, .. } => {
             match state {
@@ -50,7 +49,6 @@ pub fn update_input_events(
                     }
                 }
             }
-            data.inputs_manager.refresh_input();
         }
         WindowEvent::MouseWheel { delta, .. } => {
             match delta {
@@ -130,9 +128,12 @@ pub fn update_input_events(
             if *focused {
                 // Eat the activation click (common on some platforms / backends).
                 data.inputs_manager.suppress_next_mouse_click();
-            }
-            if !*focused {
-                data.inputs_manager.set_mouse_in(false);
+
+                // IMPORTANT: do not leave cursor_in stuck at false after a focus regain.
+                // Some platforms do not emit CursorMoved/Entered on focus transitions.
+                // The original engine's hit-testing logic keeps working as long as the
+                // cursor is still inside the client area.
+                data.inputs_manager.set_mouse_in(true);
             }
         }
         _ => {}

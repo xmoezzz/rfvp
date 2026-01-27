@@ -1,4 +1,4 @@
-use std::{fs, os::unix::fs::MetadataExt};
+use std::fs;
 
 use crate::{
     subsystem::resources::color_manager::ColorItem,
@@ -22,6 +22,62 @@ pub const FONTFACE_MS_PMINCHO: i32 = -1;
 enum FontItem {
     Font(char),
     RubyFont(Vec<char>, Vec<char>),
+}
+
+fn tokenize_content_text(content_text: &str) -> Vec<FontItem> {
+    let chrs = content_text.chars().collect::<Vec<_>>();
+    let mut items: Vec<FontItem> = Vec::new();
+    let mut i: usize = 0;
+
+    // Pattern: aaa[bbb|ccc]
+    // bbb: ruby
+    // ccc: base
+    while i < chrs.len() {
+        let chr = chrs[i];
+        if chr != '[' {
+            items.push(FontItem::Font(chr));
+            i += 1;
+            continue;
+        }
+
+        // Attempt ruby parsing; otherwise treat as literal '['.
+        let mut bar_idx: Option<usize> = None;
+        let mut end_idx: Option<usize> = None;
+
+        // Find '|'
+        let mut j = i + 1;
+        while j < chrs.len() {
+            if chrs[j] == '|' {
+                bar_idx = Some(j);
+                break;
+            }
+            if chrs[j] == ']' {
+                break;
+            }
+            j += 1;
+        }
+
+        if let Some(bar) = bar_idx {
+            let mut k = bar + 1;
+            while k < chrs.len() {
+                if chrs[k] == ']' {
+                    end_idx = Some(k);
+                    break;
+                }
+                k += 1;
+            }
+        }
+
+        if let (Some(bar), Some(end)) = (bar_idx, end_idx) {
+            items.push(FontItem::RubyFont(chrs[i + 1..bar].to_vec(), chrs[bar + 1..end].to_vec()));
+            i = end + 1;
+        } else {
+            items.push(FontItem::Font('['));
+            i += 1;
+        }
+    }
+
+    items
 }
 
 fn fontitem_char_count(it: &FontItem) -> usize {
@@ -105,7 +161,7 @@ impl FontEnumerator {
                 continue;
             }
             // ignore 0-byte files
-            if md.size() == 0 {
+            if md.len() == 0 {
                 continue;
             }
 
@@ -115,7 +171,7 @@ impl FontEnumerator {
                 continue;
             }
 
-            let buf = fs::read(path.get_path())?;
+            let buf = fs::read(&p)?;
             let font = match fontdue::Font::from_bytes(buf, fontdue::FontSettings::default()) {
                 Ok(f) => f,
                 Err(e) => {
@@ -453,48 +509,7 @@ impl TextItem {
     }
 
     fn parse_content_text(&mut self, content_text: &str) {
-        let content_chrs = content_text.chars().collect::<Vec<_>>();
-
-        let mut items: Vec<FontItem> = vec![];
-        let mut i = 0;
-
-        // aaa[bbb|ccc]
-        // bbb : ruby
-        // ccc : base
-        while i < content_chrs.len() {
-            let chr = content_chrs[i];
-            if chr == '[' {
-                // try parse ruby pattern, otherwise treat as literal '['
-                let mut parsed = false;
-                let mut j = i + 1;
-                while j < content_chrs.len() {
-                    if content_chrs[j] == '|' {
-                        let mut k = j + 1;
-                        while k < content_chrs.len() {
-                            if content_chrs[k] == ']' {
-                                items.push(FontItem::RubyFont(
-                                    content_chrs[i + 1..j].to_vec(),
-                                    content_chrs[j + 1..k].to_vec(),
-                                ));
-                                i = k + 1;
-                                parsed = true;
-                                break;
-                            }
-                            k += 1;
-                        }
-                        break;
-                    }
-                    j += 1;
-                }
-                if !parsed {
-                    items.push(FontItem::Font('['));
-                    i += 1;
-                }
-            } else {
-                items.push(FontItem::Font(chr));
-                i += 1;
-            }
-        }
+        let items = tokenize_content_text(content_text);
 
         self.text_content = content_text.to_string();
         self.content_text = content_text.to_string();
@@ -557,29 +572,49 @@ impl TextItem {
         if x >= w || y >= h {
             return;
         }
+
+        // IMPORTANT: The renderer uses wgpu::BlendState::ALPHA_BLENDING (straight alpha).
+        // Therefore this buffer must store STRAIGHT (non-premultiplied) RGBA.
+        // We do source-over compositing in straight-alpha space.
         let idx = ((y * w + x) * 4) as usize;
         let (sr, sg, sb, sa) = rgba;
         if sa == 0 {
             return;
         }
-        let dr = buf[idx] as u16;
-        let dg = buf[idx + 1] as u16;
-        let db = buf[idx + 2] as u16;
-        let da = buf[idx + 3] as u16;
 
-        let sa_u = sa as u16;
-        let inv = 255u16.saturating_sub(sa_u);
+        let dr = buf[idx] as u32;
+        let dg = buf[idx + 1] as u32;
+        let db = buf[idx + 2] as u32;
+        let da = buf[idx + 3] as u32;
 
-        let out_r = (sr as u16 * sa_u + dr * inv) / 255;
-        let out_g = (sg as u16 * sa_u + dg * inv) / 255;
-        let out_b = (sb as u16 * sa_u + db * inv) / 255;
-        let out_a = (sa_u + (da * inv) / 255).min(255);
+        let sa_u = sa as u32;
+        let inv = 255u32 - sa_u;
 
-        buf[idx] = out_r as u8;
-        buf[idx + 1] = out_g as u8;
-        buf[idx + 2] = out_b as u8;
-        buf[idx + 3] = out_a as u8;
+        // out_a = sa + da * (1 - sa)
+        let out_a = sa_u + (da * inv + 127) / 255;
+        if out_a == 0 {
+            buf[idx] = 0;
+            buf[idx + 1] = 0;
+            buf[idx + 2] = 0;
+            buf[idx + 3] = 0;
+            return;
+        }
+
+        // out_rgb * out_a = sr*sa + dr*da*(1-sa)
+        let tmp_r = (dr * da * inv + 127) / 255;
+        let tmp_g = (dg * da * inv + 127) / 255;
+        let tmp_b = (db * da * inv + 127) / 255;
+
+        let num_r = (sr as u32) * sa_u + tmp_r;
+        let num_g = (sg as u32) * sa_u + tmp_g;
+        let num_b = (sb as u32) * sa_u + tmp_b;
+
+        buf[idx] = ((num_r + out_a / 2) / out_a).min(255) as u8;
+        buf[idx + 1] = ((num_g + out_a / 2) / out_a).min(255) as u8;
+        buf[idx + 2] = ((num_b + out_a / 2) / out_a).min(255) as u8;
+        buf[idx + 3] = out_a.min(255) as u8;
     }
+
 
     fn draw_glyph_mask(
         buf: &mut [u8],
@@ -665,9 +700,8 @@ impl TextItem {
 
         let (metrics, bitmap) = font.rasterize(ch, size);
         let gx = x + metrics.xmin;
-        // fontdue Metrics are baseline-relative; convert to top-left.
-        // top_y = baseline_y - height - ymin
-        let gy = y - metrics.height as i32 - metrics.ymin;
+        // fontdue Metrics are baseline-relative: bitmap top-left is (pen_x + xmin, pen_y + ymin).
+        let gy = y + metrics.ymin;
 
         // shadow
         if shadow_dist != 0 {
@@ -715,11 +749,31 @@ impl TextItem {
         let main_slot: u8 = if self.main_text_size == 0 { 16 } else { self.main_text_size };
         let ruby_slot: u8 = if self.ruby_text_size == 0 { (main_slot as f32 * 0.6).round().clamp(8.0, 64.0) as u8 } else { self.ruby_text_size };
 
-        let line_h = main_size.ceil() as i32 + self.space_vertical as i32;
+        // IMPORTANT:
+        // The original engine treats TextFormat's "text_start_vertical" as a top margin, not a baseline.
+        // Use font line metrics to place the baseline so that glyph ascent and outline do not get clipped.
+        let lm = font_ref.horizontal_line_metrics(main_size);
+        let ascent_f = lm.map(|m| m.ascent).unwrap_or(main_size);
+        let descent_f = lm.map(|m| m.descent).unwrap_or(-main_size * 0.25);
+        let line_gap_f = lm.map(|m| m.line_gap).unwrap_or(0.0);
+
+        let ascent_px = ascent_f.ceil() as i32;
+        let descent_px = descent_f.floor() as i32; // typically negative
+        let base_line_h = (ascent_f - descent_f + line_gap_f).ceil() as i32;
+
+        // Include user-configured line spacing.
+        let line_h = base_line_h + self.space_vertical as i32;
 
         let mut pen_x = self.text_start_horizon as i32;
         let mut pen_y = 0i32;
-        let baseline_y = self.text_start_vertical as i32;
+
+        // Add outline padding at the top so the outline is not clipped.
+        let pad_top = self.main_text_outline as i32;
+        let baseline_y = self.text_start_vertical as i32 + ascent_px + pad_top;
+
+        // Ruby line metrics (used to place ruby baseline above the base run).
+        let rlm = font_ref.horizontal_line_metrics(ruby_size);
+        let ruby_ascent_px = rlm.map(|m| m.ascent).unwrap_or(ruby_size).ceil() as i32;
 
         // Reveal budget: count in "characters" (newline counts as one; ruby counts by base text length).
         let mut remaining = self.visible_chars;
@@ -812,8 +866,9 @@ impl TextItem {
                         break;
                     }
 
-                    // ruby placement: center over base run (best-effort)
-                    let ruby_y = baseline_y + pen_y - (main_size.ceil() as i32) + self.ruby_vertical as i32;
+                    // Ruby placement: put ruby above the base run.
+                    // Align ruby top with the base line's top (best-effort), then apply signed offsets.
+                    let ruby_y = baseline_y + pen_y - ascent_px + ruby_ascent_px + self.ruby_vertical as i32;
                     let mut ruby_x = base_start_x + (base_total_adv / 2) + self.ruby_horizon as i32;
 
                     // compute ruby width (rough)
@@ -1291,7 +1346,11 @@ impl TextItem {
         self.visible_chars = snap.visible_chars;
 
         // Rebuild derived token list to keep future incremental rendering functional.
-        self.content_items = self.content_items.clone();
+        self.content_items = tokenize_content_text(&self.content_text);
+        self.total_chars = self.content_items.iter().map(fontitem_char_count).sum();
+        if self.visible_chars > self.total_chars {
+            self.visible_chars = self.total_chars;
+        }
 
         // Buffer size must match w/h.
         self.ensure_buffer();

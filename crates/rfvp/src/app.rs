@@ -1,6 +1,6 @@
 use anyhow::Result;
 use std::{
-    collections::HashMap, fs::File, path::{Path, PathBuf}, slice::Windows, sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard}, time::Instant
+    collections::HashMap, fs::File, path::{Path, PathBuf}, slice::Windows, sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard}, time::{Duration, Instant}
 };
 use glam::{mat4, vec3, vec4, Mat4};
 use image::{imageops::FilterType, RgbaImage};
@@ -191,15 +191,6 @@ impl App {
                     ref event,
                     window_id,
                 } if window_id == self.window.as_mut().unwrap().id() => {
-                    let is_input_event = matches!(
-                        event,
-                        WindowEvent::KeyboardInput { .. }
-                            | WindowEvent::MouseInput { .. }
-                            | WindowEvent::MouseWheel { .. }
-                            | WindowEvent::CursorMoved { .. }
-                            | WindowEvent::CursorEntered { .. }
-                            | WindowEvent::CursorLeft { .. }
-                    );
                     match event {
                         WindowEvent::CloseRequested => {
                             // ExitMode(2) can disable immediate close; in that case the engine
@@ -231,7 +222,19 @@ impl App {
                         }
                         WindowEvent::RedrawRequested => {
                             // Drive the simulation from redraws so we do not busy-spin.
-                            let (frame_ms, notify_dissolve_done) = self.next_frame();
+                            //
+                            // IMPORTANT: When the VM hits its opcode budget, it introduces an *artificial* yield.
+                            // Presenting a frame at such a point can expose transient states (e.g., prim defaults
+                            // to draw=1, later hidden by script) and can destabilize UI focus/hover.
+                            //
+                            // To better match the original single-threaded presentation semantics, we treat any
+                            // forced-yield as "frame-incomplete" and avoid presenting until the VM reaches a
+                            // script-requested yield (WAIT/SLEEP/NEXT/etc.).
+                            let (frame_ms, notify_dissolve_done) = if self.pending_vm_frame_ms_valid {
+                                (0, false)
+                            } else {
+                                self.next_frame()
+                            };
 
                             // Wake dissolve waiters before advancing the VM for this frame.
                             if notify_dissolve_done {
@@ -251,13 +254,25 @@ impl App {
                             let max_drain_ticks: usize = std::env::var("RFVP_VM_DRAIN_TICKS")
                                 .ok()
                                 .and_then(|v| v.parse::<usize>().ok())
-                                .unwrap_or(16);
+                                .unwrap_or(256);
+
+                            // Safety valve: do not spin indefinitely in a single redraw.
+                            // (If the VM keeps force-yielding, we will keep draining across redraws.)
+                            let max_drain_ms: u64 = std::env::var("RFVP_VM_DRAIN_MS")
+                                .ok()
+                                .and_then(|v| v.parse::<u64>().ok())
+                                .unwrap_or(8);
+
+                            let drain_deadline = Instant::now();
 
                             let mut drain_ticks: usize = 0;
                             let mut rep = self.vm_worker.send_frame_ms_sync(frame_ms);
                             drain_ticks += 1;
 
-                            while rep.forced_yield && drain_ticks < max_drain_ticks {
+                            while rep.forced_yield
+                                && drain_ticks < max_drain_ticks
+                                && drain_deadline.elapsed() < Duration::from_millis(max_drain_ms)
+                            {
                                 // Subsequent drains in the same redraw are zero-delta: timers already advanced.
                                 rep = self.vm_worker.send_frame_ms_sync(0);
                                 drain_ticks += 1;
@@ -266,6 +281,21 @@ impl App {
                             // Apply WindowMode/Cursor requests that may have been issued during the VM tick.
                             self.apply_window_mode_requests();
                             self.update_cursor();
+
+                            if rep.forced_yield {
+                                // The VM did not reach a script-requested yield. Avoid presenting a frame that could
+                                // capture an intermediate UI state (hover highlight cleared, focus advanced, etc.).
+                                self.pending_vm_frame_ms_valid = true;
+
+                                // Ensure we get another opportunity to drain soon.
+                                if let Some(w) = self.window.as_ref() {
+                                    w.request_redraw();
+                                }
+                                return;
+                            }
+
+                            // The frame is now complete.
+                            self.pending_vm_frame_ms_valid = false;
 
                             {
                                 let mut gd = gd_write(&self.game_data);
@@ -312,20 +342,8 @@ impl App {
                             (self.surface_config.width, self.surface_config.height),
                             self.virtual_size,
                         );
+                    }
 
-                        // The script VM can block waiting for user input (e.g., in-game click-to-advance).
-                        // In that case, waking the VM on input events is not sufficient: it must also be
-                        // able to observe the edge-triggered state (Down/Up) immediately, without waiting
-                        // for the next frame boundary.
-                        if is_input_event {
-                            gd.inputs_manager.refresh_input();
-                        }
-                    }
-                    // Wake the VM immediately on user input so scripts that poll
-                    // InputGetEvent/InputGetDown respond without waiting for the next frame.
-                    if is_input_event {
-                        self.vm_worker.send_input_signal();
-                    }
                 }
                 Event::WindowEvent {
                     ref event,

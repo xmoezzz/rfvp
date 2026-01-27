@@ -89,7 +89,7 @@ pub fn motion_alpha(
         dst_alpha,
         duration,
         typ,
-        reverse.canbe_true(),
+        !matches!(reverse, Variant::Nil),
     )?;
 
     Ok(Variant::Nil)
@@ -196,7 +196,7 @@ pub fn motion_move(
     }
 
     // Default for move motion is linear (1). Nil means "use default".
-    let typ = int_or_default(typ, 1);
+    let typ = int_or_default(typ, 0);
 
     let typ = match typ.try_into() {
         Ok(MoveMotionType::Linear) => MoveMotionType::Linear,
@@ -210,13 +210,13 @@ pub fn motion_move(
 
     game_data.motion_manager.set_move_motion(
         id as u32,
-        src_x as u32,
-        src_y as u32,
-        dst_x as u32,
-        dst_y as u32,
+        src_x as i32,
+        src_y as i32,
+        dst_x as i32,
+        dst_y as i32,
         duration,
         typ,
-        reverse.canbe_true(),
+        !matches!(reverse, Variant::Nil),
     )?;
 
     Ok(Variant::Nil)
@@ -288,12 +288,12 @@ pub fn motion_move_r(
 
     let src_r = match src_r {
         Variant::Int(x) => *x as i16,
-        _ => game_data.motion_manager.prim_manager.get_prim(id).get_x(),
+        _ => game_data.motion_manager.prim_manager.get_prim(id).get_rotation(),
     };
 
     let dst_r = match dst_r {
         Variant::Int(y) => *y as i16,
-        _ => game_data.motion_manager.prim_manager.get_prim(id).get_y(),
+        _ => game_data.motion_manager.prim_manager.get_prim(id).get_rotation(),
     };
 
     let duration = match duration {
@@ -310,7 +310,7 @@ pub fn motion_move_r(
     }
 
     // Default for rotation motion is linear (1). Nil means "use default".
-    let typ = int_or_default(typ, 1);
+    let typ = int_or_default(typ, 0);
 
     let typ = match typ.try_into() {
         Ok(RotationMotionType::Linear) => RotationMotionType::Linear,
@@ -328,7 +328,7 @@ pub fn motion_move_r(
         dst_r as i16,
         duration as i32,
         typ,
-        reverse.canbe_true(),
+        !matches!(reverse, Variant::Nil),
     )?;
 
     Ok(Variant::Nil)
@@ -402,7 +402,7 @@ pub fn motion_move_s2(
     }
 
     let src_w_factor = match src_w_factor {
-        Variant::Int(x) => *x,
+        Variant::Int(x) if (100..=10000).contains(x) => *x,
         _ => game_data
             .motion_manager
             .prim_manager
@@ -412,7 +412,7 @@ pub fn motion_move_s2(
     };
 
     let src_h_factor = match src_h_factor {
-        Variant::Int(y) => *y,
+        Variant::Int(y) if (100..=10000).contains(y) => *y,
         _ => game_data
             .motion_manager
             .prim_manager
@@ -422,7 +422,7 @@ pub fn motion_move_s2(
     };
 
     let dst_w_factor = match dst_w_factor {
-        Variant::Int(x) => *x,
+        Variant::Int(x) if (100..=10000).contains(x) => *x,
         _ => game_data
             .motion_manager
             .prim_manager
@@ -432,7 +432,7 @@ pub fn motion_move_s2(
     };
 
     let dst_h_factor = match dst_h_factor {
-        Variant::Int(y) => *y,
+        Variant::Int(y) if (100..=10000).contains(y) => *y,
         _ => game_data
             .motion_manager
             .prim_manager
@@ -455,7 +455,7 @@ pub fn motion_move_s2(
     }
 
     // Default for scale motion is linear (1). Nil means "use default".
-    let typ = int_or_default(typ, 1);
+    let typ = int_or_default(typ, 0);
 
     let typ = match typ.try_into() {
         Ok(ScaleMotionType::Linear) => ScaleMotionType::Linear,
@@ -475,7 +475,7 @@ pub fn motion_move_s2(
         dst_h_factor,
         duration,
         typ,
-        reverse.canbe_true(),
+        !matches!(reverse, Variant::Nil),
     )?;
 
     Ok(Variant::Nil)
@@ -579,7 +579,7 @@ pub fn motion_move_z(
     }
 
     // Default for z motion is linear (1). Nil means "use default".
-    let typ = int_or_default(typ, 1);
+    let typ = int_or_default(typ, 0);
 
     let typ = match typ.try_into() {
         Ok(ZMotionType::Linear) => ZMotionType::Linear,
@@ -597,7 +597,7 @@ pub fn motion_move_z(
         dst_z,
         duration,
         typ,
-        reverse.canbe_true(),
+        !matches!(reverse, Variant::Nil),
     )?;
 
     Ok(Variant::Nil)
@@ -1002,8 +1002,8 @@ impl Syscaller for MotionMoveS2 {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
         let id = get_var!(args, 0);
         let src_w_factor = get_var!(args, 1);
-        let dst_w_factor = get_var!(args, 2);
-        let src_h_factor = get_var!(args, 3);
+        let src_h_factor = get_var!(args, 2);
+        let dst_w_factor = get_var!(args, 3);
         let dst_h_factor = get_var!(args, 4);
         let duration = get_var!(args, 5);
         let typ = get_var!(args, 6);
@@ -1013,8 +1013,8 @@ impl Syscaller for MotionMoveS2 {
             game_data,
             id,
             src_w_factor,
-            dst_w_factor,
             src_h_factor,
+            dst_w_factor,
             dst_h_factor,
             duration,
             typ,

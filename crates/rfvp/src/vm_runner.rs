@@ -72,7 +72,10 @@ impl VmRunner {
         let max_ops_per_context: usize = std::env::var("RFVP_VM_MAX_OPS")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or(2000);
+            // Default is intentionally high: the VM often executes a burst of opcodes
+            // between script-requested yield points (WAIT/SLEEP/NEXT/etc.). A too-small
+            // budget introduces artificial yields that can expose transient scene states.
+            .unwrap_or(20000);
 
         let mut report = VmTickReport::default();
 

@@ -246,7 +246,7 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
         elapsed: i64,
         flag: bool,
     ) {
-        self.scale_motion_container.exec_s2_motion(&self.prim_manager, flag, elapsed as i32);
+        self.scale_motion_container.exec_scale_motion(&self.prim_manager, flag, elapsed as i32);
     }
 
     pub fn update_rotation_motions(
@@ -298,10 +298,10 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
     pub fn set_move_motion(
         &mut self,
         prim_id: u32,
-        src_x: u32,
-        dst_x: u32,
-        src_y: u32,
-        dst_y: u32,
+        src_x: i32,
+        src_y: i32,
+        dst_x: i32,
+        dst_y: i32,
         duration: i32,
         anm_type: MoveMotionType,
         reverse: bool,
