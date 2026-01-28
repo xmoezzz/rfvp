@@ -49,15 +49,21 @@ impl MfH264Decoder {
         // Always drain first (prevents MF_E_NOTACCEPTING churn).
         self.drain_output()?;
 
-        while let Some(sample) = self.pending_in.pop_front() {
-            let accepted = self.feed_one(sample)?;
+        loop {
+            let accepted = match self.pending_in.front() {
+                Some(s) => self.feed_one(s)?,
+                None => break,
+            };
+
             if !accepted {
-                // Not accepting now; put it back and retry in a later tick.
-                self.pending_in.push_front(sample);
                 break;
             }
+
+            // Only pop after we know it was accepted.
+            let _ = self.pending_in.pop_front();
             self.drain_output()?;
         }
+
         Ok(())
     }
 
@@ -65,9 +71,8 @@ impl MfH264Decoder {
         let annexb = self.cfg.avcc_sample_to_annexb(&sample.data_avcc)?;
 
         unsafe {
-            let mut buf = None;
-            MFCreateMemoryBuffer(annexb.len() as u32, &mut buf).ok().context("MFCreateMemoryBuffer")?;
-            let buf = buf.ok_or_else(|| anyhow!("MFCreateMemoryBuffer returned null"))?;
+            let buf = MFCreateMemoryBuffer(annexb.len() as u32)
+                        .context("MFCreateMemoryBuffer")?;
 
             let mut ptr = std::ptr::null_mut();
             let mut max_len = 0u32;
@@ -76,14 +81,14 @@ impl MfH264Decoder {
                 .ok()
                 .context("IMFMediaBuffer::Lock")?;
             if max_len < annexb.len() as u32 {
-                buf.Unlock().ok().ok();
+                let _ = buf.Unlock();
                 bail!("MF buffer too small: {} < {}", max_len, annexb.len());
             }
             std::ptr::copy_nonoverlapping(annexb.as_ptr(), ptr as *mut u8, annexb.len());
             buf.Unlock().ok().context("IMFMediaBuffer::Unlock")?;
             buf.SetCurrentLength(annexb.len() as u32).ok().context("SetCurrentLength")?;
 
-            let mut s = None;
+            let mut s: Option<IMFSample> = None;
             MFCreateSample(&mut s).ok().context("MFCreateSample")?;
             let s = s.ok_or_else(|| anyhow!("MFCreateSample returned null"))?;
             s.AddBuffer(&buf).ok().context("IMFSample::AddBuffer")?;
@@ -113,7 +118,6 @@ impl MfH264Decoder {
                 }
             }
         }
-        Ok(true)
     }
 }
 
@@ -257,11 +261,10 @@ unsafe fn process_output_once(
         (stride * height as usize * 3 / 2) as u32
     };
 
-    let mut buf = None;
-    MFCreateMemoryBuffer(cb, &mut buf).ok().context("MFCreateMemoryBuffer(out)")?;
-    let buf = buf.ok_or_else(|| anyhow!("MFCreateMemoryBuffer(out) returned null"))?;
+    let buf = MFCreateMemoryBuffer(cb)
+            .context("MFCreateMemoryBuffer(out)")?;
 
-    let mut sample = None;
+    let mut sample: Option<IMFSample> = None;
     MFCreateSample(&mut sample).ok().context("MFCreateSample(out)")?;
     let sample = sample.ok_or_else(|| anyhow!("MFCreateSample(out) returned null"))?;
     sample.AddBuffer(&buf).ok().context("AddBuffer(out)")?;
@@ -270,19 +273,18 @@ unsafe fn process_output_once(
         dwStreamID: 0,
         pSample: Some(sample.clone()),
         dwStatus: 0,
-        pEvents: None,
+        pEvents: ManuallyDrop::new(None),
     };
     let mut status: u32 = 0;
 
-    let hr = dec.ProcessOutput(0, std::slice::from_mut(&mut out), &mut status);
-
-    if hr == MF_E_TRANSFORM_NEED_MORE_INPUT {
-        return Ok(None);
+    match dec.ProcessOutput(0, std::slice::from_mut(&mut out), &mut status) {
+        Ok(()) => {}
+        Err(e) if e.code() == MF_E_TRANSFORM_NEED_MORE_INPUT => return Ok(None),
+        Err(e) => return Err(anyhow!("ProcessOutput failed: {e}")),
     }
-    hr.ok().context("ProcessOutput")?;
 
     // Extract NV12 bytes.
-    let mut out_buf = None;
+    let mut out_buf: Option<IMFMediaBuffer> = None;
     sample
         .ConvertToContiguousBuffer(&mut out_buf)
         .ok()
@@ -298,7 +300,7 @@ unsafe fn process_output_once(
     let y_size = stride * height as usize;
     let uv_size = stride * height as usize / 2;
     if bytes.len() < y_size + uv_size {
-        out_buf.Unlock().ok().ok();
+        let _ = out_buf.Unlock();
         return Err(anyhow!("NV12 buffer too small: {}", bytes.len()));
     }
 
@@ -306,7 +308,7 @@ unsafe fn process_output_once(
     let uv = &bytes[y_size..y_size + uv_size];
     let rgba = nv12_to_rgba_strided(width, height, stride, stride, y, uv);
 
-    out_buf.Unlock().ok().ok();
+    let _ = out_buf.Unlock();
 
     let pts_100ns = sample.GetSampleTime().unwrap_or(0);
     Ok(Some(VideoFrame {

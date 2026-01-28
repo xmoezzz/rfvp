@@ -747,8 +747,10 @@ impl TextItem {
 
         let (metrics, bitmap) = font.rasterize(ch, size);
         let gx = x + metrics.xmin;
-        // fontdue Metrics are baseline-relative: bitmap top-left is (pen_x + xmin, pen_y + ymin).
-        let gy = y + metrics.ymin;
+        // fontdue metrics use a Y-up coordinate system:
+        // - ymin is the offset from the baseline to the *bottom* of the bitmap (negative => below baseline).
+        // Convert to our Y-down pixel space: top_y = baseline_y - (ymin + height).
+        let gy = y - (metrics.ymin + metrics.height as i32);
 
         let adv = metrics.advance_width.ceil() as i32;
 
@@ -851,9 +853,11 @@ impl TextItem {
         let line_h = base_line_h + self.space_vertical as i32 + outline_pad.saturating_mul(2);
 
         // Current pen position (TextPos). The engine maintains (x,y) within the text box.
-        // pen_y is a baseline coordinate.
+        // IMPORTANT: (x,y) represent the top-left of the line box; convert to a baseline by
+        // adding ascent and outline padding. This matches the original engine's visual alignment,
+        // especially for Japanese punctuation marks (、。) which sit near the baseline.
         let mut pen_x = (self.x as i32).max(self.text_start_horizon as i32);
-        let mut pen_y = self.y as i32;
+        let mut pen_y = self.y as i32 + ascent_px + outline_pad;
 
         // Ruby line metrics (used to place ruby baseline above the base run).
         let rlm = font_ref.horizontal_line_metrics(ruby_size);
