@@ -30,6 +30,8 @@ jobs:
       - name: Install system deps (GStreamer, audio)
         run: |
           sudo apt-get update
+          sudo apt-get remove -y libunwind-14-dev libc++-14-dev libc++-dev || true
+          sudo apt-get install -y libunwind-dev
           sudo apt-get install -y \
             pkg-config \
             libasound2-dev \
