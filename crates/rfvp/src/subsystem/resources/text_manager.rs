@@ -299,7 +299,9 @@ pub struct TextItem {
     dirty: bool,
     elapsed: u32,
 
-    // reveal-by-time state (best-effort baseline)
+    // reveal-by-time state (column sweep)
+    // total_chars: total required reveal columns in pixels across all lines (computed during rasterization)
+    // visible_chars: current reveal budget in pixels (0..=total_chars)
     total_chars: usize,
     visible_chars: usize,
 }
@@ -452,10 +454,14 @@ impl TextItem {
 
     pub fn set_text_pos_x(&mut self, x: u16) {
         self.x = x;
+        // TextPos affects layout immediately.
+        self.dirty = true;
     }
 
     pub fn set_text_pos_y(&mut self, y: u16) {
         self.y = y;
+        // TextPos affects layout immediately.
+        self.dirty = true;
     }
 
     pub fn set_text_suspend_chr(&mut self, chrs: &str) {
@@ -466,8 +472,12 @@ impl TextItem {
     pub fn set_speed(&mut self, speed: i32) {
         self.speed = speed;
         self.elapsed = 0;
-        // Recompute visible budget on next tick; force refresh.
-        self.visible_chars = 0;
+        // Reset reveal budget; immediate modes show all.
+        if self.speed <= 0 || self.skip_mode != 0 {
+            self.visible_chars = usize::MAX;
+        } else {
+            self.visible_chars = 0;
+        }
         self.dirty = true;
     }
 
@@ -515,13 +525,15 @@ impl TextItem {
         self.content_text = content_text.to_string();
         self.content_items = items;
 
-        self.total_chars = self.content_items.iter().map(fontitem_char_count).sum();
+        // Column-sweep reveal: total required pixels is computed during rasterization.
+        self.total_chars = 0;
         // When speed <= 0 (including -1) or skip_mode != 0, show all immediately.
         if self.speed <= 0 || self.skip_mode != 0 {
-            self.visible_chars = self.total_chars;
+            self.visible_chars = usize::MAX;
         } else {
             self.visible_chars = 0;
         }
+        self.elapsed = 0;
         self.dirty = true;
     }
 
@@ -536,29 +548,38 @@ impl TextItem {
             return;
         }
         if self.speed <= 0 || self.skip_mode != 0 {
-            // Immediate.
-            if self.visible_chars != self.total_chars {
-                self.visible_chars = self.total_chars;
+            // Immediate (full reveal). total_chars might not be known yet.
+            if self.visible_chars != usize::MAX {
+                self.visible_chars = usize::MAX;
                 self.dirty = true;
             }
             return;
         }
 
-        // speed: milliseconds per visible character (baseline assumption)
-        let speed_ms = self.speed as u32;
-        if speed_ms == 0 {
-            if self.visible_chars != self.total_chars {
-                self.visible_chars = self.total_chars;
+        // Column sweep: reveal length in pixels is proportional to elapsed time.
+        // speed is a small integer (e.g., 1..=10 in UI). We model it as a rate multiplier.
+        const REVEAL_PX_PER_SEC_PER_SPD: u64 = 80;
+
+        let spd = self.speed as u64;
+        if spd == 0 {
+            if self.visible_chars != usize::MAX {
+                self.visible_chars = usize::MAX;
                 self.dirty = true;
             }
             return;
         }
 
         self.elapsed = self.elapsed.saturating_add(delta_ms);
-        let new_vis = (self.elapsed / speed_ms) as usize;
-        let new_vis = new_vis.min(self.total_chars);
-        if new_vis != self.visible_chars {
-            self.visible_chars = new_vis;
+        let elapsed_ms = self.elapsed as u64;
+        let mut new_px: u64 = (elapsed_ms * spd * REVEAL_PX_PER_SEC_PER_SPD) / 1000;
+
+        if self.total_chars != 0 {
+            new_px = new_px.min(self.total_chars as u64);
+        }
+
+        let new_px_usize = new_px as usize;
+        if new_px_usize != self.visible_chars {
+            self.visible_chars = new_px_usize;
             self.dirty = true;
         }
     }
@@ -626,6 +647,7 @@ impl TextItem {
         mw: usize,
         mh: usize,
         color: &ColorItem,
+        clip_max_x: i32,
     ) {
         let cr = color.get_r();
         let cg = color.get_g();
@@ -639,7 +661,11 @@ impl TextItem {
                     continue;
                 }
                 let a = ((ca as u16 * cov as u16) / 255) as u8;
-                Self::put_pixel_blend(buf, bw, bh, x0 + mx as i32, y0 + my as i32, (cr, cg, cb, a));
+                let dx = x0 + mx as i32;
+                if dx >= clip_max_x {
+                    continue;
+                }
+                Self::put_pixel_blend(buf, bw, bh, dx, y0 + my as i32, (cr, cg, cb, a));
             }
         }
     }
@@ -661,10 +687,16 @@ impl TextItem {
         outline_color: &ColorItem,
         shadow_dist: u8,
         shadow_color: &ColorItem,
+        clip_max_x: i32,
+        do_draw: bool,
     ) -> i32 {
         // Gaiji (external glyph) substitution: if a gaiji entry exists for (ch, size_slot),
         // render its alpha mask instead of rasterizing the font glyph.
         if let Some(gb) = gaiji.get_texture(ch, size_slot) {
+            // For hidden glyphs, avoid exporting the alpha mask.
+            if !do_draw {
+                return gb.get_width() as i32;
+            }
             if let Some((mw, mh, ox, oy, mask)) = gb.export_alpha_mask() {
                 let gx = x + ox as i32;
                 let gy = y + oy as i32;
@@ -674,7 +706,7 @@ impl TextItem {
                 // shadow
                 if shadow_dist != 0 {
                     let d = shadow_dist as i32;
-                    Self::draw_glyph_mask(buf, bw, bh, gx + d, gy + d, &mask, mw_usize, mh_usize, shadow_color);
+                    Self::draw_glyph_mask(buf, bw, bh, gx + d, gy + d, &mask, mw_usize, mh_usize, shadow_color, clip_max_x);
                 }
 
                 // outline
@@ -685,13 +717,28 @@ impl TextItem {
                             if ox2 == 0 && oy2 == 0 {
                                 continue;
                             }
-                            Self::draw_glyph_mask(buf, bw, bh, gx + ox2, gy + oy2, &mask, mw_usize, mh_usize, outline_color);
+                            // Use a circular kernel; square kernels make the stroke noticeably thicker.
+                            if (ox2 * ox2 + oy2 * oy2) > (r * r) {
+                                continue;
+                            }
+                            Self::draw_glyph_mask(
+                                buf,
+                                bw,
+                                bh,
+                                gx + ox2,
+                                gy + oy2,
+                                &mask,
+                                mw_usize,
+                                mh_usize,
+                                outline_color,
+                                clip_max_x,
+                            );
                         }
                     }
                 }
 
                 // fill
-                Self::draw_glyph_mask(buf, bw, bh, gx, gy, &mask, mw_usize, mh_usize, color);
+                Self::draw_glyph_mask(buf, bw, bh, gx, gy, &mask, mw_usize, mh_usize, color, clip_max_x);
 
                 // Treat gaiji width as advance.
                 return mw as i32;
@@ -703,13 +750,35 @@ impl TextItem {
         // fontdue Metrics are baseline-relative: bitmap top-left is (pen_x + xmin, pen_y + ymin).
         let gy = y + metrics.ymin;
 
+        let adv = metrics.advance_width.ceil() as i32;
+
+        if !do_draw {
+            return adv;
+        }
+
+        // Entire glyph is to the right of the clip line.
+        if clip_max_x <= gx {
+            return adv;
+        }
+
         // shadow
         if shadow_dist != 0 {
             let d = shadow_dist as i32;
-            Self::draw_glyph_mask(buf, bw, bh, gx + d, gy + d, &bitmap, metrics.width, metrics.height, shadow_color);
+            Self::draw_glyph_mask(
+                buf,
+                bw,
+                bh,
+                gx + d,
+                gy + d,
+                &bitmap,
+                metrics.width,
+                metrics.height,
+                shadow_color,
+                clip_max_x,
+            );
         }
 
-        // outline (naive)
+        // outline
         if outline != 0 {
             let r = outline as i32;
             for oy in -r..=r {
@@ -717,15 +786,30 @@ impl TextItem {
                     if ox == 0 && oy == 0 {
                         continue;
                     }
-                    Self::draw_glyph_mask(buf, bw, bh, gx + ox, gy + oy, &bitmap, metrics.width, metrics.height, outline_color);
+                    // Use a circular kernel; square kernels make the stroke noticeably thicker.
+                    if (ox * ox + oy * oy) > (r * r) {
+                        continue;
+                    }
+                    Self::draw_glyph_mask(
+                        buf,
+                        bw,
+                        bh,
+                        gx + ox,
+                        gy + oy,
+                        &bitmap,
+                        metrics.width,
+                        metrics.height,
+                        outline_color,
+                        clip_max_x,
+                    );
                 }
             }
         }
 
         // fill
-        Self::draw_glyph_mask(buf, bw, bh, gx, gy, &bitmap, metrics.width, metrics.height, color);
+        Self::draw_glyph_mask(buf, bw, bh, gx, gy, &bitmap, metrics.width, metrics.height, color, clip_max_x);
 
-        metrics.advance_width.ceil() as i32
+        adv
     }
 
     fn rasterize_full(&mut self, fonts: &FontEnumerator, gaiji: &GaijiManager) -> Result<()> {
@@ -749,9 +833,10 @@ impl TextItem {
         let main_slot: u8 = if self.main_text_size == 0 { 16 } else { self.main_text_size };
         let ruby_slot: u8 = if self.ruby_text_size == 0 { (main_slot as f32 * 0.6).round().clamp(8.0, 64.0) as u8 } else { self.ruby_text_size };
 
-        // IMPORTANT:
-        // The original engine treats TextFormat's "text_start_vertical" as a top margin, not a baseline.
-        // Use font line metrics to place the baseline so that glyph ascent and outline do not get clipped.
+        // Baseline placement:
+        // TextPos/TextFormat provide in-box coordinates for the text pen.
+        // The original engine treats the pen Y as a baseline coordinate (not the top of the glyph box),
+        // so we do NOT add ascent here; we only use font metrics for line height.
         let lm = font_ref.horizontal_line_metrics(main_size);
         let ascent_f = lm.map(|m| m.ascent).unwrap_or(main_size);
         let descent_f = lm.map(|m| m.descent).unwrap_or(-main_size * 0.25);
@@ -761,44 +846,93 @@ impl TextItem {
         let descent_px = descent_f.floor() as i32; // typically negative
         let base_line_h = (ascent_f - descent_f + line_gap_f).ceil() as i32;
 
-        // Include user-configured line spacing.
-        let line_h = base_line_h + self.space_vertical as i32;
+        let outline_pad = self.main_text_outline as i32;
+        // Include user-configured line spacing, plus outline padding to avoid line-to-line overlap.
+        let line_h = base_line_h + self.space_vertical as i32 + outline_pad.saturating_mul(2);
 
-        let mut pen_x = self.text_start_horizon as i32;
-        let mut pen_y = 0i32;
-
-        // Add outline padding at the top so the outline is not clipped.
-        let pad_top = self.main_text_outline as i32;
-        let baseline_y = self.text_start_vertical as i32 + ascent_px + pad_top;
+        // Current pen position (TextPos). The engine maintains (x,y) within the text box.
+        // pen_y is a baseline coordinate.
+        let mut pen_x = (self.x as i32).max(self.text_start_horizon as i32);
+        let mut pen_y = self.y as i32;
 
         // Ruby line metrics (used to place ruby baseline above the base run).
         let rlm = font_ref.horizontal_line_metrics(ruby_size);
         let ruby_ascent_px = rlm.map(|m| m.ascent).unwrap_or(ruby_size).ceil() as i32;
 
-        // Reveal budget: count in "characters" (newline counts as one; ruby counts by base text length).
-        let mut remaining = self.visible_chars;
+        // Reveal budget: column sweep in pixels across lines.
+        // visible_chars uses pixels; usize::MAX means "force full reveal" (clamped after rasterization).
+        let mut remaining_px: i64 = if self.visible_chars == usize::MAX {
+            i64::MAX / 4
+        } else {
+            self.visible_chars as i64
+        };
+
+        let mut total_required_px: i64 = 0;
+        let mut line_start_x: i32 = pen_x;
+        let mut line_has_any: bool = false;
+
+        let mut clip_max_x: i32 = if remaining_px <= 0 {
+            line_start_x
+        } else {
+            (line_start_x as i64 + remaining_px)
+                .clamp(i32::MIN as i64, i32::MAX as i64) as i32
+        };
+
         let mut pixel_buffer = self.pixel_buffer.clone();
 
-        for item in self.content_items.clone() {
-            if remaining == 0 {
-                break;
+        // Helper: finish current line (update total_required_px and consume remaining_px).
+        let mut finish_line = |pen_x: i32,
+                               line_start_x: i32,
+                               line_has_any: &mut bool,
+                               remaining_px: &mut i64,
+                               total_required_px: &mut i64| {
+            if !*line_has_any {
+                return;
             }
+            let lw = (pen_x - line_start_x).max(0) as i64;
+            *total_required_px = (*total_required_px).saturating_add(lw);
+            if *remaining_px > 0 {
+                if *remaining_px >= lw {
+                    *remaining_px -= lw;
+                } else {
+                    *remaining_px = 0;
+                }
+            }
+            *line_has_any = false;
+        };
+
+        for item in self.content_items.clone() {
             match item {
                 FontItem::Font(ch) => {
-                    // newline participates in reveal.
-                    remaining = remaining.saturating_sub(1);
                     if ch == '\n' {
+                        finish_line(pen_x, line_start_x, &mut line_has_any, &mut remaining_px, &mut total_required_px);
                         pen_x = self.text_start_horizon as i32;
                         pen_y += line_h;
+                        line_start_x = pen_x;
+                        clip_max_x = if remaining_px <= 0 {
+                            line_start_x
+                        } else {
+                            (line_start_x as i64 + remaining_px)
+                                .clamp(i32::MIN as i64, i32::MAX as i64) as i32
+                        };
                         continue;
                     }
 
                     let limit = self.wrap_limit_px(ch);
                     if limit > 0 && pen_x >= limit {
+                        finish_line(pen_x, line_start_x, &mut line_has_any, &mut remaining_px, &mut total_required_px);
                         pen_x = self.text_start_horizon as i32;
                         pen_y += line_h;
+                        line_start_x = pen_x;
+                        clip_max_x = if remaining_px <= 0 {
+                            line_start_x
+                        } else {
+                            (line_start_x as i64 + remaining_px)
+                                .clamp(i32::MIN as i64, i32::MAX as i64) as i32
+                        };
                     }
 
+                    let do_draw = clip_max_x > pen_x;
                     let adv = self.draw_char(
                         &mut pixel_buffer,
                         bw,
@@ -808,36 +942,44 @@ impl TextItem {
                         gaiji,
                         main_slot,
                         pen_x,
-                        baseline_y + pen_y,
+                        pen_y,
                         ch,
                         &self.color1,
                         self.main_text_outline,
                         &self.color2,
-                        self.distance,
+                        self.func2,
                         &self.color3,
+                        clip_max_x,
+                        do_draw,
                     );
                     pen_x += adv + self.space_horizon as i32;
+                    line_has_any = true;
                 }
                 FontItem::RubyFont(ruby, base) => {
-                    // Ruby becomes visible only when the corresponding base run is fully visible.
-                    let to_draw = base.len().min(remaining);
-                    if to_draw == 0 {
-                        break;
-                    }
-                    // simplistic: render base, then render ruby above the first base character
+                    // Simplistic: render base, then render ruby above the base run once the base is fully revealed.
                     let mut base_start_x = pen_x;
                     let mut base_total_adv = 0i32;
+                    let mut base_fully_visible = true;
 
-                    for (idx, ch) in base.iter().take(to_draw).enumerate() {
+                    for (idx, ch) in base.iter().enumerate() {
                         let limit = self.wrap_limit_px(*ch);
                         if limit > 0 && pen_x >= limit {
+                            finish_line(pen_x, line_start_x, &mut line_has_any, &mut remaining_px, &mut total_required_px);
                             pen_x = self.text_start_horizon as i32;
                             pen_y += line_h;
+                            line_start_x = pen_x;
+                            clip_max_x = if remaining_px <= 0 {
+                                line_start_x
+                            } else {
+                                (line_start_x as i64 + remaining_px)
+                                    .clamp(i32::MIN as i64, i32::MAX as i64) as i32
+                            };
                         }
                         if idx == 0 {
                             base_start_x = pen_x;
                         }
 
+                        let do_draw = clip_max_x > pen_x;
                         let adv = self.draw_char(
                             &mut pixel_buffer,
                             bw,
@@ -847,28 +989,31 @@ impl TextItem {
                             gaiji,
                             main_slot,
                             pen_x,
-                            baseline_y + pen_y,
+                            pen_y,
                             *ch,
                             &self.color1,
                             self.main_text_outline,
                             &self.color2,
-                            self.distance,
+                            self.func2,
                             &self.color3,
+                            clip_max_x,
+                            do_draw,
                         );
+                        // If the clip line hasn't passed the advance end, treat it as not fully visible.
+                        if clip_max_x < pen_x + adv {
+                            base_fully_visible = false;
+                        }
                         pen_x += adv + self.space_horizon as i32;
                         base_total_adv += adv + self.space_horizon as i32;
+                        line_has_any = true;
                     }
 
-                    remaining = remaining.saturating_sub(to_draw);
-
-                    if to_draw < base.len() {
-                        // Base run partially visible: do not draw ruby yet.
-                        break;
+                    if !base_fully_visible {
+                        continue;
                     }
 
                     // Ruby placement: put ruby above the base run.
-                    // Align ruby top with the base line's top (best-effort), then apply signed offsets.
-                    let ruby_y = baseline_y + pen_y - ascent_px + ruby_ascent_px + self.ruby_vertical as i32;
+                    let ruby_y = pen_y - ascent_px + ruby_ascent_px + self.ruby_vertical as i32;
                     let mut ruby_x = base_start_x + (base_total_adv / 2) + self.ruby_horizon as i32;
 
                     // compute ruby width (rough)
@@ -894,8 +1039,10 @@ impl TextItem {
                             &self.color1,
                             self.ruby_text_outline,
                             &self.color2,
-                            0,
+                            self.func2,
                             &self.color3,
+                            i32::MAX,
+                            true,
                         );
                         ruby_x += adv;
                     }
@@ -903,7 +1050,18 @@ impl TextItem {
             }
         }
 
+        // Finish the last line.
+        finish_line(pen_x, line_start_x, &mut line_has_any, &mut remaining_px, &mut total_required_px);
+
         self.pixel_buffer = pixel_buffer;
+
+        // Cache total required pixels and clamp current reveal budget.
+        self.total_chars = total_required_px.max(0) as usize;
+        if self.total_chars == 0 {
+            self.visible_chars = 0;
+        } else if self.visible_chars == usize::MAX || self.visible_chars > self.total_chars {
+            self.visible_chars = self.total_chars;
+        }
 
         Ok(())
     }
@@ -963,8 +1121,9 @@ impl TextManager {
             if t.is_suspended {
                 continue;
             }
-            if t.visible_chars != t.total_chars {
-                t.visible_chars = t.total_chars;
+            let target = if t.total_chars == 0 { usize::MAX } else { t.total_chars };
+            if t.visible_chars != target {
+                t.visible_chars = target;
                 t.dirty = true;
             }
         }
@@ -1026,7 +1185,7 @@ impl TextManager {
         if text.get_loaded() {
             text.clear_buffer();
             text.x = text.text_start_horizon;
-            text.y = 0;
+            text.y = text.text_start_vertical;
             text.elapsed = 0;
             text.dirty = true;
         }
@@ -1114,6 +1273,9 @@ impl TextManager {
 
         if t.x < t.text_start_horizon {
             t.x = t.text_start_horizon;
+        }
+        if t.y < t.text_start_vertical {
+            t.y = t.text_start_vertical;
         }
         t.dirty = true;
     }

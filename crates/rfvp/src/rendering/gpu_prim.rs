@@ -962,7 +962,7 @@ impl GpuPrimRenderer {
                         c.get_r() as f32 / 255.0,
                         c.get_g() as f32 / 255.0,
                         c.get_b() as f32 / 255.0,
-                        base_a,
+                        base_a * (c.get_a() as f32 / 255.0),
                     );
 
                     let model = if is_v3d {

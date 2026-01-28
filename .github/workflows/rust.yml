@@ -131,7 +131,7 @@ jobs:
       - name: Build x64 (script)
         shell: cmd
         run: |
-          call platform\scripts\build_windows_msvc.cmd x64
+          call platform\scripts\build_windows_msvc.cmd x86_64
           rem do not trust exit code; continue
           exit /b 0
 
