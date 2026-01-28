@@ -126,7 +126,7 @@ pub struct InputManager {
     wheel_value: i32,
     control_is_masked: bool,
     control_is_pulse: bool,
-    suppress_next_mouse: bool,
+    suppress_next_mouse: u8,
 
     cs: CriticalSection,
 }
@@ -155,7 +155,7 @@ impl InputManager {
             wheel_value: 0,
             control_is_masked: false,
             control_is_pulse: false,
-            suppress_next_mouse: false,
+            suppress_next_mouse: 0,
             current_index: 0,
             next_index: 0,
             new_input_state: 0,
@@ -181,7 +181,8 @@ impl InputManager {
 
     pub fn suppress_next_mouse_click(&mut self) {
         let _g = self.cs.enter();
-        self.suppress_next_mouse = true;
+        // Eat the activation click fully (down + up).
+        self.suppress_next_mouse = 2;
     }
 
     pub fn get_cursor_in(&self) -> bool {
@@ -278,6 +279,54 @@ impl InputManager {
             _ => None,
         }
     }
+    #[inline]
+    fn bit_for(k: KeyCode) -> u32 {
+        1u32 << (k as u32)
+    }
+
+    #[inline]
+    fn virtual_left_active(bits: u32) -> bool {
+        (bits & (Self::bit_for(KeyCode::MouseLeft) | Self::bit_for(KeyCode::Enter))) != 0
+    }
+
+    #[inline]
+    fn virtual_right_active(bits: u32) -> bool {
+        (bits & (Self::bit_for(KeyCode::MouseRight) | Self::bit_for(KeyCode::Esc))) != 0
+    }
+
+    #[inline]
+    fn apply_virtual_click_state(bits: &mut u32) {
+        // Clear first to avoid stale virtual bits.
+        *bits &= !(Self::bit_for(KeyCode::LeftClick) | Self::bit_for(KeyCode::RightClick));
+        if Self::virtual_left_active(*bits) {
+            *bits |= Self::bit_for(KeyCode::LeftClick);
+        }
+        if Self::virtual_right_active(*bits) {
+            *bits |= Self::bit_for(KeyCode::RightClick);
+        }
+    }
+
+    #[inline]
+    fn latch_virtual_click_edges(&mut self, prev_bits: u32, new_bits: u32) {
+        let prev_left = Self::virtual_left_active(prev_bits);
+        let new_left = Self::virtual_left_active(new_bits);
+        if !prev_left && new_left {
+            self.input_down |= Self::bit_for(KeyCode::LeftClick);
+        }
+        if prev_left && !new_left {
+            self.input_up |= Self::bit_for(KeyCode::LeftClick);
+        }
+
+        let prev_right = Self::virtual_right_active(prev_bits);
+        let new_right = Self::virtual_right_active(new_bits);
+        if !prev_right && new_right {
+            self.input_down |= Self::bit_for(KeyCode::RightClick);
+        }
+        if prev_right && !new_right {
+            self.input_up |= Self::bit_for(KeyCode::RightClick);
+        }
+    }
+
 
     pub fn record_keydown_or_up(&mut self, keycode: KeyCode, x: i32, y: i32) {
         // Ring buffer: next_index is read cursor, current_index is write cursor.
@@ -305,22 +354,37 @@ impl InputManager {
     // see https://wiki.winehq.org/List_Of_Windows_Messages
     pub fn notify_keydown(&mut self, key: winit::keyboard::Key, repeat: bool) {
         if let Some(keycode) = self.keymap(key) {
+            let mut enqueue = false;
+            let mut prev_bits = 0u32;
             {
                 let _g = self.cs.enter();
-                // Maintain key-down state regardless of platform repeat behavior.
-                // Some platforms can report repeat=true even for the first press; gating the
-                // state update on !repeat breaks InputGetDown/InputGetUp while InputGetEvent
-                // still receives key events.
-                self.new_input_state |= 1u32 << (keycode.clone() as u32);
 
-                // Keep legacy behavior: treat any keydown as eligible for repeat bookkeeping.
-                // (The engine uses per-frame frame_reset() to clear this bitfield.)
-                self.input_repeat |= 1u32 << (keycode.clone() as u32);
+                // When masked, ignore both Shift and Ctrl entirely (state + edges + events).
+                if self.control_is_masked && matches!(keycode, KeyCode::Shift | KeyCode::Ctrl) {
+                    return;
+                }
+
+                prev_bits = self.new_input_state;
+                let mask = Self::bit_for(keycode.clone());
+
+                // Latch edge on a true 0->1 transition.
+                if (self.new_input_state & mask) == 0 {
+                    self.new_input_state |= mask;
+                    self.input_down |= mask;
+                }
+
+                // Repeat bookkeeping is per-frame.
+                self.input_repeat |= mask;
+
+                // IDA: key events are only enqueued for keycode >= 2 (Shift/Ctrl excluded)
+                // and only for non-repeat keydown.
+                enqueue = !repeat && (keycode.clone() as u8) >= 2;
             }
 
-            // IDA: key events are only enqueued for keycode >= 2 (Shift/Ctrl are excluded).
-            // KeyUp does not enqueue events at all.
-            if (keycode.clone() as u8) >= 2 {
+            // Virtual click edges depend on the composite state.
+            self.latch_virtual_click_edges(prev_bits, self.new_input_state);
+
+            if enqueue {
                 self.record_keydown_or_up(keycode, 0, 0);
             }
         }
@@ -328,53 +392,92 @@ impl InputManager {
 
 
     pub fn notify_keyup(&mut self, key: winit::keyboard::Key) {
-        // Take immutable-derived data first (outside the guard)
-        let keycode = self.keymap(key);
-
-        if let Some(keycode) = keycode {
+        if let Some(keycode) = self.keymap(key) {
+            let prev_bits;
             {
                 let _g = self.cs.enter();
-                self.new_input_state &= !(1u32 << (keycode.clone() as u32));
-            } // _g dropped here
+
+                if self.control_is_masked && matches!(keycode, KeyCode::Shift | KeyCode::Ctrl) {
+                    return;
+                }
+
+                prev_bits = self.new_input_state;
+                let mask = Self::bit_for(keycode);
+
+                if (self.new_input_state & mask) != 0 {
+                    self.new_input_state &= !mask;
+                    self.input_up |= mask;
+                }
+            }
+
+            self.latch_virtual_click_edges(prev_bits, self.new_input_state);
         }
     }
 
     pub fn notify_mouse_down(&mut self, keycode: KeyCode) {
-        // Snapshot cursor position outside the guard
+        // Snapshot cursor position outside the guard.
         let (x, y) = (self.cursor_x, self.cursor_y);
 
+        let mut should_record = false;
+        let mut prev_bits = 0u32;
         {
             let _g = self.cs.enter();
-            if self.suppress_next_mouse {
-                // Eat the first mouse click after (re)activation to match the original Win32 behavior
-                // where the activation click is not delivered to the application.
-                self.suppress_next_mouse = false;
+
+            if self.suppress_next_mouse != 0 {
+                // Eat the activation click (down + up).
+                self.suppress_next_mouse = self.suppress_next_mouse.saturating_sub(1);
                 return;
             }
-            self.new_input_state |= 1u32 << (keycode.clone() as u32);
-        } // _g dropped here
 
-        if self.click == 1 {
+            prev_bits = self.new_input_state;
+            let mask = Self::bit_for(keycode.clone());
+
+            if (self.new_input_state & mask) == 0 {
+                self.new_input_state |= mask;
+                self.input_down |= mask;
+            }
+
+            // IDA: mouse events are enqueued depending on click mode.
+            should_record = self.click == 1;
+        }
+
+        self.latch_virtual_click_edges(prev_bits, self.new_input_state);
+
+        if should_record {
             self.record_keydown_or_up(keycode, x, y);
         }
     }
 
     pub fn notify_mouse_up(&mut self, keycode: KeyCode) {
-        // Snapshot cursor position outside the guard
+        // Snapshot cursor position outside the guard.
         let (x, y) = (self.cursor_x, self.cursor_y);
 
+        let mut should_record = false;
+        let mut prev_bits = 0u32;
         {
             let _g = self.cs.enter();
-            if self.suppress_next_mouse {
-                // Eat the first mouse click after (re)activation to match the original Win32 behavior
-                // where the activation click is not delivered to the application.
-                self.suppress_next_mouse = false;
+
+            if self.suppress_next_mouse != 0 {
+                // Eat the activation click (down + up).
+                self.suppress_next_mouse = self.suppress_next_mouse.saturating_sub(1);
                 return;
             }
-            self.new_input_state &= !(1u32 << (keycode.clone() as u32));
-        } // _g dropped here
 
-        if self.click == 0 {
+            prev_bits = self.new_input_state;
+            let mask = Self::bit_for(keycode.clone());
+
+            if (self.new_input_state & mask) != 0 {
+                self.new_input_state &= !mask;
+                self.input_up |= mask;
+            }
+
+            // IDA: mouse events are enqueued depending on click mode.
+            should_record = self.click == 0;
+        }
+
+        self.latch_virtual_click_edges(prev_bits, self.new_input_state);
+
+        if should_record {
             self.record_keydown_or_up(keycode, x, y);
         }
     }
@@ -426,26 +529,17 @@ impl InputManager {
         self.old_input_state = self.input_state;
         self.input_state = self.new_input_state;
 
-        // Synthesize virtual click keys.
-        // LeftClick (bit 2) is active when MouseLeft (bit 4) or Enter (bit 7) is active.
-        if (self.input_state & ((1u32 << (KeyCode::MouseLeft as u32)) | (1u32 << (KeyCode::Enter as u32)))) != 0 {
-            self.input_state |= 1u32 << (KeyCode::LeftClick as u32);
-        }
-        // RightClick (bit 3) is active when MouseRight (bit 5) or Esc (bit 6) is active.
-        if (self.input_state & ((1u32 << (KeyCode::MouseRight as u32)) | (1u32 << (KeyCode::Esc as u32)))) != 0 {
-            self.input_state |= 1u32 << (KeyCode::RightClick as u32);
-        }
+        // Synthesize virtual click keys for InputGetState.
+        Self::apply_virtual_click_state(&mut self.input_state);
 
         // When masked, ignore both Shift and Ctrl.
         if self.control_is_masked {
-            self.input_state &= !(1u32 << (KeyCode::Shift as u32));
-            self.input_state &= !(1u32 << (KeyCode::Ctrl as u32));
+            self.input_state &= !Self::bit_for(KeyCode::Shift);
+            self.input_state &= !Self::bit_for(KeyCode::Ctrl);
         }
 
-        let changed = self.input_state ^ self.old_input_state;
-        // Accumulate edge-triggered bits until the next frame_reset().
-        self.input_down |= self.input_state & changed;        // prev 0 -> now 1
-        self.input_up |= (!self.input_state) & changed;       // prev 1 -> now 0
+        // NOTE: input_down/input_up are edge-latched directly from event delivery
+        // (keydown/keyup/mouse down/up) so we do NOT derive them from state diffs here.
     }
 
 }

@@ -448,6 +448,16 @@ impl App {
             let prev_dissolve = self.last_dissolve_type;
             let prev_dissolve2 = self.last_dissolve2_transitioning;
 
+            // IMPORTANT: refresh input BEFORE running any scene/VM logic for this frame.
+            //
+            // The VM polls InputGetState/InputGetDown/InputGetUp during scheduler.execute().
+            // If we refresh after executing the VM and then clear transient bits via
+            // inputs_manager.frame_reset() at end-of-frame, edge-triggered clicks will never
+            // be observable (they would be computed after the VM ran and then cleared before
+            // the next VM tick). Title scripts may still work because they often rely on
+            // InputGetEvent, which uses a separate ring buffer.
+            gd.inputs_manager.refresh_input();
+
             // Movie update must run even when the VM/scheduler is halted for modal playback.
             let mut video_tick_failed = false;
             {
@@ -494,10 +504,6 @@ impl App {
             self.last_dissolve2_transitioning = cur_dissolve2;
             self.last_dissolve_type = cur_dissolve;
 
-            // Input state must be updated every frame (including during modal playback/halt),
-            // otherwise InputGetDown/InputGetUp will remain stale while InputGetEvent continues
-            // to receive queued events.
-            gd.inputs_manager.refresh_input();
             gd.set_current_thread(0);
 
             if gd.get_halt() {
