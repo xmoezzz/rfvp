@@ -128,6 +128,15 @@ pub struct InputManager {
     control_is_pulse: bool,
     suppress_next_mouse: u8,
 
+    input_down_pending: u32,
+    input_up_pending: u32,
+    input_repeat_pending: u32,
+    wheel_pending: i32,
+
+    // frame snapshot (for HUD / debug, never consumed)
+    hud_down: u32,
+    hud_up: u32,
+
     cs: CriticalSection,
 }
 
@@ -162,6 +171,12 @@ impl InputManager {
             old_input_state: 0,
             current_event: PressItem::default(),
             click: 0,
+            input_down_pending: 0,
+            input_up_pending: 0,
+            input_repeat_pending: 0,
+            wheel_pending: 0,
+            hud_down: 0,
+            hud_up: 0,
             cs: CriticalSection::new(),
         }
     }
@@ -311,19 +326,19 @@ impl InputManager {
         let prev_left = Self::virtual_left_active(prev_bits);
         let new_left = Self::virtual_left_active(new_bits);
         if !prev_left && new_left {
-            self.input_down |= Self::bit_for(KeyCode::LeftClick);
+            self.input_down_pending |= Self::bit_for(KeyCode::LeftClick);
         }
         if prev_left && !new_left {
-            self.input_up |= Self::bit_for(KeyCode::LeftClick);
+            self.input_up_pending |= Self::bit_for(KeyCode::LeftClick);
         }
 
         let prev_right = Self::virtual_right_active(prev_bits);
         let new_right = Self::virtual_right_active(new_bits);
         if !prev_right && new_right {
-            self.input_down |= Self::bit_for(KeyCode::RightClick);
+            self.input_down_pending |= Self::bit_for(KeyCode::RightClick);
         }
         if prev_right && !new_right {
-            self.input_up |= Self::bit_for(KeyCode::RightClick);
+            self.input_up_pending |= Self::bit_for(KeyCode::RightClick);
         }
     }
 
@@ -370,12 +385,11 @@ impl InputManager {
                 // Latch edge on a true 0->1 transition.
                 if (self.new_input_state & mask) == 0 {
                     self.new_input_state |= mask;
-                    self.input_down |= mask;
+                    self.input_down_pending |= mask;
                 }
 
                 // Repeat bookkeeping is per-frame.
-                self.input_repeat |= mask;
-
+                self.input_repeat_pending |= mask;
                 // IDA: key events are only enqueued for keycode >= 2 (Shift/Ctrl excluded)
                 // and only for non-repeat keydown.
                 enqueue = !repeat && (keycode.clone() as u8) >= 2;
@@ -406,7 +420,7 @@ impl InputManager {
 
                 if (self.new_input_state & mask) != 0 {
                     self.new_input_state &= !mask;
-                    self.input_up |= mask;
+                    self.input_up_pending |= mask;
                 }
             }
 
@@ -434,7 +448,7 @@ impl InputManager {
 
             if (self.new_input_state & mask) == 0 {
                 self.new_input_state |= mask;
-                self.input_down |= mask;
+                self.input_down_pending |= mask;
             }
 
             // IDA: mouse events are enqueued depending on click mode.
@@ -468,7 +482,7 @@ impl InputManager {
 
             if (self.new_input_state & mask) != 0 {
                 self.new_input_state &= !mask;
-                self.input_up |= mask;
+                self.input_up_pending |= mask;
             }
 
             // IDA: mouse events are enqueued depending on click mode.
@@ -490,7 +504,7 @@ impl InputManager {
 
     pub fn notify_mouse_wheel(&mut self, value: i32) {
         let _g = self.cs.enter();
-        self.wheel_value += value;
+        self.wheel_pending += value;
     }
 
     pub fn set_control_pulse(&mut self) {
@@ -513,33 +527,41 @@ impl InputManager {
         self.control_is_masked = mask;
     }
 
+    pub fn get_hud_down(&self) -> u32 { self.hud_down }
+    pub fn get_hud_up(&self) -> u32 { self.hud_up }
+
+
     pub fn frame_reset(&mut self) {
-        // Per-frame transient signals.
-        // NOTE: input_state/new_input_state are NOT cleared here.
-        self.input_repeat = 0;
-        self.wheel_value = 0;
-        self.input_down = 0;
-        self.input_up = 0;
     }
 
-    // TODO: use flags to make it more clear
-    pub fn refresh_input(&mut self) {
+    pub fn begin_frame(&mut self) {
         let _g = self.cs.enter();
 
+        self.hud_down = self.input_down_pending;
+        self.hud_up   = self.input_up_pending;
+
+        // Freeze state for this frame.
         self.old_input_state = self.input_state;
         self.input_state = self.new_input_state;
-
-        // Synthesize virtual click keys for InputGetState.
         Self::apply_virtual_click_state(&mut self.input_state);
 
-        // When masked, ignore both Shift and Ctrl.
         if self.control_is_masked {
             self.input_state &= !Self::bit_for(KeyCode::Shift);
             self.input_state &= !Self::bit_for(KeyCode::Ctrl);
         }
 
-        // NOTE: input_down/input_up are edge-latched directly from event delivery
-        // (keydown/keyup/mouse down/up) so we do NOT derive them from state diffs here.
+        // Freeze edges/wheel/repeat for this frame.
+        self.input_down = self.input_down_pending;
+        self.input_up = self.input_up_pending;
+        self.input_repeat = self.input_repeat_pending;
+        self.wheel_value = self.wheel_pending;
+
+        // Clear pending only (not frame values).
+        self.input_down_pending = 0;
+        self.input_up_pending = 0;
+        self.input_repeat_pending = 0;
+        self.wheel_pending = 0;
     }
+
 
 }

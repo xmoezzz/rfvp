@@ -157,8 +157,8 @@ jobs:
         with:
           name: rfvp-windows
           path: |
-            target\x86_64-pc-windows-msvc\release\%RFVP_CARGO_PKG%.exe
-            target\aarch64-pc-windows-msvc\release\%RFVP_CARGO_PKG%.exe
+            target\x86_64-pc-windows-msvc\release\${{ env.RFVP_CARGO_PKG }}.exe
+            target\aarch64-pc-windows-msvc\release\${{ env.RFVP_CARGO_PKG }}.exe
           if-no-files-found: error
 
   release:

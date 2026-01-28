@@ -174,12 +174,12 @@ impl App {
 
     fn debug_keydown(&self) -> String {
         let gd = gd_read(&self.game_data);
-        gd.inputs_manager.get_input_down().to_string()
+        gd.inputs_manager.get_hud_down().to_string()
     }
 
     fn debug_keyup(&self) -> String {
         let gd = gd_read(&self.game_data);
-        gd.inputs_manager.get_input_up().to_string()
+        gd.inputs_manager.get_hud_up().to_string()
     }
 
     fn run(mut self, event_loop: EventLoop<()>) {
@@ -456,7 +456,7 @@ impl App {
             // be observable (they would be computed after the VM ran and then cleared before
             // the next VM tick). Title scripts may still work because they often rely on
             // InputGetEvent, which uses a separate ring buffer.
-            gd.inputs_manager.refresh_input();
+            gd.inputs_manager.begin_frame();
 
             // Movie update must run even when the VM/scheduler is halted for modal playback.
             let mut video_tick_failed = false;
@@ -1262,7 +1262,7 @@ impl AppBuilder {
         self.world.set_can_fullscreen(window.current_monitor().is_some());
 
         // Debug HUD window (created hidden, toggled via F2).
-        let hud_window: Option<Arc<Window>> = if debug_ui::enabled() {
+        let hud_window: Option<Arc<Window>> = if debug_ui::enabled() && !cfg!(any(target_os="ios", target_os="android")) {
             let ms = window.inner_size();
             let attrs = WindowAttributes::default()
                 .with_title("rfvp HUD")
