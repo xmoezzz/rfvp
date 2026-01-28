@@ -6,6 +6,7 @@ homepage = "https://github.com/xmoezzz/rfvp"
 description = "A Non-Official Rust cross-platform implementation of the FVP engine"
 repository = "https://github.com/xmoezzz/rfvp"
 readme = "README.md"
+license = "MPL-2.0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -44,7 +45,7 @@ flate2 = "1.0.28"
 byteorder = "1.5.0"
 rand = { version = "0.8.5", features = ["small_rng"] }
 lazy_static = "1.4.0"
-fontdue = { git = "https://github.com/xmoezzz/fontdue" }
+fontdue = "0.9.3"
 mp4 = "0.14.0"
 video-sys = { path = "third_party/video-sys" }
 
@@ -71,10 +72,6 @@ riff = "2.0.0"
 
 pollster = "0.4.0"
 
-# rfvp-render = { path = "../rfvp-render" }
-# rfvp-core = { path = "../rfvp-core" }
-# rfvp-audio = { path = "../rfvp-audio" }
-# rfvp-debugger = { path = "../rfvp-debugger" }
 bitflags = "2.9.4"
 regex = "1.11.2"
 directories = "6.0.0"

@@ -8,20 +8,22 @@ use super::Syscaller;
 
 /// Movie(path, flag)
 ///
-/// flag == 0:
-///   - Normal playback (video + audio later)
-///   - Pause other engine actions (halt VM loop + skip scheduler)
+/// Original-engine semantics (IDA):
+/// - `flag` is treated as a boolean by **Type**, not by value.
+///   - `flag == nil`  => effect/layer movie (video only)
+///   - `flag != nil`  => normal modal movie (video + audio)
 ///
-/// flag != 0:
-///   - Render as a layer (video only)
-///   - Engine continues
+/// In layer mode, the movie is rendered into a reserved GraphBuff slot and drawn via a reserved
+/// sprite in the root=0 prim tree. In modal mode, we additionally halt script/scheduler execution
+/// while the movie is playing.
 pub fn movie_play(game_data: &mut GameData, path: &Variant, flag: &Variant) -> Result<Variant> {
     let path = match path {
         Variant::String(path) | Variant::ConstString(path, _) => path.as_str(),
         _ => return Ok(Variant::Nil),
     };
 
-    let flag = flag.is_nil();
+    // IMPORTANT: match original engine: nil vs non-nil, not integer truthiness.
+    let is_layer_effect = flag.is_nil();
 
     // Cross-platform restriction: old formats (wmv/mpg) are remapped to mp4 (H264/AAC).
     let mapped = map_legacy_movie_ext_to_mp4(path);
@@ -32,7 +34,12 @@ pub fn movie_play(game_data: &mut GameData, path: &Variant, flag: &Variant) -> R
         Err(_) => match game_data.vfs.read_file(path) {
             Ok(b) => b,
             Err(e) => {
-                log::error!("Movie: failed to read {} (mapped from {}): {:?}", mapped, path, e);
+                log::error!(
+                    "Movie: failed to read {} (mapped from {}): {:?}",
+                    mapped,
+                    path,
+                    e
+                );
                 return Ok(Variant::Nil);
             }
         },
@@ -40,13 +47,10 @@ pub fn movie_play(game_data: &mut GameData, path: &Variant, flag: &Variant) -> R
 
     let (w, h) = (game_data.get_width() as u32, game_data.get_height() as u32);
 
-    let mode = if !flag {
-        // Modal playback: freeze other actions.
-        game_data.set_halt(true);
-        game_data.thread_wrapper.should_break();
-        MovieMode::ModalWithAudio
-    } else {
+    let mode = if is_layer_effect {
         MovieMode::LayerNoAudio
+    } else {
+        MovieMode::ModalWithAudio
     };
 
     let audio_manager = if matches!(mode, MovieMode::ModalWithAudio) {
@@ -55,29 +59,61 @@ pub fn movie_play(game_data: &mut GameData, path: &Variant, flag: &Variant) -> R
         None
     };
 
-    game_data.video_manager.start(
+    // NOTE: In the original engine, Movie returns True on success and Nil on failure.
+    if let Err(e) = game_data.video_manager.start(
         bytes,
         mode,
         w,
         h,
         &mut game_data.motion_manager,
         audio_manager,
-    )?;
+    ) {
+        log::error!("Movie: start failed for {} (orig {}): {e:?}", mapped, path);
+        return Ok(Variant::Nil);
+    }
 
-    Ok(Variant::Nil)
+    if matches!(mode, MovieMode::ModalWithAudio) {
+        // Freeze other actions while the modal movie is active.
+        game_data.set_halt(true);
+        game_data.thread_wrapper.should_break();
+    }
+
+    Ok(Variant::True)
 }
 
-pub fn movie_state(game_data: &mut GameData, _arg: &Variant) -> Result<Variant> {
-    if game_data.video_manager.is_playing() {
-        Ok(Variant::True)
-    } else {
-        Ok(Variant::Nil)
+/// MovieState(mode)
+///
+/// Original-engine semantics (IDA):
+/// - `MovieState(0)` => True iff a movie is currently playing.
+/// - `MovieState(1)` => True iff no movie is loaded (used to restart looping effect movies).
+/// - Otherwise => Nil.
+pub fn movie_state(game_data: &mut GameData, arg: &Variant) -> Result<Variant> {
+    let Some(mode) = arg.as_int() else {
+        return Ok(Variant::Nil);
+    };
+
+    match mode {
+        0 => {
+            if game_data.video_manager.is_playing() {
+                Ok(Variant::True)
+            } else {
+                Ok(Variant::Nil)
+            }
+        }
+        1 => {
+            if !game_data.video_manager.is_loaded() {
+                Ok(Variant::True)
+            } else {
+                Ok(Variant::Nil)
+            }
+        }
+        _ => Ok(Variant::Nil),
     }
 }
 
 pub fn movie_stop(game_data: &mut GameData) -> Result<Variant> {
     game_data.video_manager.stop(&mut game_data.motion_manager);
-    // If Movie was modal, allow the engine to resume.
+    // If Movie was modal, allow the engine to resume immediately.
     game_data.set_halt(false);
     Ok(Variant::Nil)
 }

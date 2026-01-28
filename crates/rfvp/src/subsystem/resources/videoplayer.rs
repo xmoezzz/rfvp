@@ -203,6 +203,13 @@ impl VideoPlayerManager {
         self.playing
     }
 
+    /// Whether a movie graph/resources are currently loaded.
+    ///
+    /// This matches the original engine's `is_loaded` flag used by `MovieState(1)`.
+    pub fn is_loaded(&self) -> bool {
+        self.playback.is_some()
+    }
+
     pub fn is_modal_active(&self) -> bool {
         self.playing && self.modal
     }
