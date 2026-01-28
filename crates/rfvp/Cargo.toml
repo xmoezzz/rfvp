@@ -1,6 +1,6 @@
 [package]
 name = "rfvp"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 homepage = "https://github.com/xmoezzz/rfvp"
 description = "A Non-Official Rust cross-platform implementation of the FVP engine"
