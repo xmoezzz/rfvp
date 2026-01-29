@@ -2,6 +2,10 @@
 name = "lua2hcb_compiler"
 version = "0.1.0"
 edition = "2021"
+license = "MPL-2.0"
+homepage = "https://github.com/xmoezzz/rfvp"
+repository = "https://github.com/xmoezzz/rfvp"
+description = "A compiler for Lua-like scripts to HCB"
 
 [dependencies]
 anyhow = "1"

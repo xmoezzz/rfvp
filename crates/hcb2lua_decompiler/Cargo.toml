@@ -2,6 +2,12 @@
 name = "hcb2lua_decompiler"
 version = "0.1.0"
 edition = "2021"
+readme = "README.md"
+license = "MPL-2.0"
+homepage = "https://github.com/xmoezzz/rfvp"
+repository = "https://github.com/xmoezzz/rfvp"
+description = "A decompiler for HCB scripts to Lua"
+
 
 [dependencies]
 log = "0.4"
