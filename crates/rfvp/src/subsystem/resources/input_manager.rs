@@ -1,6 +1,7 @@
 use std::{sync::Mutex, vec};
-use winit::keyboard::NamedKey;
 use std::sync::atomic::{AtomicBool, Ordering};
+use winit::event::TouchPhase;
+use winit::keyboard::NamedKey;
 
 #[derive(Debug)]
 pub struct CriticalSection {
@@ -138,6 +139,10 @@ pub struct InputManager {
     hud_up: u32,
 
     cs: CriticalSection,
+
+    // Touch -> mouse emulation (mobile).
+    // Only one active touch is tracked and mapped to MouseLeft.
+    active_touch_id: Option<u64>,
 }
 
 impl Default for InputManager {
@@ -178,6 +183,65 @@ impl InputManager {
             hud_down: 0,
             hud_up: 0,
             cs: CriticalSection::new(),
+
+            active_touch_id: None,
+        }
+    }
+
+    /// Handle a touch event by emulating MouseLeft only.
+    ///
+    /// This is intended for mobile ports where touch input is the primary pointing device.
+    /// Multi-touch is intentionally ignored; only the first active touch is tracked.
+    pub fn notify_touch(&mut self, phase: TouchPhase, id: u64, x: i32, y: i32, in_screen: bool) {
+        match phase {
+            TouchPhase::Started => {
+                // Only claim a touch when we don't already have one.
+                let claimed = {
+                    let _g = self.cs.enter();
+                    if self.active_touch_id.is_none() {
+                        self.active_touch_id = Some(id);
+                        true
+                    } else {
+                        false
+                    }
+                };
+
+                if !claimed {
+                    return;
+                }
+
+                self.set_mouse_in(in_screen);
+                self.notify_mouse_move(x, y);
+                self.notify_mouse_down(KeyCode::MouseLeft);
+            }
+            TouchPhase::Moved => {
+                let is_active = {
+                    let _g = self.cs.enter();
+                    self.active_touch_id == Some(id)
+                };
+                if !is_active {
+                    return;
+                }
+
+                self.set_mouse_in(in_screen);
+                self.notify_mouse_move(x, y);
+            }
+            TouchPhase::Ended | TouchPhase::Cancelled => {
+                let is_active = {
+                    let _g = self.cs.enter();
+                    self.active_touch_id == Some(id)
+                };
+                if !is_active {
+                    return;
+                }
+
+                self.set_mouse_in(in_screen);
+                self.notify_mouse_move(x, y);
+                self.notify_mouse_up(KeyCode::MouseLeft);
+
+                let _g = self.cs.enter();
+                self.active_touch_id = None;
+            }
         }
     }
 
