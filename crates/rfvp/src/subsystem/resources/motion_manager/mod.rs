@@ -513,14 +513,25 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
 
     pub fn draw_parts_to_texture(&mut self, parts_id: u8, entry_id: u32) -> Result<()> {
         let parts = self.parts_manager.get_mut().get(parts_id);
+
+        // Best-effort behavior: if the parts buffer is absent, do nothing.
+        // The original engine simply returns without error in these cases.
+        if !parts.get_loaded() {
+            return Ok(());
+        }
         if entry_id >= parts.get_texture_count() {
-            bail!("draw_parts_to_texture: invalid entry_id");
+            return Ok(());
         }
 
         let prim_id = parts.get_prim_id();
-        let texture = &mut self.textures[prim_id as usize];
+        let prim_id_usize = prim_id as usize;
+        if prim_id_usize >= self.textures.len() {
+            return Ok(());
+        }
+
+        let texture = &mut self.textures[prim_id_usize];
         if !texture.get_texture_ready() {
-            bail!("draw_parts_to_texture: texture not ready");
+            return Ok(());
         }
 
         // Signed offsets (negative offsets are allowed and handled via clipping).
@@ -530,10 +541,13 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
         let end_y = dy + parts.get_height() as i32;
 
         if end_x > texture.get_width() as i32 || end_y > texture.get_height() as i32 {
-            bail!("draw_parts_to_texture: invalid texture size");
+            return Ok(());
         }
 
-        let parts_texture = parts.get_texture(entry_id as usize)?;
+        let parts_texture = match parts.get_texture(entry_id as usize) {
+            Ok(t) => t,
+            Err(_) => return Ok(()),
+        };
 
         if let Some(dest) = texture.get_texture_mut().as_mut() {
             let src_x = 0;
@@ -541,7 +555,7 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
             let src_w = parts.get_width() as u32;
             let src_h = parts.get_height() as u32;
 
-            if let Err(e) = copy_rect_clipped(
+            let _ = copy_rect_clipped(
                 &parts_texture,
                 src_x,
                 src_y,
@@ -550,9 +564,7 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
                 dest,
                 dx,
                 dy,
-            ) {
-                log::warn!("draw_parts_to_texture: {}", e);
-            }
+            );
         }
 
         // The destination GraphBuff pixels changed; bump generation so GPU cache can refresh.

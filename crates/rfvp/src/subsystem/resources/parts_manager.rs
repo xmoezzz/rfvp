@@ -40,12 +40,31 @@ impl PartsItem {
         self.r_value = 100;
         self.g_value = 100;
         self.b_value = 100;
+        // `PartsLoad` resets the pause flag in the original engine.
+        self.running = false;
         self.loaded = true;
 
         Ok(())
     }
 
+    pub fn get_loaded(&self) -> bool {
+        self.loaded
+    }
+
+    /// Release decoded pixel data while keeping header metadata and the stored name.
+    ///
+    /// This matches the original engine behavior for `PartsLoad(id, nil)`.
+    pub fn unload_texture_keep_name(&mut self) {
+        self.texture.clear_slices_keep_header();
+        self.loaded = false;
+        self.running = false;
+    }
+
     pub fn set_color_tone(&mut self, r: u8, g: u8, b: u8) {
+        // The original engine only updates RGB when the parts buffer exists.
+        if !self.loaded {
+            return;
+        }
         for index in 0..self.texture.get_entry_count() as usize {
             let _ = self.texture
                 .texture_color_tone_32(index, r as i32, g as i32, b as i32);
@@ -199,6 +218,15 @@ impl PartsManager {
     pub fn load_parts(&mut self, id: u16, file_name: &str, buff: Vec<u8>) -> Result<()> {
         self.parts[id as usize].load_texture(file_name, buff)?;
         Ok(())
+    }
+
+    /// Release decoded pixel data while keeping header metadata and the stored name.
+    ///
+    /// This matches the original engine behavior for `PartsLoad(id, nil)`.
+    pub fn unload_parts_keep_name(&mut self, id: u8) {
+        if (id as usize) < self.parts.len() {
+            self.parts[id as usize].unload_texture_keep_name();
+        }
     }
 
     pub fn set_rgb(&mut self, id: u16, r: u8, g: u8, b: u8) {

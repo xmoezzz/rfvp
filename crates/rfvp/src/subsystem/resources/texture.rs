@@ -81,6 +81,15 @@ impl NvsgTexture {
         self.name = name.to_string();
     }
 
+    /// Drop decoded slice data while keeping header metadata and the stored name.
+    ///
+    /// This matches the original engine behavior for `PartsLoad(id, nil)`: the pixel buffer
+    /// is released, but header fields and the name pointer are left untouched.
+    pub fn clear_slices_keep_header(&mut self) {
+        self.slices.clear();
+        self.outlen = None;
+    }
+
     fn read_u16le(&self, buff: &[u8], offset: usize) -> Result<u16> {
         if buff.len() < offset + 2 {
             bail!("buffer too small for u16");

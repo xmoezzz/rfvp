@@ -9,37 +9,49 @@ pub fn parts_load(game_data: &mut GameData, id: &Variant, path: &Variant) -> Res
     let id = match id {
         Variant::Int(id) => *id,
         _ => {
-            log::error!("parts_load: invalid id type");
+            // IDA: no side effects.
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..64).contains(&id) {
-        log::error!("parts_load: id should be in range 0..64");
+        // IDA: no side effects.
         return Ok(Variant::Nil);
     }
 
-    let path = match path {
-        Variant::String(path) | Variant::ConstString(path, _) => path,
-        _ => {
-            log::error!("parts_load: invalid path type");
-            return Ok(Variant::Nil);
+    // Prepare the action first (avoid holding a mutable borrow of game_data while doing VFS I/O).
+    enum Action {
+        Noop,
+        Unload,
+        Load { path: String, buff: Vec<u8> },
+    }
+
+    let action = match path {
+        Variant::Nil => Action::Unload,
+        Variant::String(p) | Variant::ConstString(p, _) => match game_data.vfs_load_file(p) {
+            Ok(buff) => Action::Load {
+                path: p.to_string(),
+                buff,
+            },
+            Err(_) => Action::Noop,
         },
+        _ => Action::Noop,
     };
 
-    let buff = match game_data.vfs_load_file(path) {
-        Ok(buff) => buff,
-        Err(e) => {
-            log::error!("parts_load: failed to load file: {}", e);
-            return Ok(Variant::Nil);
-        },
-    };
-
-    game_data
-        .motion_manager
-        .parts_manager
-        .borrow_mut()
-        .load_parts(id as u16, path, buff)?;
+    // Apply action, then always cancel/recycle any pending PartsMotion slot for this parts ID.
+    {
+        let pm = game_data.motion_manager.parts_manager.get_mut();
+        match action {
+            Action::Noop => {}
+            Action::Unload => {
+                pm.unload_parts_keep_name(id as u8);
+            }
+            Action::Load { path, buff } => {
+                let _ = pm.load_parts(id as u16, &path, buff);
+            }
+        }
+        pm.next_free_id(id as u8);
+    }
 
     Ok(Variant::Nil)
 }
@@ -53,57 +65,25 @@ pub fn parts_rgb(
 ) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => {
-            log::error!("parts_rgb: invalid id type");
-            return Ok(Variant::Nil);
-        },
+        _ => return Ok(Variant::Nil),
     };
 
     if !(0..64).contains(&id) {
-        log::error!("parts_rgb: id should be in range 0..64");
         return Ok(Variant::Nil);
     }
 
+    // IDA: defaults to 100 for each channel, only overrides when the arg is Int and <= 200.
     let r = match r {
-        Variant::Int(r) => {
-            if *r >= 0 && *r <= 200 {
-                *r
-            } else {
-                100
-            }
-        }
-        _ => {
-            log::error!("parts_rgb: invalid r type");
-            return Ok(Variant::Nil);
-        },
+        Variant::Int(v) if (0..=200).contains(v) => *v,
+        _ => 100,
     };
-
     let g = match g {
-        Variant::Int(g) => {
-            if *g >= 0 && *g <= 200 {
-                *g
-            } else {
-                100
-            }
-        }
-        _ => {
-            log::error!("parts_rgb: invalid g type");
-            return Ok(Variant::Nil);
-        },
+        Variant::Int(v) if (0..=200).contains(v) => *v,
+        _ => 100,
     };
-
     let b = match b {
-        Variant::Int(b) => {
-            if *b >= 0 && *b <= 200 {
-                *b
-            } else {
-                100
-            }
-        }
-        _ => {
-            log::error!("parts_rgb: invalid b type");
-            return Ok(Variant::Nil);
-        },
+        Variant::Int(v) if (0..=200).contains(v) => *v,
+        _ => 100,
     };
 
     game_data
@@ -117,41 +97,25 @@ pub fn parts_rgb(
 pub fn parts_select(game_data: &mut GameData, id: &Variant, entry_id: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => {
-            log::error!("parts_select: invalid id type");
-            return Ok(Variant::Nil);
-        },
+        _ => return Ok(Variant::Nil),
     };
 
     if !(0..64).contains(&id) {
-        log::error!("parts_select: id should be in range 0..64");
         return Ok(Variant::Nil);
     }
 
-    let entry_id = match entry_id {
-        Variant::Int(entry_id) => *entry_id as u32,
-        _ => {
-            log::error!("parts_select: invalid entry_id type");
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if !(0..256).contains(&entry_id) {
-        let _ = game_data
-            .motion_manager
-            .parts_manager
-            .get_mut()
-            .next_free_id(id as u8);
-        log::error!("parts_select: entry_id should be in range 0..256");
-        return Ok(Variant::Nil);
-    }
-
-    if let Err(e) = game_data
-        .motion_manager
-        .draw_parts_to_texture(id as u8, entry_id)
-    {
-        log::error!("failed to draw parts to primitive: {:?}", e);
-        return Ok(Variant::Nil);
+    // IDA: only draws when entry_id is Int and < 256. Otherwise it does nothing.
+    if let Variant::Int(entry_id) = entry_id {
+        let entry_id_u32 = *entry_id as u32;
+        if entry_id_u32 < 256 {
+            if let Err(e) = game_data
+                .motion_manager
+                .draw_parts_to_texture(id as u8, entry_id_u32)
+            {
+                // IDA: draw failure is non-fatal; still cancels the motion slot.
+                let _ = e;
+            }
+        }
     }
 
     let _ = game_data
@@ -170,36 +134,29 @@ pub fn parts_assign(
 ) -> Result<Variant> {
     let parts_id = match parts_id {
         Variant::Int(parts_id) => *parts_id,
-        _ => {
-            log::error!("parts_assign: invalid parts_id type");
-            return Ok(Variant::Nil);
-        },
+        _ => return Ok(Variant::Nil),
     };
 
     if !(0..64).contains(&parts_id) {
-        log::error!("parts_assign: parts_id should be in range 0..64");
         return Ok(Variant::Nil);
     }
 
-    let prim_id = match prim_id {
-        Variant::Int(prim_id) => *prim_id as u16,
-        _ => {
-            log::error!("parts_assign: invalid prim_id type");
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if !(0..4096).contains(&prim_id) {
-        log::error!("parts_assign: prim_id should be in range 0..256");
-        return Ok(Variant::Nil);
+    // IDA: assign only when prim_id is Int and < 0x1000. Regardless, always cancels motion slot.
+    if let Variant::Int(prim_id) = prim_id {
+        if (0..4096).contains(prim_id) {
+            game_data
+                .motion_manager
+                .parts_manager
+                .get_mut()
+                .assign_prim_id(parts_id as u8, *prim_id as u16);
+        }
     }
 
-    game_data
+    let _ = game_data
         .motion_manager
         .parts_manager
         .get_mut()
-        .assign_prim_id(parts_id as u8, prim_id);
-
+        .next_free_id(parts_id as u8);
     Ok(Variant::Nil)
 }
 
@@ -212,40 +169,28 @@ pub fn parts_motion(
 ) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => {
-            log::error!("parts_motion: invalid id type");
-            return Ok(Variant::Nil);
-        },
+        _ => return Ok(Variant::Nil),
     };
 
     if !(0..64).contains(&id) {
-        log::error!("parts_motion: id should be in range 0..64");
         return Ok(Variant::Nil);
     }
 
     let entry_id = match entry_id {
         Variant::Int(entry_id) => *entry_id as u32,
-        _ => {
-            log::error!("parts_motion: invalid entry_id type");
-            return Ok(Variant::Nil);
-        },
+        _ => return Ok(Variant::Nil),
     };
 
     if !(0..256).contains(&entry_id) {
-        log::error!("parts_motion: entry_id should be in range 0..256");
         return Ok(Variant::Nil);
     }
 
     let duration = match duration {
         Variant::Int(duration) => *duration as u32,
-        _ => {
-            log::error!("parts_motion: invalid duration type");
-            return Ok(Variant::Nil);
-        },
+        _ => return Ok(Variant::Nil),
     };
 
     if !(1..=300000).contains(&duration) {
-        log::error!("parts_motion: duration should be in range 1..300000");
         return Ok(Variant::Nil);
     }
 
@@ -259,27 +204,19 @@ pub fn parts_motion(
 pub fn parts_motion_pause(game_data: &mut GameData, id: &Variant, on: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => {
-            log::error!("parts_motion_pause: invalid id type");
-            return Ok(Variant::Nil);
-        },
+        _ => return Ok(Variant::Nil),
     };
 
     if !(0..64).contains(&id) {
-        log::error!("parts_motion_pause: id should be in range 0..64");
         return Ok(Variant::Nil);
     }
 
     let on = match on {
         Variant::Int(on) => *on,
-        _ => {
-            log::error!("parts_motion_pause: invalid on type");
-            return Ok(Variant::Nil);
-        },
+        _ => return Ok(Variant::Nil),
     };
 
     if on != 0 && on != 1 {
-        log::error!("parts_motion_pause: on should be 0 or 1");
         return Ok(Variant::Nil);
     }
 
@@ -297,14 +234,11 @@ pub fn parts_motion_pause(game_data: &mut GameData, id: &Variant, on: &Variant) 
 pub fn parts_motion_stop(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => {
-            log::error!("parts_motion_stop: invalid id type");
-            return Ok(Variant::Nil);
-        },
+        _ => return Ok(Variant::Nil),
     };
 
-    if !(0..64).contains(&id) {
-        log::error!("parts_motion_stop: id should be in range 0..64");
+    // IDA: valid range is 1..64 (i.e., 1..=63).
+    if !(1..64).contains(&id) {
         return Ok(Variant::Nil);
     }
 
@@ -316,14 +250,11 @@ pub fn parts_motion_stop(game_data: &mut GameData, id: &Variant) -> Result<Varia
 pub fn parts_motion_test(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
-        _ => {
-            log::error!("parts_motion_test: invalid id type");
-            return Ok(Variant::Nil);
-        },
+        _ => return Ok(Variant::Nil),
     };
 
-    if !(0..64).contains(&id) {
-        log::error!("parts_motion_test: id should be in range 0..64");
+    // IDA: valid range is 1..64 (i.e., 1..=63).
+    if !(1..64).contains(&id) {
         return Ok(Variant::Nil);
     }
 
