@@ -257,7 +257,7 @@ impl VideoPlayerManager {
             // Avoid redundant uploads.
             if frame.pts_us != pb.last_presented_pts {
                 pb.last_presented_pts = frame.pts_us;
-                motion.load_texture_from_buff(MOVIE_GRAPH_ID, frame.rgba, frame.width, frame.height)?;
+                motion.load_texture_from_buff(MOVIE_GRAPH_ID, frame.data.into_vec(), frame.width, frame.height)?;
                 motion.refresh_prims(MOVIE_GRAPH_ID);
             }
         }

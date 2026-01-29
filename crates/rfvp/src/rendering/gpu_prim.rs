@@ -7,7 +7,7 @@ use crate::{rfvp_render::{
     GpuCommonResources, GpuTexture, TextureBindGroup, VertexBuffer, pipelines::sprite::SpritePipeline, vertices::{PosColTexVertex, VertexSource}
 }, subsystem::resources::{color_manager::ColorManager, motion_manager::{MotionManager, snow::SnowMotion}}};
 
-use crate::subsystem::resources::{graph_buff::GraphBuff, prim::{Prim, PrimManager, PrimType}};
+use crate::subsystem::resources::{graph_buff::{GraphBuff, GraphBuffLoadKind}, prim::{Prim, PrimManager, PrimType}};
 
 #[derive(Clone, Copy, Debug)]
 enum DrawTextureKey {
@@ -380,27 +380,28 @@ impl GpuPrimRenderer {
     ) {
         let gen = graph.get_generation();
 
-        let needs_upload = match self.graph_cache.get(&graph_id) {
-            Some(e) => e.generation != gen,
-            None => true,
-        };
-
-        if !needs_upload {
-            return;
-        }
-
         let Some(img) = graph.get_texture().as_ref() else {
             return;
         };
 
+        // Fast path for frequently-updated CPU RGBA graphs (movie/text buffers): update in place.
+        if let Some(e) = self.graph_cache.get_mut(&graph_id) {
+            if e.generation == gen {
+                return;
+            }
+
+            if graph.load_kind == GraphBuffLoadKind::RawRgba {
+                if e.texture.update_rgba8(resources, img) {
+                    e.generation = gen;
+                    return;
+                }
+            }
+
+            // Fallback: recreate texture on format/size changes.
+        }
+
         let tex = GpuTexture::new(resources, img, Some(&format!("graph_{}", graph_id)));
-        self.graph_cache.insert(
-            graph_id,
-            GraphGpuEntry {
-                generation: gen,
-                texture: tex,
-            },
-        );
+        self.graph_cache.insert(graph_id, GraphGpuEntry { generation: gen, texture: tex });
     }
 
     fn texture_bind_group(&self, key: DrawTextureKey) -> &TextureBindGroup {

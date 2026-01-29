@@ -1,5 +1,6 @@
 use image::DynamicImage;
 use wgpu::util::DeviceExt;
+use image::GenericImageView;
 
 use super::GpuCommonResources;
 
@@ -81,8 +82,18 @@ impl GpuTexture {
         label: Option<&str>,
         format: wgpu::TextureFormat,
     ) -> Self {
-        let rgba = img.to_rgba8();
-        let (w, h) = rgba.dimensions();
+        // Avoid an extra allocation when the source is already RGBA8.
+        let (rgba, w, h): (std::borrow::Cow<'_, [u8]>, u32, u32) = match img {
+            DynamicImage::ImageRgba8(rgba) => {
+                let (w, h) = rgba.dimensions();
+                (std::borrow::Cow::Borrowed(rgba.as_raw()), w, h)
+            }
+            _ => {
+                let rgba = img.to_rgba8();
+                let (w, h) = rgba.dimensions();
+                (std::borrow::Cow::Owned(rgba.into_raw()), w, h)
+            }
+        };
 
         let texture_desc = wgpu::TextureDescriptor {
             label,
@@ -140,6 +151,64 @@ impl GpuTexture {
             bind_group: TextureBindGroup::new(bind_group),
             size: (w, h),
         }
+    }
+
+    /// Update the whole texture with an RGBA8 image.
+    ///
+    /// This is intended for frequently-updated graphs (movie/text buffers) to avoid recreating
+    /// GPU textures and bind groups every frame.
+    ///
+    /// Returns `false` if the image size does not match this texture.
+    pub fn update_rgba8(&mut self, resources: &GpuCommonResources, img: &DynamicImage) -> bool {
+        let (src_w, src_h) = img.dimensions();
+        if (src_w, src_h) != self.size {
+            return false;
+        }
+
+        let raw: std::borrow::Cow<'_, [u8]> = match img {
+            DynamicImage::ImageRgba8(rgba) => std::borrow::Cow::Borrowed(rgba.as_raw()),
+            _ => std::borrow::Cow::Owned(img.to_rgba8().into_raw()),
+        };
+
+        let bytes_per_row = 4u32.saturating_mul(src_w);
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded_bytes_per_row = ((bytes_per_row + align - 1) / align) * align;
+
+        let data: std::borrow::Cow<'_, [u8]> = if padded_bytes_per_row == bytes_per_row {
+            raw
+        } else {
+            // Pad each row to meet wgpu's alignment requirement.
+            let mut out = vec![0u8; (padded_bytes_per_row as usize) * (src_h as usize)];
+            for y in 0..(src_h as usize) {
+                let src_off = y * (bytes_per_row as usize);
+                let dst_off = y * (padded_bytes_per_row as usize);
+                out[dst_off..dst_off + (bytes_per_row as usize)]
+                    .copy_from_slice(&raw[src_off..src_off + (bytes_per_row as usize)]);
+            }
+            std::borrow::Cow::Owned(out)
+        };
+
+        resources.queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &self.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &data,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(padded_bytes_per_row),
+                rows_per_image: Some(src_h),
+            },
+            wgpu::Extent3d {
+                width: src_w,
+                height: src_h,
+                depth_or_array_layers: 1,
+            },
+        );
+
+        true
     }
 
     pub fn bind_group(&self) -> &TextureBindGroup {
