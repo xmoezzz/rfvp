@@ -1,24 +1,103 @@
 import Foundation
 import SwiftUI
 import ZIPFoundation
+import Darwin
 
 // Rust entry point exported from RFVP.xcframework.
 @_silgen_name("rfvp_run_entry")
 private func rfvp_run_entry(_ gameRootUtf8: UnsafePointer<CChar>, _ nlsUtf8: UnsafePointer<CChar>) -> Void
 
+// Canonical strings must match Rust `Nls::from_str`.
+enum NlsOption: String, CaseIterable, Identifiable, Codable {
+    case sjis = "sjis"
+    case gbk = "gbk"
+    case utf8 = "utf8"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .sjis: return "SJIS"
+        case .gbk: return "GBK"
+        case .utf8: return "UTF-8"
+        }
+    }
+}
+
 struct GameEntry: Identifiable, Codable, Equatable {
     let id: String
     var title: String
     var rootPath: String
+
+    // Stored as canonical string ("sjis" | "gbk" | "utf8").
+    var nls: String
+
     var addedAtUnix: Int64
     var lastPlayedAtUnix: Int64?
 
-    init(id: String, title: String, rootPath: String, addedAtUnix: Int64, lastPlayedAtUnix: Int64? = nil) {
+    init(
+        id: String,
+        title: String,
+        rootPath: String,
+        nls: String = NlsOption.sjis.rawValue,
+        addedAtUnix: Int64,
+        lastPlayedAtUnix: Int64? = nil
+    ) {
         self.id = id
         self.title = title
         self.rootPath = rootPath
+        self.nls = GameEntry.normalizeNls(nls)
         self.addedAtUnix = addedAtUnix
         self.lastPlayedAtUnix = lastPlayedAtUnix
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case rootPath
+        case nls
+        case addedAtUnix
+        case lastPlayedAtUnix
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        rootPath = try c.decode(String.self, forKey: .rootPath)
+        let nlsOpt = try c.decodeIfPresent(String.self, forKey: .nls) ?? NlsOption.sjis.rawValue
+        nls = GameEntry.normalizeNls(nlsOpt)
+        addedAtUnix = try c.decode(Int64.self, forKey: .addedAtUnix)
+        lastPlayedAtUnix = try c.decodeIfPresent(Int64.self, forKey: .lastPlayedAtUnix)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(title, forKey: .title)
+        try c.encode(rootPath, forKey: .rootPath)
+        try c.encode(GameEntry.normalizeNls(nls), forKey: .nls)
+        try c.encode(addedAtUnix, forKey: .addedAtUnix)
+        try c.encodeIfPresent(lastPlayedAtUnix, forKey: .lastPlayedAtUnix)
+    }
+
+    var nlsOption: NlsOption {
+        NlsOption(rawValue: GameEntry.normalizeNls(nls)) ?? .sjis
+    }
+
+    static func normalizeNls(_ s: String) -> String {
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if NlsOption(rawValue: t) != nil {
+            return t
+        }
+        // Back-compat for old UI values.
+        if t == "shiftjis" || t == "shift-jis" || t == "sjis" {
+            return NlsOption.sjis.rawValue
+        }
+        if t == "utf-8" || t == "utf8" {
+            return NlsOption.utf8.rawValue
+        }
+        return NlsOption.sjis.rawValue
     }
 }
 
@@ -79,7 +158,7 @@ final class GameLibrary: ObservableObject {
     }
 
     // MARK: - Import ZIP
-    func importZip(url: URL) {
+    func importZip(url: URL, nls: NlsOption) {
         // Import flow:
         // 1) copy zip into a temp file
         // 2) unzip into temp dir
@@ -129,8 +208,9 @@ final class GameLibrary: ObservableObject {
             if let idx = games.firstIndex(where: { $0.id == id }) {
                 games[idx].title = title
                 games[idx].rootPath = destRoot.path
+                games[idx].nls = nls.rawValue
             } else {
-                games.append(GameEntry(id: id, title: title, rootPath: destRoot.path, addedAtUnix: now))
+                games.append(GameEntry(id: id, title: title, rootPath: destRoot.path, nls: nls.rawValue, addedAtUnix: now))
             }
             save()
 
@@ -161,15 +241,24 @@ final class GameLibrary: ObservableObject {
         try? fm.removeItem(at: installDir)
     }
 
+    func updateNls(game: GameEntry, nls: NlsOption) {
+        if let idx = games.firstIndex(of: game) {
+            games[idx].nls = nls.rawValue
+            save()
+        }
+    }
+
     // MARK: - Launch
-    func launch(game: GameEntry, nls: String) {
+    func launch(game: GameEntry) {
         if let idx = games.firstIndex(of: game) {
             games[idx].lastPlayedAtUnix = Int64(Date().timeIntervalSince1970)
             save()
         }
 
+        // Deliberately leak the argument strings: rfvp is expected to run until process exit.
+        // If rfvp returns unexpectedly, exit immediately to avoid teardown-related crashes.
         let gameC = strdup(game.rootPath)
-        let nlsC = strdup(nls)
+        let nlsC = strdup(GameEntry.normalizeNls(game.nls))
 
         guard let gameC, let nlsC else {
             if gameC != nil { free(gameC) }
@@ -178,12 +267,10 @@ final class GameLibrary: ObservableObject {
             return
         }
 
-        // rfvp_run_entry is expected to start the Winit loop (typically non-returning).
         rfvp_run_entry(gameC, nlsC)
 
-        // If it returns unexpectedly, free to avoid leaks.
-        free(gameC)
-        free(nlsC)
+        // Unexpected return: do not attempt to clean up (matches macOS launcher behavior).
+        _exit(0)
     }
 
     // MARK: - Helpers
@@ -201,14 +288,12 @@ final class GameLibrary: ObservableObject {
         guard let en = fm.enumerator(at: root, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]) else {
             return nil
         }
-        var found: URL? = nil
         for case let url as URL in en {
             if url.pathExtension.lowercased() == "hcb" {
-                found = url
-                break
+                return url
             }
         }
-        return found
+        return nil
     }
 
     private func probeTitleFromHcb(hcbURL: URL) -> String? {

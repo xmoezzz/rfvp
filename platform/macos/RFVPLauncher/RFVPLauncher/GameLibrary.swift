@@ -3,12 +3,23 @@ import AppKit
 import SwiftUI
 
 // -----------------------------
-// Rust entry point
+// NLS
 // -----------------------------
-//
-// Unified entry point across macOS/iOS/Android:
-@_silgen_name("rfvp_run_entry")
-private func rfvp_run_entry(_ gameRootUtf8: UnsafePointer<CChar>, _ nlsUtf8: UnsafePointer<CChar>) -> Void
+enum NlsOption: String, CaseIterable, Identifiable, Codable {
+    case sjis
+    case gbk
+    case utf8
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .sjis: return "SJIS"
+        case .gbk: return "GBK"
+        case .utf8: return "UTF-8"
+        }
+    }
+}
 
 // -----------------------------
 // Model
@@ -17,24 +28,50 @@ struct GameEntry: Identifiable, Codable, Equatable {
     let id: String
     var title: String
     var rootPath: String
+    var nls: String // "sjis" | "gbk" | "utf8"
     var addedAtUnix: Int64
     var lastPlayedAtUnix: Int64?
     var coverPath: String?
 
-    init(id: String, title: String, rootPath: String, addedAtUnix: Int64, lastPlayedAtUnix: Int64? = nil, coverPath: String? = nil) {
+    init(id: String, title: String, rootPath: String, nls: String, addedAtUnix: Int64, lastPlayedAtUnix: Int64? = nil, coverPath: String? = nil) {
         self.id = id
         self.title = title
         self.rootPath = rootPath
+        self.nls = nls
         self.addedAtUnix = addedAtUnix
         self.lastPlayedAtUnix = lastPlayedAtUnix
         self.coverPath = coverPath
     }
+
+    // Backward compatibility: older library.json entries do not have `nls`.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        title = try c.decode(String.self, forKey: .title)
+        rootPath = try c.decode(String.self, forKey: .rootPath)
+        nls = try c.decodeIfPresent(String.self, forKey: .nls) ?? NlsOption.sjis.rawValue
+        addedAtUnix = try c.decode(Int64.self, forKey: .addedAtUnix)
+        lastPlayedAtUnix = try c.decodeIfPresent(Int64.self, forKey: .lastPlayedAtUnix)
+        coverPath = try c.decodeIfPresent(String.self, forKey: .coverPath)
+    }
 }
 
+struct PendingImport: Identifiable {
+    let id: String
+    let rootURL: URL
+    let rootPath: String
+    let title: String
+}
+
+@MainActor
 final class GameLibrary: ObservableObject {
     @Published var games: [GameEntry] = []
     @Published var showError: Bool = false
     @Published var errorMessage: String = ""
+    @Published var pendingImport: PendingImport? = nil
+    // Set by main.swift (launcher host) to receive a launch request.
+    // This must only stop the modal loop; the actual rfvp entry is called outside SwiftUI.
+    var onLaunchRequest: ((GameEntry) -> Void)? = nil
 
     private let fm = FileManager.default
 
@@ -75,6 +112,9 @@ final class GameLibrary: ObservableObject {
         }
     }
 
+    // -----------------------------
+    // Import
+    // -----------------------------
     func importGameFolder() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
@@ -86,28 +126,32 @@ final class GameLibrary: ObservableObject {
             guard let self else { return }
             if response != .OK { return }
             guard let url = panel.url else { return }
-            self.tryAddGame(at: url)
+            self.prepareImport(url: url)
         }
     }
 
-    func tryAddGame(at url: URL) {
-        let path = url.path
-
+    private func prepareImport(url: URL) {
         guard let hcb = findFirstHcb(root: url) else {
             showError("No *.hcb found in selected folder.")
             return
         }
-
         let title = probeTitleFromHcb(hcbURL: hcb) ?? url.lastPathComponent
+        let path = url.path
         let id = stableId(for: path)
+        pendingImport = PendingImport(id: id, rootURL: url, rootPath: path, title: title)
+    }
+
+    func commitImport(p: PendingImport, nls: NlsOption) {
         let now = Int64(Date().timeIntervalSince1970)
 
-        if let idx = games.firstIndex(where: { $0.id == id }) {
-            games[idx].rootPath = path
-            games[idx].title = title
+        if let idx = games.firstIndex(where: { $0.id == p.id }) {
+            games[idx].rootPath = p.rootPath
+            games[idx].title = p.title
+            games[idx].nls = nls.rawValue
         } else {
-            games.append(GameEntry(id: id, title: title, rootPath: path, addedAtUnix: now))
+            games.append(GameEntry(id: p.id, title: p.title, rootPath: p.rootPath, nls: nls.rawValue, addedAtUnix: now))
         }
+        pendingImport = nil
         save()
         refreshValidation()
     }
@@ -123,36 +167,35 @@ final class GameLibrary: ObservableObject {
         if changed { save() }
     }
 
-    func launch(game: GameEntry, nls: String) {
+    // -----------------------------
+    // Per-game NLS
+    // -----------------------------
+    func updateNls(game: GameEntry, nls: NlsOption) {
+        guard let idx = games.firstIndex(of: game) else { return }
+        games[idx].nls = nls.rawValue
+        save()
+    }
+
+    // -----------------------------
+    // Launch request (blocking entry is called from main.swift)
+    // -----------------------------
+    func launch(game: GameEntry) {
         // Update last played
         if let idx = games.firstIndex(of: game) {
             games[idx].lastPlayedAtUnix = Int64(Date().timeIntervalSince1970)
             save()
         }
 
-        // Close launcher windows. The process remains alive; rfvp will take over the UI.
-        for w in NSApp.windows {
-            w.close()
-        }
-
-        let gameC = strdup(game.rootPath)
-        let nlsC = strdup(nls)
-        guard let gameC, let nlsC else {
-            if gameC != nil { free(gameC) }
-            if nlsC != nil { free(nlsC) }
-            showError("Failed to allocate argument strings.")
+        guard let cb = onLaunchRequest else {
+            showError("Launcher host is not ready.")
             return
         }
-
-        // rfvp_run_entry is expected to start the winit loop (typically non-returning).
-        DispatchQueue.main.async {
-            rfvp_run_entry(gameC, nlsC)
-            // If rfvp returns (unexpected), free memory to avoid leaks.
-            free(gameC)
-            free(nlsC)
-        }
+        cb(game)
     }
 
+    // -----------------------------
+    // UI actions
+    // -----------------------------
     func remove(game: GameEntry) {
         games.removeAll { $0.id == game.id }
         save()
@@ -208,131 +251,17 @@ final class GameLibrary: ObservableObject {
     }
 
     private func probeTitleFromHcb(hcbURL: URL) -> String? {
+        // Best-effort: look for a UTF-8-ish title string in the header.
+        // (The rfvp core will handle NLS correctly; this is just for the launcher list.)
         guard let data = try? Data(contentsOf: hcbURL) else { return nil }
-        if data.count < 4 { return nil }
-
-        func readU32LE(_ off: Int) -> UInt32? {
-            if off + 4 > data.count { return nil }
-            return data.withUnsafeBytes { ptr in
-                ptr.load(fromByteOffset: off, as: UInt32.self).littleEndian
-            }
+        // Very conservative probe: search for a long-ish ASCII/UTF-8 run.
+        if let s = String(data: data.prefix(4096), encoding: .utf8) {
+            let candidates = s
+                .split(whereSeparator: { $0.isNewline })
+                .map { String($0) }
+                .filter { $0.count >= 2 && $0.count <= 64 }
+            return candidates.first
         }
-        func readU16LE(_ off: Int) -> UInt16? {
-            if off + 2 > data.count { return nil }
-            return data.withUnsafeBytes { ptr in
-                ptr.load(fromByteOffset: off, as: UInt16.self).littleEndian
-            }
-        }
-        func readU8(_ off: Int) -> UInt8? {
-            if off + 1 > data.count { return nil }
-            return data[off]
-        }
-
-        guard let sysDescOffU32 = readU32LE(0) else { return nil }
-        let sysDescOff = Int(sysDescOffU32)
-        if sysDescOff < 0 || sysDescOff >= data.count { return nil }
-
-        var off = sysDescOff
-
-        // entry_point u32
-        guard readU32LE(off) != nil else { return nil }
-        off += 4
-
-        // non_volatile_global_count u16
-        guard readU16LE(off) != nil else { return nil }
-        off += 2
-
-        // volatile_global_count u16
-        guard readU16LE(off) != nil else { return nil }
-        off += 2
-
-        // game_mode u16
-        guard readU16LE(off) != nil else { return nil }
-        off += 2
-
-        // title_len u8
-        guard let titleLenU8 = readU8(off) else { return nil }
-        off += 1
-        let titleLen = Int(titleLenU8)
-        if off + titleLen > data.count { return nil }
-
-        let titleBytesAll = [UInt8](data[off..<(off + titleLen)])
-        let end = titleBytesAll.firstIndex(of: 0) ?? titleBytesAll.count
-        let raw = Array(titleBytesAll[0..<end])
-
-        return decodeTitleGuess(raw)
-    }
-
-    private func decodeTitleGuess(_ bytes: [UInt8]) -> String? {
-        if bytes.isEmpty { return nil }
-
-        // Try Shift-JIS first, then GB18030 (and GBK as fallback), pick the best score.
-        let cands: [String] = [
-            decodeShiftJIS(bytes) ?? "",
-            decodeGB18030(bytes) ?? "",
-            decodeGBK(bytes) ?? ""
-        ].filter { !$0.isEmpty }
-
-        if cands.isEmpty { return nil }
-
-        var best: (score: Int, s: String)? = nil
-        for s in cands {
-            let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
-            if t.isEmpty { continue }
-            let sc = scoreText(t)
-            if best == nil || sc > best!.score {
-                best = (sc, t)
-            }
-        }
-        return best?.s
-    }
-
-    private func scoreText(_ s: String) -> Int {
-        // Heuristic:
-        // - Penalize replacement chars strongly
-        // - Reward letters/digits/CJK/kana and common punctuation
-        var score = 0
-        var repl = 0
-
-        for ch in s {
-            if ch == "\u{FFFD}" {
-                repl += 1
-                continue
-            }
-            if ch.isASCII {
-                if ch.isLetter || ch.isNumber { score += 2 }
-                else if ch.isWhitespace { score += 0 }
-                else { score += 1 }
-                continue
-            }
-            // CJK / Kana
-            for scalar in String(ch).unicodeScalars {
-                if (0x3040...0x30FF).contains(Int(scalar.value)) || (0x4E00...0x9FFF).contains(Int(scalar.value)) {
-                    score += 3
-                } else {
-                    score += 1
-                }
-            }
-        }
-
-        return score - repl * 10
-    }
-
-    private func decodeShiftJIS(_ bytes: [UInt8]) -> String? {
-        return String(data: Data(bytes), encoding: .shiftJIS)
-    }
-
-    private func decodeGBK(_ bytes: [UInt8]) -> String? {
-        // GBK (CP936)
-        let cfEnc = CFStringEncoding(CFStringEncodings.dosChineseSimplif.rawValue)
-        let nsEnc = CFStringConvertEncodingToNSStringEncoding(cfEnc)
-        return String(data: Data(bytes), encoding: String.Encoding(rawValue: nsEnc))
-    }
-
-    private func decodeGB18030(_ bytes: [UInt8]) -> String? {
-        // GB18030-2000
-        let cfEnc = CFStringEncoding(CFStringEncodings.GB_18030_2000.rawValue)
-        let nsEnc = CFStringConvertEncodingToNSStringEncoding(cfEnc)
-        return String(data: Data(bytes), encoding: String.Encoding(rawValue: nsEnc))
+        return nil
     }
 }

@@ -15,6 +15,7 @@ public final class GameAdapter extends RecyclerView.Adapter<GameAdapter.Holder> 
 
     public interface Listener {
         void onGameClicked(GameEntry e);
+        void onGameLongPressed(GameEntry e);
     }
 
     private final Listener listener;
@@ -43,7 +44,12 @@ public final class GameAdapter extends RecyclerView.Adapter<GameAdapter.Holder> 
     public void onBindViewHolder(@NonNull Holder holder, int position) {
         GameEntry e = items.get(position);
         holder.title.setText(e.title);
+        holder.nls.setText(e.nls);
         holder.itemView.setOnClickListener(v -> listener.onGameClicked(e));
+        holder.itemView.setOnLongClickListener(v -> {
+            listener.onGameLongPressed(e);
+            return true;
+        });
     }
 
     @Override
@@ -53,9 +59,11 @@ public final class GameAdapter extends RecyclerView.Adapter<GameAdapter.Holder> 
 
     static final class Holder extends RecyclerView.ViewHolder {
         final TextView title;
+        final TextView nls;
         Holder(@NonNull View itemView) {
             super(itemView);
             title = itemView.findViewById(R.id.txt_title);
+            nls = itemView.findViewById(R.id.txt_nls);
         }
     }
 }

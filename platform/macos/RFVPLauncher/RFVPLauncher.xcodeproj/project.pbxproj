@@ -11,6 +11,7 @@
 		2D422ACE345732C642C3B4E6 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9B60164A5C2CD9AD187DC6B5 /* QuartzCore.framework */; };
 		3D9FE48EBBD88DCDF0F5FC5B /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 55457AF6F100CE2FB28AE5CA /* ContentView.swift */; };
 		43C78C6BA074E60474AC80DC /* GameLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 73D3E8ADA27AE1A8DC8FFB00 /* GameLibrary.swift */; };
+		9332BBC36816BB29A2247A66 /* LauncherMain.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE5F44A5A3FB33670D425DB9 /* LauncherMain.swift */; };
 		9902F5B708E1370A984FC529 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7E78F17D659337F732A942A5 /* AppKit.framework */; };
 		9FA6B7C89810F764E879F3F3 /* RFVPLauncherApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA1AA367ED7D1EC3B6D48423 /* RFVPLauncherApp.swift */; };
 		A9B0AB4BC5861FA8B77DF0B5 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5F55589B189453B19297782F /* Metal.framework */; };
@@ -30,6 +31,7 @@
 		7E78F17D659337F732A942A5 /* AppKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppKit.framework; path = System/Library/Frameworks/AppKit.framework; sourceTree = SDKROOT; };
 		9B60164A5C2CD9AD187DC6B5 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
 		DA1AA367ED7D1EC3B6D48423 /* RFVPLauncherApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RFVPLauncherApp.swift; sourceTree = "<group>"; };
+		DE5F44A5A3FB33670D425DB9 /* LauncherMain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LauncherMain.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -54,6 +56,7 @@
 				55457AF6F100CE2FB28AE5CA /* ContentView.swift */,
 				73D3E8ADA27AE1A8DC8FFB00 /* GameLibrary.swift */,
 				1F0D0A49E9B1B13C001C89D7 /* Info.plist */,
+				DE5F44A5A3FB33670D425DB9 /* LauncherMain.swift */,
 				DA1AA367ED7D1EC3B6D48423 /* RFVPLauncherApp.swift */,
 				B425BDC3824EF3A966858177 /* Resources */,
 			);
@@ -165,6 +168,7 @@
 			files = (
 				3D9FE48EBBD88DCDF0F5FC5B /* ContentView.swift in Sources */,
 				43C78C6BA074E60474AC80DC /* GameLibrary.swift in Sources */,
+				9332BBC36816BB29A2247A66 /* LauncherMain.swift in Sources */,
 				9FA6B7C89810F764E879F3F3 /* RFVPLauncherApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

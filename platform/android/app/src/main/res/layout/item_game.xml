@@ -13,4 +13,20 @@
         android:textSize="14sp"
         android:background="?android:attr/selectableItemBackground"
         android:padding="8dp" />
+
+    <!-- NLS tag: shows the per-game encoding (sjis/gbk/utf8). -->
+    <TextView
+        android:id="@+id/txt_nls"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="10dp"
+        android:text="sjis"
+        android:textSize="10sp"
+        android:paddingLeft="6dp"
+        android:paddingRight="6dp"
+        android:paddingTop="2dp"
+        android:paddingBottom="2dp"
+        android:background="@android:color/darker_gray"
+        android:textColor="@android:color/white" />
 </FrameLayout>

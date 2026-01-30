@@ -59,7 +59,7 @@ public final class GameLibrary {
                         o.optString("id"),
                         o.optString("title", "Untitled"),
                         o.optString("rootPath"),
-                        o.optString("nls", "auto"),
+                        o.optString("nls", "sjis"),
                         o.optLong("addedAt", 0L)
                 ));
             }
@@ -86,7 +86,13 @@ public final class GameLibrary {
         }
     }
 
-    public GameEntry importFromTreeUri(Uri treeUri) throws Exception {
+    /**
+     * Import the selected folder into app-private storage.
+     *
+     * NOTE: This method only performs the file copy + title extraction.
+     * The caller must decide NLS and then call {@link #addImportedGame(ImportedGameDraft, String)}.
+     */
+    public ImportedGameDraft importFromTreeUri(Uri treeUri) throws Exception {
         DocumentFile tree = DocumentFile.fromTreeUri(ctx, treeUri);
         if (tree == null || !tree.isDirectory()) {
             throw new IllegalArgumentException("Selected URI is not a directory");
@@ -117,14 +123,55 @@ public final class GameLibrary {
             title = "Untitled";
         }
 
-        GameEntry entry = new GameEntry(id, title, dstRoot.getAbsolutePath(), "auto", System.currentTimeMillis());
+        lastPartialDir = null;
+        return new ImportedGameDraft(id, title, dstRoot.getAbsolutePath(), System.currentTimeMillis());
+    }
+
+    public GameEntry addImportedGame(ImportedGameDraft draft, String nls) throws Exception {
+        if (draft == null) {
+            throw new IllegalArgumentException("draft is null");
+        }
+        if (nls == null || nls.trim().isEmpty()) {
+            nls = "sjis";
+        }
+
+        GameEntry entry = new GameEntry(draft.id, draft.title, draft.rootPath, nls, draft.addedAtEpochMs);
 
         List<GameEntry> all = load();
         all.add(0, entry);
         save(all);
-
-        lastPartialDir = null;
         return entry;
+    }
+
+    public void updateGameNls(String id, String newNls) throws Exception {
+        if (id == null || id.isEmpty()) return;
+        if (newNls == null || newNls.trim().isEmpty()) newNls = "sjis";
+
+        List<GameEntry> all = load();
+        List<GameEntry> out = new ArrayList<>(all.size());
+        for (GameEntry e : all) {
+            if (e != null && id.equals(e.id)) {
+                out.add(new GameEntry(e.id, e.title, e.rootPath, newNls, e.addedAtEpochMs));
+            } else {
+                out.add(e);
+            }
+        }
+        save(out);
+    }
+
+    /** A staged import result that has not been added to the library yet. */
+    public static final class ImportedGameDraft {
+        public final String id;
+        public final String title;
+        public final String rootPath;
+        public final long addedAtEpochMs;
+
+        public ImportedGameDraft(String id, String title, String rootPath, long addedAtEpochMs) {
+            this.id = id;
+            this.title = title;
+            this.rootPath = rootPath;
+            this.addedAtEpochMs = addedAtEpochMs;
+        }
     }
 
     public void cleanupPartialImport() {

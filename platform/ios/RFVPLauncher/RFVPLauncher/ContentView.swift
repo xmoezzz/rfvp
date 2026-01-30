@@ -2,9 +2,12 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var library: GameLibrary
-    @AppStorage("rfvp.default_nls") private var defaultNls: String = "ShiftJIS"
 
     @State private var showImporter: Bool = false
+    @State private var showNlsPicker: Bool = false
+    @State private var pendingZipURL: URL? = nil
+    @State private var pendingNls: NlsOption = .sjis
+
     @State private var isLaunching: Bool = false
 
     private let columns: [GridItem] = [
@@ -21,7 +24,7 @@ struct ContentView: View {
                 ScrollView(.vertical) {
                     LazyVGrid(columns: columns, spacing: 12) {
                         ForEach(library.games) { game in
-                            GameTileView(game: game, defaultNls: defaultNls, isLaunching: $isLaunching)
+                            GameTileView(game: game, isLaunching: $isLaunching)
                         }
                     }
                     .padding(12)
@@ -38,8 +41,28 @@ struct ContentView: View {
                 ZipDocumentPicker { url in
                     showImporter = false
                     guard let url else { return }
-                    library.importZip(url: url)
+                    pendingZipURL = url
+                    pendingNls = .sjis
+                    showNlsPicker = true
                 }
+            }
+            .sheet(isPresented: $showNlsPicker) {
+                NlsPickerSheet(
+                    selected: $pendingNls,
+                    onCancel: {
+                        pendingZipURL = nil
+                        showNlsPicker = false
+                    },
+                    onConfirm: {
+                        guard let url = pendingZipURL else {
+                            showNlsPicker = false
+                            return
+                        }
+                        showNlsPicker = false
+                        pendingZipURL = nil
+                        library.importZip(url: url, nls: pendingNls)
+                    }
+                )
             }
 
             if isLaunching {
@@ -62,13 +85,6 @@ struct ContentView: View {
 
             Spacer()
 
-            Text("NLS:")
-                .foregroundColor(.secondary)
-
-            TextField("ShiftJIS", text: $defaultNls)
-                .textFieldStyle(RoundedBorderTextFieldStyle())
-                .frame(width: 110)
-
             Button("Import ZIP") {
                 showImporter = true
             }
@@ -82,21 +98,68 @@ struct ContentView: View {
     }
 }
 
+private struct NlsPickerSheet: View {
+    @Binding var selected: NlsOption
+
+    let onCancel: () -> Void
+    let onConfirm: () -> Void
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("NLS")) {
+                    Picker("Encoding", selection: $selected) {
+                        ForEach(NlsOption.allCases) { opt in
+                            Text(opt.displayName).tag(opt)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+
+                    Text("Default is SJIS. You can change this later per game.")
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                }
+            }
+            .navigationTitle("Select NLS")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { onCancel() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Import") { onConfirm() }
+                }
+            }
+        }
+    }
+}
+
 struct GameTileView: View {
     @EnvironmentObject var library: GameLibrary
+
     let game: GameEntry
-    let defaultNls: String
     @Binding var isLaunching: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ZStack {
+            ZStack(alignment: .topTrailing) {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color(UIColor.secondarySystemBackground))
-                Text(game.title)
-                    .font(.headline)
-                    .multilineTextAlignment(.center)
-                    .padding(10)
+
+                VStack(spacing: 0) {
+                    Text(game.title)
+                        .font(.headline)
+                        .multilineTextAlignment(.center)
+                        .padding(10)
+                    Spacer()
+                }
+
+                Text(game.nlsOption.displayName)
+                    .font(.caption2)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.10)))
+                    .padding(8)
             }
             .frame(height: 130)
 
@@ -113,10 +176,22 @@ struct GameTileView: View {
                 Button("Play") {
                     isLaunching = true
                     DispatchQueue.main.async {
-                        library.launch(game: game, nls: defaultNls)
+                        library.launch(game: game)
                     }
                 }
+
+                Menu {
+                    ForEach(NlsOption.allCases) { opt in
+                        Button(opt.displayName) {
+                            library.updateNls(game: game, nls: opt)
+                        }
+                    }
+                } label: {
+                    Text("NLS")
+                }
+
                 Spacer()
+
                 Button("Remove") {
                     library.remove(game: game)
                 }

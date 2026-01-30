@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::{
     collections::HashMap, fs::File, path::{Path, PathBuf}, slice::Windows, sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard}, time::{Duration, Instant}
 };
@@ -22,6 +22,9 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowAttributes},
 };
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+use winit::platform::pump_events::{EventLoopExtPumpEvents, PumpStatus};
 
 use crate::rendering::render_tree::RenderTree;
 use crate::vm_worker::VmWorker;
@@ -75,6 +78,10 @@ pub struct App {
     scheduler: Scheduler,
     layer_machine: SceneMachine,
     window: Option<Arc<Window>>,
+
+    /// When true, the app is driven by an external host via `PumpInstance::pump()`.
+    /// In this mode we must never block inside winit's event pumping.
+    pump_mode: bool,
 
     // WindowMode support
     windowed_restore: Option<WindowedRestoreState>,
@@ -182,11 +189,16 @@ impl App {
         gd.inputs_manager.get_hud_up().to_string()
     }
 
-    fn run(mut self, event_loop: EventLoop<()>) {
-        let _result = event_loop.run(move |event, loopd| {
+    fn handle_event(&mut self, event: Event<()>, loopd: &winit::event_loop::ActiveEventLoop) {
+        // NOTE: In pump-mode we must not block inside winit, because the host (SwiftUI/Android/iOS)
+        // drives the app by repeatedly calling `rfvp_pump_step()`.
+        if self.pump_mode {
+            loopd.set_control_flow(ControlFlow::Poll);
+        } else {
             loopd.set_control_flow(ControlFlow::Wait);
+        }
 
-            match event {
+        match event {
                 Event::WindowEvent {
                     ref event,
                     window_id,
@@ -427,7 +439,12 @@ impl App {
                     }
                 }
                 _ => (),
-            }
+        }
+    }
+
+    fn run(mut self, event_loop: EventLoop<()>) {
+        let _result = event_loop.run(move |event, loopd| {
+            self.handle_event(event, loopd);
         });
     }
 
@@ -1241,19 +1258,24 @@ impl AppBuilder {
     }
 
 
-    /// Builds, setups and runs the application, must be called at the end of the building process.
-    pub fn run(mut self) {
-        let event_loop = EventLoop::new().expect("Event loop could not be created");
+    /// Build the application and return an owned event loop + app.
+    ///
+    /// This is used by both the classic blocking `run()` and the "pump" mode used by GUI hosts
+    /// (e.g. SwiftUI launchers) that already own the platform main loop.
+    pub fn build(mut self) -> anyhow::Result<BuiltApp> {
+        let event_loop = EventLoop::new().context("Event loop could not be created")?;
         event_loop.set_control_flow(ControlFlow::Poll);
 
-        let window_builder: WindowAttributes = self
+        let wc = self
             .config
             .window_config
             .clone()
-            .expect("The window configuration has not been found")
-            .into(&self.config);
-        let window = event_loop.create_window(window_builder)
-            .expect("An error occured while building the main game window");
+            .ok_or_else(|| anyhow::anyhow!("The window configuration has not been found"))?;
+
+        let window_builder: WindowAttributes = wc.into(&self.config);
+        let window = event_loop
+            .create_window(window_builder)
+            .context("An error occured while building the main game window")?;
 
         let window = Arc::new(window);
 
@@ -1271,7 +1293,7 @@ impl AppBuilder {
                 .with_visible(false);
             let w = event_loop
                 .create_window(attrs)
-                .expect("An error occured while building the HUD window");
+                .context("An error occured while building the HUD window")?;
             Some(Arc::new(w))
         } else {
             None
@@ -1312,7 +1334,10 @@ impl AppBuilder {
                     let number = caps[2].to_string();
                     
                     if let Ok(index) = number.parse::<u32>() {
-                        let file = File::open(path).unwrap();
+                        let Ok(file) = File::open(path) else {
+                            log::error!("Failed to open cursor : {}", path.display());
+                            continue;
+                        };
                         if let Ok(cursor) = ani::Decoder::new(file).decode() {
                             let mut failed = false;
                             let mut sources = vec![];
@@ -1408,6 +1433,7 @@ impl AppBuilder {
                 current_scene: self.scene,
             },
             window: Some(window.clone()),
+            pump_mode: false,
             windowed_restore: None,
             last_fullscreen_flag: 3,
 
@@ -1444,10 +1470,76 @@ impl AppBuilder {
         };
 
         app.setup();
-        app.run(event_loop);
+
+        // Kick the first frame for pump-mode hosts.
+        if let Some(w) = app.window.as_ref() {
+            w.request_redraw();
+        }
+
+        Ok(BuiltApp { event_loop, app })
+    }
+
+    /// Classic blocking run (winit owns the main loop).
+    pub fn run(self) {
+        let built = self.build().expect("failed to build rfvp app");
+        built.run();
+    }
+
+    /// Build an instance that can be driven by `pump_events`.
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    pub fn build_pump(self) -> anyhow::Result<PumpInstance> {
+        Ok(self.build()?.into_pump())
     }
 
     fn add_late_internal_systems_to_schedule(&mut self) {}
+}
+
+/// A fully-built application bundle.
+pub struct BuiltApp {
+    pub event_loop: EventLoop<()>,
+    pub app: App,
+}
+
+impl BuiltApp {
+    pub fn run(self) {
+        self.app.run(self.event_loop);
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    pub fn into_pump(self) -> PumpInstance {
+        let BuiltApp { event_loop, mut app } = self;
+        app.pump_mode = true;
+        PumpInstance { event_loop, app }
+    }
+}
+
+/// A pump-driven instance (for GUI hosts that already own the platform event loop).
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+pub struct PumpInstance {
+    event_loop: EventLoop<()>,
+    app: App,
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+impl PumpInstance {
+    /// Pump window/system events and drive one iteration of the application.
+    ///
+    /// Returns `PumpStatus::Exit` once the app requests termination.
+    pub fn pump(&mut self, timeout: Duration) -> PumpStatus {
+        // Ensure the app keeps producing frames even if the host pumps without OS input.
+        if let Some(w) = self.app.window.as_ref() {
+            w.request_redraw();
+        }
+        if self.app.hud_visible {
+            if let Some(w) = self.app.hud_window.as_ref() {
+                w.request_redraw();
+            }
+        }
+
+        self.event_loop.pump_events(Some(timeout), |event, loopd| {
+            self.app.handle_event(event, loopd);
+        })
+    }
 }
 
 #[cfg(test)]
