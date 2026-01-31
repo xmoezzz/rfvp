@@ -9,7 +9,7 @@ settings:
     SWIFT_VERSION: "5.0"
     IPHONEOS_DEPLOYMENT_TARGET: "14.0"
     PRODUCT_BUNDLE_IDENTIFIER: com.chino.rfvp
-    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_STYLE: Automatic
 
 packages:
   ZIPFoundation:

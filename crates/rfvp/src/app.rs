@@ -121,18 +121,18 @@ pub struct App {
 
 impl App {
     #[allow(dead_code)]
-    pub fn app() -> AppBuilder {
+    pub fn app() -> Box<AppBuilder> {
         let app_config = AppConfig::default();
         App::app_with_config(app_config)
     }
 
-    pub fn app_with_config(app_config: AppConfig) -> AppBuilder {
+    pub fn app_with_config(app_config: AppConfig) -> Box<AppBuilder> {
         crate::utils::logger::Logger::init_logging(app_config.logger_config.clone());
         log::info!(
             "Starting the app, with the following configuration \n {:?}",
             app_config
         );
-        AppBuilder::new(app_config)
+        Box::new(AppBuilder::new(app_config))
     }
 
     fn setup(&mut self) {
@@ -1262,7 +1262,7 @@ impl AppBuilder {
     ///
     /// This is used by both the classic blocking `run()` and the "pump" mode used by GUI hosts
     /// (e.g. SwiftUI launchers) that already own the platform main loop.
-    pub fn build(mut self) -> anyhow::Result<BuiltApp> {
+    pub fn build(mut self) -> anyhow::Result<Box<BuiltApp>> {
         let event_loop = EventLoop::new().context("Event loop could not be created")?;
         event_loop.set_control_flow(ControlFlow::Poll);
 
@@ -1424,7 +1424,7 @@ impl AppBuilder {
             .map(|c| c.format)
             .unwrap_or(surface_config.format);
 
-        let mut app = App {
+        let mut app = Box::new(App {
             config: self.config,
             game_data,
             title: self.title,
@@ -1467,7 +1467,7 @@ impl AppBuilder {
             hud_cursor_pos: None,
             hud_pointer_down: false,
             hud_scroll_delta_y: 0.0,
-        };
+        });
 
         app.setup();
 
@@ -1476,7 +1476,7 @@ impl AppBuilder {
             w.request_redraw();
         }
 
-        Ok(BuiltApp { event_loop, app })
+        Ok(Box::new(BuiltApp { event_loop, app }))
     }
 
     /// Classic blocking run (winit owns the main loop).
@@ -1497,7 +1497,7 @@ impl AppBuilder {
 /// A fully-built application bundle.
 pub struct BuiltApp {
     pub event_loop: EventLoop<()>,
-    pub app: App,
+    pub app: Box<App>,
 }
 
 impl BuiltApp {
@@ -1517,7 +1517,7 @@ impl BuiltApp {
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 pub struct PumpInstance {
     event_loop: EventLoop<()>,
-    app: App,
+    app: Box<App>,
 }
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
