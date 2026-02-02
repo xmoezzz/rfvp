@@ -23,6 +23,7 @@ targets:
 
     sources:
       - path: RFVPLauncher
+      - path: Headers
 
     resources:
       - path: RFVPLauncher/Assets.xcassets

@@ -19,6 +19,7 @@
 		5551772EB3AB4CA0D6BDFA99 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 18629F18853BD396D33A307C /* AVFoundation.framework */; };
 		65E2F1921C4C5A0F740F2161 /* RFVP.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = F57A9B7E6DB96D01BE6250B4 /* RFVP.xcframework */; };
 		6D79757E14346C8E73533AFB /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1BCC27A9C7C625B940BEC131 /* MetalKit.framework */; };
+		7400C45490006FE3FB1BD462 /* RFVPPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AF20356A97B990A7C8728A40 /* RFVPPlayer.swift */; };
 		7F365934B5F3CF8E252E8A5C /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 3E69892F467AF8632D33DE74 /* LaunchScreen.storyboard */; };
 		8DF30ADCBA3A5482962EA884 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A9F317C3D3A26808CE2A92D0 /* Assets.xcassets */; };
 		9FA6B7C89810F764E879F3F3 /* RFVPLauncherApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA1AA367ED7D1EC3B6D48423 /* RFVPLauncherApp.swift */; };
@@ -40,9 +41,11 @@
 		6128D40757D403E2872BEBED /* RFVPLauncher.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = RFVPLauncher.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		73D3E8ADA27AE1A8DC8FFB00 /* GameLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameLibrary.swift; sourceTree = "<group>"; };
 		8E77D80E6018B3E6EA9232BA /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+		9876485F880F53180E852231 /* rfvp.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = rfvp.h; sourceTree = "<group>"; };
 		9B60164A5C2CD9AD187DC6B5 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
 		A74F54A3ABBCCC1C201F1A37 /* ZipImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZipImporter.swift; sourceTree = "<group>"; };
 		A9F317C3D3A26808CE2A92D0 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AF20356A97B990A7C8728A40 /* RFVPPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RFVPPlayer.swift; sourceTree = "<group>"; };
 		D8EFBFE270DEA34106B2A459 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		DA1AA367ED7D1EC3B6D48423 /* RFVPLauncherApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RFVPLauncherApp.swift; sourceTree = "<group>"; };
 		E1FC20F80BC12529091F7710 /* AudioToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioToolbox.framework; path = System/Library/Frameworks/AudioToolbox.framework; sourceTree = SDKROOT; };
@@ -75,6 +78,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		2ABC46787C906304E7B007B4 /* Headers */ = {
+			isa = PBXGroup;
+			children = (
+				9876485F880F53180E852231 /* rfvp.h */,
+			);
+			path = Headers;
+			sourceTree = "<group>";
+		};
 		5FFEE22DC355174A54656059 /* RFVPLauncher */ = {
 			isa = PBXGroup;
 			children = (
@@ -84,6 +95,7 @@
 				1F0D0A49E9B1B13C001C89D7 /* Info.plist */,
 				3E69892F467AF8632D33DE74 /* LaunchScreen.storyboard */,
 				DA1AA367ED7D1EC3B6D48423 /* RFVPLauncherApp.swift */,
+				AF20356A97B990A7C8728A40 /* RFVPPlayer.swift */,
 				A74F54A3ABBCCC1C201F1A37 /* ZipImporter.swift */,
 			);
 			path = RFVPLauncher;
@@ -111,6 +123,7 @@
 		ABC4A715DCE23DCFC823E387 = {
 			isa = PBXGroup;
 			children = (
+				2ABC46787C906304E7B007B4 /* Headers */,
 				5FFEE22DC355174A54656059 /* RFVPLauncher */,
 				940CB14D1884F5B61A699132 /* Frameworks */,
 				F7185C75DFED00D447BDB608 /* Products */,
@@ -204,6 +217,7 @@
 				3D9FE48EBBD88DCDF0F5FC5B /* ContentView.swift in Sources */,
 				43C78C6BA074E60474AC80DC /* GameLibrary.swift in Sources */,
 				9FA6B7C89810F764E879F3F3 /* RFVPLauncherApp.swift in Sources */,
+				7400C45490006FE3FB1BD462 /* RFVPPlayer.swift in Sources */,
 				30EA75B66C70691DF2B31ACB /* ZipImporter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

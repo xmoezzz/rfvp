@@ -43,7 +43,7 @@ pub enum EngineEvent {
 ///
 /// Design constraints:
 /// - The VM thread must never touch wgpu objects (Device/Queue/Surface/Textures).
-/// - All state mutations happen under a shared RwLock<GameData>.
+/// - All state mutations happen under a shared RwLock<Box<GameData>>.
 ///   The main thread should send Frame events from `AboutToWait` so the VM runs
 ///   while the event loop is idle and does not block rendering.
 pub struct VmWorker {
@@ -52,7 +52,7 @@ pub struct VmWorker {
 
 impl VmWorker {
     pub fn spawn(
-        game_data: Arc<RwLock<GameData>>,
+        game_data: Arc<RwLock<Box<GameData>>>,
         mut parser: Parser,
         script_engine: ThreadManager,
     ) -> Self {
@@ -77,7 +77,7 @@ impl VmWorker {
                                 // If the VM asked to halt, do not progress this frame.
                                 continue;
                             }
-                            if let Err(e) = vm.tick(&mut gd, &mut parser, frame_ms) {
+                            if let Err(e) = vm.tick(&mut **gd, &mut parser, frame_ms) {
                                 log::error!("VM thread tick error: {e:?}");
                                 // Keep running; scripts may recover depending on engine behavior.
                             }
@@ -89,7 +89,7 @@ impl VmWorker {
                             };
                             let mut report = VmTickReport::default();
                             if !gd.get_halt() {
-                                match vm.tick(&mut gd, &mut parser, frame_ms) {
+                                match vm.tick(&mut **gd, &mut parser, frame_ms) {
                                     Ok(r) => report = r,
                                     Err(e) => {
                                         log::error!("VM thread tick error: {e:?}");
@@ -108,7 +108,7 @@ impl VmWorker {
                             }
                             // Zero-delta tick: only advances internal state (e.g., clears DISSOLVE_WAIT)
                             // based on already-updated global motion state.
-                            if let Err(e) = vm.tick(&mut gd, &mut parser, 0) {
+                            if let Err(e) = vm.tick(&mut **gd, &mut parser, 0) {
                                 log::error!("VM thread tick error (dissolve done): {e:?}");
                             }
                         }
@@ -118,7 +118,7 @@ impl VmWorker {
                                 Err(poisoned) => poisoned.into_inner(),
                             };
                             if !gd.get_halt() {
-                                if let Err(e) = vm.tick(&mut gd, &mut parser, 0) {
+                                if let Err(e) = vm.tick(&mut **gd, &mut parser, 0) {
                                     log::error!("VM thread tick error (dissolve done): {e:?}");
                                 }
                             }
@@ -134,7 +134,7 @@ impl VmWorker {
                             }
                             // Zero-delta tick: lets scripts observe the already-updated
                             // input state immediately (e.g., polling InputGetEvent).
-                            if let Err(e) = vm.tick(&mut gd, &mut parser, 0) {
+                            if let Err(e) = vm.tick(&mut **gd, &mut parser, 0) {
                                 log::error!("VM thread tick error (input signal): {e:?}");
                             }
                         }

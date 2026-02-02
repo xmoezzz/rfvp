@@ -14,6 +14,10 @@ pub mod debug_ui;
 pub mod trace;
 pub mod boot;
 
+// iOS host-mode (SwiftUI / UIKit) entry points.
+#[cfg(target_os = "ios")]
+mod ios_host;
+
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::ptr::null_mut;

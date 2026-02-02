@@ -158,6 +158,60 @@ pub struct GameData {
     pub(crate) debug_vm: crate::debug_ui::vm_snapshot::VmSnapshot,
 }
 
+
+
+
+impl GameData {
+    /// Initialize a `GameData` at `dst` with the same values as `GameData::default()`,
+    /// but without creating a large temporary on the stack.
+    ///
+    /// # Safety
+    /// `dst` must point to valid, writable, properly-aligned memory for a `GameData`.
+    pub unsafe fn init_default_in_place(dst: *mut GameData) {
+        use std::ptr;
+
+        let audio_manager = Arc::new(AudioManager::new());
+
+        ptr::addr_of_mut!((*dst).vfs).write(Vfs::default());
+        ptr::addr_of_mut!((*dst).thread_wrapper).write(ThreadWrapper::default());
+        ptr::addr_of_mut!((*dst).history_manager).write(HistoryManager::default());
+        ptr::addr_of_mut!((*dst).flag_manager).write(FlagManager::default());
+        ptr::addr_of_mut!((*dst).motion_manager).write(MotionManager::default());
+        ptr::addr_of_mut!((*dst).fontface_manager).write(FontEnumerator::default());
+        ptr::addr_of_mut!((*dst).inputs_manager).write(InputManager::default());
+        ptr::addr_of_mut!((*dst).timer_manager).write(TimerManager::default());
+        ptr::addr_of_mut!((*dst).video_manager).write(VideoPlayerManager::default());
+        ptr::addr_of_mut!((*dst).save_manager).write(SaveManager::default());
+        ptr::addr_of_mut!((*dst).nls).write(Nls::default());
+        ptr::addr_of_mut!((*dst).memory_cache).write(Vec::new());
+        ptr::addr_of_mut!((*dst).time).write(Time::default());
+        ptr::addr_of_mut!((*dst).scene_controller).write(SceneController::default());
+        ptr::addr_of_mut!((*dst).window).write(Window::default());
+        ptr::addr_of_mut!((*dst).se_player).write(SePlayer::new(audio_manager.clone()));
+        ptr::addr_of_mut!((*dst).bgm_player).write(BgmPlayer::new(audio_manager.clone()));
+        ptr::addr_of_mut!((*dst).audio_manager).write(audio_manager);
+        ptr::addr_of_mut!((*dst).root_prim).write(None);
+
+        ptr::addr_of_mut!((*dst).render_flag).write(0);
+        ptr::addr_of_mut!((*dst).can_fullscreen).write(false);
+        ptr::addr_of_mut!((*dst).is_first_frame).write(true);
+        ptr::addr_of_mut!((*dst).pending_render_flag).write(None);
+
+        ptr::addr_of_mut!((*dst).close_immediate).write(true);
+        ptr::addr_of_mut!((*dst).lock_scripter).write(false);
+        ptr::addr_of_mut!((*dst).close_pending).write(false);
+        ptr::addr_of_mut!((*dst).last_current_thread).write(0);
+        ptr::addr_of_mut!((*dst).current_thread).write(0);
+        ptr::addr_of_mut!((*dst).main_thread_exited).write(false);
+        ptr::addr_of_mut!((*dst).game_should_exit).write(false);
+        ptr::addr_of_mut!((*dst).cursor_table).write(HashMap::new());
+        ptr::addr_of_mut!((*dst).current_cursor_index).write(0);
+        ptr::addr_of_mut!((*dst).halt).write(false);
+        ptr::addr_of_mut!((*dst).debug_vm).write(Default::default());
+    }
+}
+
+
 impl Default for GameData {
     fn default() -> Self {
         let audio_manager = Arc::new(AudioManager::new());

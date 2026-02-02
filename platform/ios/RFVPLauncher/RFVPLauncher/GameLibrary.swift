@@ -3,10 +3,6 @@ import SwiftUI
 import ZIPFoundation
 import Darwin
 
-// Rust entry point exported from RFVP.xcframework.
-@_silgen_name("rfvp_run_entry")
-private func rfvp_run_entry(_ gameRootUtf8: UnsafePointer<CChar>, _ nlsUtf8: UnsafePointer<CChar>) -> Void
-
 // Canonical strings must match Rust `Nls::from_str`.
 enum NlsOption: String, CaseIterable, Identifiable, Codable {
     case sjis = "sjis"
@@ -105,6 +101,9 @@ final class GameLibrary: ObservableObject {
     @Published var games: [GameEntry] = []
     @Published var showError: Bool = false
     @Published var errorMessage: String = ""
+
+    // When non-nil, present the in-app player (iOS host-mode).
+    @Published var activeGame: GameEntry? = nil
 
     private let fm = FileManager.default
 
@@ -254,23 +253,8 @@ final class GameLibrary: ObservableObject {
             games[idx].lastPlayedAtUnix = Int64(Date().timeIntervalSince1970)
             save()
         }
-
-        // Deliberately leak the argument strings: rfvp is expected to run until process exit.
-        // If rfvp returns unexpectedly, exit immediately to avoid teardown-related crashes.
-        let gameC = strdup(game.rootPath)
-        let nlsC = strdup(GameEntry.normalizeNls(game.nls))
-
-        guard let gameC, let nlsC else {
-            if gameC != nil { free(gameC) }
-            if nlsC != nil { free(nlsC) }
-            showError("Failed to allocate argument strings.")
-            return
-        }
-
-        rfvp_run_entry(gameC, nlsC)
-
-        // Unexpected return: do not attempt to clean up (matches macOS launcher behavior).
-        _exit(0)
+        // Present the in-app player (SwiftUI owns the main loop).
+        activeGame = game
     }
 
     // MARK: - Helpers

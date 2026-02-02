@@ -76,6 +76,12 @@ struct ContentView: View {
                 .background(RoundedRectangle(cornerRadius: 12).fill(Color.black.opacity(0.6)))
             }
         }
+        .fullScreenCover(item: $library.activeGame, onDismiss: {
+            isLaunching = false
+        }) { game in
+            RFVPPlayerScreen(game: game)
+                .environmentObject(library)
+        }
     }
 
     private var header: some View {
@@ -198,7 +204,5 @@ struct GameTileView: View {
             }
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Color(UIColor.systemBackground)))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color(UIColor.separator).opacity(0.35)))
     }
 }

@@ -36,6 +36,15 @@ use crate::{config::app_config::AppConfig, subsystem::event_handler::update_inpu
 use crate::rfvp_render::{BindGroupLayouts, GpuCommonResources, Pipelines, RenderTarget};
 use crate::rfvp_render::vertices::{PosVertex, VertexSource};
 
+#[cfg(target_os = "ios")]
+use std::{ffi::c_void, ptr::NonNull};
+
+#[cfg(target_os = "ios")]
+use winit::raw_window_handle::{
+    DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle,
+    UiKitDisplayHandle, UiKitWindowHandle, WindowHandle,
+};
+
 
 use crate::rendering::gpu_prim::GpuPrimRenderer;
 use crate::debug_ui::{self, hud::{DebugHud, HudInput, HudSnapshot}};
@@ -46,7 +55,7 @@ use crate::subsystem::resources::motion_manager::DissolveType;
 // GameData lock helpers
 // ----------------------------
 #[inline]
-fn gd_read<'a>(gd: &'a Arc<RwLock<GameData>>) -> RwLockReadGuard<'a, GameData> {
+fn gd_read<'a>(gd: &'a Arc<RwLock<Box<GameData>>>) -> RwLockReadGuard<'a, Box<GameData>> {
     match gd.read() {
         Ok(g) => g,
         Err(poisoned) => poisoned.into_inner(),
@@ -54,7 +63,7 @@ fn gd_read<'a>(gd: &'a Arc<RwLock<GameData>>) -> RwLockReadGuard<'a, GameData> {
 }
 
 #[inline]
-fn gd_write<'a>(gd: &'a Arc<RwLock<GameData>>) -> RwLockWriteGuard<'a, GameData> {
+fn gd_write<'a>(gd: &'a Arc<RwLock<Box<GameData>>>) -> RwLockWriteGuard<'a, Box<GameData>> {
     match gd.write() {
         Ok(g) => g,
         Err(poisoned) => poisoned.into_inner(),
@@ -70,7 +79,7 @@ struct WindowedRestoreState {
 
 pub struct App {
     config: AppConfig,
-    game_data: Arc<RwLock<GameData>>,
+    game_data: Arc<RwLock<Box<GameData>>>,
     title: String,
     vm_worker: VmWorker,
     pending_vm_frame_ms: u64,
@@ -78,6 +87,11 @@ pub struct App {
     scheduler: Scheduler,
     layer_machine: SceneMachine,
     window: Option<Arc<Window>>,
+
+    // iOS host mode can run without a winit `Window`. In that case we still need a
+    // stable scale factor (UIScreen.main.scale) to initialize the script-visible
+    // `GameData.window` resource.
+    native_scale_factor: f64,
 
     /// When true, the app is driven by an external host via `PumpInstance::pump()`.
     /// In this mode we must never block inside winit's event pumping.
@@ -128,18 +142,21 @@ impl App {
 
     pub fn app_with_config(app_config: AppConfig) -> Box<AppBuilder> {
         crate::utils::logger::Logger::init_logging(app_config.logger_config.clone());
-        log::info!(
-            "Starting the app, with the following configuration \n {:?}",
-            app_config
-        );
-        Box::new(AppBuilder::new(app_config))
+
+        // iOS has a small main-thread stack; avoid formatting the full config with Debug here.
+        #[cfg(not(target_os = "ios"))]
+        log::info!("Starting the app, with the following configuration \\n {:?}", app_config);
+        #[cfg(target_os = "ios")]
+        log::info!("Starting the app");
+
+        AppBuilder::new_boxed(app_config)
     }
 
     fn setup(&mut self) {
         self.initialize_internal_resources();
         {
             let mut gd = gd_write(&self.game_data);
-            self.layer_machine.apply_scene_action(SceneAction::Start, &mut gd);
+            self.layer_machine.apply_scene_action(SceneAction::Start, &mut **gd);
             if gd.has_cursor(1) {
                 gd.switch_cursor(1);
             }
@@ -149,12 +166,19 @@ impl App {
     fn initialize_internal_resources(&mut self) {
         let mut gd = gd_write(&self.game_data);
 
-        let window = self.window.as_ref().expect("No window found during setup");
-        gd
-            .set_window(crate::subsystem::resources::window::Window::new(
+        if let Some(window) = self.window.as_ref() {
+            gd.set_window(crate::subsystem::resources::window::Window::new(
                 (window.inner_size().width, window.inner_size().height),
                 window.scale_factor(),
             ));
+        } else {
+            // Host-driven iOS mode: no winit Window. Use the swapchain size and the
+            // externally-provided scale factor to initialize the Window resource.
+            let w = self.surface_config.width.max(1);
+            let h = self.surface_config.height.max(1);
+            let dpi = self.native_scale_factor.max(1.0);
+            gd.set_window(crate::subsystem::resources::window::Window::new((w, h), dpi));
+        }
     }
     fn window(&self) -> &Arc<Window> {
         self.window.as_ref().expect("No window found")
@@ -174,7 +198,9 @@ impl App {
         if let Ok(test) = std::env::var("DEBUG") {
             if test == *"1" {
                 let title = format!("{} | {},{} | down {}, up {} | ", title, x, y, down, up);
-                self.window.as_mut().unwrap().set_title(&title);
+                if let Some(w) = self.window.as_mut() {
+                    w.set_title(&title);
+                }
             }
         }
     }
@@ -245,7 +271,7 @@ impl App {
                             let (frame_ms, notify_dissolve_done) = if self.pending_vm_frame_ms_valid {
                                 (0, false)
                             } else {
-                                self.next_frame()
+                                self.next_frame(None)
                             };
 
                             // Wake dissolve waiters before advancing the VM for this frame.
@@ -311,7 +337,7 @@ impl App {
 
                             {
                                 let mut gd = gd_write(&self.game_data);
-                                self.layer_machine.apply_scene_action(SceneAction::EndFrame, &mut gd);
+                                self.layer_machine.apply_scene_action(SceneAction::EndFrame, &mut **gd);
                             }
                             if let Err(e) = self.render_frame() {
                                 log::error!("render_frame: {e:?}");
@@ -350,7 +376,7 @@ impl App {
                         let mut gd = gd_write(&self.game_data);
                         update_input_events(
                             event,
-                            &mut gd,
+                            &mut **gd,
                             (self.surface_config.width, self.surface_config.height),
                             self.virtual_size,
                         );
@@ -442,13 +468,13 @@ impl App {
         }
     }
 
-    fn run(mut self, event_loop: EventLoop<()>) {
+    fn run(mut self: Box<Self>, event_loop: EventLoop<()>) {
         let _result = event_loop.run(move |event, loopd| {
             self.handle_event(event, loopd);
         });
     }
 
-    fn next_frame(&mut self) -> (u64, bool) {
+    fn next_frame(&mut self, override_dt_ms: Option<u32>) -> (u64, bool) {
         let mut notify_dissolve_done = false;
         let frame_ms: u64;
 
@@ -459,7 +485,14 @@ impl App {
             let mut gd_guard = gd_write(&self.game_data);
             let gd = &mut *gd_guard;
 
-            let frame_duration = gd.time_mut_ref().frame();
+            let frame_duration = if let Some(dt_ms) = override_dt_ms {
+                // Host-driven dt (e.g. iOS CADisplayLink).
+                let d = Duration::from_millis(dt_ms as u64);
+                gd.time_mut_ref().set_external_delta(d);
+                d
+            } else {
+                gd.time_mut_ref().frame()
+            };
             frame_ms = frame_duration.as_millis() as u64;
 
             let prev_dissolve = self.last_dissolve_type;
@@ -547,7 +580,10 @@ impl App {
         };
         let Some(flag) = requested else { return; };
 
-        let w = self.window.as_ref().expect("A window is mandatory to run this game !");
+        let Some(w) = self.window.as_ref() else {
+            // Host-driven iOS mode can run without a winit window; ignore WindowMode requests.
+            return;
+        };
 
         match flag {
             0 => {
@@ -596,7 +632,10 @@ impl App {
             let mut gd = gd_write(&self.game_data);
             gd.update_cursor()
         };
-        let w = self.window.as_mut().expect("A window is mandatory to run this game !");
+        let Some(w) = self.window.as_mut() else {
+            // iOS host mode does not use winit cursors.
+            return;
+        };
         if let Some(frame) = cursor_frame {
             w.set_cursor(frame);
         }
@@ -1078,13 +1117,192 @@ impl App {
 
         Ok(matches[0].to_path_buf())
     }
+
+    /// Step the engine once in a host-driven environment (e.g. SwiftUI/UIKit on iOS).
+    ///
+    /// The host is responsible for calling this at a stable cadence (e.g. via CADisplayLink).
+    ///
+    /// Returns `true` if the engine requested exit.
+    pub fn host_step(&mut self, dt_ms: u32) -> bool {
+        // Exit once the main script thread is done and the engine requested shutdown.
+        {
+            let gd = gd_read(&self.game_data);
+            if gd.get_game_should_exit() && gd.get_main_thread_exited() {
+                return true;
+            }
+        }
+
+        // Mirror the RedrawRequested path, but without relying on winit's event loop.
+        // Key point: we still want `next_frame()` to run (inputs begin_frame, video tick, etc.).
+        // The only difference is that the frame delta comes from the host (CADisplayLink).
+        let (frame_ms, notify_dissolve_done) = if self.pending_vm_frame_ms_valid {
+            (0, false)
+        } else {
+            let override_dt = if dt_ms != 0 { Some(dt_ms) } else { None };
+            self.next_frame(override_dt)
+        };
+
+        if notify_dissolve_done {
+            self.vm_worker.send_dissolve_done_sync();
+        }
+
+        // Keep pumping the VM in the same host frame until it reaches a script-requested yield
+        // (WAIT/SLEEP/NEXT/etc.), mirroring the desktop RedrawRequested semantics.
+        let max_drain_ticks: usize = std::env::var("RFVP_VM_DRAIN_TICKS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(256);
+
+        let max_drain_ms: u64 = std::env::var("RFVP_VM_DRAIN_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(8);
+
+        let drain_deadline = Instant::now();
+
+        let mut drain_ticks: usize = 0;
+        let mut rep = self.vm_worker.send_frame_ms_sync(frame_ms);
+        drain_ticks += 1;
+
+        while rep.forced_yield
+            && drain_ticks < max_drain_ticks
+            && drain_deadline.elapsed() < Duration::from_millis(max_drain_ms)
+        {
+            // Subsequent drains in the same frame are zero-delta: timers already advanced.
+            rep = self.vm_worker.send_frame_ms_sync(0);
+            drain_ticks += 1;
+        }
+
+        // Apply WindowMode/Cursor requests that may have been issued during the VM tick.
+        self.apply_window_mode_requests();
+        self.update_cursor();
+
+        if rep.forced_yield {
+            // Do not present an intermediate frame; keep draining on the next host step.
+            self.pending_vm_frame_ms_valid = true;
+            return false;
+        }
+
+        // The frame is now complete.
+        self.pending_vm_frame_ms_valid = false;
+
+        {
+            let mut gd = gd_write(&self.game_data);
+            self.layer_machine
+                .apply_scene_action(SceneAction::EndFrame, &mut **gd);
+        }
+        if let Err(e) = self.render_frame() {
+            log::error!("host_step: render_frame failed: {e:?}");
+        }
+
+        {
+            let mut gd = gd_write(&self.game_data);
+            gd.inputs_manager.frame_reset();
+        }
+
+        false
+    }
+
+    /// Step the engine once in a host-driven environment on iOS.
+    ///
+    /// This implementation is **iOS-only** and is used exclusively by the Swift host (CADisplayLink).
+    /// It intentionally does not share state with the desktop host-step logic so that fixes here
+    /// cannot change behavior on other platforms.
+    ///
+    /// Returns `true` if the engine requested exit.
+    #[cfg(target_os = "ios")]
+    pub fn host_step_ios(&mut self, dt_ms: u32) -> bool {
+        // Exit once the main script thread is done and the engine requested shutdown.
+        {
+            let gd = gd_read(&self.game_data);
+            if gd.get_game_should_exit() && gd.get_main_thread_exited() {
+                return true;
+            }
+        }
+
+        // In host-driven mode, every callback corresponds to one host frame.
+        // We must advance a frame on every call; do not turn a future host callback into a
+        // "zero-delta continuation" that skips next_frame(), or the engine can stall permanently.
+        let override_dt = if dt_ms != 0 { Some(dt_ms) } else { None };
+        let (frame_ms, notify_dissolve_done) = self.next_frame(override_dt);
+
+        if notify_dissolve_done {
+            self.vm_worker.send_dissolve_done_sync();
+        }
+
+        // Drain the VM opportunistically within this host frame, but never block frame progression.
+        let max_drain_ticks: usize = std::env::var("RFVP_VM_DRAIN_TICKS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(256);
+
+        let max_drain_ms: u64 = std::env::var("RFVP_VM_DRAIN_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(8);
+
+        let drain_deadline = Instant::now();
+
+        let mut drain_ticks: usize = 0;
+        let mut rep = self.vm_worker.send_frame_ms_sync(frame_ms);
+        drain_ticks += 1;
+
+        while rep.forced_yield
+            && drain_ticks < max_drain_ticks
+            && drain_deadline.elapsed() < Duration::from_millis(max_drain_ms)
+        {
+            rep = self.vm_worker.send_frame_ms_sync(0);
+            drain_ticks += 1;
+        }
+
+        // Apply WindowMode/Cursor requests that may have been issued during the VM tick.
+        self.apply_window_mode_requests();
+        self.update_cursor();
+
+        // iOS host-mode must never "stall" the whole engine on forced_yield. We still complete the
+        // host frame and continue on the next callback.
+        self.pending_vm_frame_ms_valid = false;
+
+        {
+            let mut gd = gd_write(&self.game_data);
+            self.layer_machine
+                .apply_scene_action(SceneAction::EndFrame, &mut **gd);
+        }
+        if let Err(e) = self.render_frame() {
+            log::error!("host_step_ios: render_frame failed: {e:?}");
+        }
+
+        {
+            let mut gd = gd_write(&self.game_data);
+            gd.inputs_manager.frame_reset();
+        }
+
+        // NOTE: We intentionally ignore `rep.forced_yield` here; the host will call us again.
+        false
+    }
+
+    /// Resize the presentation surface in host-driven mode.
+    pub fn host_resize(&mut self, surface_width: u32, surface_height: u32) {
+        let w = surface_width.max(1);
+        let h = surface_height.max(1);
+
+        self.surface_config.width = w;
+        self.surface_config.height = h;
+        self.surface.configure(&self.resources.device, &self.surface_config);
+
+        // Keep script-visible window dimensions in sync with the surface size.
+        {
+            let mut gd = gd_write(&self.game_data);
+            gd.window_mut().set_dimensions(w, h);
+        }
+    }
 }
 
 pub struct AppBuilder {
     config: AppConfig,
     scheduler: Scheduler,
     scene: Option<Box<dyn Scene>>,
-    world: GameData,
+    world: Box<GameData>,
     title: String,
     size: (u32, u32),
     parser: Parser,
@@ -1093,18 +1311,42 @@ pub struct AppBuilder {
 
 impl AppBuilder {
     fn new(config: AppConfig) -> Self {
-        let builder = Self {
+        // `AppBuilder` itself is small, but `GameData` is large. If we keep `GameData` inline,
+        // returning / passing `AppBuilder` by value can force the compiler to reserve a large
+        // sret/return slot on the stack (especially problematic on iOS/Android where the main
+        // thread stack is ~1MB). Keep `GameData` on the heap from the beginning.
+        let world: Box<GameData> = {
+            let mut boxed: Box<std::mem::MaybeUninit<GameData>> = Box::new_uninit();
+            unsafe {
+                crate::subsystem::world::GameData::init_default_in_place(boxed.as_mut_ptr().cast());
+                // Convert `Box<MaybeUninit<GameData>>` to `Box<GameData>` without creating a
+                // large temporary on the stack.
+                let raw: *mut GameData = Box::into_raw(boxed).cast();
+                Box::from_raw(raw)
+            }
+        };
+
+        Self {
             config,
             scheduler: Default::default(),
             scene: Default::default(),
-            world: Default::default(),
+            world,
             title: Default::default(),
             size: Default::default(),
             parser: Default::default(),
             script_engine: Default::default(),
-        };
-        builder
+        }
     }
+
+    /// Construct a builder on the heap.
+    ///
+    /// Note: `AppBuilder` is now small (it holds `GameData` behind a `Box`), so this is just a
+    /// convenience wrapper.
+    pub fn new_boxed(config: AppConfig) -> Box<Self> {
+        Box::new(Self::new(config))
+    }
+
+
 
     /// Specify a system to add to the scheduler.
     pub fn with_system(mut self, system: fn(&mut GameData)) -> Self {
@@ -1255,6 +1497,103 @@ impl AppBuilder {
         );
 
         (resources, render_target, surface, config, hud_bundle)
+    }
+
+    #[cfg(target_os = "ios")]
+    async fn init_render_ios(
+        ui_view: NonNull<c_void>,
+        surface_size: (u32, u32),
+        virtual_size: (u32, u32),
+    ) -> (
+        Arc<GpuCommonResources>,
+        RenderTarget,
+        wgpu::Surface<'static>,
+        wgpu::SurfaceConfiguration,
+    ) {
+        struct IosSurfaceTarget {
+            view: NonNull<c_void>,
+        }
+
+        unsafe impl Send for IosSurfaceTarget {}
+        unsafe impl Sync for IosSurfaceTarget {}
+
+        impl HasWindowHandle for IosSurfaceTarget {
+            fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
+                let wh = UiKitWindowHandle::new(self.view);
+                // SAFETY: `view` is owned by the host and guaranteed to outlive the surface.
+                Ok(unsafe { WindowHandle::borrow_raw(RawWindowHandle::UiKit(wh)) })
+            }
+        }
+
+        impl HasDisplayHandle for IosSurfaceTarget {
+            fn display_handle(&self) -> Result<DisplayHandle<'_>, HandleError> {
+                let dh = UiKitDisplayHandle::new();
+                // SAFETY: UIKit display handle has no borrowed pointers.
+                Ok(unsafe { DisplayHandle::borrow_raw(RawDisplayHandle::UiKit(dh)) })
+            }
+        }
+
+        let (sw, sh) = (surface_size.0.max(1), surface_size.1.max(1));
+        let backends = wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::all());
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends,
+            ..Default::default()
+        });
+
+        let surface = {
+            let target = IosSurfaceTarget { view: ui_view };
+            let s = instance.create_surface(&target).unwrap();
+            unsafe { std::mem::transmute::<wgpu::Surface<'_>, wgpu::Surface<'static>>(s) }
+        };
+
+        let adapter = wgpu::util::initialize_adapter_from_env_or_default(&instance, Some(&surface))
+            .await
+            .unwrap();
+
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: None,
+                    required_features: wgpu::Features::PUSH_CONSTANTS,
+                    required_limits: wgpu::Limits {
+                        max_push_constant_size: 256,
+                        ..wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits())
+                    },
+                },
+                Some(Path::new("wgpu_trace")),
+            )
+            .await
+            .expect("Failed to create device");
+
+        let swapchain_capabilities = surface.get_capabilities(&adapter);
+        let swapchain_format = swapchain_capabilities.formats[0];
+
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: swapchain_format,
+            width: sw,
+            height: sh,
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: swapchain_capabilities.alpha_modes[0],
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+        surface.configure(&device, &config);
+
+        let bind_group_layouts = BindGroupLayouts::new(&device);
+        let pipelines = Pipelines::new(&device, &bind_group_layouts, swapchain_format);
+
+        let resources = Arc::new(GpuCommonResources {
+            device,
+            queue,
+            render_buffer_size: RwLock::new(virtual_size),
+            bind_group_layouts,
+            pipelines,
+        });
+
+        let render_target = RenderTarget::new(&resources, virtual_size, Some("iOS RenderTarget"));
+
+        (resources, render_target, surface, config)
     }
 
 
@@ -1424,52 +1763,80 @@ impl AppBuilder {
             .map(|c| c.format)
             .unwrap_or(surface_config.format);
 
-        let mut app = Box::new(App {
-            config: self.config,
-            game_data,
-            title: self.title,
-            scheduler: self.scheduler,
-            layer_machine: SceneMachine {
-                current_scene: self.scene,
-            },
-            window: Some(window.clone()),
-            pump_mode: false,
-            windowed_restore: None,
-            last_fullscreen_flag: 3,
+// NOTE: iOS main-thread stack is small. Avoid constructing large `App` values on the stack.
+// Initialize `App` directly on the heap, then run `setup()`.
+let prim_renderer = GpuPrimRenderer::new(resources.clone(), self.size);
+let layer_machine = SceneMachine {
+    current_scene: self.scene,
+};
+let render_tree = RenderTree::new();
+let debug_hud = if debug_ui::enabled() {
+    Some(DebugHud::new(&resources.device, hud_surface_format, debug_ring.clone()))
+} else {
+    None
+};
 
-            vm_worker,
-            pending_vm_frame_ms: 0,
-            pending_vm_frame_ms_valid: false,
-            render_target,
-            resources: resources.clone(),
-            surface,
-            surface_config,
-            prim_renderer: GpuPrimRenderer::new(resources.clone(), self.size),
-            virtual_size: self.size,
-            render_tree: RenderTree::new(),
-            dissolve_vertex_buffer,
-            dissolve_index_buffer,
-            dissolve_num_indices,
-            last_dissolve_type: DissolveType::None,
-            last_dissolve2_transitioning: false,
-            debug_hud: if debug_ui::enabled() {
-                Some(DebugHud::new(&resources.device, hud_surface_format, debug_ring.clone()))
-            } else {
-                None
-            },
-            hud_window: hud_window.clone(),
-            hud_surface,
-            hud_surface_config,
-            hud_visible: false,
-            debug_ring: debug_ring.clone(),
-            debug_frame_no: 0,
-            last_dt_ms: 0.0,
-            hud_cursor_pos: None,
-            hud_pointer_down: false,
-            hud_scroll_delta_y: 0.0,
-        });
+		let mut app: Box<App> = {
+		    use std::mem::MaybeUninit;
+		    use std::ptr;
 
-        app.setup();
+		    // Build the `App` directly on the heap to avoid a large stack frame.
+		    // (iOS main-thread stack is ~1MB; a large struct literal can overflow it.)
+		    let mut boxed = Box::<MaybeUninit<App>>::new_uninit();
+		    unsafe {
+		        // `MaybeUninit<T>` is `repr(transparent)`, so this cast is sound.
+		        let p: *mut App = boxed.as_mut_ptr().cast();
+
+        ptr::addr_of_mut!((*p).config).write(self.config);
+        ptr::addr_of_mut!((*p).game_data).write(game_data);
+        ptr::addr_of_mut!((*p).title).write(self.title);
+        ptr::addr_of_mut!((*p).scheduler).write(self.scheduler);
+        ptr::addr_of_mut!((*p).layer_machine).write(layer_machine);
+        ptr::addr_of_mut!((*p).window).write(Some(window.clone()));
+        ptr::addr_of_mut!((*p).native_scale_factor).write(window.scale_factor());
+        ptr::addr_of_mut!((*p).pump_mode).write(false);
+        ptr::addr_of_mut!((*p).windowed_restore).write(None);
+        ptr::addr_of_mut!((*p).last_fullscreen_flag).write(3);
+
+        ptr::addr_of_mut!((*p).vm_worker).write(vm_worker);
+        ptr::addr_of_mut!((*p).pending_vm_frame_ms).write(0);
+        ptr::addr_of_mut!((*p).pending_vm_frame_ms_valid).write(false);
+
+        ptr::addr_of_mut!((*p).render_target).write(render_target);
+        ptr::addr_of_mut!((*p).resources).write(resources.clone());
+        ptr::addr_of_mut!((*p).surface).write(surface);
+        ptr::addr_of_mut!((*p).surface_config).write(surface_config);
+        ptr::addr_of_mut!((*p).prim_renderer).write(prim_renderer);
+        ptr::addr_of_mut!((*p).virtual_size).write(self.size);
+        ptr::addr_of_mut!((*p).render_tree).write(render_tree);
+
+        ptr::addr_of_mut!((*p).dissolve_vertex_buffer).write(dissolve_vertex_buffer);
+        ptr::addr_of_mut!((*p).dissolve_index_buffer).write(dissolve_index_buffer);
+        ptr::addr_of_mut!((*p).dissolve_num_indices).write(dissolve_num_indices);
+        ptr::addr_of_mut!((*p).last_dissolve_type).write(DissolveType::None);
+        ptr::addr_of_mut!((*p).last_dissolve2_transitioning).write(false);
+
+        ptr::addr_of_mut!((*p).debug_hud).write(debug_hud);
+        ptr::addr_of_mut!((*p).hud_window).write(hud_window.clone());
+        ptr::addr_of_mut!((*p).hud_surface).write(hud_surface);
+        ptr::addr_of_mut!((*p).hud_surface_config).write(hud_surface_config);
+        ptr::addr_of_mut!((*p).hud_visible).write(false);
+
+        ptr::addr_of_mut!((*p).debug_ring).write(debug_ring.clone());
+        ptr::addr_of_mut!((*p).debug_frame_no).write(0);
+        ptr::addr_of_mut!((*p).last_dt_ms).write(0.0);
+        ptr::addr_of_mut!((*p).hud_cursor_pos).write(None);
+        ptr::addr_of_mut!((*p).hud_pointer_down).write(false);
+        ptr::addr_of_mut!((*p).hud_scroll_delta_y).write(0.0);
+
+		        // Convert `Box<MaybeUninit<App>>` into `Box<App>` without relying on
+		        // `Box::assume_init()` (may be unavailable on older toolchains).
+		        let raw: *mut App = Box::into_raw(boxed).cast();
+		        Box::from_raw(raw)
+    }
+};
+
+app.setup();
 
         // Kick the first frame for pump-mode hosts.
         if let Some(w) = app.window.as_ref() {
@@ -1489,6 +1856,127 @@ impl AppBuilder {
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     pub fn build_pump(self) -> anyhow::Result<PumpInstance> {
         Ok(self.build()?.into_pump())
+    }
+
+    /// Build an instance for iOS host-driven mode.
+    ///
+    /// The host (SwiftUI/UIKit) owns the platform main loop and provides a UIKit view that is
+    /// backed by a CAMetalLayer.
+    #[cfg(target_os = "ios")]
+    pub fn build_ios(mut self, ui_view: NonNull<c_void>, surface_size: (u32, u32), native_scale_factor: f64) -> anyhow::Result<Box<App>> {
+        // iOS host-mode does not rely on winit; scripts should treat fullscreen as unsupported.
+        self.world.set_can_fullscreen(false);
+
+        self.add_late_internal_systems_to_schedule();
+
+        let (resources, render_target, surface, surface_config) =
+            futures::executor::block_on(AppBuilder::init_render_ios(ui_view, surface_size, self.size));
+
+        let entry_point = self.parser.get_entry_point();
+        let non_volatile_global_count = self.parser.get_non_volatile_global_count();
+        let volatile_global_count = self.parser.get_volatile_global_count();
+        GLOBAL.lock().unwrap().init_with(non_volatile_global_count, volatile_global_count);
+
+        self.script_engine.start_main(entry_point);
+        self.world.nls = self.parser.nls.clone();
+
+        // Cursor animations are not used in iOS host-mode.
+        self.world.set_cursor_table(HashMap::new());
+
+        // Fullscreen quad used for dissolve overlays (virtual space, pixel coordinates).
+        let (dissolve_vertex_buffer, dissolve_index_buffer, dissolve_num_indices) = {
+            let w = self.size.0.max(1) as f32;
+            let h = self.size.1.max(1) as f32;
+            let vertices: [PosVertex; 4] = [
+                PosVertex { position: vec3(0.0, 0.0, 0.0) },
+                PosVertex { position: vec3(w, 0.0, 0.0) },
+                PosVertex { position: vec3(w, h, 0.0) },
+                PosVertex { position: vec3(0.0, h, 0.0) },
+            ];
+            let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
+
+            let vb = resources.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("rfvp dissolve quad VB"),
+                contents: bytemuck::cast_slice(&vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+            let ib = resources.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("rfvp dissolve quad IB"),
+                contents: bytemuck::cast_slice(&indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+            (vb, ib, indices.len() as u32)
+        };
+
+        let game_data = Arc::new(RwLock::new(self.world));
+        let debug_ring = log_ring::get().unwrap_or_else(|| log_ring::init(4096));
+        let vm_worker = VmWorker::spawn(game_data.clone(), self.parser, self.script_engine);
+
+        let prim_renderer = GpuPrimRenderer::new(resources.clone(), self.size);
+        let layer_machine = SceneMachine {
+            current_scene: self.scene,
+        };
+        let render_tree = RenderTree::new();
+
+        // NOTE: iOS main-thread stack is small. Avoid constructing large `App` values on the stack.
+        let mut app: Box<App> = {
+            use std::mem::MaybeUninit;
+            use std::ptr;
+
+            let mut boxed = Box::<MaybeUninit<App>>::new_uninit();
+            unsafe {
+                let p: *mut App = boxed.as_mut_ptr().cast();
+
+                ptr::addr_of_mut!((*p).config).write(self.config);
+                ptr::addr_of_mut!((*p).game_data).write(game_data);
+                ptr::addr_of_mut!((*p).title).write(self.title);
+                ptr::addr_of_mut!((*p).scheduler).write(self.scheduler);
+                ptr::addr_of_mut!((*p).layer_machine).write(layer_machine);
+                ptr::addr_of_mut!((*p).window).write(None);
+                ptr::addr_of_mut!((*p).native_scale_factor).write(native_scale_factor);
+                ptr::addr_of_mut!((*p).pump_mode).write(true);
+                ptr::addr_of_mut!((*p).windowed_restore).write(None);
+                ptr::addr_of_mut!((*p).last_fullscreen_flag).write(3);
+
+                ptr::addr_of_mut!((*p).vm_worker).write(vm_worker);
+                ptr::addr_of_mut!((*p).pending_vm_frame_ms).write(0);
+                ptr::addr_of_mut!((*p).pending_vm_frame_ms_valid).write(false);
+
+                ptr::addr_of_mut!((*p).render_target).write(render_target);
+                ptr::addr_of_mut!((*p).resources).write(resources.clone());
+                ptr::addr_of_mut!((*p).surface).write(surface);
+                ptr::addr_of_mut!((*p).surface_config).write(surface_config);
+                ptr::addr_of_mut!((*p).prim_renderer).write(prim_renderer);
+                ptr::addr_of_mut!((*p).virtual_size).write(self.size);
+                ptr::addr_of_mut!((*p).render_tree).write(render_tree);
+
+                ptr::addr_of_mut!((*p).dissolve_vertex_buffer).write(dissolve_vertex_buffer);
+                ptr::addr_of_mut!((*p).dissolve_index_buffer).write(dissolve_index_buffer);
+                ptr::addr_of_mut!((*p).dissolve_num_indices).write(dissolve_num_indices);
+                ptr::addr_of_mut!((*p).last_dissolve_type).write(DissolveType::None);
+                ptr::addr_of_mut!((*p).last_dissolve2_transitioning).write(false);
+
+                // HUD is disabled in iOS host mode.
+                ptr::addr_of_mut!((*p).debug_hud).write(None);
+                ptr::addr_of_mut!((*p).hud_window).write(None);
+                ptr::addr_of_mut!((*p).hud_surface).write(None);
+                ptr::addr_of_mut!((*p).hud_surface_config).write(None);
+                ptr::addr_of_mut!((*p).hud_visible).write(false);
+
+                ptr::addr_of_mut!((*p).debug_ring).write(debug_ring.clone());
+                ptr::addr_of_mut!((*p).debug_frame_no).write(0);
+                ptr::addr_of_mut!((*p).last_dt_ms).write(0.0);
+                ptr::addr_of_mut!((*p).hud_cursor_pos).write(None);
+                ptr::addr_of_mut!((*p).hud_pointer_down).write(false);
+                ptr::addr_of_mut!((*p).hud_scroll_delta_y).write(0.0);
+
+                let raw: *mut App = Box::into_raw(boxed).cast();
+                Box::from_raw(raw)
+            }
+        };
+
+        app.setup();
+        Ok(app)
     }
 
     fn add_late_internal_systems_to_schedule(&mut self) {}

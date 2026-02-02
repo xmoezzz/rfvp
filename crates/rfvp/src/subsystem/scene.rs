@@ -4,7 +4,7 @@ use crate::subsystem::world::GameData;
 ///
 /// Note:
 /// The engine runs the VM on a dedicated OS thread and shares global state
-/// via `Arc<RwLock<GameData>>`. `GameData` contains a `SceneController` which
+/// via `Arc<RwLock<Box<GameData>>>`. `GameData` contains a `SceneController` which
 /// may temporarily hold a pending scene transition (`Box<dyn Scene>`). To keep
 /// `GameData` `Send + Sync` (so it can be wrapped by `RwLock` and shared across
 /// threads), all scene implementations must be thread-safe.

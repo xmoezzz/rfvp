@@ -37,6 +37,16 @@ mod time {
             self.delta_duration
         }
 
+        /// Host-driven frame timing (e.g. iOS CADisplayLink).
+        ///
+        /// This bypasses `Instant` measurements and uses an externally-provided delta.
+        pub(crate) fn set_external_delta(&mut self, delta: Duration) {
+            self.frame_number += 1;
+            self.delta_duration = delta;
+            // Keep `measure_start` monotonic for any future `frame()` calls.
+            self.measure_start = Instant::now();
+        }
+
         /// Returns the duration of the last executed frame
         pub fn delta_duration(&self) -> Duration {
             self.delta_duration

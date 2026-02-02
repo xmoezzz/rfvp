@@ -506,7 +506,7 @@ impl GpuPrimRenderer {
         // -----------------------------
         // base prim is used for:
         //  - container translation (x/y)
-        //  - alpha (after sprt impersonation override per your comment)
+        //  - alpha
         //  - child traversal (first_child)
         let base_prim = prim_manager.get_prim_immutable(prim_id);
         if !base_prim.get_draw_flag() {
