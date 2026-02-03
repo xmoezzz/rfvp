@@ -37,7 +37,7 @@ fn cstr_to_string(ptr: *const c_char) -> Result<String> {
     Ok(s.to_string())
 }
 
-fn build_app(view: NonNull<c_void>, surface_w: u32, surface_h: u32, scale: f64, game_root: &str, nls: Nls) -> Result<Box<App>> {
+fn build_app(view: NonNull<c_void>, surface_w: u32, surface_h: u32, native_scale_factor: f64, game_root: &str, nls: Nls) -> Result<Box<App>> {
     set_base_path(game_root);
     let parser = load_script(nls)?;
     let title = parser.get_title();
@@ -52,7 +52,7 @@ fn build_app(view: NonNull<c_void>, surface_w: u32, surface_h: u32, scale: f64, 
         .with_parser(parser)
         .with_vfs(nls)?;
 
-    builder.build_ios(view, (surface_w.max(1), surface_h.max(1)), scale)
+    builder.build_ios(view, (surface_w.max(1), surface_h.max(1)), native_scale_factor)
 }
 
 /// Create an iOS host-mode instance bound to a UIKit view.
@@ -66,7 +66,7 @@ pub unsafe extern "C" fn rfvp_ios_create(
     ui_view: *mut c_void,
     surface_width: u32,
     surface_height: u32,
-    scale: f64,
+    native_scale_factor: f64,
     game_root_utf8: *const c_char,
     nls_utf8: *const c_char,
 ) -> *mut c_void {
@@ -86,6 +86,8 @@ pub unsafe extern "C" fn rfvp_ios_create(
         }
     };
 
+    log::warn!("[RFVP-IOS] rfvp_ios_create: game_root_path='{root}', surface=({surface_width}x{surface_height}), native_scale_factor={native_scale_factor}");
+
     let nls_str = match cstr_to_string(nls_utf8) {
         Ok(s) => s,
         Err(e) => {
@@ -102,7 +104,7 @@ pub unsafe extern "C" fn rfvp_ios_create(
         }
     };
 
-    match build_app(view, surface_width, surface_height, scale, &root, nls) {
+    match build_app(view, surface_width, surface_height, native_scale_factor, &root, nls) {
         Ok(app) => {
             let inst = Box::new(IosInstance { app });
             Box::into_raw(inst) as *mut c_void
@@ -123,7 +125,7 @@ pub unsafe extern "C" fn rfvp_ios_step(handle: *mut c_void, dt_ms: u32) -> i32 {
         return 1;
     }
     let inst = &mut *(handle as *mut IosInstance);
-    let should_exit = inst.app.host_step_ios(dt_ms);
+    let should_exit = inst.app.host_step(dt_ms);
     if should_exit { 1 } else { 0 }
 }
 

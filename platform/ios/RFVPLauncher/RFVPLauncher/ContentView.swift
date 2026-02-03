@@ -3,11 +3,6 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var library: GameLibrary
 
-    @State private var showImporter: Bool = false
-    @State private var showNlsPicker: Bool = false
-    @State private var pendingZipURL: URL? = nil
-    @State private var pendingNls: NlsOption = .sjis
-
     @State private var isLaunching: Bool = false
 
     private let columns: [GridItem] = [
@@ -21,6 +16,10 @@ struct ContentView: View {
             VStack(spacing: 10) {
                 header
                 Divider()
+                Text("Copy game folders into Files → On My iPhone → RFVPLauncher → rfvp, then tap Rescan.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 12)
                 ScrollView(.vertical) {
                     LazyVGrid(columns: columns, spacing: 12) {
                         ForEach(library.games) { game in
@@ -32,36 +31,9 @@ struct ContentView: View {
             }
             .alert(isPresented: $library.showError) {
                 Alert(
-                    title: Text("Import failed"),
+                    title: Text("Error"),
                     message: Text(library.errorMessage),
                     dismissButton: .default(Text("OK"))
-                )
-            }
-            .sheet(isPresented: $showImporter) {
-                ZipDocumentPicker { url in
-                    showImporter = false
-                    guard let url else { return }
-                    pendingZipURL = url
-                    pendingNls = .sjis
-                    showNlsPicker = true
-                }
-            }
-            .sheet(isPresented: $showNlsPicker) {
-                NlsPickerSheet(
-                    selected: $pendingNls,
-                    onCancel: {
-                        pendingZipURL = nil
-                        showNlsPicker = false
-                    },
-                    onConfirm: {
-                        guard let url = pendingZipURL else {
-                            showNlsPicker = false
-                            return
-                        }
-                        showNlsPicker = false
-                        pendingZipURL = nil
-                        library.importZip(url: url, nls: pendingNls)
-                    }
                 )
             }
 
@@ -91,52 +63,12 @@ struct ContentView: View {
 
             Spacer()
 
-            Button("Import ZIP") {
-                showImporter = true
-            }
-
-            Button("Refresh") {
-                library.refreshValidation()
+            Button("Rescan") {
+                library.rescanFromDocuments()
             }
         }
         .padding(.horizontal, 12)
         .padding(.top, 8)
-    }
-}
-
-private struct NlsPickerSheet: View {
-    @Binding var selected: NlsOption
-
-    let onCancel: () -> Void
-    let onConfirm: () -> Void
-
-    var body: some View {
-        NavigationView {
-            Form {
-                Section(header: Text("NLS")) {
-                    Picker("Encoding", selection: $selected) {
-                        ForEach(NlsOption.allCases) { opt in
-                            Text(opt.displayName).tag(opt)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-
-                    Text("Default is SJIS. You can change this later per game.")
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                }
-            }
-            .navigationTitle("Select NLS")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { onCancel() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Import") { onConfirm() }
-                }
-            }
-        }
     }
 }
 

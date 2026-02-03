@@ -10,11 +10,10 @@ settings:
     IPHONEOS_DEPLOYMENT_TARGET: "14.0"
     PRODUCT_BUNDLE_IDENTIFIER: com.chino.rfvp
     CODE_SIGN_STYLE: Automatic
+    # Keep the explicit Info.plist; do not let Xcode auto-generate/override it.
+    GENERATE_INFOPLIST_FILE: NO
 
-packages:
-  ZIPFoundation:
-    url: https://github.com/weichsel/ZIPFoundation.git
-    from: 0.9.0
+# No ZIP import: games are copied into Files/Documents and scanned.
 
 targets:
   RFVPLauncher:
@@ -31,10 +30,58 @@ targets:
 
     info:
       path: RFVPLauncher/Info.plist
+      properties:
+        # Expose Documents to the Files app.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+
+        # Force landscape (game is landscape-only).
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+
+    preBuildScripts:
+      - name: Ensure RFVP.xcframework headers (sim + device)
+        script: |
+          set -euo pipefail
+          XC="${SRCROOT}/Vendor/RFVP.xcframework"
+          if [ ! -d "$XC" ]; then
+            echo "error: missing $XC (build/install RFVP.xcframework first)" >&2
+            exit 1
+          fi
+
+          # We only fix headers. If the slice directory or binary is missing, fail loudly.
+          for SLICE in ios-arm64 ios-arm64-simulator; do
+            if [ ! -d "$XC/$SLICE" ]; then
+              echo "error: missing slice directory: $XC/$SLICE" >&2
+              echo "error: RFVP.xcframework is incomplete. Rebuild it (must include simulator slice for sim builds)." >&2
+              exit 1
+            fi
+            if [ ! -f "$XC/$SLICE/librfvp.a" ]; then
+              echo "error: missing $XC/$SLICE/librfvp.a" >&2
+              echo "error: RFVP.xcframework is incomplete. Rebuild it." >&2
+              exit 1
+            fi
+
+            if [ ! -d "$XC/$SLICE/Headers" ]; then
+              mkdir -p "$XC/$SLICE/Headers"
+
+              # Prefer copying from the device slice if it already has headers.
+              if [ -d "$XC/ios-arm64/Headers" ]; then
+                cp -f "$XC/ios-arm64/Headers/"* "$XC/$SLICE/Headers/" 2>/dev/null || true
+              fi
+
+              # Also drop in the project-level header as a fallback.
+              if [ -f "${SRCROOT}/Headers/rfvp.h" ]; then
+                cp -f "${SRCROOT}/Headers/rfvp.h" "$XC/$SLICE/Headers/rfvp.h"
+              fi
+            fi
+          done
 
     dependencies:
-      - package: ZIPFoundation
-        product: ZIPFoundation
       - sdk: UIKit.framework
       - sdk: Foundation.framework
       - sdk: VideoToolbox.framework

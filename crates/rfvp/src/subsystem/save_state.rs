@@ -39,6 +39,7 @@ impl SaveStateSnapshotV1 {
     let GameData {
         motion_manager,
         vfs,
+        // adjust these field names to your real struct layout:
         bgm_player,
         se_player,
         ..

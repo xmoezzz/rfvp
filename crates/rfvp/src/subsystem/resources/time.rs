@@ -16,6 +16,9 @@ mod time {
         delta_duration: Duration,
         frame_number: u64,
         measure_start: Instant,
+        // When set by an external host (e.g. iOS/Android launchers), `frame()` will use this
+        // value instead of measuring wall-clock elapsed time.
+        external_delta: Option<Duration>,
     }
 
     impl Default for Time {
@@ -24,27 +27,35 @@ mod time {
                 delta_duration: Default::default(),
                 frame_number: 0,
                 measure_start: Instant::now(),
+                external_delta: None,
             }
         }
     }
 
     impl Time {
+        /// Override the next call to `frame()` to use a host-provided delta.
+        ///
+        /// This is used by host-driven platforms (e.g. iOS) where the render loop is driven
+        /// externally (CADisplayLink/Timer) and we want deterministic frame steps.
+        pub fn set_external_delta(&mut self, delta: Duration) {
+            self.external_delta = Some(delta);
+        }
+
         /// finish the last frame and return its duration
         pub(crate) fn frame(&mut self) -> Duration {
             self.frame_number += 1;
+
+            if let Some(ext) = self.external_delta.take() {
+                self.delta_duration = ext;
+                // Keep `measure_start` in sync so any later fallback to wall-clock does not
+                // accumulate stale elapsed time.
+                self.measure_start = Instant::now();
+                return self.delta_duration;
+            }
+
             self.delta_duration = self.measure_start.elapsed();
             self.measure_start = Instant::now();
             self.delta_duration
-        }
-
-        /// Host-driven frame timing (e.g. iOS CADisplayLink).
-        ///
-        /// This bypasses `Instant` measurements and uses an externally-provided delta.
-        pub(crate) fn set_external_delta(&mut self, delta: Duration) {
-            self.frame_number += 1;
-            self.delta_duration = delta;
-            // Keep `measure_start` monotonic for any future `frame()` calls.
-            self.measure_start = Instant::now();
         }
 
         /// Returns the duration of the last executed frame

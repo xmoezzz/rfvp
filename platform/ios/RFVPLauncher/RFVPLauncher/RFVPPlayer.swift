@@ -85,6 +85,12 @@ final class RFVPPlayerViewController: UIViewController {
         view.backgroundColor = .black
     }
 
+    override var prefersStatusBarHidden: Bool { true }
+    override var prefersHomeIndicatorAutoHidden: Bool { true }
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .landscape }
+    override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation { .landscapeRight }
+    override var shouldAutorotate: Bool { true }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         let size = view.bounds.size
@@ -106,6 +112,14 @@ final class RFVPPlayerViewController: UIViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+
+        // Request landscape on iOS 16+. (Info.plist also restricts to landscape.)
+        if #available(iOS 16.0, *) {
+            if let scene = view.window?.windowScene {
+                try? scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscape))
+            }
+        }
+
         startDisplayLink()
     }
 
@@ -200,30 +214,16 @@ struct RFVPPlayerScreen: View {
     let game: GameEntry
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            RFVPPlayerContainer(
-                gameRoot: game.rootPath,
-                nls: GameEntry.normalizeNls(game.nls),
-                onExit: {
-                    DispatchQueue.main.async {
-                        library.activeGame = nil
-                    }
+        RFVPPlayerContainer(
+            gameRoot: game.rootPath,
+            nls: GameEntry.normalizeNls(game.nls),
+            onExit: {
+                DispatchQueue.main.async {
+                    library.activeGame = nil
                 }
-            )
-            .ignoresSafeArea()
-
-            Button(action: {
-                library.activeGame = nil
-            }) {
-                Text("Exit")
-                    .font(.system(size: 14, weight: .semibold))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color.black.opacity(0.55))
-                    .foregroundColor(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
             }
-            .padding(16)
-        }
+        )
+        .ignoresSafeArea()
+        .statusBar(hidden: true)
     }
 }

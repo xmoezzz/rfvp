@@ -88,9 +88,7 @@ pub struct App {
     layer_machine: SceneMachine,
     window: Option<Arc<Window>>,
 
-    // iOS host mode can run without a winit `Window`. In that case we still need a
-    // stable scale factor (UIScreen.main.scale) to initialize the script-visible
-    // `GameData.window` resource.
+    /// Scale factor provided by the host when no winit window exists (iOS host mode).
     native_scale_factor: f64,
 
     /// When true, the app is driven by an external host via `PumpInstance::pump()`.
@@ -172,12 +170,10 @@ impl App {
                 window.scale_factor(),
             ));
         } else {
-            // Host-driven iOS mode: no winit Window. Use the swapchain size and the
-            // externally-provided scale factor to initialize the Window resource.
+            // Host-driven mode (iOS): we have no winit window, so use the surface size.
             let w = self.surface_config.width.max(1);
             let h = self.surface_config.height.max(1);
-            let dpi = self.native_scale_factor.max(1.0);
-            gd.set_window(crate::subsystem::resources::window::Window::new((w, h), dpi));
+            gd.set_window(crate::subsystem::resources::window::Window::new((w, h), self.native_scale_factor));
         }
     }
     fn window(&self) -> &Arc<Window> {
@@ -198,9 +194,7 @@ impl App {
         if let Ok(test) = std::env::var("DEBUG") {
             if test == *"1" {
                 let title = format!("{} | {},{} | down {}, up {} | ", title, x, y, down, up);
-                if let Some(w) = self.window.as_mut() {
-                    w.set_title(&title);
-                }
+                if let Some(w) = self.window.as_mut() { w.set_title(&title); }
             }
         }
     }
@@ -271,7 +265,7 @@ impl App {
                             let (frame_ms, notify_dissolve_done) = if self.pending_vm_frame_ms_valid {
                                 (0, false)
                             } else {
-                                self.next_frame(None)
+                                self.next_frame()
                             };
 
                             // Wake dissolve waiters before advancing the VM for this frame.
@@ -474,7 +468,7 @@ impl App {
         });
     }
 
-    fn next_frame(&mut self, override_dt_ms: Option<u32>) -> (u64, bool) {
+    fn next_frame(&mut self) -> (u64, bool) {
         let mut notify_dissolve_done = false;
         let frame_ms: u64;
 
@@ -485,14 +479,7 @@ impl App {
             let mut gd_guard = gd_write(&self.game_data);
             let gd = &mut *gd_guard;
 
-            let frame_duration = if let Some(dt_ms) = override_dt_ms {
-                // Host-driven dt (e.g. iOS CADisplayLink).
-                let d = Duration::from_millis(dt_ms as u64);
-                gd.time_mut_ref().set_external_delta(d);
-                d
-            } else {
-                gd.time_mut_ref().frame()
-            };
+            let frame_duration = gd.time_mut_ref().frame();
             frame_ms = frame_duration.as_millis() as u64;
 
             let prev_dissolve = self.last_dissolve_type;
@@ -763,19 +750,63 @@ impl App {
         });
 
         // Pass 2: present to the swapchain with aspect-preserving scaling.
-        let output = match self.surface.get_current_texture() {
-            Ok(o) => o,
-            Err(wgpu::SurfaceError::Lost) | Err(wgpu::SurfaceError::Outdated) => {
-                // Recreate swapchain.
-                self.surface.configure(&self.resources.device, &self.surface_config);
-                return Ok(());
+        //
+        // iOS in particular can transiently return Outdated/Lost/Timeout during view lifecycle
+        // changes. Make this observable in logs and retry once after reconfig.
+        let output = {
+            #[cfg(target_os = "ios")]
+            {
+                let mut tries: u32 = 0;
+                loop {
+                    match self.surface.get_current_texture() {
+                        Ok(o) => break o,
+                        Err(wgpu::SurfaceError::Lost) | Err(wgpu::SurfaceError::Outdated) => {
+                            tries += 1;
+                            log::warn!(
+                                "[RFVP-IOS] surface get_current_texture: lost/outdated (try {}), reconfigure {}x{}",
+                                tries,
+                                self.surface_config.width,
+                                self.surface_config.height
+                            );
+                            self.surface
+                                .configure(&self.resources.device, &self.surface_config);
+                            if tries < 2 {
+                                continue;
+                            }
+                            return Ok(());
+                        }
+                        Err(wgpu::SurfaceError::Timeout) => {
+                            tries += 1;
+                            log::warn!(
+                                "[RFVP-IOS] surface get_current_texture: timeout (try {})",
+                                tries
+                            );
+                            if tries < 2 {
+                                continue;
+                            }
+                            return Ok(());
+                        }
+                        Err(e) => return Err(e.into()),
+                    }
+                }
             }
-            Err(wgpu::SurfaceError::Timeout) => {
-                // Skip a frame.
-                return Ok(());
-            }
-            Err(e) => {
-                return Err(e.into());
+            #[cfg(not(target_os = "ios"))]
+            {
+                match self.surface.get_current_texture() {
+                    Ok(o) => o,
+                    Err(wgpu::SurfaceError::Lost) | Err(wgpu::SurfaceError::Outdated) => {
+                        // Recreate swapchain.
+                        self.surface.configure(&self.resources.device, &self.surface_config);
+                        return Ok(());
+                    }
+                    Err(wgpu::SurfaceError::Timeout) => {
+                        // Skip a frame.
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        return Err(e.into());
+                    }
+                }
             }
         };
 
@@ -1132,22 +1163,36 @@ impl App {
             }
         }
 
-        // Mirror the RedrawRequested path, but without relying on winit's event loop.
-        // Key point: we still want `next_frame()` to run (inputs begin_frame, video tick, etc.).
-        // The only difference is that the frame delta comes from the host (CADisplayLink).
+        // In host mode, we either drain a pending "incomplete" frame (0ms),
+        // or advance the *full* main-thread per-frame logic via `next_frame()`.
+        //
+        // IMPORTANT: `next_frame()` is not just a time source.
+        // It also:
+        //   - refreshes inputs (`begin_frame()`),
+        //   - ticks video state,
+        //   - runs SceneMachine Update/LateUpdate,
+        //   - runs Scheduler,
+        //   - detects dissolve completion and emits wakeups.
+        //
+        // Therefore, when the host provides `dt_ms`, we inject it into `Time` and still
+        // call `next_frame()` (unless we are draining a forced-yield).
         let (frame_ms, notify_dissolve_done) = if self.pending_vm_frame_ms_valid {
-            (0, false)
+            (0u64, false)
         } else {
-            let override_dt = if dt_ms != 0 { Some(dt_ms) } else { None };
-            self.next_frame(override_dt)
+            if dt_ms != 0 {
+                // Host-provided dt: override the next `Time::frame()` measurement.
+                let mut gd = gd_write(&self.game_data);
+                gd.time_mut_ref()
+                    .set_external_delta(Duration::from_millis(dt_ms as u64));
+            }
+            self.next_frame()
         };
 
         if notify_dissolve_done {
             self.vm_worker.send_dissolve_done_sync();
         }
 
-        // Keep pumping the VM in the same host frame until it reaches a script-requested yield
-        // (WAIT/SLEEP/NEXT/etc.), mirroring the desktop RedrawRequested semantics.
+        // Match the desktop redraw semantics: drain forced-yields without presenting.
         let max_drain_ticks: usize = std::env::var("RFVP_VM_DRAIN_TICKS")
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
@@ -1158,7 +1203,7 @@ impl App {
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(8);
 
-        let drain_deadline = Instant::now();
+        let drain_deadline = std::time::Instant::now();
 
         let mut drain_ticks: usize = 0;
         let mut rep = self.vm_worker.send_frame_ms_sync(frame_ms);
@@ -1166,31 +1211,54 @@ impl App {
 
         while rep.forced_yield
             && drain_ticks < max_drain_ticks
-            && drain_deadline.elapsed() < Duration::from_millis(max_drain_ms)
+            && drain_deadline.elapsed() < std::time::Duration::from_millis(max_drain_ms)
         {
-            // Subsequent drains in the same frame are zero-delta: timers already advanced.
             rep = self.vm_worker.send_frame_ms_sync(0);
             drain_ticks += 1;
         }
 
-        // Apply WindowMode/Cursor requests that may have been issued during the VM tick.
         self.apply_window_mode_requests();
         self.update_cursor();
 
         if rep.forced_yield {
-            // Do not present an intermediate frame; keep draining on the next host step.
+            // Frame incomplete: avoid presenting.
             self.pending_vm_frame_ms_valid = true;
+
+            // iOS host loops are typically driven by CADisplayLink. If the VM keeps hitting its
+            // opcode budget, we can end up never presenting a frame, which looks like a frozen
+            // white screen in SwiftUI/UIKit. For debugging (and to avoid "no-present" stalls),
+            // optionally present the last known state even while draining.
+            #[cfg(target_os = "ios")]
+            {
+                let allow_present = std::env::var("RFVP_IOS_PRESENT_WHILE_DRAINING")
+                    .ok()
+                    .map(|v| v != "0")
+                    .unwrap_or(true);
+
+                if allow_present {
+                    log::warn!(
+                        "[RFVP-IOS] forced_yield after drain (ticks={} dt_ms={}); presenting keepalive frame",
+                        drain_ticks,
+                        dt_ms
+                    );
+                    if let Err(e) = self.render_frame() {
+                        log::warn!("[RFVP-IOS] keepalive render_frame failed: {e:?}");
+                    }
+                    // Clear transient inputs so the VM doesn't see a growing edge-trigger backlog.
+                    let mut gd = gd_write(&self.game_data);
+                    gd.inputs_manager.frame_reset();
+                }
+            }
             return false;
         }
 
-        // The frame is now complete.
         self.pending_vm_frame_ms_valid = false;
 
         {
             let mut gd = gd_write(&self.game_data);
-            self.layer_machine
-                .apply_scene_action(SceneAction::EndFrame, &mut **gd);
+            self.layer_machine.apply_scene_action(SceneAction::EndFrame, &mut *gd);
         }
+
         if let Err(e) = self.render_frame() {
             log::error!("host_step: render_frame failed: {e:?}");
         }
@@ -1203,88 +1271,13 @@ impl App {
         false
     }
 
-    /// Step the engine once in a host-driven environment on iOS.
-    ///
-    /// This implementation is **iOS-only** and is used exclusively by the Swift host (CADisplayLink).
-    /// It intentionally does not share state with the desktop host-step logic so that fixes here
-    /// cannot change behavior on other platforms.
-    ///
-    /// Returns `true` if the engine requested exit.
-    #[cfg(target_os = "ios")]
-    pub fn host_step_ios(&mut self, dt_ms: u32) -> bool {
-        // Exit once the main script thread is done and the engine requested shutdown.
-        {
-            let gd = gd_read(&self.game_data);
-            if gd.get_game_should_exit() && gd.get_main_thread_exited() {
-                return true;
-            }
-        }
-
-        // In host-driven mode, every callback corresponds to one host frame.
-        // We must advance a frame on every call; do not turn a future host callback into a
-        // "zero-delta continuation" that skips next_frame(), or the engine can stall permanently.
-        let override_dt = if dt_ms != 0 { Some(dt_ms) } else { None };
-        let (frame_ms, notify_dissolve_done) = self.next_frame(override_dt);
-
-        if notify_dissolve_done {
-            self.vm_worker.send_dissolve_done_sync();
-        }
-
-        // Drain the VM opportunistically within this host frame, but never block frame progression.
-        let max_drain_ticks: usize = std::env::var("RFVP_VM_DRAIN_TICKS")
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or(256);
-
-        let max_drain_ms: u64 = std::env::var("RFVP_VM_DRAIN_MS")
-            .ok()
-            .and_then(|v| v.parse::<u64>().ok())
-            .unwrap_or(8);
-
-        let drain_deadline = Instant::now();
-
-        let mut drain_ticks: usize = 0;
-        let mut rep = self.vm_worker.send_frame_ms_sync(frame_ms);
-        drain_ticks += 1;
-
-        while rep.forced_yield
-            && drain_ticks < max_drain_ticks
-            && drain_deadline.elapsed() < Duration::from_millis(max_drain_ms)
-        {
-            rep = self.vm_worker.send_frame_ms_sync(0);
-            drain_ticks += 1;
-        }
-
-        // Apply WindowMode/Cursor requests that may have been issued during the VM tick.
-        self.apply_window_mode_requests();
-        self.update_cursor();
-
-        // iOS host-mode must never "stall" the whole engine on forced_yield. We still complete the
-        // host frame and continue on the next callback.
-        self.pending_vm_frame_ms_valid = false;
-
-        {
-            let mut gd = gd_write(&self.game_data);
-            self.layer_machine
-                .apply_scene_action(SceneAction::EndFrame, &mut **gd);
-        }
-        if let Err(e) = self.render_frame() {
-            log::error!("host_step_ios: render_frame failed: {e:?}");
-        }
-
-        {
-            let mut gd = gd_write(&self.game_data);
-            gd.inputs_manager.frame_reset();
-        }
-
-        // NOTE: We intentionally ignore `rep.forced_yield` here; the host will call us again.
-        false
-    }
-
     /// Resize the presentation surface in host-driven mode.
     pub fn host_resize(&mut self, surface_width: u32, surface_height: u32) {
-        let w = surface_width.max(1);
-        let h = surface_height.max(1);
+        // The host typically reports view sizes in logical points. Convert to physical pixels
+        // using the scale factor captured at creation time.
+        let scale = self.native_scale_factor.max(0.5);
+        let w = (((surface_width as f64) * scale).round() as u32).max(1);
+        let h = (((surface_height as f64) * scale).round() as u32).max(1);
 
         self.surface_config.width = w;
         self.surface_config.height = h;
@@ -1441,13 +1434,22 @@ impl AppBuilder {
         let swapchain_capabilities = surface.get_capabilities(&adapter);
         let swapchain_format = swapchain_capabilities.formats[0];
 
+        // Prefer an opaque surface on iOS so the CAMetalLayer compositing does not
+        // accidentally show the view's background ("white screen") when alpha is involved.
+        let alpha_mode = swapchain_capabilities
+            .alpha_modes
+            .iter()
+            .copied()
+            .find(|m| *m == wgpu::CompositeAlphaMode::Opaque)
+            .unwrap_or(swapchain_capabilities.alpha_modes[0]);
+
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: swapchain_format,
             width: size.width.max(1),
             height: size.height.max(1),
             present_mode: wgpu::PresentMode::Fifo,
-            alpha_mode: swapchain_capabilities.alpha_modes[0],
+            alpha_mode,
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
@@ -1869,8 +1871,18 @@ app.setup();
 
         self.add_late_internal_systems_to_schedule();
 
+                let scale = if native_scale_factor.is_finite() && native_scale_factor > 0.0 {
+            native_scale_factor
+        } else {
+            1.0
+        };
+        let surface_size_px = (
+            ((surface_size.0 as f64) * scale).round().max(1.0) as u32,
+            ((surface_size.1 as f64) * scale).round().max(1.0) as u32,
+        );
+
         let (resources, render_target, surface, surface_config) =
-            futures::executor::block_on(AppBuilder::init_render_ios(ui_view, surface_size, self.size));
+            futures::executor::block_on(AppBuilder::init_render_ios(ui_view, surface_size_px, self.size));
 
         let entry_point = self.parser.get_entry_point();
         let non_volatile_global_count = self.parser.get_non_volatile_global_count();
@@ -1933,7 +1945,7 @@ app.setup();
                 ptr::addr_of_mut!((*p).scheduler).write(self.scheduler);
                 ptr::addr_of_mut!((*p).layer_machine).write(layer_machine);
                 ptr::addr_of_mut!((*p).window).write(None);
-                ptr::addr_of_mut!((*p).native_scale_factor).write(native_scale_factor);
+                ptr::addr_of_mut!((*p).native_scale_factor).write(scale);
                 ptr::addr_of_mut!((*p).pump_mode).write(true);
                 ptr::addr_of_mut!((*p).windowed_restore).write(None);
                 ptr::addr_of_mut!((*p).last_fullscreen_flag).write(3);

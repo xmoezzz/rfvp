@@ -26,7 +26,6 @@
 		A9B0AB4BC5861FA8B77DF0B5 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 5F55589B189453B19297782F /* Metal.framework */; };
 		BCDF72F43020EB1A7F69600C /* VideoToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 28AAD75497B58808DDBF0137 /* VideoToolbox.framework */; };
 		E5821917A1603A9EBF074546 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D8EFBFE270DEA34106B2A459 /* UIKit.framework */; };
-		E653077ADB67CCB58A87DE4D /* ZIPFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 7C0236E8BC46106F6574692D /* ZIPFoundation */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -59,7 +58,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				E653077ADB67CCB58A87DE4D /* ZIPFoundation in Frameworks */,
 				E5821917A1603A9EBF074546 /* UIKit.framework in Frameworks */,
 				3F94FBFAA12F73E8215C2034 /* Foundation.framework in Frameworks */,
 				BCDF72F43020EB1A7F69600C /* VideoToolbox.framework in Frameworks */,
@@ -145,6 +143,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = BD1AE29B884820D870BE1301 /* Build configuration list for PBXNativeTarget "RFVPLauncher" */;
 			buildPhases = (
+				147F60CB8E7B8459B08D2C2B /* Ensure RFVP.xcframework headers (sim + device) */,
 				5E1C82C2FA9FCA1E69148C8E /* Sources */,
 				FD9FA4104E0EC08107F2C617 /* Resources */,
 				867A042A52D08E744D460AF4 /* Frameworks */,
@@ -155,7 +154,6 @@
 			);
 			name = RFVPLauncher;
 			packageProductDependencies = (
-				7C0236E8BC46106F6574692D /* ZIPFoundation */,
 			);
 			productName = RFVPLauncher;
 			productReference = 6128D40757D403E2872BEBED /* RFVPLauncher.app */;
@@ -185,9 +183,6 @@
 			);
 			mainGroup = ABC4A715DCE23DCFC823E387;
 			minimizedProjectReferenceProxies = 1;
-			packageReferences = (
-				68BC5D273471F756CF4E1E26 /* XCRemoteSwiftPackageReference "ZIPFoundation" */,
-			);
 			preferredProjectObjectVersion = 77;
 			projectDirPath = "";
 			projectRoot = "";
@@ -208,6 +203,27 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		147F60CB8E7B8459B08D2C2B /* Ensure RFVP.xcframework headers (sim + device) */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Ensure RFVP.xcframework headers (sim + device)";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nXC=\"${SRCROOT}/Vendor/RFVP.xcframework\"\nif [ ! -d \"$XC\" ]; then\n  echo \"error: missing $XC (build/install RFVP.xcframework first)\" >&2\n  exit 1\nfi\n\n# We only fix headers. If the slice directory or binary is missing, fail loudly.\nfor SLICE in ios-arm64 ios-arm64-simulator; do\n  if [ ! -d \"$XC/$SLICE\" ]; then\n    echo \"error: missing slice directory: $XC/$SLICE\" >&2\n    echo \"error: RFVP.xcframework is incomplete. Rebuild it (must include simulator slice for sim builds).\" >&2\n    exit 1\n  fi\n  if [ ! -f \"$XC/$SLICE/librfvp.a\" ]; then\n    echo \"error: missing $XC/$SLICE/librfvp.a\" >&2\n    echo \"error: RFVP.xcframework is incomplete. Rebuild it.\" >&2\n    exit 1\n  fi\n\n  if [ ! -d \"$XC/$SLICE/Headers\" ]; then\n    mkdir -p \"$XC/$SLICE/Headers\"\n\n    # Prefer copying from the device slice if it already has headers.\n    if [ -d \"$XC/ios-arm64/Headers\" ]; then\n      cp -f \"$XC/ios-arm64/Headers/\"* \"$XC/$SLICE/Headers/\" 2>/dev/null || true\n    fi\n\n    # Also drop in the project-level header as a fallback.\n    if [ -f \"${SRCROOT}/Headers/rfvp.h\" ]; then\n      cp -f \"${SRCROOT}/Headers/rfvp.h\" \"$XC/$SLICE/Headers/rfvp.h\"\n    fi\n  fi\ndone\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		5E1C82C2FA9FCA1E69148C8E /* Sources */ = {
@@ -290,6 +306,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
 				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
@@ -354,6 +371,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
 				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
@@ -408,25 +426,6 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		68BC5D273471F756CF4E1E26 /* XCRemoteSwiftPackageReference "ZIPFoundation" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/weichsel/ZIPFoundation.git";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 0.9.0;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		7C0236E8BC46106F6574692D /* ZIPFoundation */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 68BC5D273471F756CF4E1E26 /* XCRemoteSwiftPackageReference "ZIPFoundation" */;
-			productName = ZIPFoundation;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 8359B64E3DC7BDD37300410F /* Project object */;
 }

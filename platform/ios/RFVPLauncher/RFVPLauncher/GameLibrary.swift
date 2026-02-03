@@ -1,6 +1,5 @@
 import Foundation
 import SwiftUI
-import ZIPFoundation
 import Darwin
 
 // Canonical strings must match Rust `Nls::from_str`.
@@ -107,7 +106,7 @@ final class GameLibrary: ObservableObject {
 
     private let fm = FileManager.default
 
-    // MARK: - Storage
+    // MARK: - Storage (settings only)
     private var appSupportDir: URL {
         let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let dir = base.appendingPathComponent("RFVPLauncher", isDirectory: true)
@@ -117,8 +116,13 @@ final class GameLibrary: ObservableObject {
         return dir
     }
 
-    private var gamesDir: URL {
-        let dir = appSupportDir.appendingPathComponent("Games", isDirectory: true)
+    // Games live in Documents/rfvp so the user can copy folders in via the Files app.
+    private var documentsDir: URL {
+        fm.urls(for: .documentDirectory, in: .userDomainMask).first!
+    }
+
+    private var documentsGamesDir: URL {
+        let dir = documentsDir.appendingPathComponent("rfvp", isDirectory: true)
         if !fm.fileExists(atPath: dir.path) {
             try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         }
@@ -130,6 +134,8 @@ final class GameLibrary: ObservableObject {
     }
 
     init() {
+        // Ensure the Files-visible folder exists as early as possible.
+        _ = documentsGamesDir
         load()
     }
 
@@ -144,7 +150,8 @@ final class GameLibrary: ObservableObject {
         } catch {
             games = []
         }
-        refreshValidation()
+        // Always rebuild the list from Documents/rfvp.
+        rescanFromDocuments()
     }
 
     func save() {
@@ -156,88 +163,63 @@ final class GameLibrary: ObservableObject {
         }
     }
 
-    // MARK: - Import ZIP
-    func importZip(url: URL, nls: NlsOption) {
-        // Import flow:
-        // 1) copy zip into a temp file
-        // 2) unzip into temp dir
-        // 3) find first *.hcb
-        // 4) determine gameRoot = directory containing the hcb
-        // 5) move/copy the entire extracted root into sandbox Games/<id>/
-        // 6) update library.json
+    // MARK: - Scan games in Documents/rfvp
+    func rescanFromDocuments() {
+        // Preserve per-game settings (NLS, last played, etc.) from library.json.
+        let savedById: [String: GameEntry] = Dictionary(uniqueKeysWithValues: games.map { ($0.id, $0) })
+        var out: [GameEntry] = []
+
         let now = Int64(Date().timeIntervalSince1970)
 
-        let tmpRoot = fm.temporaryDirectory.appendingPathComponent("rfvp_import_\(UUID().uuidString)", isDirectory: true)
-        let tmpZip = tmpRoot.appendingPathComponent("import.zip")
+        let root = documentsGamesDir
+        guard let items = try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) else {
+            games = []
+            save()
+            return
+        }
 
-        do {
-            try fm.createDirectory(at: tmpRoot, withIntermediateDirectories: true)
+        for url in items {
+            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            if !isDir { continue }
 
-            // Copy picked file to temp location (DocumentPicker can give security-scoped URLs)
-            try fm.copyItem(at: url, to: tmpZip)
+            // Only consider HCB files placed directly under the game folder.
+            // Do NOT scan subfolders (e.g. updatedata/*.hcb), because the game root is the folder itself.
+            guard let hcb = findTopLevelHcb(root: url) else { continue }
 
-            let unzipDir = tmpRoot.appendingPathComponent("unzipped", isDirectory: true)
-            try fm.createDirectory(at: unzipDir, withIntermediateDirectories: true)
-
-            try fm.unzipItem(at: tmpZip, to: unzipDir)
-
-            guard let hcb = findFirstHcb(root: unzipDir) else {
-                cleanup(url: tmpRoot)
-                showError("No *.hcb found in imported ZIP.")
-                return
-            }
-
-            let gameRoot = hcb.deletingLastPathComponent()
-            let title = probeTitleFromHcb(hcbURL: hcb) ?? gameRoot.lastPathComponent
+            // Heuristic root selection:
+            // If HCB is inside e.g. "updatedata", climb until we hit something that looks like the real game root.
+            let gameRoot = chooseGameRoot(hcbURL: hcb, containerRoot: url)
             let id = stableId(for: gameRoot.path)
 
-            // Final install location:
-            let installDir = gamesDir.appendingPathComponent(id, isDirectory: true)
-            if fm.fileExists(atPath: installDir.path) {
-                try? fm.removeItem(at: installDir)
-            }
-            try fm.createDirectory(at: installDir, withIntermediateDirectories: true)
+            let saved = savedById[id]
+            let title = probeTitleFromHcb(hcbURL: hcb) ?? saved?.title ?? url.lastPathComponent
+            let nls = saved?.nls ?? NlsOption.sjis.rawValue
+            let addedAt = saved?.addedAtUnix ?? now
+            let lastPlayed = saved?.lastPlayedAtUnix
 
-            // Copy the entire gameRoot folder into installDir/<folderName>
-            let leaf = gameRoot.lastPathComponent
-            let destRoot = installDir.appendingPathComponent(leaf, isDirectory: true)
-            try fm.copyItem(at: gameRoot, to: destRoot)
-
-            // Update library with rootPath = destRoot
-            if let idx = games.firstIndex(where: { $0.id == id }) {
-                games[idx].title = title
-                games[idx].rootPath = destRoot.path
-                games[idx].nls = nls.rawValue
-            } else {
-                games.append(GameEntry(id: id, title: title, rootPath: destRoot.path, nls: nls.rawValue, addedAtUnix: now))
-            }
-            save()
-
-            cleanup(url: tmpRoot)
-            refreshValidation()
-        } catch {
-            cleanup(url: tmpRoot)
-            showError("ZIP import failed: \(error.localizedDescription)")
+            out.append(GameEntry(id: id, title: title, rootPath: gameRoot.path, nls: nls, addedAtUnix: addedAt, lastPlayedAtUnix: lastPlayed))
         }
-    }
 
-    func refreshValidation() {
-        var changed = false
-        games.removeAll { g in
-            let ok = fm.fileExists(atPath: g.rootPath) && findFirstHcb(root: URL(fileURLWithPath: g.rootPath)) != nil
-            if !ok { changed = true }
-            return !ok
+        // Stable-ish ordering: recently played first, then newest.
+        out.sort { a, b in
+            let ap = a.lastPlayedAtUnix ?? 0
+            let bp = b.lastPlayedAtUnix ?? 0
+            if ap != bp { return ap > bp }
+            return a.addedAtUnix > b.addedAtUnix
         }
-        if changed { save() }
+
+        games = out
+        save()
     }
 
     func remove(game: GameEntry) {
-        // Remove from library and delete files.
+        // Remove from library and delete the game folder (Documents/rfvp/...)
         games.removeAll { $0.id == game.id }
         save()
 
-        let installDir = gamesDir.appendingPathComponent(game.id, isDirectory: true)
-        try? fm.removeItem(at: installDir)
+        // Best-effort: remove the folder pointed by rootPath.
+        let root = URL(fileURLWithPath: game.rootPath)
+        try? fm.removeItem(at: root)
     }
 
     func updateNls(game: GameEntry, nls: NlsOption) {
@@ -267,12 +249,50 @@ final class GameLibrary: ObservableObject {
         return String(path.hashValue, radix: 16)
     }
 
-    private func findFirstHcb(root: URL) -> URL? {
-        let keys: [URLResourceKey] = [.isDirectoryKey]
-        guard let en = fm.enumerator(at: root, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles]) else {
+    private func chooseGameRoot(hcbURL: URL, containerRoot: URL) -> URL {
+        // Climb from the HCB directory upward until we hit a directory that looks like a real game root.
+        // If nothing matches, fall back to the top-level container folder.
+        let containerPath = containerRoot.standardizedFileURL.path
+        var cur = hcbURL.deletingLastPathComponent().standardizedFileURL
+        while cur.path.hasPrefix(containerPath) {
+            if looksLikeGameRoot(cur) {
+                return cur
+            }
+            let parent = cur.deletingLastPathComponent().standardizedFileURL
+            if parent.path == cur.path { break }
+            cur = parent
+        }
+        return containerRoot
+    }
+
+    private func looksLikeGameRoot(_ dir: URL) -> Bool {
+        // Common pack locations.
+        let direct = dir.appendingPathComponent("se_sys.bin")
+        if fm.fileExists(atPath: direct.path) { return true }
+
+        let dataDir = dir.appendingPathComponent("data", isDirectory: true)
+        if fm.fileExists(atPath: dataDir.appendingPathComponent("se_sys.bin").path) { return true }
+
+        // Generic fallback: any .bin at the directory root.
+        if let items = try? fm.contentsOfDirectory(atPath: dir.path) {
+            if items.contains(where: { $0.lowercased().hasSuffix(".bin") }) { return true }
+            if items.contains(where: { $0.lowercased() == "data" || $0.lowercased() == "savedata" }) { return true }
+        }
+        return false
+    }
+
+    private func findTopLevelHcb(root: URL) -> URL? {
+        guard let items = try? fm.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        ) else {
             return nil
         }
-        for case let url as URL in en {
+
+        for url in items {
+            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            if isDir { continue }
             if url.pathExtension.lowercased() == "hcb" {
                 return url
             }
