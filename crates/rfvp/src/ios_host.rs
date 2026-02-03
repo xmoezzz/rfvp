@@ -139,6 +139,19 @@ pub unsafe extern "C" fn rfvp_ios_resize(handle: *mut c_void, surface_width: u32
     inst.app.host_resize(surface_width, surface_height);
 }
 
+/// Deliver a touch event from the iOS host.
+///
+/// `phase`: 0=began, 1=moved, 2=ended, 3=cancelled.
+/// Coordinates are in UIKit points relative to the view.
+#[no_mangle]
+pub unsafe extern "C" fn rfvp_ios_touch(handle: *mut c_void, phase: i32, x_points: f64, y_points: f64) {
+    if handle.is_null() {
+        return;
+    }
+    let inst = &mut *(handle as *mut IosInstance);
+    inst.app.host_touch(phase, x_points, y_points);
+}
+
 /// Destroy the iOS host-mode instance.
 #[no_mangle]
 pub unsafe extern "C" fn rfvp_ios_destroy(handle: *mut c_void) {

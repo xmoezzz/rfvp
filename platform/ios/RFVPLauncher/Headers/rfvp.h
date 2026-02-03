@@ -11,8 +11,8 @@ void rfvp_run_entry(const char* game_root_utf8, const char* nls_utf8);
 // `ui_view` must be a UIView* whose backing layer is CAMetalLayer.
 void* rfvp_ios_create(
     void* ui_view,
-    unsigned int width_points,
-    unsigned int height_points,
+    unsigned int width_px,
+    unsigned int height_px,
     double native_scale_factor,
     const char* game_root_utf8,
     const char* nls_utf8
@@ -21,7 +21,10 @@ void* rfvp_ios_create(
 // Return 1 => exit requested, 0 => continue.
 int rfvp_ios_step(void* handle, unsigned int dt_ms);
 
-void rfvp_ios_resize(void* handle, unsigned int width_points, unsigned int height_points);
+void rfvp_ios_resize(void* handle, unsigned int width_px, unsigned int height_px);
+
+// phase: 0 began, 1 moved, 2 ended, 3 cancelled
+void rfvp_ios_touch(void* handle, int phase, double x_points, double y_points);
 
 void rfvp_ios_destroy(void* handle);
 

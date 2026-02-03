@@ -100,6 +100,22 @@ pub fn window_mode(game_data: &mut GameData, mode: &Variant) -> Result<Variant> 
         return Ok(Variant::Nil);
     }
 
+    // Mobile platforms are always fullscreen. Titles may attempt to toggle modes,
+    // but we treat those requests as no-ops while still reporting fullscreen.
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    {
+        match v {
+            0 | 1 | -1 => {
+                game_data.set_can_fullscreen(true);
+                game_data.set_render_flag_local(2);
+                return Ok(Variant::Int(0));
+            }
+            2 => return Ok(Variant::Int(-1)),
+            3 => return Ok(Variant::True),
+            _ => {}
+        }
+    }
+
     match v {
         0 => {
             // Windowed

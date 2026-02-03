@@ -182,17 +182,27 @@ final class GameLibrary: ObservableObject {
             let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
             if !isDir { continue }
 
-            // Only consider HCB files placed directly under the game folder.
-            // Do NOT scan subfolders (e.g. updatedata/*.hcb), because the game root is the folder itself.
-            guard let hcb = findTopLevelHcb(root: url) else { continue }
+            // Mobile semantics: treat the folder itself as the game root.
+            // Do NOT consider any .hcb under subfolders.
+            let hcbAtRoot = findFirstHcbInRoot(dir: url)
 
-            // Heuristic root selection:
-            // If HCB is inside e.g. "updatedata", climb until we hit something that looks like the real game root.
-            let gameRoot = chooseGameRoot(hcbURL: hcb, containerRoot: url)
+            // Validate the folder: either it looks like a pack root (se_sys.bin, data/, etc.)
+            // or it has a top-level .hcb (used only for title probing).
+            if hcbAtRoot == nil && !looksLikeGameRoot(url) {
+                continue
+            }
+
+            let gameRoot = url
             let id = stableId(for: gameRoot.path)
 
             let saved = savedById[id]
-            let title = probeTitleFromHcb(hcbURL: hcb) ?? saved?.title ?? url.lastPathComponent
+
+            var probedTitle: String? = nil
+            if let hcb = hcbAtRoot {
+                probedTitle = probeTitleFromHcb(hcbURL: hcb)
+            }
+
+            let title = probedTitle ?? saved?.title ?? url.lastPathComponent
             let nls = saved?.nls ?? NlsOption.sjis.rawValue
             let addedAt = saved?.addedAtUnix ?? now
             let lastPlayed = saved?.lastPlayedAtUnix
@@ -211,7 +221,6 @@ final class GameLibrary: ObservableObject {
         games = out
         save()
     }
-
     func remove(game: GameEntry) {
         // Remove from library and delete the game folder (Documents/rfvp/...)
         games.removeAll { $0.id == game.id }
@@ -249,22 +258,6 @@ final class GameLibrary: ObservableObject {
         return String(path.hashValue, radix: 16)
     }
 
-    private func chooseGameRoot(hcbURL: URL, containerRoot: URL) -> URL {
-        // Climb from the HCB directory upward until we hit a directory that looks like a real game root.
-        // If nothing matches, fall back to the top-level container folder.
-        let containerPath = containerRoot.standardizedFileURL.path
-        var cur = hcbURL.deletingLastPathComponent().standardizedFileURL
-        while cur.path.hasPrefix(containerPath) {
-            if looksLikeGameRoot(cur) {
-                return cur
-            }
-            let parent = cur.deletingLastPathComponent().standardizedFileURL
-            if parent.path == cur.path { break }
-            cur = parent
-        }
-        return containerRoot
-    }
-
     private func looksLikeGameRoot(_ dir: URL) -> Bool {
         // Common pack locations.
         let direct = dir.appendingPathComponent("se_sys.bin")
@@ -281,20 +274,13 @@ final class GameLibrary: ObservableObject {
         return false
     }
 
-    private func findTopLevelHcb(root: URL) -> URL? {
-        guard let items = try? fm.contentsOfDirectory(
-            at: root,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        ) else {
+    private func findFirstHcbInRoot(dir: URL) -> URL? {
+        guard let items = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) else {
             return nil
         }
-
-        for url in items {
-            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
-            if isDir { continue }
-            if url.pathExtension.lowercased() == "hcb" {
-                return url
+        for u in items {
+            if u.pathExtension.lowercased() == "hcb" {
+                return u
             }
         }
         return nil

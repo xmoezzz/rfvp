@@ -16,8 +16,8 @@ mod time {
         delta_duration: Duration,
         frame_number: u64,
         measure_start: Instant,
-        // When set by an external host (e.g. iOS/Android launchers), `frame()` will use this
-        // value instead of measuring wall-clock elapsed time.
+        /// If set, the next call to `frame()` will use this externally provided delta
+        /// instead of measuring `Instant::elapsed()`.
         external_delta: Option<Duration>,
     }
 
@@ -33,10 +33,8 @@ mod time {
     }
 
     impl Time {
-        /// Override the next call to `frame()` to use a host-provided delta.
-        ///
-        /// This is used by host-driven platforms (e.g. iOS) where the render loop is driven
-        /// externally (CADisplayLink/Timer) and we want deterministic frame steps.
+        /// Inject a frame delta from an external host (e.g. iOS/Android runloop).
+        /// The value is consumed by the next `frame()` call.
         pub fn set_external_delta(&mut self, delta: Duration) {
             self.external_delta = Some(delta);
         }
@@ -45,10 +43,8 @@ mod time {
         pub(crate) fn frame(&mut self) -> Duration {
             self.frame_number += 1;
 
-            if let Some(ext) = self.external_delta.take() {
-                self.delta_duration = ext;
-                // Keep `measure_start` in sync so any later fallback to wall-clock does not
-                // accumulate stale elapsed time.
+            if let Some(d) = self.external_delta.take() {
+                self.delta_duration = d;
                 self.measure_start = Instant::now();
                 return self.delta_duration;
             }

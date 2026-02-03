@@ -170,10 +170,11 @@ impl App {
                 window.scale_factor(),
             ));
         } else {
-            // Host-driven mode (iOS): we have no winit window, so use the surface size.
-            let w = self.surface_config.width.max(1);
-            let h = self.surface_config.height.max(1);
-            gd.set_window(crate::subsystem::resources::window::Window::new((w, h), self.native_scale_factor));
+            // Host-driven mode (iOS/Android): there is no winit window.
+            // Keep script-visible window size in the *virtual* coordinate space.
+            // Presentation scaling / letterboxing is handled separately in the render pass.
+            let (w, h) = (self.virtual_size.0.max(1), self.virtual_size.1.max(1));
+            gd.set_window(crate::subsystem::resources::window::Window::new((w, h), 1.0));
         }
     }
     fn window(&self) -> &Arc<Window> {
@@ -750,63 +751,19 @@ impl App {
         });
 
         // Pass 2: present to the swapchain with aspect-preserving scaling.
-        //
-        // iOS in particular can transiently return Outdated/Lost/Timeout during view lifecycle
-        // changes. Make this observable in logs and retry once after reconfig.
-        let output = {
-            #[cfg(target_os = "ios")]
-            {
-                let mut tries: u32 = 0;
-                loop {
-                    match self.surface.get_current_texture() {
-                        Ok(o) => break o,
-                        Err(wgpu::SurfaceError::Lost) | Err(wgpu::SurfaceError::Outdated) => {
-                            tries += 1;
-                            log::warn!(
-                                "[RFVP-IOS] surface get_current_texture: lost/outdated (try {}), reconfigure {}x{}",
-                                tries,
-                                self.surface_config.width,
-                                self.surface_config.height
-                            );
-                            self.surface
-                                .configure(&self.resources.device, &self.surface_config);
-                            if tries < 2 {
-                                continue;
-                            }
-                            return Ok(());
-                        }
-                        Err(wgpu::SurfaceError::Timeout) => {
-                            tries += 1;
-                            log::warn!(
-                                "[RFVP-IOS] surface get_current_texture: timeout (try {})",
-                                tries
-                            );
-                            if tries < 2 {
-                                continue;
-                            }
-                            return Ok(());
-                        }
-                        Err(e) => return Err(e.into()),
-                    }
-                }
+        let output = match self.surface.get_current_texture() {
+            Ok(o) => o,
+            Err(wgpu::SurfaceError::Lost) | Err(wgpu::SurfaceError::Outdated) => {
+                // Recreate swapchain.
+                self.surface.configure(&self.resources.device, &self.surface_config);
+                return Ok(());
             }
-            #[cfg(not(target_os = "ios"))]
-            {
-                match self.surface.get_current_texture() {
-                    Ok(o) => o,
-                    Err(wgpu::SurfaceError::Lost) | Err(wgpu::SurfaceError::Outdated) => {
-                        // Recreate swapchain.
-                        self.surface.configure(&self.resources.device, &self.surface_config);
-                        return Ok(());
-                    }
-                    Err(wgpu::SurfaceError::Timeout) => {
-                        // Skip a frame.
-                        return Ok(());
-                    }
-                    Err(e) => {
-                        return Err(e.into());
-                    }
-                }
+            Err(wgpu::SurfaceError::Timeout) => {
+                // Skip a frame.
+                return Ok(());
+            }
+            Err(e) => {
+                return Err(e.into());
             }
         };
 
@@ -1163,28 +1120,26 @@ impl App {
             }
         }
 
-        // In host mode, we either drain a pending "incomplete" frame (0ms),
-        // or advance the *full* main-thread per-frame logic via `next_frame()`.
+        // Host mode must preserve the desktop redraw semantics:
+        // - always run `next_frame()` when the frame is not pending
+        // - but allow the host to inject an external dt (iOS/Android runloop)
         //
-        // IMPORTANT: `next_frame()` is not just a time source.
-        // It also:
-        //   - refreshes inputs (`begin_frame()`),
-        //   - ticks video state,
-        //   - runs SceneMachine Update/LateUpdate,
-        //   - runs Scheduler,
-        //   - detects dissolve completion and emits wakeups.
-        //
-        // Therefore, when the host provides `dt_ms`, we inject it into `Time` and still
-        // call `next_frame()` (unless we are draining a forced-yield).
+        // IMPORTANT: `next_frame()` owns the per-frame engine side-effects (input begin_frame,
+        // cursor/window bookkeeping, motion updates, etc.). Bypassing it will make the engine
+        // appear "stuck" (no input, no audio events, no scene updates) even though the VM thread
+        // is ticking.
+        if !self.pending_vm_frame_ms_valid && dt_ms != 0 {
+            // Inject dt for the *next* frame.
+            {
+                let mut gd = gd_write(&self.game_data);
+                gd.time_mut_ref()
+                    .set_external_delta(std::time::Duration::from_millis(dt_ms as u64));
+            }
+        }
+
         let (frame_ms, notify_dissolve_done) = if self.pending_vm_frame_ms_valid {
             (0u64, false)
         } else {
-            if dt_ms != 0 {
-                // Host-provided dt: override the next `Time::frame()` measurement.
-                let mut gd = gd_write(&self.game_data);
-                gd.time_mut_ref()
-                    .set_external_delta(Duration::from_millis(dt_ms as u64));
-            }
             self.next_frame()
         };
 
@@ -1223,32 +1178,6 @@ impl App {
         if rep.forced_yield {
             // Frame incomplete: avoid presenting.
             self.pending_vm_frame_ms_valid = true;
-
-            // iOS host loops are typically driven by CADisplayLink. If the VM keeps hitting its
-            // opcode budget, we can end up never presenting a frame, which looks like a frozen
-            // white screen in SwiftUI/UIKit. For debugging (and to avoid "no-present" stalls),
-            // optionally present the last known state even while draining.
-            #[cfg(target_os = "ios")]
-            {
-                let allow_present = std::env::var("RFVP_IOS_PRESENT_WHILE_DRAINING")
-                    .ok()
-                    .map(|v| v != "0")
-                    .unwrap_or(true);
-
-                if allow_present {
-                    log::warn!(
-                        "[RFVP-IOS] forced_yield after drain (ticks={} dt_ms={}); presenting keepalive frame",
-                        drain_ticks,
-                        dt_ms
-                    );
-                    if let Err(e) = self.render_frame() {
-                        log::warn!("[RFVP-IOS] keepalive render_frame failed: {e:?}");
-                    }
-                    // Clear transient inputs so the VM doesn't see a growing edge-trigger backlog.
-                    let mut gd = gd_write(&self.game_data);
-                    gd.inputs_manager.frame_reset();
-                }
-            }
             return false;
         }
 
@@ -1283,11 +1212,85 @@ impl App {
         self.surface_config.height = h;
         self.surface.configure(&self.resources.device, &self.surface_config);
 
-        // Keep script-visible window dimensions in sync with the surface size.
+        // iOS host-mode renders at a fixed virtual resolution and presents into a
+        // surface with letterboxing/stretched fullscreen. Script-visible "window"
+        // dimensions must stay in the *virtual* coordinate space (used by effects
+        // like snow / hit-tests).
+        #[cfg(not(target_os = "ios"))]
         {
             let mut gd = gd_write(&self.game_data);
             gd.window_mut().set_dimensions(w, h);
         }
+    }
+
+    /// Inject a single-finger touch event from an iOS host.
+    ///
+    /// `phase`:
+    /// - 0 = began
+    /// - 1 = moved
+    /// - 2 = ended
+    /// - 3 = cancelled
+    #[cfg(target_os = "ios")]
+    pub fn host_touch(&mut self, phase: i32, x_points: f64, y_points: f64) {
+        use crate::subsystem::resources::input_manager::KeyCode;
+
+        let scale = self.native_scale_factor.max(0.5);
+        let px = x_points * scale;
+        let py = y_points * scale;
+
+        let (sw_u, sh_u) = (self.surface_config.width.max(1), self.surface_config.height.max(1));
+        let (vw_u, vh_u) = (self.virtual_size.0.max(1), self.virtual_size.1.max(1));
+
+        let sw = sw_u as f64;
+        let sh = sh_u as f64;
+        let vw = vw_u as f64;
+        let vh = vh_u as f64;
+
+        // Update input state under the same lock as the desktop event path.
+        {
+            let mut gd = gd_write(&self.game_data);
+            let render_flag = gd.get_render_flag();
+
+            // Map surface physical pixels -> virtual game pixels.
+            let (vx, vy, in_content) = if render_flag == 2 {
+                let mut vx = (px * vw / sw) as i32;
+                let mut vy = (py * vh / sh) as i32;
+                let max_x = (vw as i32).saturating_sub(1);
+                let max_y = (vh as i32).saturating_sub(1);
+                vx = vx.clamp(0, max_x);
+                vy = vy.clamp(0, max_y);
+                (vx, vy, true)
+            } else {
+                let scale = (sw / vw).min(sh / vh);
+                let dst_w = vw * scale;
+                let dst_h = vh * scale;
+                let off_x = (sw - dst_w) * 0.5;
+                let off_y = (sh - dst_h) * 0.5;
+
+                let in_content = px >= off_x && px < (off_x + dst_w) && py >= off_y && py < (off_y + dst_h);
+                let mut vx = ((px - off_x) / scale) as i32;
+                let mut vy = ((py - off_y) / scale) as i32;
+                if in_content {
+                    let max_x = (vw as i32).saturating_sub(1);
+                    let max_y = (vh as i32).saturating_sub(1);
+                    vx = vx.clamp(0, max_x);
+                    vy = vy.clamp(0, max_y);
+                }
+                (vx, vy, in_content)
+            };
+
+            gd.inputs_manager.notify_mouse_move(vx, vy);
+            gd.inputs_manager.set_mouse_in(in_content);
+
+            match phase {
+                0 => gd.inputs_manager.notify_mouse_down(KeyCode::MouseLeft),
+                2 | 3 => gd.inputs_manager.notify_mouse_up(KeyCode::MouseLeft),
+                _ => {}
+            }
+        }
+
+        // Wake the VM immediately so scripts can react without waiting for the next frame.
+        self.vm_worker.send_input_signal();
     }
 }
 
@@ -1434,22 +1437,13 @@ impl AppBuilder {
         let swapchain_capabilities = surface.get_capabilities(&adapter);
         let swapchain_format = swapchain_capabilities.formats[0];
 
-        // Prefer an opaque surface on iOS so the CAMetalLayer compositing does not
-        // accidentally show the view's background ("white screen") when alpha is involved.
-        let alpha_mode = swapchain_capabilities
-            .alpha_modes
-            .iter()
-            .copied()
-            .find(|m| *m == wgpu::CompositeAlphaMode::Opaque)
-            .unwrap_or(swapchain_capabilities.alpha_modes[0]);
-
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: swapchain_format,
             width: size.width.max(1),
             height: size.height.max(1),
             present_mode: wgpu::PresentMode::Fifo,
-            alpha_mode,
+            alpha_mode: swapchain_capabilities.alpha_modes[0],
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
@@ -1866,12 +1860,13 @@ app.setup();
     /// backed by a CAMetalLayer.
     #[cfg(target_os = "ios")]
     pub fn build_ios(mut self, ui_view: NonNull<c_void>, surface_size: (u32, u32), native_scale_factor: f64) -> anyhow::Result<Box<App>> {
-        // iOS host-mode does not rely on winit; scripts should treat fullscreen as unsupported.
-        self.world.set_can_fullscreen(false);
+        // Mobile is always fullscreen.
+        self.world.set_can_fullscreen(true);
+        self.world.set_render_flag_local(2);
 
         self.add_late_internal_systems_to_schedule();
 
-                let scale = if native_scale_factor.is_finite() && native_scale_factor > 0.0 {
+        let scale = if native_scale_factor.is_finite() && native_scale_factor > 0.0 {
             native_scale_factor
         } else {
             1.0
