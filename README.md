@@ -3,7 +3,7 @@
 <img src="images/flake.png" width="20%">
 
 ### Status
-* Bootable, But still WIP
+* Playable?
 * See [setsusmei](setsumei/README.md) for details.
 
 ### rfvp debug HUD
@@ -19,11 +19,14 @@
 ### Supported Platforms and Packaging Types
 | Platform | Packaging Type(s) Supported                                | Launcher | Standalone Executable | Architectures                       |
 | -------- | ---------------------------------------------------------- | -------: | --------------------: | ----------------------------------- |
-| macOS    | App Bundle (`.app`), DMG (`.dmg`)                          |      Yes |                    No | arm64 (Apple Silicon)               |
-| iOS      | IPA (`.ipa`, AltStore flow), XCFramework-based app wrapper |      Yes |                    No | arm64 (device), arm64 (simulator)   |
+| macOS    | App Bundle (`.app`) and DMG (`.dmg`)                          |      Yes |                    No | Universal       |
+| iOS      | Unsigned IPA (`.ipa`, AltStore) |      Yes |                    No | arm64   |
 | Android  | APK (`.apk`)                                               |      Yes |                    No | arm64-v8a, x86_64                   |
 | Windows  | Standalone EXE                                             |       No |                   Yes | x86_64, arm64                       |
-| Linux    | Standalone (planned)                                       |       No |         Yes (planned) | x86_64 (planned), aarch64 (planned) |
+| Linux    | Standalone (planned)                                       |       No |                   Yes | x86_64, aarch64 (planned) |
+
+* Since this is a Rust project, it should be possible to build for many other platforms as well. 
+* I personally using macOS for development, currently no Windows script is provided. Pull requests are welcome.
 
 ### Compatibility
 This project aims to be compatible with all versions of the original FVP engine. 
