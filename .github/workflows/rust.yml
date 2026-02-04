@@ -140,15 +140,13 @@ jobs:
           # avoid .DS_Store in zips
           export COPYFILE_DISABLE=1
 
-          # Prefer your existing scripts. Fail if none found.
-          if [[ -f platform/scripts/package_ios_ipa.sh ]]; then
-            chmod +x platform/scripts/package_ios_ipa.sh
-            ./platform/scripts/package_ios_ipa.sh
-          elif [[ -f platform/scripts/package_ios.sh ]]; then
-            chmod +x platform/scripts/package_ios.sh
-            ./platform/scripts/package_ios.sh
+          ./platform/scripts/build_ios_xcframework.sh
+
+          if [[ -f platform/scripts/package_ios_altstore_ipa.sh ]]; then
+            chmod +x platform/scripts/package_ios_altstore_ipa.sh
+            ./platform/scripts/package_ios_altstore_ipa.sh
           else
-            echo "ERROR: No iOS packaging script found. Expected platform/scripts/package_ios_ipa.sh (or package_ios.sh)" >&2
+            echo "ERROR: No iOS packaging script found. Expected platform/scripts/package_ios_altstore_ipa.sh" >&2
             exit 1
           fi
 
@@ -267,7 +265,7 @@ jobs:
           echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}" >> "$GITHUB_ENV"
           echo "ANDROID_HOME=${ANDROID_SDK_ROOT}" >> "$GITHUB_ENV"
 
-          yes | sdkmanager --licenses >/dev/null
+          sdkmanager --licenses < /dev/null || true
 
           # Platform + build-tools + NDK (choose a known-good recent NDK)
           sdkmanager \
