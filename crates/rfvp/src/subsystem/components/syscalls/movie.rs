@@ -27,23 +27,7 @@ pub fn movie_play(game_data: &mut GameData, path: &Variant, flag: &Variant) -> R
 
     // Cross-platform restriction: old formats (wmv/mpg) are remapped to mp4 (H264/AAC).
     let mapped = map_legacy_movie_ext_to_mp4(path);
-
-    // Prefer mapped name, but fall back to the original if not found.
-    let bytes = match game_data.vfs.read_file(&mapped) {
-        Ok(b) => b,
-        Err(_) => match game_data.vfs.read_file(path) {
-            Ok(b) => b,
-            Err(e) => {
-                log::error!(
-                    "Movie: failed to read {} (mapped from {}): {:?}",
-                    mapped,
-                    path,
-                    e
-                );
-                return Ok(Variant::Nil);
-            }
-        },
-    };
+    let mapped_path = std::path::Path::new(&mapped);
 
     let (w, h) = (game_data.get_width() as u32, game_data.get_height() as u32);
 
@@ -61,7 +45,7 @@ pub fn movie_play(game_data: &mut GameData, path: &Variant, flag: &Variant) -> R
 
     // NOTE: In the original engine, Movie returns True on success and Nil on failure.
     if let Err(e) = game_data.video_manager.start(
-        bytes,
+        &mapped_path,
         mode,
         w,
         h,

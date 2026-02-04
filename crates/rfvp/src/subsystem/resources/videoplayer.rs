@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -48,8 +48,7 @@ struct MoviePlayback {
     base_pts_us: Option<i64>,
     last_presented_pts: i64,
 
-    // The system decoder requires a real filesystem path; we materialize the VFS bytes here.
-    temp_path: PathBuf,
+    mp4_path: PathBuf,
 
     // Audio (decoded to a WAV container and played via Kira).
     audio_manager: Option<Arc<AudioManager>>,
@@ -60,17 +59,16 @@ struct MoviePlayback {
 
 impl MoviePlayback {
     fn open_from_mp4_bytes(
-        mp4_bytes: &[u8],
+        mp4_path: impl AsRef<Path>,
         mode: MovieMode,
         audio_manager: Option<Arc<AudioManager>>,
     ) -> Result<Self> {
-        let temp_path = write_temp_mp4(mp4_bytes).context("write temp mp4")?;
-        let stream = video_sys::VideoStream::open(&temp_path).context("VideoStream::open")?;
+        let stream = video_sys::VideoStream::open(&mp4_path).context("VideoStream::open")?;
 
         let (audio_data, audio_manager) = match mode {
             MovieMode::ModalWithAudio => {
                 let am = audio_manager;
-                let data = match (am.as_ref(), decode_mp4_audio_to_wav_bytes(mp4_bytes)) {
+                let data = match (am.as_ref(), decode_mp4_audio_to_wav_bytes(&mp4_path)) {
                     (Some(_), Ok(Some(wav_bytes))) => {
                         let cursor = std::io::Cursor::new(wav_bytes);
                         Some(StaticSoundData::from_cursor(cursor).context("kira StaticSoundData::from_cursor")?)
@@ -97,7 +95,7 @@ impl MoviePlayback {
             started_at: None,
             base_pts_us: None,
             last_presented_pts: i64::MIN,
-            temp_path,
+            mp4_path: mp4_path.as_ref().to_path_buf(),
             audio_manager,
             audio_data,
             audio_handle: None,
@@ -172,11 +170,6 @@ impl MoviePlayback {
         if let Some(mut h) = self.audio_handle.take() {
             h.stop(Tween::default());
         }
-
-        // Best-effort cleanup.
-        if let Err(e) = std::fs::remove_file(&self.temp_path) {
-            log::debug!("remove temp mp4 {} failed: {e:?}", self.temp_path.display());
-        }
     }
 }
 
@@ -216,7 +209,7 @@ impl VideoPlayerManager {
 
     pub fn start(
         &mut self,
-        mp4_bytes: Vec<u8>,
+        mp4_path: impl AsRef<Path>,
         mode: MovieMode,
         screen_w: u32,
         screen_h: u32,
@@ -228,7 +221,7 @@ impl VideoPlayerManager {
             self.stop(motion);
         }
 
-        let playback = MoviePlayback::open_from_mp4_bytes(&mp4_bytes, mode, audio_manager)?;
+        let playback = MoviePlayback::open_from_mp4_bytes(mp4_path, mode, audio_manager)?;
 
         self.playing = true;
         self.modal = matches!(mode, MovieMode::ModalWithAudio);
@@ -336,12 +329,12 @@ fn write_temp_mp4(mp4_bytes: &[u8]) -> Result<PathBuf> {
 /// Best-effort: extract the first AAC audio track in the MP4 and decode it to WAV(PCM16LE).
 ///
 /// Returns `Ok(None)` if no decodable audio track is present.
-fn decode_mp4_audio_to_wav_bytes(mp4_bytes: &[u8]) -> Result<Option<Vec<u8>>> {
+fn decode_mp4_audio_to_wav_bytes(mp4_path: impl AsRef<Path>) -> Result<Option<Vec<u8>>> {
     // Hint Symphonia that this is MP4.
     let mut hint = Hint::new();
     hint.with_extension("mp4");
 
-    let cursor = std::io::Cursor::new(mp4_bytes.to_vec());
+    let cursor = std::fs::File::open(mp4_path)?;
     let mss = MediaSourceStream::new(Box::new(cursor), Default::default());
     let probed = get_probe()
         .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
