@@ -17,6 +17,9 @@ pub mod boot;
 #[cfg(target_os = "ios")]
 mod ios_host;
 
+#[cfg(target_os = "android")]
+mod android_host;
+
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::ptr::null_mut;

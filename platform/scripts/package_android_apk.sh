@@ -12,24 +12,12 @@ ANDROID_PLATFORM="${ANDROID_PLATFORM:-28}"
 VARIANT="${VARIANT:-debug}"
 ABIS="${ABIS:-arm64-v8a x86_64}"
 
-if ! command -v cargo >/dev/null 2>&1; then
-  echo "ERROR: cargo not found in PATH"
-  exit 1
-fi
-if ! command -v rustup >/dev/null 2>&1; then
-  echo "ERROR: rustup not found in PATH"
-  exit 1
-fi
-if ! command -v java >/dev/null 2>&1; then
-  echo "ERROR: java not found in PATH (JDK required for Gradle)"
-  exit 1
-fi
+command -v cargo >/dev/null 2>&1 || { echo "ERROR: cargo not found in PATH" >&2; exit 1; }
+command -v rustup >/dev/null 2>&1 || { echo "ERROR: rustup not found in PATH" >&2; exit 1; }
+command -v java >/dev/null 2>&1 || { echo "ERROR: java not found in PATH (JDK required for Gradle)" >&2; exit 1; }
 
 ANDROID_SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
-if [[ -z "${ANDROID_SDK_ROOT}" ]]; then
-  echo "ERROR: ANDROID_SDK_ROOT (or ANDROID_HOME) is not set"
-  exit 1
-fi
+[[ -n "${ANDROID_SDK_ROOT}" ]] || { echo "ERROR: ANDROID_SDK_ROOT (or ANDROID_HOME) is not set" >&2; exit 1; }
 
 ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
 if [[ -z "${ANDROID_NDK_HOME}" ]]; then
@@ -38,10 +26,10 @@ if [[ -z "${ANDROID_NDK_HOME}" ]]; then
     ANDROID_NDK_HOME="$(ls -1 "${NDK_PARENT}" | sort -V | tail -n 1 | awk -v p="${NDK_PARENT}" '{print p "/" $0}')"
   fi
 fi
-if [[ -z "${ANDROID_NDK_HOME}" || ! -d "${ANDROID_NDK_HOME}" ]]; then
-  echo "ERROR: ANDROID_NDK_HOME is not set and no NDK was found under ${ANDROID_SDK_ROOT}/ndk/"
+[[ -n "${ANDROID_NDK_HOME}" && -d "${ANDROID_NDK_HOME}" ]] || {
+  echo "ERROR: ANDROID_NDK_HOME is not set and no NDK found under ${ANDROID_SDK_ROOT}/ndk/" >&2
   exit 1
-fi
+}
 
 export ANDROID_NDK_HOME
 export CARGO_NDK_PLATFORM="${ANDROID_PLATFORM}"
@@ -51,6 +39,7 @@ echo "[android] ANDROID_NDK_HOME=${ANDROID_NDK_HOME}"
 echo "[android] CARGO_NDK_PLATFORM=${CARGO_NDK_PLATFORM}"
 echo "[android] ABIS=${ABIS}"
 echo "[android] JNI_LIBS_DIR=${JNI_LIBS_DIR}"
+echo "[android] VARIANT=${VARIANT}"
 
 if ! command -v cargo-ndk >/dev/null 2>&1; then
   echo "[android] Installing cargo-ndk ..."
@@ -64,7 +53,7 @@ for abi in ${ABIS}; do
     armeabi-v7a) need_targets+=("armv7-linux-androideabi") ;;
     x86) need_targets+=("i686-linux-android") ;;
     x86_64) need_targets+=("x86_64-linux-android") ;;
-    *) echo "ERROR: Unknown ABI: ${abi}"; exit 1 ;;
+    *) echo "ERROR: Unknown ABI: ${abi}" >&2; exit 1 ;;
   esac
 done
 for t in "${need_targets[@]}"; do
@@ -77,31 +66,35 @@ done
 rm -rf "${JNI_LIBS_DIR}"
 mkdir -p "${JNI_LIBS_DIR}"
 
+CARGO_PROFILE_ARGS=()
+if [[ "${VARIANT}" == "release" ]]; then
+  CARGO_PROFILE_ARGS+=(--release)
+fi
+
 pushd "${ROOT_DIR}" >/dev/null
 echo "[android] Building Rust shared library via cargo ndk ..."
-cargo ndk $(for abi in ${ABIS}; do printf -- "-t %s " "${abi}"; done)   -o "${JNI_LIBS_DIR}"   build --release -p "${RFVP_CARGO_PKG}"
+cargo ndk $(for abi in ${ABIS}; do printf -- "-t %s " "${abi}"; done) \
+  -o "${JNI_LIBS_DIR}" \
+  build ${CARGO_PROFILE_ARGS[@]+"${CARGO_PROFILE_ARGS[@]}"} -p "${RFVP_CARGO_PKG}"
 popd >/dev/null
 
 missing=0
 for abi in ${ABIS}; do
   so_path="${JNI_LIBS_DIR}/${abi}/lib${RFVP_SO_NAME}.so"
   if [[ ! -f "${so_path}" ]]; then
-    echo "ERROR: Missing ${so_path}"
+    echo "ERROR: Missing ${so_path}" >&2
     missing=1
   fi
 done
-if [[ "${missing}" -ne 0 ]]; then
-  exit 1
-fi
+[[ "${missing}" -eq 0 ]] || exit 1
 
 pushd "${ANDROID_DIR}" >/dev/null
-GRADLE_CMD=""
 if [[ -x "./gradlew" ]]; then
   GRADLE_CMD="./gradlew"
 elif command -v gradle >/dev/null 2>&1; then
   GRADLE_CMD="gradle"
 else
-  echo "ERROR: Neither ./gradlew nor 'gradle' found. Install Gradle or add a Gradle wrapper."
+  echo "ERROR: Neither ./gradlew nor gradle found." >&2
   exit 1
 fi
 
@@ -117,7 +110,8 @@ APK_PATH="$(ls -1 "${APP_DIR}/build/outputs/apk/${VARIANT}/"*.apk 2>/dev/null | 
 if [[ -n "${APK_PATH}" ]]; then
   echo "[android] APK: ${APK_PATH}"
 else
-  echo "[android] Built, but APK path not found under app/build/outputs/apk/debug"
+  echo "ERROR: APK not found under app/build/outputs/apk/${VARIANT}/" >&2
+  exit 1
 fi
 popd >/dev/null
 

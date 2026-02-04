@@ -27,11 +27,8 @@
             android:exported="false"
             android:label="@string/app_name"
             android:theme="@style/Theme.RFVP"
+            android:screenOrientation="sensorLandscape"
             android:configChanges="keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|smallestScreenSize|uiMode">
-
-            <meta-data
-                android:name="android.app.lib_name"
-                android:value="rfvp" />
         </activity>
 
     </application>

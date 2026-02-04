@@ -27,3 +27,5 @@ platform/macos/RFVPLauncher/Vendor/librfvp.dylib
 platform/macos/RFVPLauncher/Vendor/*
 platform/ios/RFVPLauncher/Vendor/librfvp.a
 platform/ios/RFVPLauncher/Vendor/*
+
+.metals/

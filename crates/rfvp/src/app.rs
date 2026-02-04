@@ -36,13 +36,25 @@ use crate::{config::app_config::AppConfig, subsystem::event_handler::update_inpu
 use crate::rfvp_render::{BindGroupLayouts, GpuCommonResources, Pipelines, RenderTarget};
 use crate::rfvp_render::vertices::{PosVertex, VertexSource};
 
-#[cfg(target_os = "ios")]
+#[cfg(any(target_os = "ios", target_os = "android"))]
 use std::{ffi::c_void, ptr::NonNull};
+
+#[cfg(target_os = "android")]
+extern "C" {
+    fn ANativeWindow_acquire(window: *mut c_void);
+    fn ANativeWindow_release(window: *mut c_void);
+}
 
 #[cfg(target_os = "ios")]
 use winit::raw_window_handle::{
     DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle,
     UiKitDisplayHandle, UiKitWindowHandle, WindowHandle,
+};
+
+#[cfg(target_os = "android")]
+use winit::raw_window_handle::{
+    AndroidDisplayHandle, AndroidNdkWindowHandle, DisplayHandle, HandleError, HasDisplayHandle,
+    HasWindowHandle, RawDisplayHandle, RawWindowHandle, WindowHandle,
 };
 
 
@@ -103,6 +115,16 @@ pub struct App {
     resources: Arc<GpuCommonResources>,
     surface: wgpu::Surface<'static>,
     surface_config: wgpu::SurfaceConfiguration,
+
+    // Mobile hosts may need to recreate surfaces (Android SurfaceView lifecycle).
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    wgpu_instance: Option<wgpu::Instance>,
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    wgpu_adapter: Option<wgpu::Adapter>,
+
+    #[cfg(target_os = "android")]
+    android_native_window: Option<NonNull<c_void>>,
+
     prim_renderer: GpuPrimRenderer,
     virtual_size: (u32, u32),
     render_tree: RenderTree,
@@ -246,6 +268,7 @@ impl App {
                             self.surface_config.width = physical_size.width.max(1);
                             self.surface_config.height = physical_size.height.max(1);
                             self.surface.configure(&self.resources.device, &self.surface_config);
+
                         }
                         WindowEvent::ScaleFactorChanged {  .. } => {
                             // self.renderer.as_mut().unwrap().resize(
@@ -756,6 +779,7 @@ impl App {
             Err(wgpu::SurfaceError::Lost) | Err(wgpu::SurfaceError::Outdated) => {
                 // Recreate swapchain.
                 self.surface.configure(&self.resources.device, &self.surface_config);
+
                 return Ok(());
             }
             Err(wgpu::SurfaceError::Timeout) => {
@@ -1212,15 +1236,27 @@ impl App {
         self.surface_config.height = h;
         self.surface.configure(&self.resources.device, &self.surface_config);
 
+
         // iOS host-mode renders at a fixed virtual resolution and presents into a
         // surface with letterboxing/stretched fullscreen. Script-visible "window"
         // dimensions must stay in the *virtual* coordinate space (used by effects
         // like snow / hit-tests).
-        #[cfg(not(target_os = "ios"))]
+        #[cfg(not(any(target_os = "ios", target_os = "android")))]
         {
             let mut gd = gd_write(&self.game_data);
             gd.window_mut().set_dimensions(w, h);
         }
+    }
+
+    /// Resize the presentation surface using physical pixels (Android host mode).
+    #[cfg(target_os = "android")]
+    pub fn host_resize_px(&mut self, surface_width_px: u32, surface_height_px: u32) {
+        let w = surface_width_px.max(1);
+        let h = surface_height_px.max(1);
+        self.surface_config.width = w;
+        self.surface_config.height = h;
+        self.surface.configure(&self.resources.device, &self.surface_config);
+
     }
 
     /// Inject a single-finger touch event from an iOS host.
@@ -1292,7 +1328,158 @@ impl App {
         // Wake the VM immediately so scripts can react without waiting for the next frame.
         self.vm_worker.send_input_signal();
     }
+
+    /// Inject a single-finger touch event from an Android host.
+    ///
+    /// `phase`:
+    /// - 0 = began
+    /// - 1 = moved
+    /// - 2 = ended
+    /// - 3 = cancelled
+    #[cfg(target_os = "android")]
+    pub fn host_touch_android(&mut self, phase: i32, x_px: f64, y_px: f64) {
+        use crate::subsystem::resources::input_manager::KeyCode;
+
+        let px = x_px;
+        let py = y_px;
+
+        let (sw_u, sh_u) = (self.surface_config.width.max(1), self.surface_config.height.max(1));
+        let (vw_u, vh_u) = (self.virtual_size.0.max(1), self.virtual_size.1.max(1));
+
+        let sw = sw_u as f64;
+        let sh = sh_u as f64;
+        let vw = vw_u as f64;
+        let vh = vh_u as f64;
+
+        {
+            let mut gd = gd_write(&self.game_data);
+            let render_flag = gd.get_render_flag();
+
+            let (vx, vy, in_content) = if render_flag == 2 {
+                let mut vx = (px * vw / sw) as i32;
+                let mut vy = (py * vh / sh) as i32;
+                let max_x = (vw as i32).saturating_sub(1);
+                let max_y = (vh as i32).saturating_sub(1);
+                vx = vx.clamp(0, max_x);
+                vy = vy.clamp(0, max_y);
+                (vx, vy, true)
+            } else {
+                let scale = (sw / vw).min(sh / vh);
+                let dst_w = vw * scale;
+                let dst_h = vh * scale;
+                let off_x = (sw - dst_w) * 0.5;
+                let off_y = (sh - dst_h) * 0.5;
+
+                let in_content = px >= off_x && px < (off_x + dst_w) && py >= off_y && py < (off_y + dst_h);
+                let mut vx = ((px - off_x) / scale) as i32;
+                let mut vy = ((py - off_y) / scale) as i32;
+                if in_content {
+                    let max_x = (vw as i32).saturating_sub(1);
+                    let max_y = (vh as i32).saturating_sub(1);
+                    vx = vx.clamp(0, max_x);
+                    vy = vy.clamp(0, max_y);
+                }
+                (vx, vy, in_content)
+            };
+
+            gd.inputs_manager.notify_mouse_move(vx, vy);
+            gd.inputs_manager.set_mouse_in(in_content);
+
+            match phase {
+                0 => gd.inputs_manager.notify_mouse_down(KeyCode::MouseLeft),
+                2 | 3 => gd.inputs_manager.notify_mouse_up(KeyCode::MouseLeft),
+                _ => {}
+            }
+        }
+
+        self.vm_worker.send_input_signal();
+    }
+
+    /// Recreate the presentation surface from a new `ANativeWindow*`.
+    #[cfg(target_os = "android")]
+    pub fn host_set_surface_android(&mut self, native_window: NonNull<c_void>, width_px: u32, height_px: u32) {
+        let Some(instance) = self.wgpu_instance.as_ref() else {
+            log::error!("host_set_surface_android: missing wgpu_instance");
+            return;
+        };
+        let Some(adapter) = self.wgpu_adapter.as_ref() else {
+            log::error!("host_set_surface_android: missing wgpu_adapter");
+            return;
+        };
+
+        // Hold a reference to the new ANativeWindow for the lifetime of the new wgpu Surface.
+        unsafe { ANativeWindow_acquire(native_window.as_ptr()); }
+
+        struct AndroidSurfaceTarget {
+            window: NonNull<c_void>,
+        }
+
+        // SAFETY: The handle is only used to build the surface on the calling thread.
+        unsafe impl Send for AndroidSurfaceTarget {}
+        unsafe impl Sync for AndroidSurfaceTarget {}
+
+        impl HasWindowHandle for AndroidSurfaceTarget {
+            fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
+                let mut wh = AndroidNdkWindowHandle::new(self.window);
+                // SAFETY: `wh` is valid for the duration of this call.
+                Ok(unsafe { WindowHandle::borrow_raw(RawWindowHandle::AndroidNdk(wh)) })
+            }
+        }
+
+        impl HasDisplayHandle for AndroidSurfaceTarget {
+            fn display_handle(&self) -> Result<DisplayHandle<'_>, HandleError> {
+                let dh = AndroidDisplayHandle::new();
+                // SAFETY: `dh` is valid for the duration of this call.
+                Ok(unsafe { DisplayHandle::borrow_raw(RawDisplayHandle::Android(dh)) })
+            }
+        }
+
+        let target = AndroidSurfaceTarget { window: native_window };
+
+        let new_surface = match instance.create_surface(&target) {
+            Ok(s) => s,
+            Err(e) => {
+                log::error!("host_set_surface_android: create_surface failed: {e:?}");
+                unsafe { ANativeWindow_release(native_window.as_ptr()); }
+                return;
+            }
+        };
+
+        let new_surface: wgpu::Surface<'static> = unsafe { std::mem::transmute::<wgpu::Surface<'_>, wgpu::Surface<'static>>(new_surface) };
+
+        self.surface = new_surface;
+
+        let caps = self.surface.get_capabilities(adapter);
+        if !caps.formats.is_empty() {
+            let preferred = self.surface_config.format;
+            self.surface_config.format = caps.formats.iter().copied().find(|f| *f == preferred).unwrap_or(caps.formats[0]);
+        }
+        if !caps.alpha_modes.is_empty() {
+            self.surface_config.alpha_mode = caps.alpha_modes[0];
+        }
+
+        self.surface_config.width = width_px.max(1);
+        self.surface_config.height = height_px.max(1);
+        self.surface.configure(&self.resources.device, &self.surface_config);
+
+        // Store the window pointer for the lifetime of the Surface and release the previous one.
+        let old = self.android_native_window.replace(native_window);
+        if let Some(old) = old {
+            unsafe { ANativeWindow_release(old.as_ptr()); }
+        }
+
+    }
 }
+
+#[cfg(target_os = "android")]
+impl Drop for App {
+    fn drop(&mut self) {
+        if let Some(w) = self.android_native_window.take() {
+            unsafe { ANativeWindow_release(w.as_ptr()); }
+        }
+    }
+}
+
 
 pub struct AppBuilder {
     config: AppConfig,
@@ -1424,12 +1611,14 @@ impl AppBuilder {
                     label: None,
                     required_features: wgpu::Features::PUSH_CONSTANTS,
                     required_limits: wgpu::Limits {
-                        max_push_constant_size: 256,
+                        max_push_constant_size: 80,
+                       // The renderer uses <= 80 bytes of push constants today.
+                       // Requesting 256 will fail on some Android/Vulkan drivers (including some emulators).
                         ..wgpu::Limits::downlevel_webgl2_defaults()
                             .using_resolution(adapter.limits())
                     },
                 },
-                Some(Path::new("wgpu_trace")),
+                None,
             )
             .await
             .expect("Failed to create device");
@@ -1501,6 +1690,8 @@ impl AppBuilder {
         surface_size: (u32, u32),
         virtual_size: (u32, u32),
     ) -> (
+        wgpu::Instance,
+        wgpu::Adapter,
         Arc<GpuCommonResources>,
         RenderTarget,
         wgpu::Surface<'static>,
@@ -1552,11 +1743,13 @@ impl AppBuilder {
                     label: None,
                     required_features: wgpu::Features::PUSH_CONSTANTS,
                     required_limits: wgpu::Limits {
-                        max_push_constant_size: 256,
+                        max_push_constant_size: 80,
+                       // The renderer uses <= 80 bytes of push constants today.
+                       // Requesting 256 will fail on some Android/Vulkan drivers (including some emulators).
                         ..wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits())
                     },
                 },
-                Some(Path::new("wgpu_trace")),
+                None,
             )
             .await
             .expect("Failed to create device");
@@ -1589,7 +1782,103 @@ impl AppBuilder {
 
         let render_target = RenderTarget::new(&resources, virtual_size, Some("iOS RenderTarget"));
 
-        (resources, render_target, surface, config)
+        (instance, adapter, resources, render_target, surface, config)
+    }
+
+    #[cfg(target_os = "android")]
+    async fn init_render_android(
+        native_window: NonNull<c_void>,
+        surface_size_px: (u32, u32),
+        virtual_size: (u32, u32),
+    ) -> (
+        wgpu::Instance,
+        wgpu::Adapter,
+        Arc<GpuCommonResources>,
+        RenderTarget,
+        wgpu::Surface<'static>,
+        wgpu::SurfaceConfiguration,
+    ) {
+        struct AndroidSurfaceTarget {
+            window: NonNull<c_void>,
+        }
+
+        unsafe impl Send for AndroidSurfaceTarget {}
+        unsafe impl Sync for AndroidSurfaceTarget {}
+
+        impl HasWindowHandle for AndroidSurfaceTarget {
+            fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
+                let wh = AndroidNdkWindowHandle::new(self.window);
+                Ok(unsafe { WindowHandle::borrow_raw(RawWindowHandle::AndroidNdk(wh)) })
+            }
+        }
+
+        impl HasDisplayHandle for AndroidSurfaceTarget {
+            fn display_handle(&self) -> Result<DisplayHandle<'_>, HandleError> {
+                let dh = AndroidDisplayHandle::new();
+                Ok(unsafe { DisplayHandle::borrow_raw(RawDisplayHandle::Android(dh)) })
+            }
+        }
+
+        let (sw, sh) = (surface_size_px.0.max(1), surface_size_px.1.max(1));
+        let backends = wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::all());
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends, ..Default::default() });
+
+        let surface = {
+            let target = AndroidSurfaceTarget { window: native_window };
+            let s = instance.create_surface(&target).unwrap();
+            unsafe { std::mem::transmute::<wgpu::Surface<'_>, wgpu::Surface<'static>>(s) }
+        };
+
+        let adapter = wgpu::util::initialize_adapter_from_env_or_default(&instance, Some(&surface))
+            .await
+            .unwrap();
+
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    label: None,
+                    required_features: wgpu::Features::PUSH_CONSTANTS,
+                    required_limits: wgpu::Limits {
+                        max_push_constant_size: 80,
+                       // The renderer uses <= 80 bytes of push constants today.
+                       // Requesting 256 will fail on some Android/Vulkan drivers (including some emulators).
+                        ..wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits())
+                    },
+                },
+                None,
+            )
+            .await
+            .expect("Failed to create device");
+
+        let swapchain_capabilities = surface.get_capabilities(&adapter);
+        let swapchain_format = swapchain_capabilities.formats[0];
+
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: swapchain_format,
+            width: sw,
+            height: sh,
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: swapchain_capabilities.alpha_modes[0],
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+        surface.configure(&device, &config);
+
+        let bind_group_layouts = BindGroupLayouts::new(&device);
+        let pipelines = Pipelines::new(&device, &bind_group_layouts, swapchain_format);
+
+        let resources = Arc::new(GpuCommonResources {
+            device,
+            queue,
+            render_buffer_size: RwLock::new(virtual_size),
+            bind_group_layouts,
+            pipelines,
+        });
+
+        let render_target = RenderTarget::new(&resources, virtual_size, Some("Android RenderTarget"));
+
+        (instance, adapter, resources, render_target, surface, config)
     }
 
 
@@ -1759,18 +2048,18 @@ impl AppBuilder {
             .map(|c| c.format)
             .unwrap_or(surface_config.format);
 
-// NOTE: iOS main-thread stack is small. Avoid constructing large `App` values on the stack.
-// Initialize `App` directly on the heap, then run `setup()`.
-let prim_renderer = GpuPrimRenderer::new(resources.clone(), self.size);
-let layer_machine = SceneMachine {
-    current_scene: self.scene,
-};
-let render_tree = RenderTree::new();
-let debug_hud = if debug_ui::enabled() {
-    Some(DebugHud::new(&resources.device, hud_surface_format, debug_ring.clone()))
-} else {
-    None
-};
+        // NOTE: iOS main-thread stack is small. Avoid constructing large `App` values on the stack.
+        // Initialize `App` directly on the heap, then run `setup()`.
+        let prim_renderer = GpuPrimRenderer::new(resources.clone(), self.size);
+        let layer_machine = SceneMachine {
+            current_scene: self.scene,
+        };
+        let render_tree = RenderTree::new();
+        let debug_hud = if debug_ui::enabled() {
+            Some(DebugHud::new(&resources.device, hud_surface_format, debug_ring.clone()))
+        } else {
+            None
+        };
 
 		let mut app: Box<App> = {
 		    use std::mem::MaybeUninit;
@@ -1783,56 +2072,62 @@ let debug_hud = if debug_ui::enabled() {
 		        // `MaybeUninit<T>` is `repr(transparent)`, so this cast is sound.
 		        let p: *mut App = boxed.as_mut_ptr().cast();
 
-        ptr::addr_of_mut!((*p).config).write(self.config);
-        ptr::addr_of_mut!((*p).game_data).write(game_data);
-        ptr::addr_of_mut!((*p).title).write(self.title);
-        ptr::addr_of_mut!((*p).scheduler).write(self.scheduler);
-        ptr::addr_of_mut!((*p).layer_machine).write(layer_machine);
-        ptr::addr_of_mut!((*p).window).write(Some(window.clone()));
-        ptr::addr_of_mut!((*p).native_scale_factor).write(window.scale_factor());
-        ptr::addr_of_mut!((*p).pump_mode).write(false);
-        ptr::addr_of_mut!((*p).windowed_restore).write(None);
-        ptr::addr_of_mut!((*p).last_fullscreen_flag).write(3);
+                ptr::addr_of_mut!((*p).config).write(self.config);
+                ptr::addr_of_mut!((*p).game_data).write(game_data);
+                ptr::addr_of_mut!((*p).title).write(self.title);
+                ptr::addr_of_mut!((*p).scheduler).write(self.scheduler);
+                ptr::addr_of_mut!((*p).layer_machine).write(layer_machine);
+                ptr::addr_of_mut!((*p).window).write(Some(window.clone()));
+                ptr::addr_of_mut!((*p).native_scale_factor).write(window.scale_factor());
+                ptr::addr_of_mut!((*p).pump_mode).write(false);
+                ptr::addr_of_mut!((*p).windowed_restore).write(None);
+                ptr::addr_of_mut!((*p).last_fullscreen_flag).write(3);
 
-        ptr::addr_of_mut!((*p).vm_worker).write(vm_worker);
-        ptr::addr_of_mut!((*p).pending_vm_frame_ms).write(0);
-        ptr::addr_of_mut!((*p).pending_vm_frame_ms_valid).write(false);
+                ptr::addr_of_mut!((*p).vm_worker).write(vm_worker);
+                ptr::addr_of_mut!((*p).pending_vm_frame_ms).write(0);
+                ptr::addr_of_mut!((*p).pending_vm_frame_ms_valid).write(false);
 
-        ptr::addr_of_mut!((*p).render_target).write(render_target);
-        ptr::addr_of_mut!((*p).resources).write(resources.clone());
-        ptr::addr_of_mut!((*p).surface).write(surface);
-        ptr::addr_of_mut!((*p).surface_config).write(surface_config);
-        ptr::addr_of_mut!((*p).prim_renderer).write(prim_renderer);
-        ptr::addr_of_mut!((*p).virtual_size).write(self.size);
-        ptr::addr_of_mut!((*p).render_tree).write(render_tree);
+                ptr::addr_of_mut!((*p).render_target).write(render_target);
+                ptr::addr_of_mut!((*p).resources).write(resources.clone());
+                ptr::addr_of_mut!((*p).surface).write(surface);
+                ptr::addr_of_mut!((*p).surface_config).write(surface_config);
 
-        ptr::addr_of_mut!((*p).dissolve_vertex_buffer).write(dissolve_vertex_buffer);
-        ptr::addr_of_mut!((*p).dissolve_index_buffer).write(dissolve_index_buffer);
-        ptr::addr_of_mut!((*p).dissolve_num_indices).write(dissolve_num_indices);
-        ptr::addr_of_mut!((*p).last_dissolve_type).write(DissolveType::None);
-        ptr::addr_of_mut!((*p).last_dissolve2_transitioning).write(false);
+                #[cfg(any(target_os = "ios", target_os = "android"))]
+                {
+                    ptr::addr_of_mut!((*p).wgpu_instance).write(None);
+                    ptr::addr_of_mut!((*p).wgpu_adapter).write(None);
+                }
+                ptr::addr_of_mut!((*p).prim_renderer).write(prim_renderer);
+                ptr::addr_of_mut!((*p).virtual_size).write(self.size);
+                ptr::addr_of_mut!((*p).render_tree).write(render_tree);
 
-        ptr::addr_of_mut!((*p).debug_hud).write(debug_hud);
-        ptr::addr_of_mut!((*p).hud_window).write(hud_window.clone());
-        ptr::addr_of_mut!((*p).hud_surface).write(hud_surface);
-        ptr::addr_of_mut!((*p).hud_surface_config).write(hud_surface_config);
-        ptr::addr_of_mut!((*p).hud_visible).write(false);
+                ptr::addr_of_mut!((*p).dissolve_vertex_buffer).write(dissolve_vertex_buffer);
+                ptr::addr_of_mut!((*p).dissolve_index_buffer).write(dissolve_index_buffer);
+                ptr::addr_of_mut!((*p).dissolve_num_indices).write(dissolve_num_indices);
+                ptr::addr_of_mut!((*p).last_dissolve_type).write(DissolveType::None);
+                ptr::addr_of_mut!((*p).last_dissolve2_transitioning).write(false);
 
-        ptr::addr_of_mut!((*p).debug_ring).write(debug_ring.clone());
-        ptr::addr_of_mut!((*p).debug_frame_no).write(0);
-        ptr::addr_of_mut!((*p).last_dt_ms).write(0.0);
-        ptr::addr_of_mut!((*p).hud_cursor_pos).write(None);
-        ptr::addr_of_mut!((*p).hud_pointer_down).write(false);
-        ptr::addr_of_mut!((*p).hud_scroll_delta_y).write(0.0);
+                ptr::addr_of_mut!((*p).debug_hud).write(debug_hud);
+                ptr::addr_of_mut!((*p).hud_window).write(hud_window.clone());
+                ptr::addr_of_mut!((*p).hud_surface).write(hud_surface);
+                ptr::addr_of_mut!((*p).hud_surface_config).write(hud_surface_config);
+                ptr::addr_of_mut!((*p).hud_visible).write(false);
+
+                ptr::addr_of_mut!((*p).debug_ring).write(debug_ring.clone());
+                ptr::addr_of_mut!((*p).debug_frame_no).write(0);
+                ptr::addr_of_mut!((*p).last_dt_ms).write(0.0);
+                ptr::addr_of_mut!((*p).hud_cursor_pos).write(None);
+                ptr::addr_of_mut!((*p).hud_pointer_down).write(false);
+                ptr::addr_of_mut!((*p).hud_scroll_delta_y).write(0.0);
 
 		        // Convert `Box<MaybeUninit<App>>` into `Box<App>` without relying on
 		        // `Box::assume_init()` (may be unavailable on older toolchains).
 		        let raw: *mut App = Box::into_raw(boxed).cast();
 		        Box::from_raw(raw)
-    }
-};
+            }
+        };
 
-app.setup();
+        app.setup();
 
         // Kick the first frame for pump-mode hosts.
         if let Some(w) = app.window.as_ref() {
@@ -1876,7 +2171,7 @@ app.setup();
             ((surface_size.1 as f64) * scale).round().max(1.0) as u32,
         );
 
-        let (resources, render_target, surface, surface_config) =
+        let (instance, adapter, resources, render_target, surface, surface_config) =
             futures::executor::block_on(AppBuilder::init_render_ios(ui_view, surface_size_px, self.size));
 
         let entry_point = self.parser.get_entry_point();
@@ -1953,6 +2248,17 @@ app.setup();
                 ptr::addr_of_mut!((*p).resources).write(resources.clone());
                 ptr::addr_of_mut!((*p).surface).write(surface);
                 ptr::addr_of_mut!((*p).surface_config).write(surface_config);
+
+                #[cfg(any(target_os = "ios", target_os = "android"))]
+                {
+                    ptr::addr_of_mut!((*p).wgpu_instance).write(Some(instance));
+                    ptr::addr_of_mut!((*p).wgpu_adapter).write(Some(adapter));
+                }
+
+                #[cfg(target_os = "android")]
+                {
+                    ptr::addr_of_mut!((*p).android_native_window).write(Some(native_window));
+                }
                 ptr::addr_of_mut!((*p).prim_renderer).write(prim_renderer);
                 ptr::addr_of_mut!((*p).virtual_size).write(self.size);
                 ptr::addr_of_mut!((*p).render_tree).write(render_tree);
@@ -1964,6 +2270,156 @@ app.setup();
                 ptr::addr_of_mut!((*p).last_dissolve2_transitioning).write(false);
 
                 // HUD is disabled in iOS host mode.
+                ptr::addr_of_mut!((*p).debug_hud).write(None);
+                ptr::addr_of_mut!((*p).hud_window).write(None);
+                ptr::addr_of_mut!((*p).hud_surface).write(None);
+                ptr::addr_of_mut!((*p).hud_surface_config).write(None);
+                ptr::addr_of_mut!((*p).hud_visible).write(false);
+
+                ptr::addr_of_mut!((*p).debug_ring).write(debug_ring.clone());
+                ptr::addr_of_mut!((*p).debug_frame_no).write(0);
+                ptr::addr_of_mut!((*p).last_dt_ms).write(0.0);
+                ptr::addr_of_mut!((*p).hud_cursor_pos).write(None);
+                ptr::addr_of_mut!((*p).hud_pointer_down).write(false);
+                ptr::addr_of_mut!((*p).hud_scroll_delta_y).write(0.0);
+
+                let raw: *mut App = Box::into_raw(boxed).cast();
+                Box::from_raw(raw)
+            }
+        };
+
+        app.setup();
+        Ok(app)
+    }
+
+    /// Build an instance for Android host-driven mode.
+    ///
+    /// The host (Kotlin/Java + SurfaceView/TextureView) owns the platform main loop and provides an
+    /// `ANativeWindow*` pointer (backed by a Vulkan/Metal backend through wgpu).
+    #[cfg(target_os = "android")]
+    pub fn build_android(
+        mut self,
+        native_window: NonNull<c_void>,
+        surface_size_px: (u32, u32),
+        native_scale_factor: f64,
+    ) -> anyhow::Result<Box<App>> {
+        // Mobile is always fullscreen.
+        self.world.set_can_fullscreen(true);
+        self.world.set_render_flag_local(2);
+
+        self.add_late_internal_systems_to_schedule();
+
+        let scale = if native_scale_factor.is_finite() && native_scale_factor > 0.0 {
+            native_scale_factor
+        } else {
+            1.0
+        };
+
+        // Keep a strong reference to the ANativeWindow across the wgpu Surface lifetime.
+        // Android may destroy/recreate the Java Surface/ANativeWindow asynchronously; if we don't
+        // acquire/release explicitly, wgpu can end up using a freed window (tagged-pointer abort).
+        unsafe { ANativeWindow_acquire(native_window.as_ptr()); }
+
+        let (instance, adapter, resources, render_target, surface, surface_config) =
+            futures::executor::block_on(AppBuilder::init_render_android(native_window, surface_size_px, self.size));
+
+        let entry_point = self.parser.get_entry_point();
+        let non_volatile_global_count = self.parser.get_non_volatile_global_count();
+        let volatile_global_count = self.parser.get_volatile_global_count();
+        GLOBAL.lock().unwrap().init_with(non_volatile_global_count, volatile_global_count);
+
+        self.script_engine.start_main(entry_point);
+        self.world.nls = self.parser.nls.clone();
+
+        // Cursor animations are not used in Android host-mode.
+        self.world.set_cursor_table(HashMap::new());
+
+        // Fullscreen quad used for dissolve overlays (virtual space, pixel coordinates).
+        let (dissolve_vertex_buffer, dissolve_index_buffer, dissolve_num_indices) = {
+            let w = self.size.0.max(1) as f32;
+            let h = self.size.1.max(1) as f32;
+            let vertices: [PosVertex; 4] = [
+                PosVertex { position: vec3(0.0, 0.0, 0.0) },
+                PosVertex { position: vec3(w, 0.0, 0.0) },
+                PosVertex { position: vec3(w, h, 0.0) },
+                PosVertex { position: vec3(0.0, h, 0.0) },
+            ];
+            let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
+
+            let vb = resources.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("rfvp dissolve quad VB"),
+                contents: bytemuck::cast_slice(&vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+            let ib = resources.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("rfvp dissolve quad IB"),
+                contents: bytemuck::cast_slice(&indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+            (vb, ib, indices.len() as u32)
+        };
+
+        let game_data = Arc::new(RwLock::new(self.world));
+        let debug_ring = log_ring::get().unwrap_or_else(|| log_ring::init(4096));
+        let vm_worker = VmWorker::spawn(game_data.clone(), self.parser, self.script_engine);
+
+        let prim_renderer = GpuPrimRenderer::new(resources.clone(), self.size);
+        let layer_machine = SceneMachine {
+            current_scene: self.scene,
+        };
+        let render_tree = RenderTree::new();
+
+        // Avoid constructing large `App` values on the stack.
+        let mut app: Box<App> = {
+            use std::mem::MaybeUninit;
+            use std::ptr;
+
+            let mut boxed = Box::<MaybeUninit<App>>::new_uninit();
+            unsafe {
+                let p: *mut App = boxed.as_mut_ptr().cast();
+
+                ptr::addr_of_mut!((*p).config).write(self.config);
+                ptr::addr_of_mut!((*p).game_data).write(game_data);
+                ptr::addr_of_mut!((*p).title).write(self.title);
+                ptr::addr_of_mut!((*p).scheduler).write(self.scheduler);
+                ptr::addr_of_mut!((*p).layer_machine).write(layer_machine);
+                ptr::addr_of_mut!((*p).window).write(None);
+                ptr::addr_of_mut!((*p).native_scale_factor).write(scale);
+                ptr::addr_of_mut!((*p).pump_mode).write(true);
+                ptr::addr_of_mut!((*p).windowed_restore).write(None);
+                ptr::addr_of_mut!((*p).last_fullscreen_flag).write(3);
+
+                ptr::addr_of_mut!((*p).vm_worker).write(vm_worker);
+                ptr::addr_of_mut!((*p).pending_vm_frame_ms).write(0);
+                ptr::addr_of_mut!((*p).pending_vm_frame_ms_valid).write(false);
+
+                ptr::addr_of_mut!((*p).render_target).write(render_target);
+                ptr::addr_of_mut!((*p).resources).write(resources.clone());
+                ptr::addr_of_mut!((*p).surface).write(surface);
+                ptr::addr_of_mut!((*p).surface_config).write(surface_config);
+
+                #[cfg(any(target_os = "ios", target_os = "android"))]
+                {
+                    ptr::addr_of_mut!((*p).wgpu_instance).write(Some(instance));
+                    ptr::addr_of_mut!((*p).wgpu_adapter).write(Some(adapter));
+                }
+
+                #[cfg(target_os = "android")]
+                {
+                    ptr::addr_of_mut!((*p).android_native_window).write(Some(native_window));
+                }
+
+                ptr::addr_of_mut!((*p).prim_renderer).write(prim_renderer);
+                ptr::addr_of_mut!((*p).virtual_size).write(self.size);
+                ptr::addr_of_mut!((*p).render_tree).write(render_tree);
+
+                ptr::addr_of_mut!((*p).dissolve_vertex_buffer).write(dissolve_vertex_buffer);
+                ptr::addr_of_mut!((*p).dissolve_index_buffer).write(dissolve_index_buffer);
+                ptr::addr_of_mut!((*p).dissolve_num_indices).write(dissolve_num_indices);
+                ptr::addr_of_mut!((*p).last_dissolve_type).write(DissolveType::None);
+                ptr::addr_of_mut!((*p).last_dissolve2_transitioning).write(false);
+
+                // HUD is disabled in Android host mode.
                 ptr::addr_of_mut!((*p).debug_hud).write(None);
                 ptr::addr_of_mut!((*p).hud_window).write(None);
                 ptr::addr_of_mut!((*p).hud_surface).write(None);
