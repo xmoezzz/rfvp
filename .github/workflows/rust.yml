@@ -110,6 +110,77 @@ jobs:
             dist/macos/RFVP.app
           if-no-files-found: error
 
+  ios:
+    name: ios (xcframework + unsigned ipa)
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode (latest stable)
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Setup Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install build tools
+        run: |
+          brew install xcodegen
+
+      - name: Build iOS artifacts (script)
+        run: |
+          set -euo pipefail
+
+          # avoid .DS_Store in zips
+          export COPYFILE_DISABLE=1
+
+          # Prefer your existing scripts. Fail if none found.
+          if [[ -f platform/scripts/package_ios_ipa.sh ]]; then
+            chmod +x platform/scripts/package_ios_ipa.sh
+            ./platform/scripts/package_ios_ipa.sh
+          elif [[ -f platform/scripts/package_ios.sh ]]; then
+            chmod +x platform/scripts/package_ios.sh
+            ./platform/scripts/package_ios.sh
+          else
+            echo "ERROR: No iOS packaging script found. Expected platform/scripts/package_ios_ipa.sh (or package_ios.sh)" >&2
+            exit 1
+          fi
+
+      - name: Collect outputs
+        run: |
+          set -euo pipefail
+          mkdir -p dist/ios_ci
+
+          # IPA
+          find dist -maxdepth 4 -type f -name "*.ipa" -print -exec cp -v "{}" dist/ios_ci/ \; || true
+
+          # xcframework (optional but useful)
+          find platform -maxdepth 6 -type d -name "*.xcframework" -print | head -n 50 || true
+          # If you want to upload xcframework too, copy it into dist/ios_ci (can be large).
+          # Example (only if exists):
+          if [[ -d platform/ios/RFVPLauncher/Vendor/RFVP.xcframework ]]; then
+            ditto platform/ios/RFVPLauncher/Vendor/RFVP.xcframework dist/ios_ci/RFVP.xcframework
+          fi
+
+          echo "=== dist/ios_ci ==="
+          find dist/ios_ci -maxdepth 3 -print
+
+          # Require IPA at least
+          test "$(find dist/ios_ci -maxdepth 1 -name '*.ipa' | wc -l)" -ge 1
+
+      - name: Upload artifact (iOS)
+        uses: actions/upload-artifact@v4
+        with:
+          name: rfvp-ios
+          path: dist/ios_ci/**
+          if-no-files-found: error
+
   windows:
     name: windows (msvc x64 + arm64)
     runs-on: windows-2022
@@ -163,10 +234,102 @@ jobs:
             target\aarch64-pc-windows-msvc\release\${{ env.RFVP_CARGO_PKG }}.exe
           if-no-files-found: error
 
+  android:
+    name: android (apk)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java (Gradle)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Setup Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android components (platform/ndk)
+        run: |
+          set -euo pipefail
+          sdkmanager --version
+
+          # Keep your scripts happy
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=${ANDROID_SDK_ROOT}" >> "$GITHUB_ENV"
+
+          yes | sdkmanager --licenses >/dev/null
+
+          # Platform + build-tools + NDK (choose a known-good recent NDK)
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-28" \
+            "build-tools;34.0.0" \
+            "ndk;26.3.11579264"
+
+          echo "Installed NDKs:"
+          ls -la "${ANDROID_SDK_ROOT}/ndk" || true
+
+      - name: Build Android APK (script)
+        env:
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
+          VARIANT: debug
+          ABIS: "arm64-v8a x86_64"
+          ANDROID_PLATFORM: "28"
+        run: |
+          set -euo pipefail
+
+          # Prefer your existing scripts; fail if none found.
+          if [[ -f scripts/android/build_android_apk.sh ]]; then
+            chmod +x scripts/android/build_android_apk.sh
+            ./scripts/android/build_android_apk.sh
+          elif [[ -f platform/scripts/package_android_apk.sh ]]; then
+            chmod +x platform/scripts/package_android_apk.sh
+            ./platform/scripts/package_android_apk.sh
+          else
+            echo "ERROR: No Android packaging script found. Expected scripts/android/build_android_apk.sh or platform/scripts/package_android_apk.sh" >&2
+            exit 1
+          fi
+
+      - name: Collect outputs
+        run: |
+          set -euo pipefail
+          mkdir -p dist/android_ci
+
+          # Most common output location
+          find platform/android -type f -path "*/build/outputs/apk/*/*.apk" -print -exec cp -v "{}" dist/android_ci/ \; || true
+          find platform/android -type f -path "*/build/outputs/apk/*.apk" -print -exec cp -v "{}" dist/android_ci/ \; || true
+
+          # Some setups output under platform/android/app/build/outputs/apk/...
+          find platform/android/app -type f -name "*.apk" -path "*/build/outputs/apk/*" -print -exec cp -v "{}" dist/android_ci/ \; || true
+
+          echo "=== dist/android_ci ==="
+          find dist/android_ci -maxdepth 2 -print
+
+          test "$(find dist/android_ci -maxdepth 1 -name '*.apk' | wc -l)" -ge 1
+
+      - name: Upload artifact (Android)
+        uses: actions/upload-artifact@v4
+        with:
+          name: rfvp-android
+          path: dist/android_ci/*.apk
+          if-no-files-found: error
+
   release:
     name: Publish GitHub Release (tags only)
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [linux, macos, windows]
+    needs: [linux, macos, ios, windows, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
