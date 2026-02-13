@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 use anyhow::{anyhow, Context, Result};
 
@@ -274,7 +274,7 @@ impl VideoPlayerManager {
         pm.unlink_prim(MOVIE_SPRT_PRIM_ID);
         pm.unlink_prim(MOVIE_GROUP_PRIM_ID);
 
-        // Stop decoder thread, audio, and delete the temp mp4 file.
+        // Stop decoder thread and audio. Movie files are managed by the caller (e.g., persistent cache).
         if let Some(pb) = self.playback.take() {
             pb.stop_and_cleanup();
         }
@@ -310,21 +310,6 @@ impl VideoPlayerManager {
     }
 }
 
-fn write_temp_mp4(mp4_bytes: &[u8]) -> Result<PathBuf> {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let pid = std::process::id();
-
-    let name = format!("rfvp_movie_{pid}_{now}.mp4");
-    let path = std::env::temp_dir().join(name);
-
-    std::fs::write(&path, mp4_bytes)
-        .with_context(|| format!("write temp mp4 {}", path.display()))?;
-
-    Ok(path)
-}
 
 /// Best-effort: extract the first AAC audio track in the MP4 and decode it to WAV(PCM16LE).
 ///

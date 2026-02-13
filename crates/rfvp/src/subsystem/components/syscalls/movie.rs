@@ -1,8 +1,17 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
+
+use std::path::PathBuf;
+use std::fs;
+use std::io;
+use std::path::Component;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use directories::ProjectDirs;
 
 use crate::script::Variant;
 use crate::subsystem::resources::videoplayer::MovieMode;
 use crate::subsystem::world::GameData;
+use crate::utils::file::app_base_path;
 
 use super::Syscaller;
 
@@ -27,7 +36,7 @@ pub fn movie_play(game_data: &mut GameData, path: &Variant, flag: &Variant) -> R
 
     // Cross-platform restriction: old formats (wmv/mpg) are remapped to mp4 (H264/AAC).
     let mapped = map_legacy_movie_ext_to_mp4(path);
-    let mapped_path = std::path::Path::new(&mapped);
+    let mapped = normalize_vfs_path(&mapped);
 
     let (w, h) = (game_data.get_width() as u32, game_data.get_height() as u32);
 
@@ -43,16 +52,30 @@ pub fn movie_play(game_data: &mut GameData, path: &Variant, flag: &Variant) -> R
         None
     };
 
+    // `video_sys::VideoStream::open()` requires a real filesystem path.
+    // Movie paths coming from scripts are often VFS logical paths (e.g. "movie/xxx.mp4").
+    // We resolve as:
+    // 1) `<game_root>/<mapped>` if it exists (0-copy)
+    // 2) persistent cache file if previously extracted
+    // 3) extract once from VFS/pack into persistent cache, then open
+    let real_path = match resolve_movie_real_path(game_data, &mapped) {
+        Ok(p) => p,
+        Err(e) => {
+            log::error!("Movie: resolve failed for {} (orig {}): {e:?}", mapped, path);
+            return Ok(Variant::Nil);
+        }
+    };
+
     // NOTE: In the original engine, Movie returns True on success and Nil on failure.
     if let Err(e) = game_data.video_manager.start(
-        &mapped_path,
+        &real_path,
         mode,
         w,
         h,
         &mut game_data.motion_manager,
         audio_manager,
     ) {
-        log::error!("Movie: start failed for {} (orig {}): {e:?}", mapped, path);
+        log::error!("Movie: start failed for {} (orig {}): {e:?}", real_path.display(), path);
         return Ok(Variant::Nil);
     }
 
@@ -100,6 +123,109 @@ pub fn movie_stop(game_data: &mut GameData) -> Result<Variant> {
     // If Movie was modal, allow the engine to resume immediately.
     game_data.set_halt(false);
     Ok(Variant::Nil)
+}
+
+
+fn normalize_vfs_path(p: &str) -> String {
+    // Scripts usually use forward slashes, but some ports may pass backslashes.
+    // Normalize to forward slashes for VFS resolution.
+    let p = p.replace('\\', "/");
+    // Strip leading "./".
+    let p = p.strip_prefix("./").unwrap_or(&p);
+    p.to_string()
+}
+
+fn safe_rel_path_from_vfs(path: &str) -> anyhow::Result<PathBuf> {
+    // Prevent directory traversal when writing cache files.
+    let mut out = PathBuf::new();
+    for c in PathBuf::from(path).components() {
+        match c {
+            Component::Normal(s) => out.push(s),
+            Component::CurDir => {}
+            // Reject absolute paths, prefixes, and parent traversal.
+            Component::RootDir | Component::Prefix(_) | Component::ParentDir => {
+                anyhow::bail!("invalid vfs path for cache: {path}");
+            }
+        }
+    }
+    if out.as_os_str().is_empty() {
+        anyhow::bail!("empty vfs path for cache: {path}");
+    }
+    Ok(out)
+}
+
+fn video_cache_root_dir() -> PathBuf {
+    // Preferred: `<game_root>/.rfvp_cache/video`.
+    // Fallback: OS-specific cache dir (writable on mobile).
+    let preferred = app_base_path().join(".rfvp_cache").join("video").get_path().clone();
+    if fs::create_dir_all(&preferred).is_ok() {
+        return preferred;
+    }
+
+    let fallback = ProjectDirs::from("com", "xmoezzz", "rfvp")
+        .map(|d| d.cache_dir().join("video"))
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+            .join(".rfvp_cache")
+            .join("video"));
+    let _ = fs::create_dir_all(&fallback);
+    fallback
+}
+
+fn resolve_movie_real_path(game_data: &GameData, mapped: &str) -> anyhow::Result<PathBuf> {
+    // 1) Direct filesystem path under game root.
+    let fs_path = app_base_path().join(mapped).get_path().clone();
+    if fs_path.exists() {
+        return Ok(fs_path);
+    }
+
+    // 2) Persistent cache.
+    let cache_root = video_cache_root_dir();
+    let rel = safe_rel_path_from_vfs(mapped)?;
+    let cache_path = cache_root.join(rel);
+
+    if cache_path.exists() {
+        return Ok(cache_path);
+    }
+
+    // 3) Extract once from VFS into the persistent cache.
+    if let Some(parent) = cache_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("create cache dir {}", parent.display()))?;
+    }
+
+    let pid = std::process::id();
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+    let tmp_name = match cache_path.file_name().and_then(|s| s.to_str()) {
+        Some(name) => format!("{name}.part_{pid}_{now}"),
+        None => format!("movie.part_{pid}_{now}"),
+    };
+    let tmp_path = cache_path.with_file_name(tmp_name);
+
+    {
+        let mut src = game_data.vfs.open_stream(mapped)
+            .with_context(|| format!("vfs.open_stream({mapped})"))?;
+        let mut dst = fs::File::create(&tmp_path)
+            .with_context(|| format!("create cache tmp {}", tmp_path.display()))?;
+        io::copy(&mut src, &mut dst)
+            .with_context(|| format!("copy movie bytes to {}", tmp_path.display()))?;
+        // Best-effort: ensure bytes are on disk before rename.
+        let _ = dst.sync_all();
+    }
+
+    match fs::rename(&tmp_path, &cache_path) {
+        Ok(()) => {}
+        Err(e) if cache_path.exists() => {
+            // Another thread/process may have populated the cache.
+            let _ = fs::remove_file(&tmp_path);
+            log::debug!("Movie cache race: {} already exists ({e:?})", cache_path.display());
+        }
+        Err(e) => {
+            let _ = fs::remove_file(&tmp_path);
+            return Err(anyhow::anyhow!("rename cache tmp {} -> {}: {e}", tmp_path.display(), cache_path.display()));
+        }
+    }
+
+    Ok(cache_path)
 }
 
 fn map_legacy_movie_ext_to_mp4(path: &str) -> String {
