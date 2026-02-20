@@ -4,6 +4,7 @@ use std::io::{Result as IoResult, Write};
 use crate::cfg::{build_cfg, BasicBlock, BlockTerm};
 use crate::decode::{Function, Instruction, Op};
 use crate::parser::Parser;
+use crate::lua_opt::BlockEmitter;
 
 fn func_name(addr: u32) -> String {
     format!("f_{:08X}", addr)
@@ -490,66 +491,41 @@ fn emit_function<W: Write>(
 ) -> IoResult<()> {
     let cfg = build_cfg(func, callee_args);
 
-    // Signature
-    let mut sig = String::new();
-    if is_entry {
-        write!(&mut sig, "function entry_point(").ok();
-    } else {
-        write!(&mut sig, "function {}(", func_name(func.start_addr)).ok();
-    }
-    
-    for i in 0..(func.args as usize) {
-        if i > 0 {
-            sig.push_str(", ");
-        }
-        sig.push_str(&format!("a{}", i));
-    }
-    sig.push(')');
-    writeln!(w, "{}", sig)?;
-
-    // Locals
-    if func.locals > 0 {
-        let mut ls = String::new();
-        ls.push_str("  local ");
-        for i in 0..(func.locals as usize) {
-            if i > 0 {
-                ls.push_str(", ");
-            }
-            ls.push_str(&format!("l{}", i));
-        }
-        writeln!(w, "{}", ls)?;
-    }
-
-    writeln!(w, "  local __ret = nil")?;
-
-    // Operand stack slots
-    if cfg.max_depth > 0 {
-        let mut ss = String::new();
-        ss.push_str("  local ");
-        for i in 0..cfg.max_depth {
-            if i > 0 {
-                ss.push_str(", ");
-            }
-            ss.push_str(&s(i));
-        }
-        writeln!(w, "{}", ss)?;
-    }
-
-    // State-machine dispatcher: no labels, structured control only.
+    // Generate the dispatcher body first, collecting which operand stack slots (S*)
+    // are actually needed after expression reconstruction.
     let entry_pc = cfg.blocks.first().map(|b| b.id).unwrap_or(0);
-    writeln!(w, "  local __pc = {}", entry_pc)?;
-    writeln!(w, "  while true do")?;
+    let mut used_s: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
+
+    // Frame locals (l*) referenced by PushStack/PopStack are declared; unused ones are omitted.
+    let mut used_l: std::collections::BTreeSet<usize> = std::collections::BTreeSet::new();
+    for inst in &func.insts {
+        match inst.op {
+            Op::PushStack(idx) | Op::PopStack(idx) => {
+                if idx >= 0 {
+                    let u = idx as u8;
+                    if u >= func.args {
+                        used_l.insert((u - func.args) as usize);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut body: Vec<u8> = Vec::new();
+    writeln!(&mut body, "  local __pc = {}", entry_pc)?;
+    writeln!(&mut body, "  while true do")?;
 
     for (i, b) in cfg.blocks.iter().enumerate() {
         if i == 0 {
-            writeln!(w, "    if __pc == {} then", b.id)?;
+            writeln!(&mut body, "    if __pc == {} then", b.id)?;
         } else {
-            writeln!(w, "    elseif __pc == {} then", b.id)?;
+            writeln!(&mut body, "    elseif __pc == {} then", b.id)?;
         }
 
         let indent_case = "      ";
         emit_block_header(
-            w,
+            &mut body,
             indent_case,
             b.id,
             b.start,
@@ -560,32 +536,77 @@ fn emit_function<W: Write>(
             b.is_loop_header,
         )?;
 
-        let mut sp = b.in_depth;
-
         let term_idx = if matches!(b.term, BlockTerm::Jmp | BlockTerm::Jz | BlockTerm::Ret | BlockTerm::RetV) {
             b.inst_indices.clone().last()
         } else {
             None
         };
 
+        let mut be = BlockEmitter::new(indent_case, func.args, callee_args, &mut used_s);
+        be.init_stack(b.in_depth);
         for ii in b.inst_indices.clone() {
             if Some(ii) == term_idx {
                 continue;
             }
-            let inst = &func.insts[ii];
-            emit_inst(w, indent_case, func, inst, &mut sp, callee_args)?;
+            be.emit_inst(&func.insts[ii]);
         }
-
-        emit_block_terminator(w, indent_case, b, &mut sp)?;
+        be.emit_terminator(b.term, &b.succs);
+        body.extend_from_slice(be.take_output().as_bytes());
     }
 
-    writeln!(w, "    else")?;
-    writeln!(w, "      return")?;
-    writeln!(w, "    end")?;
-    writeln!(w, "  end")?;
-    writeln!(w, "end")?;
-    writeln!(w)?;
+    writeln!(&mut body, "    else")?;
+    writeln!(&mut body, "      return")?;
+    writeln!(&mut body, "    end")?;
+    writeln!(&mut body, "  end")?;
+    writeln!(&mut body, "end")?;
+    writeln!(&mut body)?;
 
+    // Signature
+    let mut sig = String::new();
+    if is_entry {
+        write!(&mut sig, "function entry_point(").ok();
+    } else {
+        write!(&mut sig, "function {}(", func_name(func.start_addr)).ok();
+    }
+
+    for i in 0..(func.args as usize) {
+        if i > 0 {
+            sig.push_str(", ");
+        }
+        sig.push_str(&format!("a{}", i));
+    }
+    sig.push(')');
+    writeln!(w, "{}", sig)?;
+
+    // Locals (only those referenced).
+    if !used_l.is_empty() {
+        let mut ls = String::new();
+        ls.push_str("  local ");
+        for (i, lidx) in used_l.iter().enumerate() {
+            if i > 0 {
+                ls.push_str(", ");
+            }
+            ls.push_str(&format!("l{}", lidx));
+        }
+        writeln!(w, "{}", ls)?;
+    }
+
+    writeln!(w, "  local __ret = nil")?;
+
+    // Operand stack slots (only those referenced by the optimized body).
+    if !used_s.is_empty() {
+        let mut ss = String::new();
+        ss.push_str("  local ");
+        for (i, sidx) in used_s.iter().enumerate() {
+            if i > 0 {
+                ss.push_str(", ");
+            }
+            ss.push_str(&s(*sidx));
+        }
+        writeln!(w, "{}", ss)?;
+    }
+
+    w.write_all(&body)?;
     Ok(())
 }
 

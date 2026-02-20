@@ -7,6 +7,7 @@ use clap::Parser as ClapParser;
 mod decode;
 mod cfg;
 mod lua;
+mod lua_opt;
 mod opcode;
 mod parser;
 
