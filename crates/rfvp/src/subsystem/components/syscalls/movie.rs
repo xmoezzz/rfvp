@@ -34,9 +34,11 @@ pub fn movie_play(game_data: &mut GameData, path: &Variant, flag: &Variant) -> R
     // IMPORTANT: match original engine: nil vs non-nil, not integer truthiness.
     let is_layer_effect = flag.is_nil();
 
-    // Cross-platform restriction: old formats (wmv/mpg) are remapped to mp4 (H264/AAC).
-    let mapped = map_legacy_movie_ext_to_mp4(path);
-    let mapped = normalize_vfs_path(&mapped);
+    // Movie file resolution:
+    // - For `.wmv`/`.asf`: prefer the original extension (native WMV pipeline), then fall back to `.mp4`.
+    // - For `.mpg`/`.mpeg`: keep historical behavior, map to `.mp4`.
+    // - Otherwise: use the original path.
+    let candidates = movie_path_candidates(path);
 
     let (w, h) = (game_data.get_width() as u32, game_data.get_height() as u32);
 
@@ -52,30 +54,47 @@ pub fn movie_play(game_data: &mut GameData, path: &Variant, flag: &Variant) -> R
         None
     };
 
-    // `video_sys::VideoStream::open()` requires a real filesystem path.
-    // Movie paths coming from scripts are often VFS logical paths (e.g. "movie/xxx.mp4").
-    // We resolve as:
-    // 1) `<game_root>/<mapped>` if it exists (0-copy)
+    // `VideoPlayerManager::start()` requires a real filesystem path.
+    // Movie paths coming from scripts are often VFS logical paths.
+    // We resolve each candidate as:
+    // 1) `<game_root>/<candidate>` if it exists (0-copy)
     // 2) persistent cache file if previously extracted
     // 3) extract once from VFS/pack into persistent cache, then open
-    let real_path = match resolve_movie_real_path(game_data, &mapped) {
-        Ok(p) => p,
-        Err(e) => {
-            log::error!("Movie: resolve failed for {} (orig {}): {e:?}", mapped, path);
-            return Ok(Variant::Nil);
-        }
-    };
+    let mut started = false;
+    for cand in candidates {
+        let cand = normalize_vfs_path(&cand);
+        let real_path = match resolve_movie_real_path(game_data, &cand) {
+            Ok(p) => p,
+            Err(e) => {
+                log::debug!("Movie: resolve failed for {} (orig {}): {e:?}", cand, path);
+                continue;
+            }
+        };
 
-    // NOTE: In the original engine, Movie returns True on success and Nil on failure.
-    if let Err(e) = game_data.video_manager.start(
-        &real_path,
-        mode,
-        w,
-        h,
-        &mut game_data.motion_manager,
-        audio_manager,
-    ) {
-        log::error!("Movie: start failed for {} (orig {}): {e:?}", real_path.display(), path);
+        match game_data.video_manager.start(
+            &real_path,
+            mode,
+            w,
+            h,
+            &mut game_data.motion_manager,
+            audio_manager.clone(),
+        ) {
+            Ok(()) => {
+                started = true;
+                break;
+            }
+            Err(e) => {
+                log::debug!(
+                    "Movie: start failed for {} (orig {}): {e:?}",
+                    real_path.display(),
+                    path
+                );
+                continue;
+            }
+        }
+    }
+
+    if !started {
         return Ok(Variant::Nil);
     }
 
@@ -228,16 +247,34 @@ fn resolve_movie_real_path(game_data: &GameData, mapped: &str) -> anyhow::Result
     Ok(cache_path)
 }
 
-fn map_legacy_movie_ext_to_mp4(path: &str) -> String {
+fn movie_path_candidates(path: &str) -> Vec<String> {
     let lower = path.to_ascii_lowercase();
-    if lower.ends_with(".wmv") || lower.ends_with(".mpg") || lower.ends_with(".mpeg") {
-        if let Some(idx) = path.rfind('.') {
-            let mut s = path.to_string();
-            s.replace_range(idx.., ".mp4");
-            return s;
+
+    fn replace_ext(p: &str, new_ext: &str) -> String {
+        if let Some(idx) = p.rfind('.') {
+            let mut s = p.to_string();
+            s.replace_range(idx.., &format!(".{new_ext}"));
+            s
+        } else {
+            format!("{p}.{new_ext}")
         }
     }
-    path.to_string()
+
+    // Keep historical behavior for mpg/mpeg (always remap to mp4).
+    if lower.ends_with(".mpg") || lower.ends_with(".mpeg") {
+        return vec![replace_ext(path, "mp4")];
+    }
+
+    // Prefer native WMV pipeline, then fall back to mp4.
+    if lower.ends_with(".wmv") || lower.ends_with(".asf") {
+        let mp4 = replace_ext(path, "mp4");
+        if mp4 != path {
+            return vec![path.to_string(), mp4];
+        }
+        return vec![path.to_string()];
+    }
+
+    vec![path.to_string()]
 }
 
 pub struct Movie;

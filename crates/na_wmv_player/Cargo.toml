@@ -1,0 +1,33 @@
+[package]
+name = "wmv-decoder"
+version = "0.2.0"
+edition = "2021"
+
+[lib]
+name = "wmv_decoder"
+path = "src/lib.rs"
+crate-type = ["rlib", "cdylib", "staticlib"]
+
+[dependencies]
+byteorder = "1.5"
+thiserror = "1.0"
+log = "0.4"
+
+crossbeam-channel = "0.5"
+pollster = "0.3"
+winit = { version = "0.29", features = ["rwh_05"] }
+wgpu = "0.19"
+bytemuck = { version = "1.16", features = ["derive"] }
+cpal = "0.15"
+ringbuf = "0.4"
+anyhow = "1.0"
+env_logger = "0.10"
+png = "0.17"
+
+[[bin]]
+name = "wmv-decoder"
+path = "src/bin/wmv_decoder_cli.rs"
+
+[[bin]]
+name = "wmv-player-wgpu"
+path = "src/bin/wmv_player_wgpu.rs"
