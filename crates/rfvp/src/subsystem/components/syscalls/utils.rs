@@ -28,11 +28,11 @@ pub fn break_point(_game_data: &mut GameData) -> Result<Variant> {
 }
 
 pub fn float_to_int(_game_data: &mut GameData, value: &Variant) -> Result<Variant> {
-    let value = if let Variant::Int(value) = value {
-        *value
+    let value = if let Variant::Float(value) = value {
+        *value as i32
     } else {
-        log::error!("float_to_int: Invalid value type");
-        return Ok(Variant::Nil);
+        log::warn!("float_to_int: Invalid value type");
+        return Ok(Variant::Int(0));
     };
 
     Ok(Variant::Int(value))
