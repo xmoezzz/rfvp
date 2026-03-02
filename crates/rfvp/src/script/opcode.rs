@@ -134,9 +134,12 @@ impl TryFrom<&str> for Opcode {
             x if x == "set_e" => Ok(Opcode::SetE),
             x if x == "set_ne" => Ok(Opcode::SetNE),
             x if x == "set_g" => Ok(Opcode::SetG),
-            x if x == "set_le" => Ok(Opcode::SetLE),
+            // NOTE: opcode 0x25 is misnamed as `SetLE` in code, but its engine behavior is `>=`.
+            // Keep the opcode numeric value intact, but map the mnemonic to the correct meaning.
+            x if x == "set_ge" => Ok(Opcode::SetLE),
             x if x == "set_l" => Ok(Opcode::SetL),
-            x if x == "set_ge" => Ok(Opcode::SetGE),
+            // NOTE: opcode 0x27 is misnamed as `SetGE` in code, but its engine behavior is `<=`.
+            x if x == "set_le" => Ok(Opcode::SetGE),
             _ => Err(()),
         }
     }
@@ -182,9 +185,11 @@ impl ToString for Opcode {
             Opcode::SetE => "set_e",
             Opcode::SetNE => "set_ne",
             Opcode::SetG => "set_g",
-            Opcode::SetLE => "set_le",
+            // NOTE: opcode 0x25 is misnamed as `SetLE` in code, but its engine behavior is `>=`.
+            Opcode::SetLE => "set_ge",
             Opcode::SetL => "set_l",
-            Opcode::SetGE => "set_ge",
+            // NOTE: opcode 0x27 is misnamed as `SetGE` in code, but its engine behavior is `<=`.
+            Opcode::SetGE => "set_le",
         }.to_string()
     }
 }

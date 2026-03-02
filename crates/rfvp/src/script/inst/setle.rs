@@ -23,7 +23,8 @@ impl OpcodeBase for SetleInst {
     }
 
     fn mnemonic(&self) -> &'static str {
-        "setle"
+        // NOTE: opcode 0x25 behavior is `a >= b` (engine correct); keep semantics unchanged.
+        "setge"
     }
 
     fn disassemble(&self) -> String {

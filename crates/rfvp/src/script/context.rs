@@ -900,7 +900,7 @@ impl Context {
         Ok(())
     }
 
-    /// 0x25 setle
+    /// 0x25 setge
     /// set the top of the stack to true if the top two values on the stack are greater or equal
     pub fn setle(&mut self) -> Result<()> {
         self.cursor += 1;
@@ -926,7 +926,7 @@ impl Context {
         Ok(())
     }
 
-    /// 0x27 setge
+    /// 0x27 setle
     /// set the top of the stack to true if the top two values on the stack are less or equal
     pub fn setge(&mut self) -> Result<()> {
         self.cursor += 1;
