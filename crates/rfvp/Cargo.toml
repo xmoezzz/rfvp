@@ -51,7 +51,7 @@ rand = { version = "0.8.5", features = ["small_rng"] }
 lazy_static = "1.4.0"
 fontdue = "0.9.3"
 mp4 = "0.14.0"
-video-sys = "0.1.0"
+video-sys = { version = "0.1.0", optional = true }
 
 env_logger = "0.11.3"
 egui = "0.27.2"
@@ -73,7 +73,7 @@ wmv-decoder = { path = "../na_wmv_player" }
 na_mpeg2_decoder = { path = "../na_mpeg2_decoder" }
 crossbeam-channel = "0.5"
 
-symphonia = { version = "0.5", default-features = false, features = ["aac", "isomp4"] }
+symphonia = { version = "0.5", default-features = false, features = ["aac", "isomp4"], optional = true }
 
 ico = "0.3"
 riff = "2.0.0"
@@ -85,6 +85,13 @@ regex = "1.11.2"
 directories = "6.0.0"
 zip = "7.2.0"
 uuid = "1.19.0"
+
+[features]
+# Keep MP4 support enabled by default for backward compatibility.
+default = ["mp4"]
+
+# MP4 movie playback backend (video-sys + symphonia for AAC audio).
+mp4 = ["dep:video-sys", "dep:symphonia"]
 
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = { version = "0.6", features = ["game-activity"] }

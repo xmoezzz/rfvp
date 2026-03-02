@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(feature = "mp4")]
+use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -16,13 +18,21 @@ use crate::rfvp_audio::AudioManager;
 
 use na_mpeg2_decoder::{MpegAvEvent, MpegAvPipeline};
 
+#[cfg(feature = "mp4")]
 use symphonia::core::audio::{SampleBuffer, SignalSpec};
+#[cfg(feature = "mp4")]
 use symphonia::core::codecs::DecoderOptions;
+#[cfg(feature = "mp4")]
 use symphonia::core::errors::Error as SymphoniaError;
+#[cfg(feature = "mp4")]
 use symphonia::core::formats::FormatOptions;
+#[cfg(feature = "mp4")]
 use symphonia::core::io::MediaSourceStream;
+#[cfg(feature = "mp4")]
 use symphonia::core::meta::MetadataOptions;
+#[cfg(feature = "mp4")]
 use symphonia::core::probe::Hint;
+#[cfg(feature = "mp4")]
 use symphonia::default::{get_codecs, get_probe};
 
 use super::motion_manager::MotionManager;
@@ -46,6 +56,7 @@ pub enum MovieMode {
     LayerNoAudio,
 }
 
+#[cfg(feature = "mp4")]
 #[derive(Debug)]
 struct Mp4Playback {
     stream: video_sys::VideoStream,
@@ -64,6 +75,7 @@ struct Mp4Playback {
     audio_started: bool,
 }
 
+#[cfg(feature = "mp4")]
 impl Mp4Playback {
     fn open_from_mp4_bytes(
         mp4_path: impl AsRef<Path>,
@@ -673,6 +685,7 @@ impl MpegPlayback {
 
 #[derive(Debug)]
 enum Playback {
+    #[cfg(feature = "mp4")]
     Mp4(Mp4Playback),
     Wmv(WmvPlayback),
     Mpeg(MpegPlayback),
@@ -753,7 +766,16 @@ impl VideoPlayerManager {
                 audio_manager,
             )?)
         } else {
-            Playback::Mp4(Mp4Playback::open_from_mp4_bytes(p, mode, audio_manager)?)
+            #[cfg(feature = "mp4")]
+            {
+                Playback::Mp4(Mp4Playback::open_from_mp4_bytes(p, mode, audio_manager)?)
+            }
+            #[cfg(not(feature = "mp4"))]
+            {
+                return Err(anyhow!(
+                    "mp4 movie backend is disabled (build without feature \"mp4\")"
+                ));
+            }
         };
 
         self.playing = true;
@@ -780,6 +802,7 @@ impl VideoPlayerManager {
         };
 
         match pb {
+            #[cfg(feature = "mp4")]
             Playback::Mp4(mp4) => {
                 if let Some(frame) = mp4.next_due_frame() {
                     if frame.pts_us != mp4.last_presented_pts {
@@ -853,6 +876,7 @@ impl VideoPlayerManager {
 
         if let Some(pb) = self.playback.take() {
             match pb {
+                #[cfg(feature = "mp4")]
                 Playback::Mp4(mp4) => mp4.stop_and_cleanup(),
                 Playback::Wmv(wmv) => wmv.stop_and_cleanup(),
                 Playback::Mpeg(mpeg) => mpeg.stop_and_cleanup(),
@@ -1051,6 +1075,7 @@ fn decode_mpeg_audio_to_wav_bytes(mpeg_path: impl AsRef<Path>) -> Result<Option<
 /// Best-effort: extract the first AAC audio track in the MP4 and decode it to WAV(PCM16LE).
 ///
 /// Returns `Ok(None)` if no decodable audio track is present.
+#[cfg(feature = "mp4")]
 fn decode_mp4_audio_to_wav_bytes(mp4_path: impl AsRef<Path>) -> Result<Option<Vec<u8>>> {
     // Hint Symphonia that this is MP4.
     let mut hint = Hint::new();
