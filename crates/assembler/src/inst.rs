@@ -355,6 +355,14 @@ impl PushI32Inst {
     pub fn new(value: i32) -> Self {
         Self { address: 0, value }
     }
+
+    pub fn get_value(&self) -> i32 {
+        self.value
+    }
+
+    pub fn set_value(&mut self, value: i32) {
+        self.value = value;
+    }
 }
 
 impl Inst for PushI32Inst {
@@ -385,6 +393,14 @@ pub struct PushI16Inst {
 impl PushI16Inst {
     pub fn new(value: i16) -> Self {
         Self { address: 0, value }
+    }
+
+    pub fn get_value(&self) -> i16 {
+        self.value
+    }
+
+    pub fn set_value(&mut self, value: i16) {
+        self.value = value;
     }
 }
 

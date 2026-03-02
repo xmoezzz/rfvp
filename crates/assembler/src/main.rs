@@ -5,7 +5,7 @@ use rfvp::script::{opcode::Opcode, parser::Nls};
 use serde::{de::value, Deserialize, Serialize};
 use std::{
     cell::RefCell,
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
     rc::Rc,
 };
@@ -433,10 +433,24 @@ impl Assembler {
     }
 
     fn compile(&mut self, old_entry_point: u32) -> Result<u32> {
+        let mut func_entry_addrs = BTreeSet::new();
+        let mut threadstart_sites = Vec::new();
+
         let mut map = BTreeMap::new();
         for func in &self.functions {
+            func_entry_addrs.insert(func.address());
             for inst in func.get_insts() {
                 let addr = inst.get_address();
+
+                // ThreadStart takes an absolute code pointer (PC) on the stack.
+                // If PushString changes size, absolute offsets shift; we must relocate that pointer.
+                if inst.get_opcode()? == Opcode::Syscall {
+                    if let Some(name) = inst.operands().first() {
+                        if name.eq_ignore_ascii_case("ThreadStart") {
+                            threadstart_sites.push(addr);
+                        }
+                    }
+                }
                 map.insert(addr, inst);
             }
         }
@@ -447,6 +461,7 @@ impl Assembler {
             syscall_table.insert(entry.name.clone(), entry.id);
         }
         let mut insts = BTreeMap::new();
+        let mut old_order = Vec::new();
         let mut cursor = 4u32;
         for (addr, inst) in map {
             let mut wrapped_inst = Self::inst2_to_inst(inst, &self.nls, &syscall_table)?;
@@ -454,6 +469,7 @@ impl Assembler {
             let size = wrapped_inst.size();
             let wrapped_inst = Rc::new(RefCell::new(wrapped_inst));
             insts.insert(addr, wrapped_inst);
+            old_order.push(addr);
             cursor += size;
         }
         let entry_point = insts
@@ -488,6 +504,96 @@ impl Assembler {
                     inst.set_func_target(target_inst.borrow().get_address());
                 }
                 _ => {}
+            }
+        }
+
+        // phase 2b: relocate absolute code pointers passed to ThreadStart.
+        if !threadstart_sites.is_empty() {
+            let mut index_by_old = BTreeMap::new();
+            for (i, a) in old_order.iter().enumerate() {
+                index_by_old.insert(*a, i);
+            }
+
+            for ts_old_addr in threadstart_sites {
+                let idx = *index_by_old
+                    .get(&ts_old_addr)
+                    .ok_or_else(|| anyhow::anyhow!(format!("ThreadStart site not found: {ts_old_addr}")))?;
+
+                // Scan a small window before ThreadStart and find exactly one push of a function entry address.
+                let mut candidates: Vec<(u32, u32)> = Vec::new();
+                for back in 1..=8usize {
+                    if idx < back {
+                        break;
+                    }
+                    let prev_old = old_order[idx - back];
+                    let inst_ref = insts
+                        .get(&prev_old)
+                        .ok_or_else(|| anyhow::anyhow!(format!("inst missing at {prev_old}")))?;
+                    match &*inst_ref.borrow() {
+                        InstSet::PushI32(p) => {
+                            let v = p.get_value();
+                            if v >= 0 {
+                                let u = v as u32;
+                                if func_entry_addrs.contains(&u) {
+                                    candidates.push((prev_old, u));
+                                }
+                            }
+                        }
+                        InstSet::PushI16(p) => {
+                            let v = p.get_value() as i32;
+                            if v >= 0 {
+                                let u = v as u32;
+                                if func_entry_addrs.contains(&u) {
+                                    candidates.push((prev_old, u));
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
+                if candidates.is_empty() {
+                    bail!(
+                        "ThreadStart at old PC {}: could not find a preceding push of a function entry address",
+                        ts_old_addr
+                    );
+                }
+                if candidates.len() != 1 {
+                    bail!(
+                        "ThreadStart at old PC {}: ambiguous code-pointer candidates: {:?}",
+                        ts_old_addr,
+                        candidates
+                    );
+                }
+
+                let (push_old_addr, target_old_func_addr) = candidates[0];
+                let target_new = insts
+                    .get(&target_old_func_addr)
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(format!(
+                            "ThreadStart target not found in inst map: {}",
+                            target_old_func_addr
+                        ))
+                    })?
+                    .borrow()
+                    .get_address();
+
+                let push_inst = insts
+                    .get(&push_old_addr)
+                    .ok_or_else(|| anyhow::anyhow!(format!("push inst missing at {push_old_addr}")))?;
+                match &mut *push_inst.borrow_mut() {
+                    InstSet::PushI32(p) => p.set_value(target_new as i32),
+                    InstSet::PushI16(p) => {
+                        if target_new > i16::MAX as u32 {
+                            bail!(
+                                "ThreadStart relocated target too large for PushI16: {}",
+                                target_new
+                            );
+                        }
+                        p.set_value(target_new as i16);
+                    }
+                    _ => bail!("Internal error: selected candidate is not a push"),
+                }
             }
         }
 

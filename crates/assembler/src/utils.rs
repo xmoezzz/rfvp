@@ -14,6 +14,10 @@ pub struct Function {
 }
 
 impl Function {
+    pub fn address(&self) -> u32 {
+        self.address
+    }
+
     pub fn get_insts(&self) -> &Vec<Inst2> {
         &self.insts
     }
@@ -29,6 +33,14 @@ pub struct Inst2 {
 impl Inst2 {
     pub fn get_address(&self) -> u32 {
         self.address
+    }
+
+    pub fn mnemonic(&self) -> &str {
+        &self.mnemonic
+    }
+
+    pub fn operands(&self) -> &[String] {
+        &self.operands
     }
 
     pub fn get_opcode(&self) -> Result<Opcode> {
