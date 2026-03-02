@@ -260,13 +260,20 @@ fn movie_path_candidates(path: &str) -> Vec<String> {
         }
     }
 
-    // Keep historical behavior for mpg/mpeg (always remap to mp4).
-    if lower.ends_with(".mpg") || lower.ends_with(".mpeg") {
-        return vec![replace_ext(path, "mp4")];
-    }
+    // Prefer native pipelines first, then fall back to `.mp4` as the final failback.
+    // - WMV: `.wmv` / `.asf`
+    // - MPEG-PS/TS / MPEG-1/2 elementary: `.mpg` / `.mpeg` / `.m2v` / `.ts` / `.ps` / `.vob` / `.dat`
+    let is_native = lower.ends_with(".wmv")
+        || lower.ends_with(".asf")
+        || lower.ends_with(".mpg")
+        || lower.ends_with(".mpeg")
+        || lower.ends_with(".m2v")
+        || lower.ends_with(".ts")
+        || lower.ends_with(".ps")
+        || lower.ends_with(".vob")
+        || lower.ends_with(".dat");
 
-    // Prefer native WMV pipeline, then fall back to mp4.
-    if lower.ends_with(".wmv") || lower.ends_with(".asf") {
+    if is_native {
         let mp4 = replace_ext(path, "mp4");
         if mp4 != path {
             return vec![path.to_string(), mp4];

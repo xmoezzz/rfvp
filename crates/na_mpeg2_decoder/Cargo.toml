@@ -1,0 +1,34 @@
+[package]
+name = "na_mpeg2_decoder"
+version = "0.1.0"
+edition = "2021"
+description = "Rust MPEG-1/2 video decoder"
+
+[lib]
+name = "na_mpeg2_decoder"
+path = "src/lib.rs"
+
+[dependencies]
+thiserror = "1"
+log = "0.4"
+byteorder = "1"
+
+# Audio decode is delegated to Symphonia (MP1/2/3).
+symphonia = { version = "0.5.5", features = ["mpa"] }
+
+# Used by the optional wgpu demo player.
+crossbeam-channel = "0.5"
+
+wgpu = { version = "0.19" }
+winit = { version = "0.29" }
+pollster = { version = "0.3" }
+bytemuck = { version = "1" }
+rodio = { version = "0.17" }
+env_logger = "0.11"
+png = "0.17"
+
+
+[[bin]]
+name = "mpeg2_player_wgpu"
+path = "src/bin/mpeg2_player_wgpu.rs"
+

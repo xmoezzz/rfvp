@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -12,6 +13,8 @@ use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundS
 use kira::Tween;
 
 use crate::rfvp_audio::AudioManager;
+
+use na_mpeg2_decoder::{MpegAvEvent, MpegAvPipeline};
 
 use symphonia::core::audio::{SampleBuffer, SignalSpec};
 use symphonia::core::codecs::DecoderOptions;
@@ -409,10 +412,270 @@ impl WmvPlayback {
     }
 }
 
+
+#[derive(Clone)]
+struct MpegRgbaFrame {
+    pts_ms: i64,
+    rgba: Vec<u8>,
+}
+
+impl std::fmt::Debug for MpegRgbaFrame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MpegRgbaFrame")
+            .field("pts_ms", &self.pts_ms)
+            .field("rgba_len", &self.rgba.len())
+            .finish()
+    }
+}
+
+#[derive(Debug)]
+struct MpegPlayback {
+    rx: crossbeam_channel::Receiver<MpegRgbaFrame>,
+    stash: VecDeque<MpegRgbaFrame>,
+
+    started_at: Option<Instant>,
+    base_pts_ms: Option<i64>,
+    last_presented_pts_ms: i64,
+
+    stop_flag: Arc<AtomicBool>,
+
+    // We always upload scaled frames sized to the screen.
+    screen_w: u32,
+    screen_h: u32,
+
+    // Audio (decoded to a WAV container and played via Kira).
+    audio_manager: Option<Arc<AudioManager>>,
+    audio_data: Option<StaticSoundData>,
+    audio_handle: Option<StaticSoundHandle>,
+    audio_started: bool,
+}
+
+impl MpegPlayback {
+    fn open_from_mpeg_path(
+        mpeg_path: impl AsRef<Path>,
+        mode: MovieMode,
+        screen_w: u32,
+        screen_h: u32,
+        audio_manager: Option<Arc<AudioManager>>,
+    ) -> Result<Self> {
+        let mpeg_path = mpeg_path.as_ref().to_path_buf();
+
+        let (audio_data, audio_manager) = match mode {
+            MovieMode::ModalWithAudio => {
+                let am = audio_manager;
+                let data = match (am.as_ref(), decode_mpeg_audio_to_wav_bytes(&mpeg_path)) {
+                    (Some(_), Ok(Some(wav_bytes))) => {
+                        let cursor = std::io::Cursor::new(wav_bytes);
+                        Some(
+                            StaticSoundData::from_cursor(cursor)
+                                .context("kira StaticSoundData::from_cursor")?,
+                        )
+                    }
+                    (_, Ok(None)) => None,
+                    (_, Err(e)) => {
+                        // Audio is best-effort; keep video playing even if audio fails.
+                        log::warn!("MPEG movie audio decode failed: {e:?}");
+                        None
+                    }
+                    (_, _) => {
+                        log::warn!("MPEG movie audio decode skipped: no AudioManager");
+                        None
+                    }
+                };
+                (data, am)
+            }
+            MovieMode::LayerNoAudio => (None, None),
+        };
+
+        let stop_flag = Arc::new(AtomicBool::new(false));
+        let (tx, rx) = crossbeam_channel::bounded::<MpegRgbaFrame>(2);
+
+        // Video decode thread.
+        {
+            let stop = stop_flag.clone();
+            let path = mpeg_path.clone();
+            std::thread::spawn(move || {
+                let mut f = match std::fs::File::open(&path) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        log::warn!("MPEG decode: open failed: {e:?}");
+                        return;
+                    }
+                };
+
+                let mut pipe = MpegAvPipeline::new();
+                let mut buf = vec![0u8; 64 * 1024];
+
+                while !stop.load(Ordering::Relaxed) {
+                    let n = match f.read(&mut buf) {
+                        Ok(0) => break,
+                        Ok(n) => n,
+                        Err(e) => {
+                            log::warn!("MPEG decode: read failed: {e:?}");
+                            break;
+                        }
+                    };
+
+                    if stop.load(Ordering::Relaxed) {
+                        break;
+                    }
+
+                    let r = pipe.push_with(&buf[..n], None, |ev| {
+                        if stop.load(Ordering::Relaxed) {
+                            return;
+                        }
+
+                        if let MpegAvEvent::Video(v) = ev {
+                            // Scale to screen in the decode thread (do not touch prim factor_x/factor_y).
+                            let rgba = if v.width == screen_w && v.height == screen_h {
+                                v.rgba
+                            } else {
+                                let mut out = Vec::new();
+                                rgba_scale_nearest(
+                                    &v.rgba,
+                                    v.width,
+                                    v.height,
+                                    screen_w,
+                                    screen_h,
+                                    &mut out,
+                                );
+                                out
+                            };
+
+                            let _ = tx.send(MpegRgbaFrame { pts_ms: v.pts_ms, rgba });
+                        }
+                    });
+
+                    if let Err(e) = r {
+                        log::warn!("MPEG decode: push failed: {e:?}");
+                        break;
+                    }
+                }
+
+                // Flush delayed video frames.
+                let _ = pipe.flush_with(|ev| {
+                    if stop.load(Ordering::Relaxed) {
+                        return;
+                    }
+                    if let MpegAvEvent::Video(v) = ev {
+                        let rgba = if v.width == screen_w && v.height == screen_h {
+                            v.rgba
+                        } else {
+                            let mut out = Vec::new();
+                            rgba_scale_nearest(
+                                &v.rgba,
+                                v.width,
+                                v.height,
+                                screen_w,
+                                screen_h,
+                                &mut out,
+                            );
+                            out
+                        };
+                        let _ = tx.send(MpegRgbaFrame { pts_ms: v.pts_ms, rgba });
+                    }
+                });
+            });
+        }
+
+        Ok(Self {
+            rx,
+            stash: VecDeque::new(),
+            started_at: None,
+            base_pts_ms: None,
+            last_presented_pts_ms: i64::MIN,
+            stop_flag,
+            screen_w,
+            screen_h,
+            audio_manager,
+            audio_data,
+            audio_handle: None,
+            audio_started: false,
+        })
+    }
+
+    fn maybe_start_audio(&mut self) {
+        if self.audio_started {
+            return;
+        }
+        self.audio_started = true;
+
+        let Some(am) = self.audio_manager.as_ref() else {
+            return;
+        };
+        let Some(data) = self.audio_data.take() else {
+            return;
+        };
+
+        let settings = StaticSoundSettings::new().volume(1.0);
+        let handle = am.play(data.with_settings(settings));
+        self.audio_handle = Some(handle);
+    }
+
+    fn next_due_frame(&mut self) -> Option<MpegRgbaFrame> {
+        // 1) Drain decoded frames from the decoder thread.
+        while let Ok(f) = self.rx.try_recv() {
+            self.stash.push_back(f);
+        }
+
+        // 2) Initialize timing on the first frame.
+        if self.started_at.is_none() {
+            if let Some(front) = self.stash.front() {
+                self.started_at = Some(Instant::now());
+                self.base_pts_ms = Some(front.pts_ms);
+                self.maybe_start_audio();
+            } else {
+                return None;
+            }
+        }
+
+        let started_at = self.started_at.unwrap();
+        let elapsed_ms = started_at.elapsed().as_millis() as i64;
+        let base = self.base_pts_ms.unwrap_or(0);
+        let target_pts_ms = base.saturating_add(elapsed_ms);
+
+        // 3) Pop all frames that are due; keep the latest.
+        let mut latest_due = None;
+        while let Some(front) = self.stash.front() {
+            if front.pts_ms <= target_pts_ms {
+                latest_due = self.stash.pop_front();
+            } else {
+                break;
+            }
+        }
+
+        latest_due
+    }
+
+    fn is_finished(&mut self) -> bool {
+        if !self.stash.is_empty() {
+            return false;
+        }
+
+        match self.rx.try_recv() {
+            Ok(f) => {
+                self.stash.push_back(f);
+                false
+            }
+            Err(crossbeam_channel::TryRecvError::Empty) => false,
+            Err(crossbeam_channel::TryRecvError::Disconnected) => true,
+        }
+    }
+
+    fn stop_and_cleanup(mut self) {
+        self.stop_flag.store(true, Ordering::Relaxed);
+
+        if let Some(mut h) = self.audio_handle.take() {
+            h.stop(Tween::default());
+        }
+    }
+}
+
 #[derive(Debug)]
 enum Playback {
     Mp4(Mp4Playback),
     Wmv(WmvPlayback),
+    Mpeg(MpegPlayback),
 }
 
 /// A Movie manager that wires the syscall to the render tree.
@@ -472,6 +735,17 @@ impl VideoPlayerManager {
 
         let playback = if ext == "wmv" || ext == "asf" {
             Playback::Wmv(WmvPlayback::open_from_wmv_path(
+                p,
+                mode,
+                screen_w,
+                screen_h,
+                audio_manager,
+            )?)
+        } else if matches!(
+            ext.as_str(),
+            "mpg" | "mpeg" | "m2v" | "ts" | "ps" | "vob" | "dat"
+        ) {
+            Playback::Mpeg(MpegPlayback::open_from_mpeg_path(
                 p,
                 mode,
                 screen_w,
@@ -542,6 +816,24 @@ impl VideoPlayerManager {
                     self.stop(motion);
                 }
             }
+            Playback::Mpeg(mpeg) => {
+                if let Some(frame) = mpeg.next_due_frame() {
+                    if frame.pts_ms != mpeg.last_presented_pts_ms {
+                        mpeg.last_presented_pts_ms = frame.pts_ms;
+                        motion.load_texture_from_buff(
+                            MOVIE_GRAPH_ID,
+                            frame.rgba,
+                            mpeg.screen_w,
+                            mpeg.screen_h,
+                        )?;
+                        motion.refresh_prims(MOVIE_GRAPH_ID);
+                    }
+                }
+
+                if mpeg.is_finished() {
+                    self.stop(motion);
+                }
+            }
         }
 
         Ok(())
@@ -563,6 +855,7 @@ impl VideoPlayerManager {
             match pb {
                 Playback::Mp4(mp4) => mp4.stop_and_cleanup(),
                 Playback::Wmv(wmv) => wmv.stop_and_cleanup(),
+                Playback::Mpeg(mpeg) => mpeg.stop_and_cleanup(),
             }
         }
     }
@@ -658,6 +951,97 @@ fn yuv420_to_rgba_scaled(src: &wmv_decoder::YuvFrame, dst_w: u32, dst_h: u32, ou
             out[off + 3] = 255;
         }
     }
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MPEG video scaling helper (RGBA -> RGBA)
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn rgba_scale_nearest(
+    src: &[u8],
+    src_w: u32,
+    src_h: u32,
+    dst_w: u32,
+    dst_h: u32,
+    out: &mut Vec<u8>,
+) {
+    let sw = src_w.max(1);
+    let sh = src_h.max(1);
+
+    let dw = dst_w.max(1);
+    let dh = dst_h.max(1);
+
+    let out_len = (dw as usize)
+        .saturating_mul(dh as usize)
+        .saturating_mul(4);
+    out.clear();
+    out.resize(out_len, 0);
+
+    for dy in 0..dh {
+        let sy = (dy as u64 * sh as u64 / dh as u64) as u32;
+        let sy = sy.min(sh - 1);
+        for dx in 0..dw {
+            let sx = (dx as u64 * sw as u64 / dw as u64) as u32;
+            let sx = sx.min(sw - 1);
+
+            let so = ((sy * sw + sx) as usize) * 4;
+            let doff = ((dy * dw + dx) as usize) * 4;
+            out[doff..doff + 4].copy_from_slice(&src[so..so + 4]);
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MPEG audio (MP1/MP2/MP3) best-effort decode to WAV
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Best-effort: decode MPEG audio into WAV(PCM16LE).
+///
+/// Returns `Ok(None)` if no audio is present.
+fn decode_mpeg_audio_to_wav_bytes(mpeg_path: impl AsRef<Path>) -> Result<Option<Vec<u8>>> {
+    let mut f = match std::fs::File::open(mpeg_path.as_ref()) {
+        Ok(f) => f,
+        Err(_) => return Ok(None),
+    };
+
+    let mut pipe = MpegAvPipeline::new();
+    let mut buf = vec![0u8; 64 * 1024];
+
+    let mut pcm: Vec<i16> = Vec::new();
+    let mut sr: u32 = 0;
+    let mut ch: u16 = 0;
+
+    loop {
+        let n = match f.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(_) => break,
+        };
+
+        pipe.push_with(&buf[..n], None, |ev| {
+            if let MpegAvEvent::Audio(a) = ev {
+                if sr == 0 {
+                    sr = a.sample_rate;
+                    ch = a.channels;
+                }
+                if a.sample_rate != sr || a.channels != ch || ch == 0 {
+                    return;
+                }
+                for s in a.samples {
+                    let s = s.clamp(-1.0, 1.0);
+                    let v = (s * 32767.0).round() as i32;
+                    pcm.push(v.clamp(-32768, 32767) as i16);
+                }
+            }
+        })?;
+    }
+
+    if pcm.is_empty() || sr == 0 || ch == 0 {
+        return Ok(None);
+    }
+
+    Ok(Some(build_wav_pcm16le(&pcm, ch, sr)))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
