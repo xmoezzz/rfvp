@@ -527,8 +527,9 @@ impl TextItem {
 
         // Column-sweep reveal: total required pixels is computed during rasterization.
         self.total_chars = 0;
-        // When speed <= 0 (including -1) or skip_mode != 0, show all immediately.
-        if self.speed <= 0 || self.skip_mode != 0 {
+        // Reverse-engineered: reveal mode depends on effective speed.
+        // speed == 0 => immediate; speed != 0 (including -1) => start hidden and advance by columns per tick.
+        if self.speed == 0 {
             self.visible_chars = usize::MAX;
         } else {
             self.visible_chars = 0;
@@ -537,49 +538,54 @@ impl TextItem {
         self.dirty = true;
     }
 
-    fn tick_reveal(&mut self, delta_ms: u32) {
+    fn tick_reveal(&mut self, delta_ms: u32, global_var0: i32) {
         if !self.loaded {
             return;
         }
 
-        // TextPause freezes reveal-by-time. We still allow immediate modes
-        // (speed <= 0) and skip-mode to force full visibility.
-        if self.is_suspended && !(self.speed <= 0 || self.skip_mode != 0) {
+        // Reverse-engineered: TextPause freezes reveal progression.
+        if self.is_suspended {
             return;
         }
-        if self.speed <= 0 || self.skip_mode != 0 {
+
+        // Effective speed: when speed < 0 (typically -1), use 700 * GLOBAL[0].
+        // The original engine treats any non-zero speed as progressive reveal, and speed==0 as immediate.
+        let mut eff_speed: i64 = self.speed as i64;
+        if eff_speed < 0 {
+            eff_speed = 700i64.saturating_mul(global_var0 as i64);
+        }
+
+        if eff_speed == 0 {
             // Immediate (full reveal). total_chars might not be known yet.
-            if self.visible_chars != usize::MAX {
-                self.visible_chars = usize::MAX;
+            let target = if self.total_chars == 0 { usize::MAX } else { self.total_chars };
+            if self.visible_chars != target {
+                self.visible_chars = target;
                 self.dirty = true;
             }
             return;
         }
 
-        // Column sweep: reveal length in pixels is proportional to elapsed time.
-        // speed is a small integer (e.g., 1..=10 in UI). We model it as a rate multiplier.
-        const REVEAL_PX_PER_SEC_PER_SPD: u64 = 80;
-
-        let spd = self.speed as u64;
-        if spd == 0 {
-            if self.visible_chars != usize::MAX {
-                self.visible_chars = usize::MAX;
-                self.dirty = true;
-            }
-            return;
+        // Column sweep step in pixels per tick: step = max(1, 1000 * dt / eff_speed).
+        // Note: eff_speed can be negative if GLOBAL[0] is negative; the engine clamps step<=0 to 1.
+        let mut step: i64 = (1000i64.saturating_mul(delta_ms as i64)) / eff_speed;
+        if step <= 0 {
+            step = 1;
         }
 
+        // Keep an accumulator only for debugging/telemetry.
         self.elapsed = self.elapsed.saturating_add(delta_ms);
-        let elapsed_ms = self.elapsed as u64;
-        let mut new_px: u64 = (elapsed_ms * spd * REVEAL_PX_PER_SEC_PER_SPD) / 1000;
 
-        if self.total_chars != 0 {
-            new_px = new_px.min(self.total_chars as u64);
+        if self.visible_chars == usize::MAX {
+            return;
         }
 
-        let new_px_usize = new_px as usize;
-        if new_px_usize != self.visible_chars {
-            self.visible_chars = new_px_usize;
+        let mut new_px: usize = self.visible_chars.saturating_add(step as usize);
+        if self.total_chars != 0 {
+            new_px = new_px.min(self.total_chars);
+        }
+
+        if new_px != self.visible_chars {
+            self.visible_chars = new_px;
             self.dirty = true;
         }
     }
@@ -1098,15 +1104,9 @@ impl TextManager {
     }
 
     /// Tick reveal-by-time for all text slots.
-    pub fn tick(&mut self, delta_ms: u32, global_speed_var0: i32) {
-        // global speed (G[0]) is a percentage-like factor (100 = normal).
-        // Negative values are treated as "default" (100). Zero means "no progress".
-        let gs: u32 = if global_speed_var0 < 0 { 100 } else { global_speed_var0 as u32 };
-        let scaled_delta_ms: u32 = (((delta_ms as u64) * (gs as u64) + 50) / 100)
-            .min(u32::MAX as u64) as u32;
-
+    pub fn tick(&mut self, delta_ms: u32, global_var0: i32) {
         for t in self.items.iter_mut() {
-            t.tick_reveal(scaled_delta_ms);
+            t.tick_reveal(delta_ms, global_var0);
         }
     }
 
@@ -1513,8 +1513,9 @@ impl TextItem {
 
         // Rebuild derived token list to keep future incremental rendering functional.
         self.content_items = tokenize_content_text(&self.content_text);
-        self.total_chars = self.content_items.iter().map(fontitem_char_count).sum();
-        if self.visible_chars > self.total_chars {
+        // total_chars/visible_chars are measured in pixels (column sweep). We keep the snapshot values
+        // and let the next rasterization recompute total_chars from font metrics.
+        if self.total_chars > 0 && self.visible_chars > self.total_chars {
             self.visible_chars = self.total_chars;
         }
 

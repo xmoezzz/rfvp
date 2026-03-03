@@ -521,6 +521,15 @@ impl InputManager {
         self.control_is_pulse = true;
     }
 
+    /// Return whether a ControlPulse is pending, without consuming it.
+    ///
+    /// This is used when the engine needs to *observe* the pulse in multiple phases of a frame
+    /// (e.g., pre-VM motion update and post-VM text reveal), while ensuring the pulse is still
+    /// consumed exactly once.
+    pub fn peek_control_pulse(&self) -> bool {
+        self.control_is_pulse
+    }
+
     /// Consume the one-frame ControlPulse flag.
     ///
     /// In the original engine, `ControlPulse` sets a scene flag that is checked during
