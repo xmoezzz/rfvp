@@ -66,15 +66,12 @@ pub fn input_get_wheel(game_data: &GameData) -> Result<Variant> {
 }
 
 pub fn input_set_click(game_data: &mut GameData, clicked: &Variant) -> Result<Variant> {
-    match clicked {
-        Variant::Int(clicked) => {
-            if [0, 1].contains(clicked) {
-                game_data.inputs_manager.set_click(*clicked as u32);
-            }
-        },
-        _ => return Err(anyhow::anyhow!("input_set_click: invalid clicked type")),
-    };
-
+    // IDA: only accepts integer 0/1; other types are ignored (no error).
+    if let Variant::Int(v) = clicked {
+        if *v == 0 || *v == 1 {
+            game_data.inputs_manager.set_click(*v as u32);
+        }
+    }
     Ok(Variant::Nil)
 }
 
@@ -336,4 +333,3 @@ impl Syscaller for ControlMask {
 
 unsafe impl Send for ControlMask {}
 unsafe impl Sync for ControlMask {}
-

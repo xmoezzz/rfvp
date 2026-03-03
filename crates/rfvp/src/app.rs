@@ -504,7 +504,15 @@ impl App {
             let gd = &mut *gd_guard;
 
             let frame_duration = gd.time_mut_ref().frame();
-            frame_ms = frame_duration.as_millis() as u64;
+            let frame_us = frame_duration.as_micros() as u64;
+
+            frame_ms = if frame_us == 0 {
+                0
+            } else {
+                // Ceil to milliseconds to avoid starving script timers on sub-ms frames.
+                (frame_us + 999) / 1000
+            };
+            gd.timer_manager.tick(frame_ms.min(u32::MAX as u64) as u32);
 
             let prev_dissolve = self.last_dissolve_type;
             let prev_dissolve2 = self.last_dissolve2_transitioning;

@@ -96,6 +96,22 @@ impl TimerManager {
     pub fn get_resolution(&self, index: usize) -> u32 {
         self.items[index].get_resolution()
     }
+    /// Advance all enabled timers by `delta_ms` (milliseconds).
+    ///
+    /// This matches the original engine where `timer.elapsed` is incremented every frame and
+    /// `TimerGet` derives a scaled value as `time * elapsed / resolution`.
+    ///
+    /// When suspended (`TimerSuspend`), elapsed does not advance.
+    pub fn tick(&mut self, delta_ms: u32) {
+        if self.suspend || delta_ms == 0 {
+            return;
+        }
+        for item in &mut self.items {
+            if item.enabled {
+                item.elapsed = item.elapsed.saturating_add(delta_ms);
+            }
+        }
+    }
 }
 
 

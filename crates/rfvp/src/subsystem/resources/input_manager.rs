@@ -353,7 +353,7 @@ impl InputManager {
 
         let event = &mut self.press_items[self.current_index as usize];
         event.keycode = keycode.clone() as u8;
-        if matches!(keycode, KeyCode::MouseLeft | KeyCode::MouseRight) {
+        if matches!(keycode, KeyCode::MouseLeft | KeyCode::MouseRight | KeyCode::LeftClick | KeyCode::RightClick) {
             event.in_screen = self.cursor_in;
             event.x = x;
             event.y = y;
@@ -458,7 +458,12 @@ impl InputManager {
         self.latch_virtual_click_edges(prev_bits, self.new_input_state);
 
         if should_record {
-            self.record_keydown_or_up(keycode, x, y);
+            let ev_code = match keycode {
+                KeyCode::MouseLeft => KeyCode::LeftClick,
+                KeyCode::MouseRight => KeyCode::RightClick,
+                _ => keycode,
+            };
+            self.record_keydown_or_up(ev_code, x, y);
         }
     }
 
@@ -492,7 +497,12 @@ impl InputManager {
         self.latch_virtual_click_edges(prev_bits, self.new_input_state);
 
         if should_record {
-            self.record_keydown_or_up(keycode, x, y);
+            let ev_code = match keycode {
+                KeyCode::MouseLeft => KeyCode::LeftClick,
+                KeyCode::MouseRight => KeyCode::RightClick,
+                _ => keycode,
+            };
+            self.record_keydown_or_up(ev_code, x, y);
         }
     }
 
