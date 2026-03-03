@@ -831,9 +831,15 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
                     self.dissolve_type = DissolveType::None;
                     self.dissolve_alpha = 0.0;
                 }
-                DissolveType::ColoredFadeOut | DissolveType::MaskFadeOut => {
+                // IDA (original engine): only the *colored* fade-out persists as a static overlay.
+                // Mask dissolves (wait=4/5/6) finish by turning the effect off.
+                DissolveType::ColoredFadeOut => {
                     self.dissolve_type = DissolveType::Static;
                     self.dissolve_alpha = 1.0;
+                }
+                DissolveType::MaskFadeOut => {
+                    self.dissolve_type = DissolveType::None;
+                    self.dissolve_alpha = 0.0;
                 }
                 _ => {
                     self.dissolve_type = DissolveType::None;

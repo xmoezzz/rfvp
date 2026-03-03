@@ -11,12 +11,16 @@ pub fn text_buff(
     w: &Variant,
     h: &Variant,
 ) -> Result<Variant> {
+    // IDA (TextBuff):
+    // - Requires args[0] Int in [0, 31]
+    // - Defaults: w=8, h=8
+    // - If args[1]/args[2] are Int and non-negative, they override w/h
     let id = match id {
         Variant::Int(id) => *id,
         _ => {
             log::error!("text_buff: invalid id type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..32).contains(&id) {
@@ -24,38 +28,30 @@ pub fn text_buff(
         return Ok(Variant::Nil);
     }
 
-    let w = if let Variant::Int(w) = w {
-        if *w < 0 {
-            8
-        } else {
-            *w
-        }
-    } else {
-        log::error!("text_buff: invalid w type");
-        return Ok(Variant::Nil);
-    };
+    let mut ww: i32 = 8;
+    let mut hh: i32 = 8;
 
-    let h = if let Variant::Int(h) = h {
-        if *h < 0 {
-            8
-        } else {
-            *h
+    if let Variant::Int(v) = w {
+        if *v >= 0 {
+            ww = *v;
         }
-    } else {
-        log::error!("text_buff: invalid h type");
-        return Ok(Variant::Nil);
-    };
+    }
+    if let Variant::Int(v) = h {
+        if *v >= 0 {
+            hh = *v;
+        }
+    }
 
-    game_data
-        .motion_manager
-        .text_manager
-        .set_text_buff(id, w, h);
+    game_data.motion_manager.text_manager.set_text_buff(id, ww, hh);
+
     // Upload the cleared buffer to Graph(4064 + slot) immediately.
     let _ = game_data
         .motion_manager
         .text_upload_slot(id, &game_data.fontface_manager, false);
+
     Ok(Variant::Nil)
 }
+
 
 pub fn text_clear(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     let id = match id {
@@ -85,12 +81,13 @@ pub fn text_color(
     color2_id: &Variant,
     color3_id: &Variant,
 ) -> Result<Variant> {
+    // IDA (TextColor): each color argument is optional; only applies when (Type==Int && value < 256).
     let id = match id {
         Variant::Int(id) => *id,
         _ => {
             log::error!("text_color: invalid id type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..32).contains(&id) {
@@ -98,56 +95,30 @@ pub fn text_color(
         return Ok(Variant::Nil);
     }
 
-    let color1_id = match color1_id {
-        Variant::Int(id) => *id,
-        _ => {
-            log::error!("text_color: invalid color1_id type");
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if (0..256).contains(&color1_id) {
-        let color = game_data.motion_manager.color_manager.get_entry(color1_id as u8);
-        game_data
-            .motion_manager
-            .text_manager
-            .set_text_color1(id, color);
+    if let Variant::Int(cid) = color1_id {
+        if (0..256).contains(cid) {
+            let color = game_data.motion_manager.color_manager.get_entry(*cid as u8);
+            game_data.motion_manager.text_manager.set_text_color1(id, color);
+        }
     }
 
-    let color2_id = match color2_id {
-        Variant::Int(id) => *id,
-        _ => {
-            log::error!("text_color: invalid color2_id type");
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if (0..256).contains(&color2_id) {
-        let color = game_data.motion_manager.color_manager.get_entry(color2_id as u8);
-        game_data
-            .motion_manager
-            .text_manager
-            .set_text_color2(id, color);
+    if let Variant::Int(cid) = color2_id {
+        if (0..256).contains(cid) {
+            let color = game_data.motion_manager.color_manager.get_entry(*cid as u8);
+            game_data.motion_manager.text_manager.set_text_color2(id, color);
+        }
     }
 
-    let color3_id = match color3_id {
-        Variant::Int(id) => *id,
-        _ => {
-            log::error!("text_color: invalid color3_id type");
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if (0..256).contains(&color3_id) {
-        let color = game_data.motion_manager.color_manager.get_entry(color3_id as u8);
-        game_data
-            .motion_manager
-            .text_manager
-            .set_text_color3(id, color);
+    if let Variant::Int(cid) = color3_id {
+        if (0..256).contains(cid) {
+            let color = game_data.motion_manager.color_manager.get_entry(*cid as u8);
+            game_data.motion_manager.text_manager.set_text_color3(id, color);
+        }
     }
 
     Ok(Variant::Nil)
 }
+
 
 // ＭＳ ゴシック
 // ＭＳ 明朝
@@ -370,12 +341,13 @@ pub fn text_function(
     func2: &Variant,
     func3: &Variant,
 ) -> Result<Variant> {
+    // IDA (TextFunction): each argument is optional; only applies when within range.
     let id = match id {
         Variant::Int(id) => *id,
         _ => {
             log::error!("text_function: invalid id type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..32).contains(&id) {
@@ -383,53 +355,36 @@ pub fn text_function(
         return Ok(Variant::Nil);
     }
 
-    let func1 = match func1 {
-        Variant::Int(func1) => *func1,
-        _ => {
-            log::error!("text_function: invalid func type");
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if (0..=1).contains(&func1) {
-        game_data
-            .motion_manager
-            .text_manager
-            .set_text_function1(id, func1 as u8);
+    if let Variant::Int(v) = func1 {
+        if (0..=1).contains(v) {
+            game_data
+                .motion_manager
+                .text_manager
+                .set_text_function1(id, *v as u8);
+        }
     }
 
-    let func2 = match func2 {
-        Variant::Int(func2) => *func2,
-        _ => {
-            log::error!("text_function: invalid func type");
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if (0..=2).contains(&func2) {
-        game_data
-            .motion_manager
-            .text_manager
-            .set_text_function2(id, func2 as u8);
+    if let Variant::Int(v) = func2 {
+        if (0..=2).contains(v) {
+            game_data
+                .motion_manager
+                .text_manager
+                .set_text_function2(id, *v as u8);
+        }
     }
 
-    let func3 = match func3 {
-        Variant::Int(func3) => *func3,
-        _ => {
-            log::error!("text_function: invalid func type");
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if (0..=2).contains(&func3) {
-        game_data
-            .motion_manager
-            .text_manager
-            .set_text_function3(id, func3 as u8);
+    if let Variant::Int(v) = func3 {
+        if (0..=2).contains(v) {
+            game_data
+                .motion_manager
+                .text_manager
+                .set_text_function3(id, *v as u8);
+        }
     }
 
     Ok(Variant::Nil)
 }
+
 
 pub fn text_out_size(
     game_data: &mut GameData,
@@ -476,12 +431,16 @@ pub fn text_out_size(
 
 
 pub fn text_pause(game_data: &mut GameData, id: &Variant, pause: &Variant) -> Result<Variant> {
+    // IDA (TextPause):
+    // - If pause is Int and <= 1: set is_suspended
+    // - Else if pause is Nil: return current is_suspended as Int (0/1)
+    // - Other types/values: no side effects
     let id = match id {
         Variant::Int(id) => *id,
         _ => {
             log::error!("text_pause: invalid id type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..32).contains(&id) {
@@ -490,31 +449,21 @@ pub fn text_pause(game_data: &mut GameData, id: &Variant, pause: &Variant) -> Re
     }
 
     match pause {
-        Variant::Int(pause) => {
-            let pause = *pause != 0;
+        Variant::Int(v) if *v == 0 || *v == 1 => {
             game_data
                 .motion_manager
                 .text_manager
-                .set_text_suspend(id, pause);
+                .set_text_suspend(id, *v != 0);
+            Ok(Variant::Nil)
         }
         Variant::Nil => {
             let paused = game_data.motion_manager.text_manager.get_text_suspend(id);
-
-            // convert bool to int
-            if paused {
-                return Ok(Variant::Int(1));
-            } else {
-                return Ok(Variant::Int(0));
-            }
+            Ok(Variant::Int(if paused { 1 } else { 0 }))
         }
-        _ => {
-            log::error!("text_pause: invalid pause type");
-            return Ok(Variant::Nil);
-        },
-    };
-
-    Ok(Variant::Nil)
+        _ => Ok(Variant::Nil),
+    }
 }
+
 
 pub fn text_pos(
     game_data: &mut GameData,
@@ -522,12 +471,13 @@ pub fn text_pos(
     x: &Variant,
     y: &Variant,
 ) -> Result<Variant> {
+    // IDA (TextPos): x/y are optional ints; non-int (including Nil) means "keep previous".
     let id = match id {
         Variant::Int(id) => *id,
         _ => {
             log::error!("text_pos: invalid id type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..32).contains(&id) {
@@ -535,28 +485,23 @@ pub fn text_pos(
         return Ok(Variant::Nil);
     }
 
-    let x = match x {
-        Variant::Int(x) => *x,
-        _ => {
-            log::error!("text_pos: invalid x type");
-            return Ok(Variant::Nil);
-        },
-    };
+    if let Variant::Int(vx) = x {
+        game_data
+            .motion_manager
+            .text_manager
+            .set_text_pos_x(id, *vx as u16);
+    }
 
-    game_data.motion_manager.text_manager.set_text_pos_x(id, x as u16);
-
-    let y = match y {
-        Variant::Int(y) => *y,
-        _ => {
-            log::error!("text_pos: invalid y type");
-            return Ok(Variant::Nil);
-        },
-    };
-
-    game_data.motion_manager.text_manager.set_text_pos_y(id, y as u16);
+    if let Variant::Int(vy) = y {
+        game_data
+            .motion_manager
+            .text_manager
+            .set_text_pos_y(id, *vy as u16);
+    }
 
     Ok(Variant::Nil)
 }
+
 
 pub fn text_print(game_data: &mut GameData, id: &Variant, content: &Variant) -> Result<Variant> {
     let id = match id {
@@ -589,8 +534,14 @@ pub fn text_print(game_data: &mut GameData, id: &Variant, content: &Variant) -> 
                 log::error!("text_print: content length >= 512 is not supported");
                 return Ok(Variant::Nil);
             }
-            // Original behavior: const-string also prints, and marks a bitmap by its offset.
+            // Const-string prints like a normal string AND marks a bitmap by its offset.
+            // IMPORTANT: without uploading the updated slot buffer, the visible text stays stale
+            // (typically still the cleared TextBuff), which makes the message window appear empty.
             game_data.motion_manager.text_manager.set_text_content(id, s);
+            let _ = game_data
+                .motion_manager
+                .text_upload_slot(id, &game_data.fontface_manager, true);
+
             let first = game_data.motion_manager.text_manager.mark_readed_text_first(*addr);
             if first {
                 Ok(Variant::True)
@@ -611,12 +562,16 @@ pub fn text_reprint(game_data: &mut GameData) -> Result<Variant> {
 }
 
 pub fn text_shadow_dist(game_data: &mut GameData, id: &Variant, dist: &Variant) -> Result<Variant> {
+    // IDA (TextShadowDist):
+    // - Default distance is 0
+    // - If arg is Int: clamp to [0, 12] (negative -> 0, >12 -> 12)
+    // - Non-int (including Nil) keeps default 0 and still applies it.
     let id = match id {
         Variant::Int(id) => *id,
         _ => {
             log::error!("text_shadow_dist: invalid id type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..32).contains(&id) {
@@ -624,33 +579,25 @@ pub fn text_shadow_dist(game_data: &mut GameData, id: &Variant, dist: &Variant) 
         return Ok(Variant::Nil);
     }
 
-    let dist = match dist {
-        Variant::Int(dist) => {
-            if !(0..=12).contains(dist) {
-                if *dist < 0 {
-                    0
-                } else {
-                    12
-                }
-            } else {
-                *dist
-            }
-        }
-        _ => {
-            log::error!("text_shadow_dist: invalid dist type");
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if (0..=12).contains(&dist) {
-        game_data
-            .motion_manager
-            .text_manager
-            .set_text_shadow_dist(id, dist as u8);
+    let mut d: i32 = 0;
+    if let Variant::Int(v) = dist {
+        d = *v;
     }
+
+    if d < 0 {
+        d = 0;
+    } else if d > 12 {
+        d = 12;
+    }
+
+    game_data
+        .motion_manager
+        .text_manager
+        .set_text_shadow_dist(id, d as u8);
 
     Ok(Variant::Nil)
 }
+
 
 pub fn text_size(
     game_data: &mut GameData,
@@ -697,12 +644,13 @@ pub fn text_size(
 
 
 pub fn text_skip(game_data: &mut GameData, id: &Variant, skip: &Variant) -> Result<Variant> {
+    // IDA (TextSkip): skip is optional int; only applies when skip < 4.
     let id = match id {
         Variant::Int(id) => *id,
         _ => {
             log::error!("text_skip: invalid id type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..32).contains(&id) {
@@ -710,23 +658,18 @@ pub fn text_skip(game_data: &mut GameData, id: &Variant, skip: &Variant) -> Resu
         return Ok(Variant::Nil);
     }
 
-    let skip = match skip {
-        Variant::Int(skip) => *skip,
-        _ => {
-            log::error!("text_skip: invalid skip type");
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if (0..=3).contains(&skip) {
-        game_data
-            .motion_manager
-            .text_manager
-            .set_text_skip(id, skip as u8);
+    if let Variant::Int(v) = skip {
+        if (0..=3).contains(v) {
+            game_data
+                .motion_manager
+                .text_manager
+                .set_text_skip(id, *v as u8);
+        }
     }
 
     Ok(Variant::Nil)
 }
+
 
 pub fn text_space(
     game_data: &mut GameData,
@@ -775,12 +718,13 @@ pub fn text_space(
 /// set the text speed for the corresponding text id
 /// 0 is for immediate display
 pub fn text_speed(game_data: &mut GameData, id: &Variant, speed: &Variant) -> Result<Variant> {
+    // IDA (TextSpeed): speed is optional int in [-1, 300000].
     let id = match id {
         Variant::Int(id) => *id,
         _ => {
             log::error!("text_speed: invalid id type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..32).contains(&id) {
@@ -788,25 +732,18 @@ pub fn text_speed(game_data: &mut GameData, id: &Variant, speed: &Variant) -> Re
         return Ok(Variant::Nil);
     }
 
-    let speed = match speed {
-        Variant::Int(speed) => *speed,
-        _ => {
-            log::error!("text_speed: invalid speed type");
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if !(-1..=300000).contains(&speed) {
-        log::error!("text_speed: speed should be in range -1..300000");
-        return Ok(Variant::Nil);
+    if let Variant::Int(v) = speed {
+        if (-1..=300000).contains(v) {
+            game_data
+                .motion_manager
+                .text_manager
+                .set_text_speed(id, *v);
+        }
     }
 
-    game_data
-        .motion_manager
-        .text_manager
-        .set_text_speed(id, speed);
     Ok(Variant::Nil)
 }
+
 
 /// set the kinsoku chars (禁则) for the corresponding text id
 pub fn text_suspend_chr(game_data: &mut GameData, id: &Variant, chrs: &Variant) -> Result<Variant> {

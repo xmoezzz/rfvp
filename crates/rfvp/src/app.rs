@@ -689,23 +689,32 @@ impl App {
 
 
             let dissolve_type = gd.motion_manager.get_dissolve_type();
-            dissolve_color = if dissolve_type != DissolveType::None {
-                let alpha = gd.motion_manager.get_dissolve_alpha();
+            dissolve_color = match dissolve_type {
+                DissolveType::None => None,
+
+                // Colored dissolve is a pure full-screen color overlay.
+                DissolveType::Static | DissolveType::ColoredFadeIn | DissolveType::ColoredFadeOut => {
+                    let alpha = gd.motion_manager.get_dissolve_alpha();
                     crate::trace::motion(format_args!("Global dissolve alpha: {}", alpha));
-                if alpha > 0.0 {
-                    let cid = gd.motion_manager.get_dissolve_color_id() as u8;
-                    let c = gd.motion_manager.color_manager.get_entry(cid);
-                    Some(vec4(
-                        c.get_r() as f32 / 255.0,
-                        c.get_g() as f32 / 255.0,
-                        c.get_b() as f32 / 255.0,
-                        (c.get_a() as f32 / 255.0) * alpha,
-                    ))
-                } else {
-                    None
+                    if alpha > 0.0 {
+                        let cid = gd.motion_manager.get_dissolve_color_id() as u8;
+                        let c = gd.motion_manager.color_manager.get_entry(cid);
+                        Some(vec4(
+                            c.get_r() as f32 / 255.0,
+                            c.get_g() as f32 / 255.0,
+                            c.get_b() as f32 / 255.0,
+                            (c.get_a() as f32 / 255.0) * alpha,
+                        ))
+                    } else {
+                        None
+                    }
                 }
-            } else {
-                None
+
+                // Mask dissolve (wait=4/5/6) is not a solid color quad in the original engine.
+                // It uses the 8-bit mask texture with alpha-test / blend states.
+                // Until a dedicated mask dissolve pipeline is implemented, do not draw a solid
+                // overlay here (otherwise it appears as a "white mask" over HUD/text).
+                DissolveType::MaskFadeIn | DissolveType::MaskFadeInOut | DissolveType::MaskFadeOut => None,
             };
 
             // Dissolve2 is a pure full-screen color fade used by engine-internal flows
