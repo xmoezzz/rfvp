@@ -245,68 +245,58 @@ impl NvsgTexture {
             bail!("Invalid texture type: {:?}", self.typ);
         }
 
+        // NVSG 32-bit slices are stored as premultiplied-alpha BGRA.
+        // The original engine's color tone operation applies per-channel adjustments and then
+        // clamps each channel to alpha to preserve the premultiplied invariant.
+        //
+        // Script contract for GraphRGB/PartsRGB tone values:
+        //   0..=200, where 100 is a no-op.
         let texture = &mut self.slices[index];
+
+        let r_adj = red_value.clamp(0, 200) as u32;
+        let g_adj = green_value.clamp(0, 200) as u32;
+        let b_adj = blue_value.clamp(0, 200) as u32;
+
+        // Fast-path: no-op.
+        if r_adj == 100 && g_adj == 100 && b_adj == 100 {
+            return Ok(());
+        }
+
+        #[inline]
+        fn apply_one(chan: u8, alpha: u8, adj: u32) -> u8 {
+            if adj == 100 {
+                return chan;
+            }
+            let c = chan as u32;
+            let a = alpha as u32;
+            if adj < 100 {
+                // Darken: C = adj * C / 100
+                ((adj * c) / 100).min(255) as u8
+            } else {
+                // Brighten: C = min(A, C + A * (adj - 100) / 255)
+                let inc = (a * (adj - 100)) / 255;
+                let out = c + inc;
+                out.min(a).min(255) as u8
+            }
+        }
+
+        // Iterate pixels as BGRA.
         let pixel_count = texture.len() / 4;
         for i in 0..pixel_count {
-            let index = i * 4;
-            let r = texture[index] as i32;
-            let g = texture[index + 1] as i32;
-            let b = texture[index + 2] as i32;
-            let a = texture[index + 3] as i32;
+            let base = i * 4;
+            let b = texture[base + 0];
+            let g = texture[base + 1];
+            let r = texture[base + 2];
+            let a = texture[base + 3];
 
-            let r = if red_value >= 100 {
-                if red_value > 100 {
-                    let green = g;
-                    let adjusted_red =
-                        r.saturating_add(green.saturating_mul(red_value - 100) / 0xFF);
-                    if adjusted_red > green {
-                        green
-                    } else {
-                        adjusted_red
-                    }
-                } else {
-                    red_value * r / 100
-                }
-            } else {
-                r
-            };
+            let nb = apply_one(b, a, b_adj).min(a);
+            let ng = apply_one(g, a, g_adj).min(a);
+            let nr = apply_one(r, a, r_adj).min(a);
 
-            let b = if green_value >= 100 {
-                if green_value > 100 {
-                    let blue = b;
-                    let adjusted_green =
-                        b.saturating_add(blue.saturating_mul(green_value - 100) / 0xFF);
-                    if adjusted_green > blue {
-                        blue
-                    } else {
-                        adjusted_green
-                    }
-                } else {
-                    green_value * a / 100
-                }
-            } else {
-                b
-            };
-
-            let a = if blue_value < 100 {
-                blue_value * a / 100
-            } else if blue_value > 100 {
-                let blue_value = b;
-                let adjusted_blue =
-                    a.saturating_add(blue_value.saturating_mul(blue_value - 100) / 0xFF);
-                if adjusted_blue > blue_value {
-                    blue_value
-                } else {
-                    adjusted_blue
-                }
-            } else {
-                a
-            };
-
-            texture[index] = r as u8;
-            texture[index + 1] = g as u8;
-            texture[index + 2] = b as u8;
-            texture[index + 3] = a as u8;
+            texture[base + 0] = nb;
+            texture[base + 1] = ng;
+            texture[base + 2] = nr;
+            texture[base + 3] = a;
         }
 
         Ok(())
