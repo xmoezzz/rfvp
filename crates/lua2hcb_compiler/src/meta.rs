@@ -33,7 +33,8 @@ pub struct Syscall {
 pub struct Meta {
     pub nls: Nls,
     pub game_title: String,
-    pub game_mode: u16,
+    pub game_mode: u8,
+    pub game_mode_hd: u8,
     pub non_volatile_global_count: u16,
     pub volatile_global_count: u16,
     pub custom_syscall_count: u16,
@@ -63,6 +64,16 @@ fn as_u16(v: &Value, key: &str) -> Result<u16> {
             .as_u64()
             .and_then(|x| u16::try_from(x).ok())
             .ok_or_else(|| anyhow!("{key} must be a u16")),
+        _ => bail!("{key} must be a number"),
+    }
+}
+
+fn as_u8(v: &Value, key: &str) -> Result<u8> {
+    match v {
+        Value::Number(n) => n
+            .as_u64()
+            .and_then(|x| u8::try_from(x).ok())
+            .ok_or_else(|| anyhow!("{key} must be a u8")),
         _ => bail!("{key} must be a number"),
     }
 }
@@ -107,7 +118,13 @@ pub fn load_meta(path: &Path) -> Result<Meta> {
     };
 
     let game_mode = if let Some(v) = get("game_mode") {
-        as_u16(v, "game_mode")?
+        as_u8(v, "game_mode")?
+    } else {
+        0
+    };
+
+    let game_mode_hd = if let Some(v) = get("game_mode_hd") {
+        as_u8(v, "game_mode_hd")?
     } else {
         0
     };
@@ -248,6 +265,7 @@ pub fn load_meta(path: &Path) -> Result<Meta> {
         nls,
         game_title,
         game_mode,
+        game_mode_hd,
         non_volatile_global_count,
         volatile_global_count,
         custom_syscall_count,

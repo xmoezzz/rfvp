@@ -119,6 +119,7 @@ pub fn simple_idct_put(dest: &mut [u8], stride: usize, block: &mut [i16; 64]) {
     }
 
     // Column transforms + store
+    #[allow(clippy::erasing_op)]
     for x in 0..8 {
         let col = [
             block[0 * 8 + x],

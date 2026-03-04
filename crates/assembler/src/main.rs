@@ -43,7 +43,9 @@ pub struct ProjectConfig {
     entry_point: u32,
     non_volatile_global_count: u16,
     volatile_global_count: u16,
-    game_mode: u16,
+    game_mode: u8,
+    // NOTE: This is not comfirmed for all HD versions
+    game_mode_hd: u8,
     game_title: String,
     syscalls: Vec<SyscallEntry>,
     custom_syscall_count: u16,
@@ -93,7 +95,8 @@ impl ProjectConfig {
         Self::put_u32_le(self.entry_point, &mut data);
         Self::put_u16_le(self.non_volatile_global_count, &mut data);
         Self::put_u16_le(self.volatile_global_count, &mut data);
-        Self::put_u16_le(self.game_mode, &mut data);
+        Self::put_u8_le(self.game_mode, &mut data);
+        Self::put_u8_le(self.game_mode_hd, &mut data);
 
         let game_title = Self::string_to_blob(&self.game_title, nls.clone());
         let game_title_len = game_title.len() as u8;

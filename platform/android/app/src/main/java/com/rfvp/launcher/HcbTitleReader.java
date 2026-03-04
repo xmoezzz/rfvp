@@ -30,7 +30,7 @@ public final class HcbTitleReader {
             off += 2;
             // volatile_global_count u16
             off += 2;
-            // game_mode u16
+            // game_mode u8 + game_mode_hd u8
             off += 2;
 
             int titleLen = readU8(raf, off);
