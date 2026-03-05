@@ -56,6 +56,11 @@ pub enum MovieMode {
     LayerNoAudio,
 }
 
+/// Cap buffered decoded frames on the main thread.
+/// Each frame is screen-sized RGBA and can be huge; keeping this bounded prevents memory spikes.
+const MAX_MOVIE_STASH_FRAMES: usize = 4;
+
+
 #[cfg(feature = "mp4")]
 #[derive(Debug)]
 struct Mp4Playback {
@@ -87,24 +92,32 @@ impl Mp4Playback {
         let (audio_data, audio_manager) = match mode {
             MovieMode::ModalWithAudio => {
                 let am = audio_manager;
-                let data = match (am.as_ref(), decode_mp4_audio_to_wav_bytes(&mp4_path)) {
-                    (Some(_), Ok(Some(wav_bytes))) => {
-                        let cursor = std::io::Cursor::new(wav_bytes);
-                        Some(
-                            StaticSoundData::from_cursor(cursor)
-                                .context("kira StaticSoundData::from_cursor")?,
-                        )
-                    }
-                    (_, Ok(None)) => None,
-                    (_, Err(e)) => {
-                        // Audio is best-effort; keep video playing even if audio fails.
-                        log::warn!("Movie audio decode failed: {e:?}");
-                        None
-                    }
-                    (_, _) => {
+                let data = match am.as_ref() {
+                    None => {
                         log::warn!("Movie audio decode skipped: no AudioManager");
                         None
                     }
+                    Some(_) => match decode_mp4_audio_to_wav_bytes(&mp4_path) {
+                        Ok(Some(wav_bytes)) => {
+                            let cursor = std::io::Cursor::new(wav_bytes);
+                            Some(
+                                StaticSoundData::from_cursor(cursor)
+                                    .context("kira StaticSoundData::from_cursor")?,
+                            )
+                        }
+                        Ok(None) => {
+                            log::warn!(
+                                "Movie audio: no decodable audio track: {}",
+                                mp4_path.as_ref().display()
+                            );
+                            None
+                        }
+                        Err(e) => {
+                            // Audio is best-effort; keep video playing even if audio fails.
+                            log::warn!("Movie audio decode failed: {e:?}");
+                            None
+                        }
+                    },
                 };
                 (data, am)
             }
@@ -146,8 +159,11 @@ impl Mp4Playback {
 
     fn next_due_frame(&mut self) -> Option<video_sys::VideoFrame> {
         // 1) Drain decoded frames from the decoder thread.
-        while let Some(f) = self.stream.try_recv_one() {
-            self.stash.push_back(f);
+        while self.stash.len() < MAX_MOVIE_STASH_FRAMES {
+            match self.stream.try_recv_one() {
+                Some(f) => self.stash.push_back(f),
+                None => break,
+            }
         }
 
         // 2) Initialize timing on the first frame.
@@ -245,24 +261,32 @@ impl WmvPlayback {
         let (audio_data, audio_manager) = match mode {
             MovieMode::ModalWithAudio => {
                 let am = audio_manager;
-                let data = match (am.as_ref(), decode_wmv_audio_to_wav_bytes(&wmv_path)) {
-                    (Some(_), Ok(Some(wav_bytes))) => {
-                        let cursor = std::io::Cursor::new(wav_bytes);
-                        Some(
-                            StaticSoundData::from_cursor(cursor)
-                                .context("kira StaticSoundData::from_cursor")?,
-                        )
-                    }
-                    (_, Ok(None)) => None,
-                    (_, Err(e)) => {
-                        // Audio is best-effort; keep video playing even if audio fails.
-                        log::warn!("WMV movie audio decode failed: {e:?}");
-                        None
-                    }
-                    (_, _) => {
+                let data = match am.as_ref() {
+                    None => {
                         log::warn!("WMV movie audio decode skipped: no AudioManager");
                         None
                     }
+                    Some(_) => match decode_wmv_audio_to_wav_bytes(&wmv_path) {
+                        Ok(Some(wav_bytes)) => {
+                            let cursor = std::io::Cursor::new(wav_bytes);
+                            Some(
+                                StaticSoundData::from_cursor(cursor)
+                                    .context("kira StaticSoundData::from_cursor")?,
+                            )
+                        }
+                        Ok(None) => {
+                            log::warn!(
+                                "WMV movie audio: no decodable audio track: {}",
+                                wmv_path.display()
+                            );
+                            None
+                        }
+                        Err(e) => {
+                            // Audio is best-effort; keep video playing even if audio fails.
+                            log::warn!("WMV movie audio decode failed: {e:?}");
+                            None
+                        }
+                    },
                 };
                 (data, am)
             }
@@ -360,8 +384,12 @@ impl WmvPlayback {
 
     fn next_due_frame(&mut self) -> Option<WmvRgbaFrame> {
         // 1) Drain decoded frames from the decoder thread.
-        while let Ok(f) = self.rx.try_recv() {
-            self.stash.push_back(f);
+        while self.stash.len() < MAX_MOVIE_STASH_FRAMES {
+            match self.rx.try_recv() {
+                Ok(f) => self.stash.push_back(f),
+                Err(crossbeam_channel::TryRecvError::Empty) => break,
+                Err(crossbeam_channel::TryRecvError::Disconnected) => break,
+            }
         }
 
         // 2) Initialize timing on the first frame.
@@ -475,24 +503,32 @@ impl MpegPlayback {
         let (audio_data, audio_manager) = match mode {
             MovieMode::ModalWithAudio => {
                 let am = audio_manager;
-                let data = match (am.as_ref(), decode_mpeg_audio_to_wav_bytes(&mpeg_path)) {
-                    (Some(_), Ok(Some(wav_bytes))) => {
-                        let cursor = std::io::Cursor::new(wav_bytes);
-                        Some(
-                            StaticSoundData::from_cursor(cursor)
-                                .context("kira StaticSoundData::from_cursor")?,
-                        )
-                    }
-                    (_, Ok(None)) => None,
-                    (_, Err(e)) => {
-                        // Audio is best-effort; keep video playing even if audio fails.
-                        log::warn!("MPEG movie audio decode failed: {e:?}");
-                        None
-                    }
-                    (_, _) => {
+                let data = match am.as_ref() {
+                    None => {
                         log::warn!("MPEG movie audio decode skipped: no AudioManager");
                         None
                     }
+                    Some(_) => match decode_mpeg_audio_to_wav_bytes(&mpeg_path) {
+                        Ok(Some(wav_bytes)) => {
+                            let cursor = std::io::Cursor::new(wav_bytes);
+                            Some(
+                                StaticSoundData::from_cursor(cursor)
+                                    .context("kira StaticSoundData::from_cursor")?,
+                            )
+                        }
+                        Ok(None) => {
+                            log::warn!(
+                                "MPEG movie audio: no decodable audio track: {}",
+                                mpeg_path.display()
+                            );
+                            None
+                        }
+                        Err(e) => {
+                            // Audio is best-effort; keep video playing even if audio fails.
+                            log::warn!("MPEG movie audio decode failed: {e:?}");
+                            None
+                        }
+                    },
                 };
                 (data, am)
             }
@@ -626,8 +662,12 @@ impl MpegPlayback {
 
     fn next_due_frame(&mut self) -> Option<MpegRgbaFrame> {
         // 1) Drain decoded frames from the decoder thread.
-        while let Ok(f) = self.rx.try_recv() {
-            self.stash.push_back(f);
+        while self.stash.len() < MAX_MOVIE_STASH_FRAMES {
+            match self.rx.try_recv() {
+                Ok(f) => self.stash.push_back(f),
+                Err(crossbeam_channel::TryRecvError::Empty) => break,
+                Err(crossbeam_channel::TryRecvError::Disconnected) => break,
+            }
         }
 
         // 2) Initialize timing on the first frame.
@@ -1026,7 +1066,10 @@ fn rgba_scale_nearest(
 fn decode_mpeg_audio_to_wav_bytes(mpeg_path: impl AsRef<Path>) -> Result<Option<Vec<u8>>> {
     let mut f = match std::fs::File::open(mpeg_path.as_ref()) {
         Ok(f) => f,
-        Err(_) => return Ok(None),
+        Err(e) => {
+            log::warn!("mpeg audio: open failed: {}: {e:?}", mpeg_path.as_ref().display());
+            return Ok(None);
+        }
     };
 
     let mut pipe = MpegAvPipeline::new();
@@ -1040,7 +1083,10 @@ fn decode_mpeg_audio_to_wav_bytes(mpeg_path: impl AsRef<Path>) -> Result<Option<
         let n = match f.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => n,
-            Err(_) => break,
+            Err(e) => {
+                log::warn!("mpeg audio: read failed: {e:?}");
+                break
+            },
         };
 
         pipe.push_with(&buf[..n], None, |ev| {
@@ -1175,12 +1221,18 @@ fn decode_mp4_audio_to_wav_bytes(mp4_path: impl AsRef<Path>) -> Result<Option<Ve
 fn decode_wmv_audio_to_wav_bytes(wmv_path: impl AsRef<Path>) -> Result<Option<Vec<u8>>> {
     let f = match std::fs::File::open(wmv_path.as_ref()) {
         Ok(f) => f,
-        Err(_) => return Ok(None),
+        Err(e) => {
+            log::warn!("wmv audio: open failed: {}: {e:?}", wmv_path.as_ref().display());
+            return Ok(None);
+        }
     };
 
     let mut dec = match wmv_decoder::AsfWmaDecoder::open(std::io::BufReader::new(f)) {
         Ok(d) => d,
-        Err(_) => return Ok(None),
+        Err(e) => {
+            log::warn!("wmv audio: decoder open failed: {}: {e:?}", wmv_path.as_ref().display());
+            return Ok(None);
+        }
     };
 
     let sr = dec.sample_rate();

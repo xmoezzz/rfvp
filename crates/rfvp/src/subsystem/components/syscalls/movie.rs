@@ -34,6 +34,13 @@ pub fn movie_play(game_data: &mut GameData, path: &Variant, flag: &Variant) -> R
     // IMPORTANT: match original engine: nil vs non-nil, not integer truthiness.
     let is_layer_effect = flag.is_nil();
 
+    log::info!(
+        "MoviePlay: path={} flag={:?} is_layer_effect={}",
+        path,
+        flag,
+        is_layer_effect
+    );
+
     // Movie file resolution:
     // - For `.wmv`/`.asf`: prefer the original extension (native WMV pipeline), then fall back to `.mp4`.
     // - For `.mpg`/`.mpeg`: keep historical behavior, map to `.mp4`.
