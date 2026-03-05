@@ -34,7 +34,7 @@ pub struct Meta {
     pub nls: Nls,
     pub game_title: String,
     pub game_mode: u8,
-    pub game_mode_hd: u8,
+    pub game_mode_reserved: u8,
     pub non_volatile_global_count: u16,
     pub volatile_global_count: u16,
     pub custom_syscall_count: u16,
@@ -123,8 +123,8 @@ pub fn load_meta(path: &Path) -> Result<Meta> {
         0
     };
 
-    let game_mode_hd = if let Some(v) = get("game_mode_hd") {
-        as_u8(v, "game_mode_hd")?
+    let game_mode_reserved = if let Some(v) = get("game_mode_reserved") {
+        as_u8(v, "game_mode_reserved")?
     } else {
         0
     };
@@ -265,7 +265,7 @@ pub fn load_meta(path: &Path) -> Result<Meta> {
         nls,
         game_title,
         game_mode,
-        game_mode_hd,
+        game_mode_reserved,
         non_volatile_global_count,
         volatile_global_count,
         custom_syscall_count,

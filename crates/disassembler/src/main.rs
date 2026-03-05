@@ -361,7 +361,7 @@ pub struct ProjectConfig {
     non_volatile_global_count: u16,
     volatile_global_count: u16,
     game_mode: u8,
-    game_mode_hd: u8,
+    game_mode_reserved: u8,
     game_title: String,
     syscalls: Vec<SyscallEntry>,
     custom_syscall_count: u16,
@@ -1130,7 +1130,7 @@ impl Disassembler {
             non_volatile_global_count: self.get_parser().get_non_volatile_global_count(),
             volatile_global_count: self.get_parser().get_volatile_global_count(),
             game_mode: self.get_parser().get_game_mode(),
-            game_mode_hd: self.get_parser().get_game_mode_hd(),
+            game_mode_reserved: self.get_parser().get_game_mode_reserved(),
             game_title: self.get_parser().get_title(),
             syscalls: self.get_parser().get_all_syscalls().iter().map(|(id, sys)| {
                 SyscallEntry {

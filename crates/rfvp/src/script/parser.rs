@@ -51,7 +51,7 @@ pub struct Parser {
     pub custom_syscall_count: u16,
     /// Game resolution for the window mode
     game_mode: u8,
-    game_mode_hd: u8,
+    game_mode_reserved: u8,
     game_title: String,
     pub syscall_count: u16,
     pub syscalls: HashMap<usize, Syscall>,
@@ -72,7 +72,7 @@ impl Parser {
             volatile_global_count: 0,
             custom_syscall_count: 0,
             game_mode: 0,
-            game_mode_hd: 0,
+            game_mode_reserved: 0,
             game_title: String::new(),
             syscall_count: 0,
             syscalls: HashMap::new(),
@@ -217,7 +217,7 @@ impl Parser {
         self.game_mode = self.read_u8(off)? as u8;
         off += size_of::<u8>();
 
-        self.game_mode_hd = self.read_u8(off)? as u8;
+        self.game_mode_reserved = self.read_u8(off)? as u8;
         off += size_of::<u8>();
 
         let title_len = self.read_u8(off)?;
@@ -303,8 +303,8 @@ impl Parser {
         self.game_mode
     }
 
-    pub fn get_game_mode_hd(&self) -> u8 {
-        self.game_mode_hd
+    pub fn get_game_mode_reserved(&self) -> u8 {
+        self.game_mode_reserved
     }
 
     pub fn get_entry_point(&self) -> u32 {
