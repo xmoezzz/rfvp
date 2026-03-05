@@ -451,6 +451,23 @@ impl GameData {
         self.game_should_exit = value;
     }
 
+    pub fn get_current_cursor_index(&self) -> u32 {
+        self.current_cursor_index
+    }
+
+    pub fn set_current_cursor_index(&mut self, index: u32) {
+        if index == 0 {
+            self.current_cursor_index = 0;
+            return;
+        }
+        if self.cursor_table.contains_key(&index) {
+            self.current_cursor_index = index;
+        } else {
+            self.current_cursor_index = 0;
+        }
+    }
+
+
     pub fn switch_cursor(&mut self, index: u32) {
         if index == self.current_cursor_index || index == 0 {
             return;

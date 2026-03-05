@@ -895,6 +895,9 @@ impl App {
             let state_snap = crate::subsystem::save_state::SaveStateSnapshotV1::capture(&gd);
             gd.save_manager.finalize_save_write(nls, thumb_w, thumb_h, &thumb_rgba, Some(&state_snap))?;
             gd.save_manager.consume_save_write_result();
+            if let Err(e) = crate::subsystem::global_savedata::save_global_savedata_v1(&gd) {
+                log::error!("Failed to save global savedata after slot save: {:#}", e);
+            }
         }
 
         output.present();
@@ -1491,8 +1494,28 @@ impl App {
 #[cfg(target_os = "android")]
 impl Drop for App {
     fn drop(&mut self) {
+        // Persistence for script-visible global state.
+        {
+            let gd = gd_read(&self.game_data);
+            if let Err(e) = crate::subsystem::global_savedata::save_global_savedata_v1(&gd) {
+                log::error!("Failed to save global savedata on exit: {:#}", e);
+            }
+        }
+
         if let Some(w) = self.android_native_window.take() {
             unsafe { ANativeWindow_release(w.as_ptr()); }
+        }
+    }
+}
+
+
+#[cfg(not(target_os = "android"))]
+impl Drop for App {
+    fn drop(&mut self) {
+        // Best-effort persistence for script-visible global state.
+        let gd = gd_read(&self.game_data);
+        if let Err(e) = crate::subsystem::global_savedata::save_global_savedata_v1(&gd) {
+            log::error!("Failed to save global savedata on exit: {:#}", e);
         }
     }
 }
@@ -1955,6 +1978,10 @@ impl AppBuilder {
             .lock()
             .unwrap()
             .init_with(non_volatile_global_count, volatile_global_count);
+        if let Err(e) = crate::subsystem::global_savedata::try_load_global_savedata_v1(&mut self.world) {
+            log::error!("Failed to load global savedata: {:#}", e);
+        }
+
         
         self.script_engine.start_main(entry_point);
         self.world.nls = self.parser.nls.clone();
@@ -2195,6 +2222,10 @@ impl AppBuilder {
         let non_volatile_global_count = self.parser.get_non_volatile_global_count();
         let volatile_global_count = self.parser.get_volatile_global_count();
         GLOBAL.lock().unwrap().init_with(non_volatile_global_count, volatile_global_count);
+        if let Err(e) = crate::subsystem::global_savedata::try_load_global_savedata_v1(&mut self.world) {
+            log::error!("Failed to load global savedata: {:#}", e);
+        }
+
 
         self.script_engine.start_main(entry_point);
         self.world.nls = self.parser.nls.clone();
@@ -2344,6 +2375,10 @@ impl AppBuilder {
         let non_volatile_global_count = self.parser.get_non_volatile_global_count();
         let volatile_global_count = self.parser.get_volatile_global_count();
         GLOBAL.lock().unwrap().init_with(non_volatile_global_count, volatile_global_count);
+        if let Err(e) = crate::subsystem::global_savedata::try_load_global_savedata_v1(&mut self.world) {
+            log::error!("Failed to load global savedata: {:#}", e);
+        }
+
 
         self.script_engine.start_main(entry_point);
         self.world.nls = self.parser.nls.clone();

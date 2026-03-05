@@ -59,45 +59,50 @@ pub fn history_set(game_data: &mut GameData, fnid: &Variant, value: &Variant) ->
     Ok(Variant::Nil)
 }
 
-pub fn history_get(game_data: &mut GameData, id: &Variant, fnid: &Variant) -> Result<Variant> {
-    let id = match id.as_int() {
-        Some(id) => id,
+pub fn history_get(game_data: &mut GameData, kind: &Variant, idx: &Variant) -> Result<Variant> {
+    // Original engine behavior (HistoryGet):
+    // - If arg0 is nil, return the current history count as an int.
+    // - Otherwise, arg0 is kind (0=name, 1=content, 2=voice), arg1 is index (0=most recent).
+    if kind.is_nil() {
+        return Ok(Variant::Int(game_data.history_manager.len() as i32));
+    }
+
+    let kind = match kind.as_int() {
+        Some(v) => v,
         None => {
-            log::error!("history_get: unexpected id: {:?}", id);
+            log::error!("history_get: unexpected kind: {:?}", kind);
             return Ok(Variant::Nil);
         }
     };
 
-    let fnid = match fnid.as_int() {
-        Some(id) => id,
+    let idx = match idx.as_int() {
+        Some(v) => v,
         None => {
-            log::error!("history_get: unexpected fnid: {:?}", fnid);
+            log::error!("history_get: unexpected idx: {:?}", idx);
             return Ok(Variant::Nil);
         }
     };
 
-    let value = match fnid.try_into() {
-        Ok(HistoryFunction::Name) => {
-            match game_data.history_manager.get_name(id as u32) {
-                Some(s) => Variant::String(s),
-                _ => Variant::Nil,
-            }
-        }
-        Ok(HistoryFunction::Content) => {
-            match game_data.history_manager.get_content(id as u32) {
-                Some(s) => Variant::String(s),
-                _ => Variant::Nil,
-            }
-        }
-        Ok(HistoryFunction::Voice) => {
-            match game_data.history_manager.get_voice(id as u32) {
-                Some(i) => Variant::Int(i),
-                _ => Variant::Nil,
-            }
-        }
+    if idx < 0 {
+        return Ok(Variant::Nil);
+    }
+
+    let value = match kind.try_into() {
+        Ok(HistoryFunction::Name) => match game_data.history_manager.get_name(idx as u32) {
+            Some(s) => Variant::String(s),
+            None => Variant::Nil,
+        },
+        Ok(HistoryFunction::Content) => match game_data.history_manager.get_content(idx as u32) {
+            Some(s) => Variant::String(s),
+            None => Variant::Nil,
+        },
+        Ok(HistoryFunction::Voice) => match game_data.history_manager.get_voice(idx as u32) {
+            Some(i) => Variant::Int(i),
+            None => Variant::Nil,
+        },
         _ => {
-            log::error!("history_get: unexpected fnid value: {:?}", fnid);
-            return Ok(Variant::Nil);
+            log::error!("history_get: unexpected kind value: {:?}", kind);
+            Variant::Nil
         }
     };
 
@@ -106,10 +111,10 @@ pub fn history_get(game_data: &mut GameData, id: &Variant, fnid: &Variant) -> Re
 
 
 ///
-/// Retrieves a certain value from the history manager.
+/// Retrieves a value from the history manager.
 /// Arguments:
-/// Arg1: id (int) - The id of the history entry to retrieve from. 0 means the most recent entry, 1 the one before that, etc.
-/// Arg2: fnid (int) - The kind of value to retrieve. 0 = name, 1 = content, 2 = voice.
+/// Arg1: kind (int or nil) - 0=name, 1=content, 2=voice. If nil, returns the history count.
+/// Arg2: idx (int) - 0 means the most recent entry, 1 the one before that, etc.
 /// Returns:
 /// The requested value, or nil if not found or on error.
 /// 
