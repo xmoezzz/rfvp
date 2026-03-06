@@ -435,8 +435,7 @@ impl TextItem {
     }
 
     pub fn set_shadow_dist(&mut self, dist: u8) {
-        // IDA: TextShadowDist writes to func2 (shadow offset), not to char spacing.
-        self.func2 = dist;
+        self.distance = dist;
         self.dirty = true;
     }
 
@@ -863,7 +862,7 @@ impl TextItem {
         // adding ascent and outline padding. This matches the original engine's visual alignment,
         // especially for Japanese punctuation marks (、。) which sit near the baseline.
         let mut pen_x = (self.x as i32).max(self.text_start_horizon as i32);
-        let mut pen_y = self.y as i32 + ascent_px + outline_pad;
+        let mut pen_y = self.text_start_vertical as i32 + self.y as i32 + ascent_px + outline_pad;
 
         // Ruby line metrics (used to place ruby baseline above the base run).
         let rlm = font_ref.horizontal_line_metrics(ruby_size);
@@ -957,7 +956,7 @@ impl TextItem {
                         &self.color1,
                         self.main_text_outline,
                         &self.color2,
-                        self.func2,
+                        self.distance,
                         &self.color3,
                         clip_max_x,
                         do_draw,
@@ -1004,7 +1003,7 @@ impl TextItem {
                             &self.color1,
                             self.main_text_outline,
                             &self.color2,
-                            self.func2,
+                            self.distance,
                             &self.color3,
                             clip_max_x,
                             do_draw,
@@ -1049,7 +1048,7 @@ impl TextItem {
                             &self.color1,
                             self.ruby_text_outline,
                             &self.color2,
-                            self.func2,
+                            self.distance,
                             &self.color3,
                             i32::MAX,
                             true,
@@ -1189,7 +1188,7 @@ impl TextManager {
         if text.get_loaded() {
             text.clear_buffer();
             text.x = text.text_start_horizon;
-            text.y = text.text_start_vertical;
+            text.y = 0;
             text.elapsed = 0;
             text.dirty = true;
         }
@@ -1203,6 +1202,36 @@ impl TextManager {
         text.clear_buffer();
         text.loaded = true;
         text.elapsed = 0;
+
+        // Reverse-engineered font_set_buff() reset state.
+        text.text_content.clear();
+        text.content_text.clear();
+        text.content_items.clear();
+        text.font_name_id = -2;
+        text.font_text_id = -2;
+        text.main_text_size = 16;
+        text.ruby_text_size = 12;
+        text.main_text_outline = 0;
+        text.ruby_text_outline = 0;
+        text.distance = 0;
+        text.func1 = 0;
+        text.func2 = 0;
+        text.func3 = 0;
+        text.space_vertical = 0;
+        text.space_horizon = 0;
+        text.text_start_horizon = 0;
+        text.text_start_vertical = 0;
+        text.ruby_horizon = 0;
+        text.ruby_vertical = 0;
+        text.suspend_margin = 0;
+        text.skip_mode = 0;
+        text.is_suspended = false;
+        text.x = 0;
+        text.y = 0;
+        text.speed = 0;
+        text.total_chars = 0;
+        text.visible_chars = 0;
+        text.suspend_chrs.clear();
         text.dirty = true;
     }
 
@@ -1254,32 +1283,37 @@ impl TextManager {
         self.items[id as usize].set_vertical_space(space);
     }
 
-    pub fn set_text_format(
+    pub fn apply_text_format(
         &mut self,
         id: i32,
-        space_vertical: i16,
-        space_horizon: i16,
-        text_start_vertical: u16,
-        text_start_horizon: u16,
-        ruby_horizon: i16,
-        ruby_vertical: i16,
+        space_vertical: Option<i16>,
+        space_horizon: Option<i16>,
+        text_start_vertical: Option<u16>,
+        text_start_horizon: Option<u16>,
+        ruby_horizon: Option<i16>,
+        ruby_vertical: Option<i16>,
     ) {
         let t = &mut self.items[id as usize];
-        t.space_vertical = space_vertical;
-        t.space_horizon = space_horizon;
-        t.text_start_vertical = text_start_vertical;
-        t.text_start_horizon = text_start_horizon;
-        t.ruby_horizon = ruby_horizon;
-        t.ruby_vertical = ruby_vertical;
-
-        // current best-effort mapping for suspend_margin (see reverse-engineered format state)
-        t.suspend_margin = text_start_vertical as i16;
-
-        if t.x < t.text_start_horizon {
-            t.x = t.text_start_horizon;
+        if let Some(v) = space_vertical {
+            t.space_vertical = v;
         }
-        if t.y < t.text_start_vertical {
-            t.y = t.text_start_vertical;
+        if let Some(v) = space_horizon {
+            t.space_horizon = v;
+        }
+        if let Some(v) = text_start_vertical {
+            t.text_start_vertical = v;
+        }
+        if let Some(v) = text_start_horizon {
+            t.text_start_horizon = v;
+            if t.x < v {
+                t.x = v;
+            }
+        }
+        if let Some(v) = ruby_horizon {
+            t.ruby_horizon = v;
+        }
+        if let Some(v) = ruby_vertical {
+            t.ruby_vertical = v;
         }
         t.dirty = true;
     }

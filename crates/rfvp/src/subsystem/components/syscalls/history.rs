@@ -115,8 +115,6 @@ pub fn history_get(game_data: &mut GameData, kind: &Variant, idx: &Variant) -> R
 /// Arguments:
 /// Arg1: kind (int or nil) - 0=name, 1=content, 2=voice. If nil, returns the history count.
 /// Arg2: idx (int) - 0 means the most recent entry, 1 the one before that, etc.
-/// Returns:
-/// The requested value, or nil if not found or on error.
 /// 
 pub struct HistoryGet;
 impl Syscaller for HistoryGet {

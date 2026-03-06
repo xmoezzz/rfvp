@@ -46,14 +46,24 @@ pub fn save_create(game_data: &mut GameData, fnid: &Variant, value: &Variant) ->
                     .set_current_script_content(content.to_string());
             }
         }
-        3 => {
-            if let Variant::Int(slot) = value {
-                let slot = *slot as u32;
-                if (0..1000).contains(&slot) {
-                    game_data.save_manager.asynchronously_save(slot);
-                }
-            }
+3 => {
+    // Original engine behavior (from exe reverse): SaveCreate(fnid=3) prepares an in-memory
+    // save payload (`local_saved`). The save/load UI can then call SaveWrite(slot) to
+    // commit this payload to disk without capturing the menu overlay.
+    game_data.save_manager.request_prepare_local_savedata();
+
+    if let Variant::Int(slot) = value {
+        let slot = *slot as u32;
+        if (0..1000).contains(&slot) {
+            // Request committing the prepared payload to a concrete slot.
+            game_data.save_manager.set_savedata_requested(true);
+            game_data.save_manager.set_current_save_slot(slot);
         }
+    }
+
+    // Break the current context so the host loop can prepare `local_saved` immediately.
+    game_data.thread_wrapper.should_break();
+}
         _ => {
             log::error!("save_create: invalid fnid: {}", fnid);
         }
@@ -71,12 +81,6 @@ pub fn save_data(
     let fnid = match fnid {
         Variant::Int(fnid) => *fnid,
         Variant::Nil => {
-            let nls = game_data.get_nls();
-            for slot in 0..1000 {
-                if let Err(e) = game_data.save_manager.load_savedata(slot, nls.clone()) {
-                    log::error!("save_data: failed to load save data: {}", e);
-                }
-            }
             return Ok(Variant::Nil);
         }
         _ => {
@@ -86,6 +90,12 @@ pub fn save_data(
     };
 
     match fnid.try_into() {
+        Ok(SaveDataFunction::RefreshAll) => {
+            let nls = game_data.get_nls();
+            if let Err(e) = game_data.save_manager.refresh_all_savedata(nls.clone()) {
+                log::error!("save_data: refresh_all_savedata failed: {e:?}");
+            }
+        }
         Ok(SaveDataFunction::LoadSaveThumbToTexture) => {
             let mut slot_id = 0;
             let mut texture_id = 0;
@@ -112,6 +122,10 @@ pub fn save_data(
 
             let thumb_width = game_data.save_manager.get_thumb_width();
             let thumb_height = game_data.save_manager.get_thumb_height();
+            if thumb_width == 0 || thumb_height == 0 {
+                log::warn!("save_data: thumbnail size is 0, call SaveThumbSize first");
+                return Ok(Variant::Nil);
+            }
             let thumb = game_data
                 .save_manager
                 .get_save_thumb(slot_id, thumb_width, thumb_height);
@@ -132,6 +146,7 @@ pub fn save_data(
                 log::error!("save_data: failed to load texture from buff: {}", e);
                 return Ok(Variant::Nil);
             }
+            game_data.motion_manager.refresh_prims(texture_id as u16);
         }
         Ok(SaveDataFunction::TestSaveData) => {
             if let Some(slot) = value.as_int() {
@@ -171,6 +186,8 @@ pub fn save_data(
         Ok(SaveDataFunction::GetSaveTitle) => {
             if let Some(slot) = value.as_int() {
                 if (0..=999).contains(&slot) {
+                    let nls = game_data.get_nls();
+                    let _ = game_data.save_manager.load_savedata(slot as u32, nls);
                     let title = game_data.save_manager.get_save_title(slot as u32);
                     return Ok(Variant::String(title));
                 }
@@ -179,6 +196,8 @@ pub fn save_data(
         Ok(SaveDataFunction::GetSaveSceneTitle) => {
             if let Some(slot) = value.as_int() {
                 if (0..=999).contains(&slot) {
+                    let nls = game_data.get_nls();
+                    let _ = game_data.save_manager.load_savedata(slot as u32, nls);
                     let title = game_data.save_manager.get_save_scene_title(slot as u32);
                     return Ok(Variant::String(title));
                 }
@@ -187,6 +206,8 @@ pub fn save_data(
         Ok(SaveDataFunction::GetScriptContent) => {
             if let Some(slot) = value.as_int() {
                 if (0..=999).contains(&slot) {
+                    let nls = game_data.get_nls();
+                    let _ = game_data.save_manager.load_savedata(slot as u32, nls);
                     let content = game_data.save_manager.get_script_content(slot as u32);
                     return Ok(Variant::String(content));
                 }
@@ -195,6 +216,8 @@ pub fn save_data(
         Ok(SaveDataFunction::GetYear) => {
             if let Some(slot) = value.as_int() {
                 if (0..=999).contains(&slot) {
+                    let nls = game_data.get_nls();
+                    let _ = game_data.save_manager.load_savedata(slot as u32, nls);
                     let year = game_data.save_manager.get_year(slot as u32);
                     return Ok(Variant::Int(year as i32));
                 }
@@ -203,6 +226,8 @@ pub fn save_data(
         Ok(SaveDataFunction::GetMonth) => {
             if let Some(slot) = value.as_int() {
                 if (0..=999).contains(&slot) {
+                    let nls = game_data.get_nls();
+                    let _ = game_data.save_manager.load_savedata(slot as u32, nls);
                     let month = game_data.save_manager.get_month(slot as u32);
                     return Ok(Variant::Int(month as i32));
                 }
@@ -211,6 +236,8 @@ pub fn save_data(
         Ok(SaveDataFunction::GetDay) => {
             if let Some(slot) = value.as_int() {
                 if (0..=999).contains(&slot) {
+                    let nls = game_data.get_nls();
+                    let _ = game_data.save_manager.load_savedata(slot as u32, nls);
                     let day = game_data.save_manager.get_day(slot as u32);
                     return Ok(Variant::Int(day as i32));
                 }
@@ -219,6 +246,8 @@ pub fn save_data(
         Ok(SaveDataFunction::GetDayOfWeek) => {
             if let Some(slot) = value.as_int() {
                 if (0..=999).contains(&slot) {
+                    let nls = game_data.get_nls();
+                    let _ = game_data.save_manager.load_savedata(slot as u32, nls);
                     let day_of_week = game_data.save_manager.get_day_of_week(slot as u32);
                     return Ok(Variant::Int(day_of_week as i32));
                 }
@@ -227,6 +256,8 @@ pub fn save_data(
         Ok(SaveDataFunction::GetHour) => {
             if let Some(slot) = value.as_int() {
                 if (0..=999).contains(&slot) {
+                    let nls = game_data.get_nls();
+                    let _ = game_data.save_manager.load_savedata(slot as u32, nls);
                     let hour = game_data.save_manager.get_hour(slot as u32);
                     return Ok(Variant::Int(hour as i32));
                 }
@@ -235,6 +266,8 @@ pub fn save_data(
         Ok(SaveDataFunction::GetMinute) => {
             if let Some(slot) = value.as_int() {
                 if (0..=999).contains(&slot) {
+                    let nls = game_data.get_nls();
+                    let _ = game_data.save_manager.load_savedata(slot as u32, nls);
                     let minute = game_data.save_manager.get_minute(slot as u32);
                     return Ok(Variant::Int(minute as i32));
                 }
@@ -281,6 +314,12 @@ pub fn save_write(game_data: &mut GameData, slot: &Variant) -> Result<Variant> {
 
     // Request an async save. The actual file write (including thumbnail capture) is performed
     // by the engine loop on a subsequent frame.
+    // Ensure a local_saved payload exists; if not, prepare one (best-effort fallback).
+    if !game_data.save_manager.has_local_saved() {
+        game_data.save_manager.request_prepare_local_savedata();
+        game_data.thread_wrapper.should_break();
+    }
+
     game_data.save_manager.set_savedata_requested(true);
     game_data.save_manager.set_current_save_slot(slot as u32);
 
@@ -301,73 +340,26 @@ pub fn load(game_data: &mut GameData, slot: &Variant) -> Result<Variant> {
         return Ok(Variant::Nil);
     }
 
-    let path = crate::subsystem::resources::save_manager::SaveItem::get_save_path(slot as u32);
-    let bytes = match std::fs::read(&path) {
-        Ok(b) => b,
-        Err(e) => {
-            log::error!("load: failed to read save slot {}: {:#}", slot, e);
-            return Ok(Variant::Nil);
-        }
-    };
+    // Match original engine behavior:
+    // - The syscall only requests a load and breaks the current context.
+    // - The actual file read + state restoration is performed by the VM runner
+    //   at a safe point (between ticks).
+    game_data.save_manager.request_load(slot as u32);
 
-    let nls = game_data.get_nls();
-    match game_data
-        .save_manager
-        .load_slot_into_current_from_bytes(slot as u32, nls, &bytes)
-    {
-        Ok(()) => {
+    // Trigger dissolve2 around the load window to hide rebuild artifacts.
+    game_data
+        .motion_manager
+        .start_dissolve2_in_out(DISSOLVE2_LOAD_COLOR_ID, DISSOLVE2_LOAD_DURATION_MS);
 
-            let GameData {
-                motion_manager,
-                vfs,
-                // adjust these field names to your real struct layout:
-                bgm_player,
-                se_player,
-                ..
-            } = game_data;
-            
-            // Apply optional state chunk (motion + audio). This is best-effort: failures should not
-            // prevent the classic script-driven load path from executing.
-            match crate::subsystem::save_state::try_decode_state_chunk_v1(&bytes) {
+    // Yield until dissolve completes.
+    game_data.thread_wrapper.dissolve_wait();
 
-                Ok(Some(state)) => {
-                    if let Err(e) = motion_manager.apply_snapshot_v1(&state.motion, vfs) {
-                        log::error!("load: apply MotionManagerSnapshot failed: {:#}", e);
-                    }
-                    if let Err(e) = bgm_player.apply_snapshot_v1(&state.audio.bgm, vfs) {
-                        log::error!("load: apply BgmPlayerSnapshot failed: {:#}", e);
-                    }
-                    if let Err(e) = se_player.apply_snapshot_v1(&state.audio.se, vfs) {
-                        log::error!("load: apply SePlayerSnapshot failed: {:#}", e);
-                    }
-                }
-                Ok(None) => {
-                    // No state chunk (older save format).
-                }
-                Err(e) => {
-                    log::error!("load: failed to decode state chunk: {:#}", e);
-                }
-            }
+    // Break current context so the host loop can process the load request.
+    game_data.thread_wrapper.should_break();
 
-            // Trigger dissolve2 (engine-internal overlay fade) around the post-load rebuild window.
-            game_data
-                .motion_manager
-                .start_dissolve2_in_out(DISSOLVE2_LOAD_COLOR_ID, DISSOLVE2_LOAD_DURATION_MS);
-
-            // Yield until dissolve completes (VmRunner unblocks when dissolve1 is idle AND dissolve2 is not transitioning).
-            game_data.thread_wrapper.dissolve_wait();
-
-            // Break current context so the script can rebuild state based on loaded save content.
-            game_data.thread_wrapper.should_break();
-
-            Ok(Variant::True)
-        }
-        Err(e) => {
-            log::error!("load: failed to load slot {}: {:#}", slot, e);
-            Ok(Variant::Nil)
-        }
-    }
+    Ok(Variant::True)
 }
+
 pub struct SaveCreate;
 impl Syscaller for SaveCreate {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {

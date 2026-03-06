@@ -3,7 +3,9 @@ use winit::window::CursorIcon;
 #[derive(Default, Debug, Copy, Clone)]
 struct FutureSettings{
     new_cursor: Option<CursorIcon>,
-    dimensions: Option<(u32, u32)>
+    dimensions: Option<(u32, u32)>,
+    cursor_visible: Option<bool>,
+    cursor_pos: Option<(i32, i32)>,
 }
 /// [`Window`] is a Resource dedicated to have an access control over the current window.
 /// Its size is immediately updated when the window resize event happens.
@@ -60,15 +62,22 @@ impl Window {
     pub fn new_dimensions(&self) -> &Option<(u32, u32)> {
         &self.future_settings.dimensions
     }
-    
-    // --- Cursor control (used by Cursor* syscalls) ---
-    // These are intentionally minimal: platform backends may choose to honor them.
-    pub fn set_cursor_visible(&mut self, _visible: bool) {
-        // TODO: wire to winit window handle if needed.
+
+    pub fn new_cursor_visible(&self) -> Option<bool> {
+        self.future_settings.cursor_visible
     }
 
-    pub fn set_cursor_pos(&mut self, _x: i32, _y: i32) {
-        // TODO: wire to winit window handle if needed.
+    pub fn new_cursor_pos(&self) -> Option<(i32, i32)> {
+        self.future_settings.cursor_pos
+    }
+    
+    // --- Cursor control (used by Cursor* syscalls) ---
+    pub fn set_cursor_visible(&mut self, visible: bool) {
+        self.future_settings.cursor_visible = Some(visible);
+    }
+
+    pub fn set_cursor_pos(&mut self, x: i32, y: i32) {
+        self.future_settings.cursor_pos = Some((x, y));
     }
 
     pub fn set_cursor_kind(&mut self, _kind_id: i32) {

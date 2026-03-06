@@ -54,13 +54,17 @@ impl HistoryManager {
     pub fn set_voice(&mut self, voice_id: i32) {
         self.current.voice_id = Some(voice_id);
     }
+
     pub fn push(&mut self) {
         self.histories.insert(0, self.current.clone());
-        // Match the original engine behavior: keep only the most recent 100 records.
         if self.histories.len() > 100 {
             self.histories.truncate(100);
         }
         self.current = Default::default();
+    }
+
+    pub fn len(&self) -> usize {
+        self.histories.len()
     }
 
     pub fn get_name(&mut self, id: u32) -> Option<String> {
@@ -79,9 +83,5 @@ impl HistoryManager {
         self.histories
             .get(id as usize)
             .and_then(|h| h.voice_id)
-    }
-
-    pub fn len(&self) -> usize {
-        self.histories.len()
     }
 }

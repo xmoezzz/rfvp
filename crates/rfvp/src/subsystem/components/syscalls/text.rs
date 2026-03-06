@@ -249,85 +249,38 @@ pub fn text_format(
     }
 
     let space_vertical = match space_vertical {
-        Variant::Int(v) => *v,
-        _ => {
-            log::error!("text_format: invalid space_vertical type");
-            return Ok(Variant::Nil);
-        },
+        Variant::Int(v) if (-32..=32).contains(v) => Some(*v as i16),
+        _ => None,
     };
     let space_horizon = match space_horizon {
-        Variant::Int(v) => *v,
-        _ => {
-            log::error!("text_format: invalid space_horizon type");
-            return Ok(Variant::Nil);
-        },
+        Variant::Int(v) if (-32..=32).contains(v) => Some(*v as i16),
+        _ => None,
     };
     let text_start_vertical = match text_start_vertical {
-        Variant::Int(v) => *v,
-        _ => {
-            log::error!("text_format: invalid text_start_vertical type");
-            return Ok(Variant::Nil);
-        },
+        Variant::Int(v) if (0..=64).contains(v) => Some(*v as u16),
+        _ => None,
     };
     let text_start_horizon = match text_start_horizon {
-        Variant::Int(v) => *v,
-        _ => {
-            log::error!("text_format: invalid text_start_horizon type");
-            return Ok(Variant::Nil);
-        },
+        Variant::Int(v) if (0..=64).contains(v) => Some(*v as u16),
+        _ => None,
     };
     let ruby_horizon = match ruby_horizon {
-        Variant::Int(v) => *v,
-        _ => {
-            log::error!("text_format: invalid ruby_horizon type");
-            return Ok(Variant::Nil);
-        },
+        Variant::Int(v) if (-16..=16).contains(v) => Some(*v as i16),
+        _ => None,
     };
     let ruby_vertical = match ruby_vertical {
-        Variant::Int(v) => *v,
-        _ => {
-            log::error!("text_format: invalid ruby_vertical type");
-            return Ok(Variant::Nil);
-        },
+        Variant::Int(v) if (-16..=16).contains(v) => Some(*v as i16),
+        _ => None,
     };
 
-    // IDA ranges:
-    // - space_vertical/space_horizon: [-32, 32]
-    // - text_start_vertical/text_start_horizon: [0, 64]
-    // - ruby_horizon/ruby_vertical: [-16, 16]
-    if !(-32..=32).contains(&space_vertical) {
-        log::error!("text_format: space_vertical out of range [-32,32]");
-        return Ok(Variant::Nil);
-    }
-    if !(-32..=32).contains(&space_horizon) {
-        log::error!("text_format: space_horizon out of range [-32,32]");
-        return Ok(Variant::Nil);
-    }
-    if !(0..=64).contains(&text_start_vertical) {
-        log::error!("text_format: text_start_vertical out of range [0,64]");
-        return Ok(Variant::Nil);
-    }
-    if !(0..=64).contains(&text_start_horizon) {
-        log::error!("text_format: text_start_horizon out of range [0,64]");
-        return Ok(Variant::Nil);
-    }
-    if !(-16..=16).contains(&ruby_horizon) {
-        log::error!("text_format: ruby_horizon out of range [-16,16]");
-        return Ok(Variant::Nil);
-    }
-    if !(-16..=16).contains(&ruby_vertical) {
-        log::error!("text_format: ruby_vertical out of range [-16,16]");
-        return Ok(Variant::Nil);
-    }
-
-    game_data.motion_manager.text_manager.set_text_format(
+    game_data.motion_manager.text_manager.apply_text_format(
         id,
-        space_vertical as i16,
-        space_horizon as i16,
-        text_start_vertical as u16,
-        text_start_horizon as u16,
-        ruby_horizon as i16,
-        ruby_vertical as i16,
+        space_vertical,
+        space_horizon,
+        text_start_vertical,
+        text_start_horizon,
+        ruby_horizon,
+        ruby_vertical,
     );
 
     Ok(Variant::Nil)

@@ -278,19 +278,9 @@ impl App {
                         }
                         WindowEvent::RedrawRequested => {
                             // Drive the simulation from redraws so we do not busy-spin.
-                            //
-                            // IMPORTANT: When the VM hits its opcode budget, it introduces an *artificial* yield.
-                            // Presenting a frame at such a point can expose transient states (e.g., prim defaults
-                            // to draw=1, later hidden by script) and can destabilize UI focus/hover.
-                            //
-                            // To better match the original single-threaded presentation semantics, we treat any
-                            // forced-yield as "frame-incomplete" and avoid presenting until the VM reaches a
-                            // script-requested yield (WAIT/SLEEP/NEXT/etc.).
-                            let (frame_ms, notify_dissolve_done) = if self.pending_vm_frame_ms_valid {
-                                (0, false)
-                            } else {
-                                self.next_frame()
-                            };
+                            // The VM is cooperative and now advances until script/syscall yield points
+                            // such as WAIT/SLEEP/NEXT/ShouldBreak, matching the original engine style.
+                            let (frame_ms, notify_dissolve_done) = self.next_frame();
 
                             // Wake dissolve waiters before advancing the VM for this frame.
                             if notify_dissolve_done {
@@ -298,59 +288,12 @@ impl App {
                             }
 
                             // Run the script VM before rendering so scene changes become visible immediately.
-                            //
-                            // Important: the VM enforces a per-context opcode budget (see VmRunner). Hitting that
-                            // budget introduces an artificial yield point which can expose transient scene states
-                            // (e.g., prim init defaults to draw=1, later hidden by script). The original engine is
-                            // effectively single-threaded here and would not present in the middle of such a burst.
-                            //
-                            // To better match the original presentation semantics, keep pumping the VM in the same
-                            // redraw until it reaches a script-requested yield (WAIT/SLEEP/NEXT/etc.), or until a
-                            // small drain limit is reached.
-                            let max_drain_ticks: usize = std::env::var("RFVP_VM_DRAIN_TICKS")
-                                .ok()
-                                .and_then(|v| v.parse::<usize>().ok())
-                                .unwrap_or(256);
-
-                            // Safety valve: do not spin indefinitely in a single redraw.
-                            // (If the VM keeps force-yielding, we will keep draining across redraws.)
-                            let max_drain_ms: u64 = std::env::var("RFVP_VM_DRAIN_MS")
-                                .ok()
-                                .and_then(|v| v.parse::<u64>().ok())
-                                .unwrap_or(8);
-
-                            let drain_deadline = Instant::now();
-
-                            let mut drain_ticks: usize = 0;
-                            let mut rep = self.vm_worker.send_frame_ms_sync(frame_ms);
-                            drain_ticks += 1;
-
-                            while rep.forced_yield
-                                && drain_ticks < max_drain_ticks
-                                && drain_deadline.elapsed() < Duration::from_millis(max_drain_ms)
-                            {
-                                // Subsequent drains in the same redraw are zero-delta: timers already advanced.
-                                rep = self.vm_worker.send_frame_ms_sync(0);
-                                drain_ticks += 1;
-                            }
+                            let _rep = self.vm_worker.send_frame_ms_sync(frame_ms);
 
                             // Apply WindowMode/Cursor requests that may have been issued during the VM tick.
                             self.apply_window_mode_requests();
                             self.update_cursor();
 
-                            if rep.forced_yield {
-                                // The VM did not reach a script-requested yield. Avoid presenting a frame that could
-                                // capture an intermediate UI state (hover highlight cleared, focus advanced, etc.).
-                                self.pending_vm_frame_ms_valid = true;
-
-                                // Ensure we get another opportunity to drain soon.
-                                if let Some(w) = self.window.as_ref() {
-                                    w.request_redraw();
-                                }
-                                return;
-                            }
-
-                            // The frame is now complete.
                             self.pending_vm_frame_ms_valid = false;
 
                             {
@@ -465,7 +408,7 @@ impl App {
                     // ExitMode(3): after the main script context exits, terminate the host loop.
                     let (should_exit, main_exited) = {
                         let gd = gd_read(&self.game_data);
-                        (gd.get_game_should_exit(), gd.get_main_thread_exited())
+                        (gd.get_lock_scripter(), gd.get_main_thread_exited())
                     };
                     if should_exit && main_exited {
                         loopd.exit();
@@ -646,17 +589,56 @@ impl App {
     }
 
 
+    fn virtual_to_window_cursor_pos(&self, vx: i32, vy: i32, render_flag: i32) -> PhysicalPosition<f64> {
+        let sw = self.surface_config.width.max(1) as f64;
+        let sh = self.surface_config.height.max(1) as f64;
+        let vw = self.virtual_size.0.max(1) as f64;
+        let vh = self.virtual_size.1.max(1) as f64;
+
+        let vx = vx.clamp(0, (vw as i32).saturating_sub(1)) as f64;
+        let vy = vy.clamp(0, (vh as i32).saturating_sub(1)) as f64;
+
+        if render_flag == 2 {
+            let px = (vx + 0.5) * sw / vw;
+            let py = (vy + 0.5) * sh / vh;
+            return PhysicalPosition::new(px, py);
+        }
+
+        let scale = (sw / vw).min(sh / vh);
+        let dst_w = vw * scale;
+        let dst_h = vh * scale;
+        let off_x = (sw - dst_w) * 0.5;
+        let off_y = (sh - dst_h) * 0.5;
+        let px = off_x + (vx + 0.5) * scale;
+        let py = off_y + (vy + 0.5) * scale;
+        PhysicalPosition::new(px, py)
+    }
+
     fn update_cursor(&mut self) {
-        let cursor_frame = {
+        let (cursor_frame, pending_cursor_visible, pending_cursor_pos, render_flag) = {
             let mut gd = gd_write(&self.game_data);
-            gd.update_cursor()
+            let frame = gd.update_cursor();
+            let visible = gd.window_ref().new_cursor_visible();
+            let pos = gd.window_ref().new_cursor_pos();
+            let render_flag = gd.get_render_flag();
+            (frame, visible, pos, render_flag)
         };
+
+        let window_cursor_pos = pending_cursor_pos
+            .map(|(vx, vy)| self.virtual_to_window_cursor_pos(vx, vy, render_flag));
+
         let Some(w) = self.window.as_mut() else {
             // iOS host mode does not use winit cursors.
             return;
         };
         if let Some(frame) = cursor_frame {
             w.set_cursor(frame);
+        }
+        if let Some(visible) = pending_cursor_visible {
+            w.set_cursor_visible(visible);
+        }
+        if let Some(pos) = window_cursor_pos {
+            let _ = w.set_cursor_position(pos);
         }
         {
             let mut gd = gd_write(&self.game_data);
@@ -666,6 +648,18 @@ impl App {
     }
 
     fn render_frame(&mut self) -> anyhow::Result<()> {
+
+// Commit a pending SaveWrite using a prepared in-memory payload (local_saved),
+// without capturing the current frame. This matches the original engine's
+// SaveCreate(fnid=3) + SaveWrite(slot) two-phase save flow.
+{
+    let mut gd = gd_write(&self.game_data);
+    let nls = gd.get_nls();
+    if let Ok(true) = gd.save_manager.try_commit_local_savedata(nls.clone()) {
+        gd.save_manager.consume_save_write_result();
+    }
+}
+
         let dissolve_color: Option<glam::Vec4>;
         let dissolve2_color: Option<glam::Vec4>;
         {
@@ -874,31 +868,48 @@ impl App {
 
         self.resources.queue.submit(Some(encoder.finish()));
 
-        if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_capture) {
-            let rgba = readback.map_to_rgba8(&self.resources.device);
-            let src_w = self.virtual_size.0.max(1);
-            let src_h = self.virtual_size.1.max(1);
+        
+if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_capture) {
+    let rgba = readback.map_to_rgba8(&self.resources.device);
+    let src_w = self.virtual_size.0.max(1);
+    let src_h = self.virtual_size.1.max(1);
 
-            let thumb_rgba = if thumb_w > 0 && thumb_h > 0 && (thumb_w != src_w || thumb_h != src_h) {
-                if let Some(img) = RgbaImage::from_raw(src_w, src_h, rgba.clone()) {
-                    let resized = image::imageops::resize(&img, thumb_w, thumb_h, FilterType::Triangle);
-                    resized.into_raw()
-                } else {
-                    rgba
-                }
-            } else {
-                rgba.clone()
-            };
-
-            let mut gd = gd_write(&self.game_data);
-            let nls = gd.get_nls();
-            let state_snap = crate::subsystem::save_state::SaveStateSnapshotV1::capture(&gd);
-            gd.save_manager.finalize_save_write(nls, thumb_w, thumb_h, &thumb_rgba, Some(&state_snap))?;
-            gd.save_manager.consume_save_write_result();
-            if let Err(e) = crate::subsystem::global_savedata::save_global_savedata_v1(&gd) {
-                log::error!("Failed to save global savedata after slot save: {:#}", e);
-            }
+    let thumb_rgba = if thumb_w > 0 && thumb_h > 0 && (thumb_w != src_w || thumb_h != src_h) {
+        if let Some(img) = RgbaImage::from_raw(src_w, src_h, rgba.clone()) {
+            let resized = image::imageops::resize(&img, thumb_w, thumb_h, FilterType::Triangle);
+            resized.into_raw()
+        } else {
+            rgba
         }
+    } else {
+        rgba.clone()
+    };
+
+    let mut gd = gd_write(&self.game_data);
+    let nls = gd.get_nls();
+    let state_snap = crate::subsystem::save_state::SaveStateSnapshotV2::capture(&mut gd);
+
+    if slot == u32::MAX {
+        // SaveCreate(3, nil/int): prepare local_saved payload in memory.
+        gd.save_manager.finalize_local_savedata_prepare(
+            nls.clone(),
+            thumb_w,
+            thumb_h,
+            &thumb_rgba,
+            Some(&state_snap),
+        )?;
+
+        // If a SaveWrite was already requested (SaveCreate(3, slot) form), commit now.
+        if gd.save_manager.try_commit_local_savedata(nls.clone())? {
+            gd.save_manager.consume_save_write_result();
+        }
+    } else {
+        // Fallback path: capture the current frame and write immediately.
+        gd.save_manager
+            .finalize_save_write(nls, thumb_w, thumb_h, &thumb_rgba, Some(&state_snap))?;
+        gd.save_manager.consume_save_write_result();
+    }
+}
 
         output.present();
 
@@ -1159,7 +1170,7 @@ impl App {
         // Exit once the main script thread is done and the engine requested shutdown.
         {
             let gd = gd_read(&self.game_data);
-            if gd.get_game_should_exit() && gd.get_main_thread_exited() {
+            if gd.get_lock_scripter() && gd.get_main_thread_exited() {
                 return true;
             }
         }
@@ -1181,49 +1192,16 @@ impl App {
             }
         }
 
-        let (frame_ms, notify_dissolve_done) = if self.pending_vm_frame_ms_valid {
-            (0u64, false)
-        } else {
-            self.next_frame()
-        };
+        let (frame_ms, notify_dissolve_done) = self.next_frame();
 
         if notify_dissolve_done {
             self.vm_worker.send_dissolve_done_sync();
         }
 
-        // Match the desktop redraw semantics: drain forced-yields without presenting.
-        let max_drain_ticks: usize = std::env::var("RFVP_VM_DRAIN_TICKS")
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .unwrap_or(256);
-
-        let max_drain_ms: u64 = std::env::var("RFVP_VM_DRAIN_MS")
-            .ok()
-            .and_then(|v| v.parse::<u64>().ok())
-            .unwrap_or(8);
-
-        let drain_deadline = std::time::Instant::now();
-
-        let mut drain_ticks: usize = 0;
-        let mut rep = self.vm_worker.send_frame_ms_sync(frame_ms);
-        drain_ticks += 1;
-
-        while rep.forced_yield
-            && drain_ticks < max_drain_ticks
-            && drain_deadline.elapsed() < std::time::Duration::from_millis(max_drain_ms)
-        {
-            rep = self.vm_worker.send_frame_ms_sync(0);
-            drain_ticks += 1;
-        }
+        let _rep = self.vm_worker.send_frame_ms_sync(frame_ms);
 
         self.apply_window_mode_requests();
         self.update_cursor();
-
-        if rep.forced_yield {
-            // Frame incomplete: avoid presenting.
-            self.pending_vm_frame_ms_valid = true;
-            return false;
-        }
 
         self.pending_vm_frame_ms_valid = false;
 
@@ -1494,25 +1472,21 @@ impl App {
 #[cfg(target_os = "android")]
 impl Drop for App {
     fn drop(&mut self) {
-        // Persistence for script-visible global state.
         {
             let gd = gd_read(&self.game_data);
             if let Err(e) = crate::subsystem::global_savedata::save_global_savedata_v1(&gd) {
                 log::error!("Failed to save global savedata on exit: {:#}", e);
             }
         }
-
         if let Some(w) = self.android_native_window.take() {
             unsafe { ANativeWindow_release(w.as_ptr()); }
         }
     }
 }
 
-
 #[cfg(not(target_os = "android"))]
 impl Drop for App {
     fn drop(&mut self) {
-        // Best-effort persistence for script-visible global state.
         let gd = gd_read(&self.game_data);
         if let Err(e) = crate::subsystem::global_savedata::save_global_savedata_v1(&gd) {
             log::error!("Failed to save global savedata on exit: {:#}", e);
@@ -1981,7 +1955,6 @@ impl AppBuilder {
         if let Err(e) = crate::subsystem::global_savedata::try_load_global_savedata_v1(&mut self.world) {
             log::error!("Failed to load global savedata: {:#}", e);
         }
-
         
         self.script_engine.start_main(entry_point);
         self.world.nls = self.parser.nls.clone();
@@ -2226,7 +2199,6 @@ impl AppBuilder {
             log::error!("Failed to load global savedata: {:#}", e);
         }
 
-
         self.script_engine.start_main(entry_point);
         self.world.nls = self.parser.nls.clone();
 
@@ -2378,7 +2350,6 @@ impl AppBuilder {
         if let Err(e) = crate::subsystem::global_savedata::try_load_global_savedata_v1(&mut self.world) {
             log::error!("Failed to load global savedata: {:#}", e);
         }
-
 
         self.script_engine.start_main(entry_point);
         self.world.nls = self.parser.nls.clone();

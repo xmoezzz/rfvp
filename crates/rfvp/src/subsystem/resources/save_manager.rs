@@ -4,10 +4,11 @@ use std::mem::size_of;
 use std::{io::Read, path::Path};
 
 use crate::{script::parser::Nls, utils::file::app_base_path};
+use crate::subsystem::resources::thread_manager::ThreadManagerSnapshotV1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SaveDataFunction {
-    LoadSaveThumbToTexture = 0,
+    RefreshAll = 0,
     TestSaveData = 1,
     DeleteSaveData = 2,
     CopySaveData = 3,
@@ -20,6 +21,7 @@ pub enum SaveDataFunction {
     GetDayOfWeek = 10,
     GetHour = 11,
     GetMinute = 12,
+    LoadSaveThumbToTexture = 13,
 }
 
 impl TryFrom<i32> for SaveDataFunction {
@@ -27,7 +29,7 @@ impl TryFrom<i32> for SaveDataFunction {
 
     fn try_from(value: i32) -> anyhow::Result<Self> {
         match value {
-            0 => Ok(SaveDataFunction::LoadSaveThumbToTexture),
+            0 => Ok(SaveDataFunction::RefreshAll),
             1 => Ok(SaveDataFunction::TestSaveData),
             2 => Ok(SaveDataFunction::DeleteSaveData),
             3 => Ok(SaveDataFunction::CopySaveData),
@@ -40,6 +42,7 @@ impl TryFrom<i32> for SaveDataFunction {
             10 => Ok(SaveDataFunction::GetDayOfWeek),
             11 => Ok(SaveDataFunction::GetHour),
             12 => Ok(SaveDataFunction::GetMinute),
+            13 => Ok(SaveDataFunction::LoadSaveThumbToTexture),
             _ => bail!("invalid save data function: {}", value),
         }
     }
@@ -59,148 +62,89 @@ pub struct SaveItem {
 }
 
 impl SaveItem {
-    pub fn new() -> Self {
-        let local_time = Local::now();
-        SaveItem {
-            year: local_time.year() as u16,
-            month: local_time.month() as u8,
-            day: local_time.day() as u8,
-            day_of_week: local_time.weekday().num_days_from_monday() as u8,
-            hour: local_time.hour() as u8,
-            minute: local_time.minute() as u8,
-            title: String::new(),
-            scene_title: String::new(),
-            script_content: String::new(),
-        }
-    }
-
-    pub fn read_thumb_texture(slot: u32, width: u32, height: u32) -> Result<Vec<u8>> {
-        let thumb_path = app_base_path()
-            .get_path()
-            .join("save")
-            .join(format!("s{}.bin", slot));
-
-        let mut file = std::fs::File::open(thumb_path)?;
-        let mut buf = vec![];
-        file.read_to_end(&mut buf)?;
-
-        if buf.len() < Self::calculate_offset() {
-            return Err(anyhow::anyhow!("invalid save data: too short"));
-        }
-
-        let mut cursor = 0;
-        cursor += size_of::<u16>(); // skip year
-        cursor += size_of::<u8>(); // skip month
-        cursor += size_of::<u8>(); // skip day
-        cursor += size_of::<u8>(); // skip day_of_week
-        cursor += size_of::<u8>(); // skip hour
-        cursor += size_of::<u8>(); // skip minute
-
-        // read string length
-        let title_len = u16::from_le_bytes([buf[cursor], buf[cursor + 1]]) as usize;
-        cursor += size_of::<u16>();
-        cursor += title_len;
-        let scene_title_len = u16::from_le_bytes([buf[cursor], buf[cursor + 1]]) as usize;
-        cursor += size_of::<u16>();
-        cursor += scene_title_len;
-        let script_content_len = u16::from_le_bytes([buf[cursor], buf[cursor + 1]]) as usize;
-        cursor += size_of::<u16>();
-        cursor += script_content_len;
-
-        let thumb_size = width * height * 4;
-        // safely read thumb texture
-        if buf.len() < cursor + thumb_size as usize {
-            return Err(anyhow::anyhow!("invalid save data: too short"));
-        }
-
-        let thumb = buf[cursor..cursor + thumb_size as usize].to_vec();
-        Ok(thumb)
-    }
-
-    fn calculate_offset() -> usize {
-        let mut offset = 0;
-        offset += 2; // year
-        offset += 1; // month
-        offset += 1; // day
-        offset += 1; // day_of_week
-        offset += 1; // hour
-        offset += 1; // minute
-        offset += 2; // title length (without null-terminated), aussme title is empty
-        offset += 2; // scene_title length (without null-terminated), assume scene_title is empty
-        offset += 2; // script_content length (without null-terminated), assume script_content is empty
-        offset
-    }
-
-    fn read_string(buf: &[u8], len: u16, cursor: &mut usize, nls: Nls) -> Result<String> {
-        let mut string = vec![];
-        for _ in 0..len {
-            let c = buf[*cursor];
-            *cursor += 1;
-            string.push(c);
-        }
-
-        match nls {
-            Nls::ShiftJIS => {
-                let string = encoding_rs::SHIFT_JIS.decode(&string).0;
-                Ok(string.to_string())
-            }
-            Nls::GBK => {
-                let string = encoding_rs::GBK.decode(&string).0;
-                Ok(string.to_string())
-            }
-            Nls::UTF8 => {
-                let string = encoding_rs::UTF_8.decode(&string).0;
-                Ok(string.to_string())
-            }
-        }
-    }
-
     pub fn get_save_path(slot: u32) -> std::path::PathBuf {
-        app_base_path()
-            .get_path()
-            .join("save")
-            .join(format!("s{}.bin", slot))
+    // rfvp save files use "rfvp_s%03d.bin"; read path remains compatible with original/legacy names.
+    app_base_path()
+        .get_path()
+        .join("save")
+        .join(format!("rfvp_s{:03}.bin", slot))
+}
+
+fn legacy_save_path(slot: u32) -> std::path::PathBuf {
+    // Legacy rfvp builds used "s{slot}.bin".
+    app_base_path()
+        .get_path()
+        .join("save")
+        .join(format!("s{}.bin", slot))
+}
+
+pub fn resolve_save_path_for_read(slot: u32) -> std::path::PathBuf {
+    let p = Self::get_save_path(slot);
+    if p.exists() {
+        return p;
+    }
+    let legacy_padded = app_base_path()
+        .get_path()
+        .join("save")
+        .join(format!("s{:03}.bin", slot));
+    if legacy_padded.exists() {
+        return legacy_padded;
+    }
+    Self::legacy_save_path(slot)
+}
+
+    fn decode_bytes(nls: Nls, bytes: &[u8]) -> String {
+        match nls {
+            Nls::ShiftJIS => encoding_rs::SHIFT_JIS.decode(bytes).0.to_string(),
+            Nls::GBK => encoding_rs::GBK.decode(bytes).0.to_string(),
+            Nls::UTF8 => encoding_rs::UTF_8.decode(bytes).0.to_string(),
+        }
     }
 
-    pub fn load_from_mem(buf: &Vec<u8>, nls: Nls) -> Result<Self> {
-        if buf.len() < Self::calculate_offset() {
-            return Err(anyhow::anyhow!("invalid save data: too short"));
+    pub fn load_from_file(path: impl AsRef<std::path::Path>, nls: Nls) -> anyhow::Result<Self> {
+        use std::io::Read;
+
+        fn read_u16_le<R: Read>(r: &mut R) -> anyhow::Result<u16> {
+            let mut b = [0u8; 2];
+            r.read_exact(&mut b)?;
+            Ok(u16::from_le_bytes(b))
         }
 
-        let mut cursor = 0;
-        let year = u16::from_le_bytes([buf[cursor], buf[cursor + 1]]);
-        cursor += 2;
-        let month = buf[cursor];
-        cursor += 1;
-        let day = buf[cursor];
-        cursor += 1;
-        let day_of_week = buf[cursor];
-        cursor += 1;
-        let hour = buf[cursor];
-        cursor += 1;
-        let minute = buf[cursor];
-        cursor += 1;
+        let file = std::fs::File::open(path)?;
+        let mut r = std::io::BufReader::new(file);
 
-        let title_len = u16::from_le_bytes([buf[cursor], buf[cursor + 1]]) as usize;
-        cursor += 2;
+        let year = read_u16_le(&mut r)?;
+        let mut b = [0u8; 5];
+        r.read_exact(&mut b)?;
+        let month = b[0];
+        let day = b[1];
+        let day_of_week = b[2];
+        let hour = b[3];
+        let minute = b[4];
+
+        let title_len = read_u16_le(&mut r)? as usize;
         let title = if title_len > 0 {
-            Self::read_string(&buf, title_len as u16, &mut cursor, nls.clone())?
+            let mut buf = vec![0u8; title_len];
+            r.read_exact(&mut buf)?;
+            Self::decode_bytes(nls.clone(), &buf)
         } else {
             String::new()
         };
 
-        let scene_title_len = u16::from_le_bytes([buf[cursor], buf[cursor + 1]]) as usize;
-        cursor += 2;
-        let scene_title = if scene_title_len > 0 {
-            Self::read_string(&buf, scene_title_len as u16, &mut cursor, nls.clone())?
+        let scene_len = read_u16_le(&mut r)? as usize;
+        let scene_title = if scene_len > 0 {
+            let mut buf = vec![0u8; scene_len];
+            r.read_exact(&mut buf)?;
+            Self::decode_bytes(nls.clone(), &buf)
         } else {
             String::new()
         };
 
-        let script_content_len = u16::from_le_bytes([buf[cursor], buf[cursor + 1]]) as usize;
-        cursor += 2;
-        let script_content = if script_content_len > 0 {
-            Self::read_string(&buf, script_content_len as u16, &mut cursor, nls.clone())?
+        let script_len = read_u16_le(&mut r)? as usize;
+        let script_content = if script_len > 0 {
+            let mut buf = vec![0u8; script_len];
+            r.read_exact(&mut buf)?;
+            Self::decode_bytes(nls, &buf)
         } else {
             String::new()
         };
@@ -218,13 +162,145 @@ impl SaveItem {
         })
     }
 
-    pub fn load_from_file(path: impl AsRef<Path>, nls: Nls) -> Result<Self> {
-        let file = std::fs::File::open(path)?;
-        let mut reader = std::io::BufReader::new(file);
-        let mut buf = vec![];
-        reader.read_to_end(&mut buf)?;
+    pub fn load_from_mem(buf: &[u8], nls: Nls) -> anyhow::Result<Self> {
+        fn take<'a>(buf: &'a [u8], cur: &mut usize, n: usize) -> anyhow::Result<&'a [u8]> {
+            let end = cur.checked_add(n).ok_or_else(|| anyhow::anyhow!("cursor overflow"))?;
+            if end > buf.len() {
+                return Err(anyhow::anyhow!("invalid save data: too short"));
+            }
+            let out = &buf[*cur..end];
+            *cur = end;
+            Ok(out)
+        }
 
-        Self::load_from_mem(&buf, nls)
+        let mut cur = 0;
+        let year = u16::from_le_bytes(take(buf, &mut cur, 2)?.try_into().unwrap());
+        let month = take(buf, &mut cur, 1)?[0];
+        let day = take(buf, &mut cur, 1)?[0];
+        let day_of_week = take(buf, &mut cur, 1)?[0];
+        let hour = take(buf, &mut cur, 1)?[0];
+        let minute = take(buf, &mut cur, 1)?[0];
+
+        let title_len = u16::from_le_bytes(take(buf, &mut cur, 2)?.try_into().unwrap()) as usize;
+        let title = if title_len > 0 {
+            let bytes = take(buf, &mut cur, title_len)?;
+            Self::decode_bytes(nls.clone(), bytes)
+        } else {
+            String::new()
+        };
+
+        let scene_len = u16::from_le_bytes(take(buf, &mut cur, 2)?.try_into().unwrap()) as usize;
+        let scene_title = if scene_len > 0 {
+            let bytes = take(buf, &mut cur, scene_len)?;
+            Self::decode_bytes(nls.clone(), bytes)
+        } else {
+            String::new()
+        };
+
+        let script_len = u16::from_le_bytes(take(buf, &mut cur, 2)?.try_into().unwrap()) as usize;
+        let script_content = if script_len > 0 {
+            let bytes = take(buf, &mut cur, script_len)?;
+            Self::decode_bytes(nls, bytes)
+        } else {
+            String::new()
+        };
+
+        Ok(SaveItem {
+            year,
+            month,
+            day,
+            day_of_week,
+            hour,
+            minute,
+            title,
+            scene_title,
+            script_content,
+        })
+    }
+
+    pub fn read_thumb_texture_from_file(
+        slot: u32,
+        width: u32,
+        height: u32,
+    ) -> anyhow::Result<Vec<u8>> {
+        use std::io::Read;
+
+        fn read_u16_le<R: Read>(r: &mut R) -> anyhow::Result<u16> {
+            let mut b = [0u8; 2];
+            r.read_exact(&mut b)?;
+            Ok(u16::from_le_bytes(b))
+        }
+
+        fn skip_bytes<R: Read>(r: &mut R, mut n: usize) -> anyhow::Result<()> {
+            let mut buf = [0u8; 4096];
+            while n > 0 {
+                let take = n.min(buf.len());
+                r.read_exact(&mut buf[..take])?;
+                n -= take;
+            }
+            Ok(())
+        }
+
+        let path = Self::resolve_save_path_for_read(slot);
+        let file = std::fs::File::open(path)?;
+        let mut r = std::io::BufReader::new(file);
+
+        // year(u16) + month/day/dow/hour/min (u8 x5)
+        let _year = read_u16_le(&mut r)?;
+        let mut tmp = [0u8; 5];
+        r.read_exact(&mut tmp)?;
+
+        // skip title/scene/script
+        let title_len = read_u16_le(&mut r)? as usize;
+        if title_len != 0 { skip_bytes(&mut r, title_len)?; }
+        let scene_len = read_u16_le(&mut r)? as usize;
+        if scene_len != 0 { skip_bytes(&mut r, scene_len)?; }
+        let script_len = read_u16_le(&mut r)? as usize;
+        if script_len != 0 { skip_bytes(&mut r, script_len)?; }
+
+        let thumb_size = (width as usize)
+            .saturating_mul(height as usize)
+            .saturating_mul(4);
+        let mut thumb = vec![0u8; thumb_size];
+        r.read_exact(&mut thumb)?;
+        Ok(thumb)
+    }
+
+    pub fn read_thumb_texture_from_mem(
+        buf: &[u8],
+        width: u32,
+        height: u32,
+    ) -> anyhow::Result<Vec<u8>> {
+        fn take<'a>(buf: &'a [u8], cur: &mut usize, n: usize) -> anyhow::Result<&'a [u8]> {
+            let end = cur.checked_add(n).ok_or_else(|| anyhow::anyhow!("cursor overflow"))?;
+            if end > buf.len() {
+                return Err(anyhow::anyhow!("invalid save data: too short"));
+            }
+            let out = &buf[*cur..end];
+            *cur = end;
+            Ok(out)
+        }
+
+        let mut cur = 0;
+        take(buf, &mut cur, 2)?; // year
+        take(buf, &mut cur, 5)?; // month/day/dow/hour/min
+
+        let title_len = u16::from_le_bytes(take(buf, &mut cur, 2)?.try_into().unwrap()) as usize;
+        take(buf, &mut cur, title_len)?;
+        let scene_len = u16::from_le_bytes(take(buf, &mut cur, 2)?.try_into().unwrap()) as usize;
+        take(buf, &mut cur, scene_len)?;
+        let script_len = u16::from_le_bytes(take(buf, &mut cur, 2)?.try_into().unwrap()) as usize;
+        take(buf, &mut cur, script_len)?;
+
+        let thumb_size = (width as usize)
+            .saturating_mul(height as usize)
+            .saturating_mul(4);
+        let bytes = take(buf, &mut cur, thumb_size)?;
+        Ok(bytes.to_vec())
+    }
+
+    pub fn read_thumb_texture(slot: u32, width: u32, height: u32) -> anyhow::Result<Vec<u8>> {
+        Self::read_thumb_texture_from_file(slot, width, height)
     }
 }
 
@@ -241,6 +317,11 @@ pub struct SaveManager {
     savedata_prepared: bool,
     should_load: bool,
     slots: Vec<Option<SaveItem>>,
+    pending_vm_snapshot: Option<ThreadManagerSnapshotV1>,
+    /// Request to prepare an in-memory save payload (original engine: local_saved).
+    need_save_prepare: bool,
+    /// Prepared save bytes (header + thumbnail + optional RFVS chunk) for SaveWrite.
+    local_saved_bytes: Option<Vec<u8>>,
 }
 
 impl Default for SaveManager {
@@ -252,8 +333,9 @@ impl Default for SaveManager {
 impl SaveManager {
     pub fn new() -> Self {
         SaveManager {
-            thumb_width: 0,
-            thumb_height: 0,
+            // Original engine default: 96x72 (can be overridden by SaveThumbSize).
+            thumb_width: 96,
+            thumb_height: 72,
             current_scene_title: String::new(),
             current_title: String::new(),
             current_script_content: String::new(),
@@ -263,6 +345,9 @@ impl SaveManager {
             savedata_prepared: false,
             should_load: false,
             slots: vec![None; 1000],
+            pending_vm_snapshot: None,
+            need_save_prepare: false,
+            local_saved_bytes: None,
         }
     }
 
@@ -335,6 +420,37 @@ impl SaveManager {
         self.should_load
     }
 
+
+/// True if the VM runner should capture a coroutine snapshot for an upcoming save.
+///
+/// This includes both:
+/// - regular `SaveWrite(slot)` path (when no local_saved is prepared), and
+/// - `SaveCreate(3, nil/int)` local_saved preparation.
+pub fn wants_vm_snapshot_capture(&self) -> bool {
+    if self.need_save_prepare && self.local_saved_bytes.is_none() {
+        return true;
+    }
+    if self.save_requested && !self.savedata_prepared && self.local_saved_bytes.is_none() {
+        return true;
+    }
+    false
+}
+
+
+
+pub fn set_pending_vm_snapshot(&mut self, snap: ThreadManagerSnapshotV1) {
+    self.pending_vm_snapshot = Some(snap);
+}
+
+pub fn has_pending_vm_snapshot(&self) -> bool {
+    self.pending_vm_snapshot.is_some()
+}
+
+pub fn take_pending_vm_snapshot(&mut self) -> Option<ThreadManagerSnapshotV1> {
+    self.pending_vm_snapshot.take()
+}
+
+
     pub fn asynchronously_save(&mut self, slot: u32) {
         // mark the save status as dirty and perform the 'delayed' save
         self.current_save_slot = slot;
@@ -342,11 +458,13 @@ impl SaveManager {
     }
 
     pub fn test_save_slot(&self, slot: u32) -> bool {
-        if let Some(save_item) = self.slots.get(slot as usize) {
-            save_item.is_some()
-        } else {
-            false
+        if slot >= 1000 {
+            return false;
         }
+        if let Some(Some(_)) = self.slots.get(slot as usize) {
+            return true;
+        }
+        SaveItem::get_save_path(slot).exists()
     }
 
     pub fn get_save_title(&self, slot: u32) -> String {
@@ -462,30 +580,21 @@ impl SaveManager {
     }
 
     pub fn delete_savedata(&mut self, slot: u32) {
-        if let Some(save_item) = self.slots.get_mut(slot as usize) {
-            *save_item = None;
-            app_base_path()
-                .get_path()
-                .join("save")
-                .join(format!("s{}.bin", slot))
-                .to_str()
-                .map(std::fs::remove_file);
+        if slot >= 1000 {
+            return;
         }
+        self.slots[slot as usize] = None;
+        let path = SaveItem::resolve_save_path_for_read(slot);
+        let _ = std::fs::remove_file(&path);
     }
 
     pub fn copy_savedata(&mut self, src: u32, dst: u32) -> Result<()> {
         if let Some(save_item) = self.slots.get(src as usize) {
             if let Some(save_item) = save_item {
                 self.slots[dst as usize] = Some(save_item.clone());
-                let src_data = app_base_path()
-                    .get_path()
-                    .join("save")
-                    .join(format!("s{}.bin", src));
+                                let src_data = SaveItem::resolve_save_path_for_read(src);
 
-                let dst_data = app_base_path()
-                    .get_path()
-                    .join("save")
-                    .join(format!("s{}.bin", dst));
+                let dst_data = SaveItem::get_save_path(dst);
 
                 let _ = std::fs::copy(src_data, dst_data)?;
             }
@@ -493,11 +602,68 @@ impl SaveManager {
         Ok(())
     }
 
+    pub fn refresh_all_savedata(&mut self, nls: Nls) -> Result<()> {
+        // Clear the slot table then scan existing save files.
+        for slot in self.slots.iter_mut() {
+            *slot = None;
+        }
+
+        let dir = app_base_path().get_path().join("save");
+        if !dir.exists() {
+            return Ok(());
+        }
+
+        let it = match std::fs::read_dir(&dir) {
+            Ok(it) => it,
+            Err(e) => {
+                log::warn!("refresh_all_savedata: read_dir failed: {e:?}");
+                return Ok(());
+            }
+        };
+
+        for ent in it {
+            let ent = match ent {
+                Ok(e) => e,
+                Err(e) => {
+                    log::warn!("refresh_all_savedata: read_dir entry error: {e:?}");
+                    continue;
+                }
+            };
+            let path = ent.path();
+            if !path.is_file() {
+                continue;
+            }
+            let fname = match path.file_name().and_then(|s| s.to_str()) {
+                Some(s) => s,
+                None => continue,
+            };
+            if !fname.starts_with('s') || !fname.ends_with(".bin") {
+                continue;
+            }
+            let num = &fname[1..fname.len().saturating_sub(4)];
+            let slot_id: u32 = match num.parse() {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            if slot_id >= 1000 {
+                continue;
+            }
+
+            match SaveItem::load_from_file(&path, nls.clone()) {
+                Ok(item) => self.slots[slot_id as usize] = Some(item),
+                Err(e) => log::warn!(
+                    "refresh_all_savedata: failed to load slot {} from {}: {e:?}",
+                    slot_id,
+                    path.display()
+                ),
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn load_savedata(&mut self, slot: u32, nls: Nls) -> Result<()> {
-        let path = app_base_path()
-            .get_path()
-            .join("save")
-            .join(format!("s{}.bin", slot));
+                let path = SaveItem::resolve_save_path_for_read(slot);
 
         // Missing save slots are not fatal for callers that enumerate all slots.
         if !path.exists() {
@@ -521,9 +687,24 @@ impl SaveManager {
     }
 
 
-    /// If a SaveWrite has been requested and the thumbnail parameters are known,
-    /// return (slot, thumb_w, thumb_h) so the renderer can capture the current frame.
+    /// If either a `SaveCreate(3, nil/int)` requested preparation of an in-memory payload
+    /// (original engine: `local_saved`), or a `SaveWrite` requested a fallback capture,
+    /// return (slot, thumb_w, thumb_h) so the renderer can read back the current frame.
+    ///
+    /// Special slot value `u32::MAX` indicates "prepare local_saved" (no file write).
     pub fn pending_save_capture(&self) -> Option<(u32, u32, u32)> {
+        // Prepare local_saved (SaveCreate fnid=3) without binding to any slot.
+        if self.need_save_prepare && self.local_saved_bytes.is_none() {
+            let w = self.thumb_width.max(1);
+            let h = self.thumb_height.max(1);
+            return Some((u32::MAX, w, h));
+        }
+
+        // If we already have a prepared local_saved buffer, SaveWrite can commit without a GPU readback.
+        if self.save_requested && self.local_saved_bytes.is_some() {
+            return None;
+        }
+
         if !self.save_requested {
             return None;
         }
@@ -538,6 +719,82 @@ impl SaveManager {
         Some((self.current_save_slot, w, h))
     }
 
+        
+    /// Request preparing an in-memory save payload (original engine: `local_saved`).
+    ///
+    /// This should be triggered when the save/load UI is opened (scripts call `SaveCreate(3, nil)`),
+    /// so subsequent `SaveWrite(slot)` can commit without capturing the menu overlay.
+    pub fn request_prepare_local_savedata(&mut self) {
+        self.need_save_prepare = true;
+        self.local_saved_bytes = None;
+    }
+
+    /// True if an in-memory save payload has been prepared (local_saved).
+    pub fn has_local_saved(&self) -> bool {
+        self.local_saved_bytes.is_some()
+    }
+
+    /// Finalize preparation of `local_saved_bytes` from the captured thumbnail and optional RFVS state.
+    pub fn finalize_local_savedata_prepare(
+        &mut self,
+        nls: Nls,
+        thumb_w: u32,
+        thumb_h: u32,
+        thumb_rgba: &[u8],
+        state: Option<&crate::subsystem::save_state::SaveStateSnapshotV2>,
+    ) -> Result<()> {
+        let expected = (thumb_w as usize)
+            .saturating_mul(thumb_h as usize)
+            .saturating_mul(4);
+        if thumb_rgba.len() != expected {
+            log::warn!(
+                "finalize_local_savedata_prepare: thumbnail size mismatch: got={}, expected={}",
+                thumb_rgba.len(),
+                expected
+            );
+        }
+
+        let mut bytes = self.build_save_file_bytes(nls, thumb_rgba)?;
+        if let Some(snap) = state {
+            crate::subsystem::save_state::append_state_chunk_v2(&mut bytes, snap)?;
+        }
+
+        self.local_saved_bytes = Some(bytes);
+        self.need_save_prepare = false;
+        Ok(())
+    }
+
+    /// If `SaveWrite(slot)` is pending and `local_saved_bytes` is ready, write it to disk.
+    ///
+    /// Returns `true` if a file was written.
+    pub fn try_commit_local_savedata(&mut self, nls: Nls) -> Result<bool> {
+        if !self.save_requested || self.savedata_prepared {
+            return Ok(false);
+        }
+        if self.current_save_slot >= 1000 {
+            return Ok(false);
+        }
+        let Some(bytes) = self.local_saved_bytes.as_ref() else {
+            return Ok(false);
+        };
+
+        let path = SaveItem::get_save_path(self.current_save_slot);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&path, bytes)?;
+
+        // Refresh slot cache.
+        if self.current_save_slot < 1000 {
+            if let Ok(item) = SaveItem::load_from_mem(bytes, nls) {
+                self.slots[self.current_save_slot as usize] = Some(item);
+            }
+        }
+
+        self.savedata_prepared = true;
+        Ok(true)
+    }
+
     /// Finalize a pending save by writing out the save slot file.
     ///
     /// The caller is expected to provide an RGBA8 thumbnail of size (thumb_w, thumb_h).
@@ -547,7 +804,7 @@ impl SaveManager {
         thumb_w: u32,
         thumb_h: u32,
         thumb_rgba: &[u8],
-        state: Option<&crate::subsystem::save_state::SaveStateSnapshotV1>,
+        state: Option<&crate::subsystem::save_state::SaveStateSnapshotV2>,
     ) -> Result<()> {
         if !self.save_requested || self.current_save_slot == u32::MAX {
             return Ok(());
@@ -565,7 +822,7 @@ impl SaveManager {
 
         let mut bytes = self.build_save_file_bytes(nls, thumb_rgba)?;
         if let Some(snap) = state {
-            crate::subsystem::save_state::append_state_chunk_v1(&mut bytes, snap)?;
+            crate::subsystem::save_state::append_state_chunk_v2(&mut bytes, snap)?;
         }
         let path = SaveItem::get_save_path(self.current_save_slot);
         if let Some(parent) = path.parent() {
@@ -612,7 +869,7 @@ impl SaveManager {
     /// using the loaded fields (title/scene/script content). This mirrors the original
     /// engine behavior where the save payload is interpreted at a higher layer.
     pub fn load_slot_into_current(&mut self, slot: u32, nls: Nls) -> Result<()> {
-        let path = SaveItem::get_save_path(slot);
+        let path = SaveItem::resolve_save_path_for_read(slot);
         let bytes = std::fs::read(&path)?;
         self.load_slot_into_current_from_bytes(slot, nls, &bytes)
     }

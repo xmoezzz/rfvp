@@ -41,6 +41,8 @@ impl Syscaller for CursorMove {
         let allow = get_int_var(15) == 1;
 
         if allow || force {
+            game_data.inputs_manager.notify_mouse_move(x, y);
+            game_data.inputs_manager.set_mouse_in(true);
             game_data.window_mut().set_cursor_pos(x, y);
         }
 

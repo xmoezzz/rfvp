@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::fs;
 
 use crate::script::{context::ThreadState, parser::Parser};
 use crate::subsystem::resources::{
@@ -7,7 +8,9 @@ use crate::subsystem::resources::{
     thread_wrapper::ThreadRequest,
 };
 use crate::subsystem::world::GameData;
+use crate::subsystem::resources::save_manager::SaveItem;
 use crate::debug_ui;
+use crate::subsystem::save_state::{DecodedSaveState, try_decode_state_chunk};
 
 /// Drives the script VM (which is coroutine-based, not OS-thread based).
 ///
@@ -20,15 +23,11 @@ pub struct VmRunner {
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct VmTickReport {
-    /// True if at least one context was force-yielded due to opcode budget exhaustion.
+    /// Reserved for compatibility with the existing host/worker interface.
+    /// With opcode-budget slicing removed, the VM no longer reports artificial forced yields.
     pub forced_yield: bool,
-    /// Number of contexts that hit the opcode budget in this tick.
+    /// Reserved for compatibility with the existing host/worker interface.
     pub forced_yield_contexts: u32,
-}
-
-#[derive(Debug, Default, Clone, Copy)]
-struct VmContextReport {
-    forced_yield: bool,
 }
 
 impl VmRunner {
@@ -61,23 +60,62 @@ impl VmRunner {
             return Ok(VmTickReport::default());
         }
 
-        // In the original engine, dissolve is a global visual state that can unblock VM waits.
+        // If a save capture is pending, snapshot the VM state now (on the VM thread) so the
+// render thread can serialize it without accessing the VM internals.
+if game.save_manager.wants_vm_snapshot_capture() && !game.save_manager.has_pending_vm_snapshot() {
+    let snap = self.tm.capture_snapshot_v1();
+    game.save_manager.set_pending_vm_snapshot(snap);
+}
+
+// Process deferred load requests at a safe point (between VM ticks).
+if let Some(slot) = game.save_manager.take_load_request() {
+    let path = SaveItem::resolve_save_path_for_read(slot);
+    match fs::read(&path) {
+        Ok(bytes) => {
+            let nls = game.get_nls();
+            if let Err(e) = game.save_manager.load_slot_into_current_from_bytes(slot, nls, &bytes) {
+                log::error!("load: failed to parse save header for slot {}: {:#}", slot, e);
+            }
+
+            match try_decode_state_chunk(&bytes) {
+                Ok(Some(DecodedSaveState::V2(s))) => {
+                    if let Err(e) = s.apply(game, &mut self.tm) {
+                        log::error!("load: apply SaveStateSnapshotV2 failed: {:#}", e);
+                    }
+                }
+                Ok(Some(DecodedSaveState::V1(s))) => {
+                    if let Err(e) = s.apply(game) {
+                        log::error!("load: apply SaveStateSnapshotV1 failed: {:#}", e);
+                    }
+                }
+                Ok(None) => {
+                    // No RFVS chunk: header-only save (engine save or older rfvp save).
+                    log::warn!("load: no RFVS chunk found in slot {} (header-only load)", slot);
+                }
+                Err(e) => {
+                    log::error!("load: failed to decode RFVS chunk for slot {}: {:#}", slot, e);
+                }
+            }
+        }
+        Err(e) => {
+            log::error!("load: failed to read save slot {} from {}: {:#}", slot, path.display(), e);
+        }
+    }
+
+    // Do not advance contexts in the same tick; resume on the next frame.
+    if debug_ui::enabled() {
+        game.debug_vm_mut().update_from_thread_manager(&self.tm);
+    }
+    return Ok(VmTickReport::default());
+}
+
+
+
+// In the original engine, dissolve is a global visual state that can unblock VM waits.
         let dissolve_type = game.motion_manager.get_dissolve_type();
         let dissolve2_transitioning = game.motion_manager.is_dissolve2_transitioning();
 
-        // Hard cap of opcode dispatches per frame to avoid the VM monopolizing the engine loop.
-        // This is critical for games that spin in script (polling input, timers, etc.).
-        // The original engine is cooperative; we must enforce cooperation even if a syscall
-        // forgets to yield.
-        let max_ops_per_context: usize = std::env::var("RFVP_VM_MAX_OPS")
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            // Default is intentionally high: the VM often executes a burst of opcodes
-            // between script-requested yield points (WAIT/SLEEP/NEXT/etc.). A too-small
-            // budget introduces artificial yields that can expose transient scene states.
-            .unwrap_or(20000);
-
-        let mut report = VmTickReport::default();
+        let report = VmTickReport::default();
 
         let total = self.tm.total_contexts() as u32;
         for tid in 0..total {
@@ -98,22 +136,27 @@ impl VmRunner {
                 && !status.contains(ThreadState::CONTEXT_STATUS_SLEEP)
                 && !status.contains(ThreadState::CONTEXT_STATUS_DISSOLVE_WAIT)
             {
-                let ctx_report = self.run_one_context(tid, game, parser, max_ops_per_context)?;
-                if ctx_report.forced_yield {
-                    report.forced_yield = true;
-                    report.forced_yield_contexts = report.forced_yield_contexts.saturating_add(1);
-                }
+                self.run_one_context(tid, game, parser)?;
             }
         }
 
-        // ExitMode(3): once the designated "last current" context has exited, signal the host loop.
-        if game.get_game_should_exit() {
+        // ExitMode(3): once the designated "last current" context has actually exited,
+        // signal the host loop. Ordinary should_break/yield must not count as exit.
+        if game.get_lock_scripter() {
             let main_tid = game.get_last_current_thread();
             let st = self.tm.get_context_status(main_tid);
-            if st == ThreadState::CONTEXT_STATUS_NONE || self.tm.get_should_break() {
+            if st == ThreadState::CONTEXT_STATUS_NONE {
                 game.set_main_thread_exited(true);
             }
         }
+
+
+// If a save capture is pending, snapshot VM state after the tick so the render thread
+// can serialize a consistent coroutine state for this frame.
+if game.save_manager.wants_vm_snapshot_capture() {
+    let snap = self.tm.capture_snapshot_v1();
+    game.save_manager.set_pending_vm_snapshot(snap);
+}
 
         if debug_ui::enabled() {
             game.debug_vm_mut().update_from_thread_manager(&self.tm);
@@ -173,27 +216,14 @@ impl VmRunner {
         tid: u32,
         game: &mut GameData,
         parser: &mut Parser,
-        mut opcode_budget: usize,
-    ) -> Result<VmContextReport> {
+    ) -> Result<()> {
         // Keep the VM's notion of current thread aligned with GameData.
         self.tm.set_current_id(tid);
         game.set_current_thread(tid);
 
         self.tm.set_context_should_break(tid, false);
-        let mut forced_yield = false;
         while !self.tm.get_context_should_break(tid) {
-            if opcode_budget == 0 {
-                // Force-yield to keep the engine responsive.
-                // Note: this is an artificial yield point (not requested by script). The host loop may
-                // want to keep pumping the VM in the same render frame to avoid showing intermediate
-                // scene states.
-                forced_yield = true;
-                self.tm.set_context_should_break(tid, true);
-                break;
-            }
-
             let result = self.tm.context_dispatch_opcode(tid, game, parser);
-            opcode_budget -= 1;
 
             if self.tm.get_contexct_should_exit(tid) {
                 self.tm.thread_exit(Some(tid));
@@ -252,6 +282,6 @@ impl VmRunner {
             }
         }
 
-        Ok(VmContextReport { forced_yield })
+        Ok(())
     }
 }

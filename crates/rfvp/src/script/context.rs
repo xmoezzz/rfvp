@@ -4,6 +4,7 @@ use std::mem::size_of;
 use crate::script::global::GLOBAL;
 use crate::script::parser::Parser;
 use crate::script::Variant;
+use serde::{Serialize, Deserialize};
 use crate::script::VmSyscall;
 use crate::script::opcode::Opcode;
 use bitflags::bitflags;
@@ -60,6 +61,21 @@ bitflags! {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContextSnapshotV1 {
+    pub id: u32,
+    pub stack: Vec<Variant>,
+    pub cursor: usize,
+    pub cur_stack_pos: usize,
+    pub cur_stack_base: usize,
+    pub start_addr: u32,
+    pub return_value: Variant,
+    pub state_bits: u32,
+    pub wait_ms: u64,
+    pub sleep_ms: u64,
+    pub should_exit: bool,
+    pub should_break: bool,
+}
 
 impl Context {
     pub fn new(start_addr: u32, id: u32) -> Self {
@@ -93,6 +109,45 @@ impl Context {
 
         ctx
     }
+
+pub fn capture_snapshot_v1(&self) -> ContextSnapshotV1 {
+    ContextSnapshotV1 {
+        id: self.id,
+        stack: self.stack.clone(),
+        cursor: self.cursor,
+        cur_stack_pos: self.cur_stack_pos,
+        cur_stack_base: self.cur_stack_base,
+        start_addr: self.start_addr,
+        return_value: self.return_value.clone(),
+        state_bits: self.state.bits(),
+        wait_ms: self.wait_ms,
+        sleep_ms: self.sleep_ms,
+        should_exit: self.should_exit,
+        should_break: self.should_break,
+    }
+}
+
+pub fn apply_snapshot_v1(&mut self, snap: &ContextSnapshotV1) {
+    self.id = snap.id;
+    self.stack = snap.stack.clone();
+    self.cursor = snap.cursor;
+    self.cur_stack_pos = snap.cur_stack_pos;
+    self.cur_stack_base = snap.cur_stack_base;
+    self.start_addr = snap.start_addr;
+    self.return_value = snap.return_value.clone();
+    self.state = ThreadState::from_bits_truncate(snap.state_bits);
+    self.wait_ms = snap.wait_ms;
+    self.sleep_ms = snap.sleep_ms;
+    self.should_exit = snap.should_exit;
+    self.should_break = snap.should_break;
+
+    // Ensure stack capacity matches runtime expectations.
+    if self.stack.len() < MAX_STACK_SIZE {
+        self.stack.resize(MAX_STACK_SIZE, Variant::Nil);
+    } else if self.stack.len() > MAX_STACK_SIZE {
+        self.stack.truncate(MAX_STACK_SIZE);
+    }
+}
 
     pub fn set_should_break(&mut self, should_break: bool) {
         self.should_break = should_break;

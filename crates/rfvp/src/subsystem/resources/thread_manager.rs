@@ -1,12 +1,21 @@
 use std::cell::{RefCell, RefMut};
 
-use crate::script::{context::{Context, ThreadState}, parser::Parser, VmSyscall};
+use serde::{Serialize, Deserialize};
+
+use crate::script::{context::{Context, ContextSnapshotV1, ThreadState}, parser::Parser, VmSyscall};
 
 #[derive(Debug)]
 pub struct ThreadManager {
     pub contexts: Vec<Context>,
     current_id: u32,
     thread_break: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThreadManagerSnapshotV1 {
+    pub current_id: u32,
+    pub thread_break: bool,
+    pub contexts: Vec<ContextSnapshotV1>,
 }
 
 impl Default for ThreadManager {
@@ -182,4 +191,37 @@ impl ThreadManager {
     pub fn start_main(&mut self, entry_point: u32) {
         self.thread_start(0, entry_point);
     }
+
+pub fn capture_snapshot_v1(&self) -> ThreadManagerSnapshotV1 {
+    let mut contexts = Vec::with_capacity(self.contexts.len());
+    for c in &self.contexts {
+        contexts.push(c.capture_snapshot_v1());
+    }
+    ThreadManagerSnapshotV1 {
+        current_id: self.current_id,
+        thread_break: self.thread_break,
+        contexts,
+    }
 }
+
+pub fn apply_snapshot_v1(&mut self, snap: &ThreadManagerSnapshotV1) {
+    self.current_id = snap.current_id;
+    self.thread_break = snap.thread_break;
+
+    // Preserve the fixed number of contexts (32) used by the VM.
+    if self.contexts.len() != snap.contexts.len() {
+        self.contexts.clear();
+        self.contexts.reserve(snap.contexts.len());
+        for (i, c) in snap.contexts.iter().enumerate() {
+            let mut ctx = Context::new(c.start_addr, i as u32);
+            ctx.apply_snapshot_v1(c);
+            self.contexts.push(ctx);
+        }
+    } else {
+        for (ctx, c) in self.contexts.iter_mut().zip(snap.contexts.iter()) {
+            ctx.apply_snapshot_v1(c);
+        }
+    }
+}
+}
+

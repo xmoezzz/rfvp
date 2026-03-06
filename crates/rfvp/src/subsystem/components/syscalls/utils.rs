@@ -210,13 +210,11 @@ pub fn exit_mode(game_data: &mut GameData, mode: &Variant) -> Result<Variant> {
     else if mode == 3 {
         game_data.set_lock_scripter(true);
         game_data.set_last_current_thread(game_data.get_current_thread());
-        game_data.set_game_should_exit(true);
-        // A new exit sequence starts; clear the completion latch.
         game_data.set_main_thread_exited(false);
+        game_data.thread_wrapper.should_break();
     }
     else if mode == 4 {
         game_data.set_lock_scripter(false);
-        game_data.set_game_should_exit(false);
         game_data.set_main_thread_exited(false);
     }
 
