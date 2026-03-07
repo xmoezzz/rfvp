@@ -760,9 +760,8 @@ impl TextItem {
         outline: u8,
         distance: u8,
     ) -> i32 {
-        let extra = Self::layout_extra_advance_px(outline, distance);
         if let Some(gb) = gaiji.get_texture(s, size_slot) {
-            return gb.get_width() as i32 + extra;
+            return gb.get_width() as i32;
         }
         self.measure_string_unit_advance(font, size, gaiji, size_slot, s, outline, distance)
     }
@@ -1074,15 +1073,15 @@ impl TextItem {
         gb: &crate::subsystem::resources::graph_buff::GraphBuff,
         x: i32,
         y: i32,
-        outline: u8,
-        shadow_dist: u8,
+        _outline: u8,
+        _shadow_dist: u8,
     ) -> RectI32 {
         let Some((mw, mh, ox, oy, _mask)) = gb.export_alpha_mask() else {
             return RectI32::default();
         };
         let gx = x + ox as i32;
         let gy = y + oy as i32;
-        Self::glyph_bounds(gx, gy, mw as i32, mh as i32, outline, shadow_dist)
+        RectI32 { x: gx, y: gy, w: mw as i32, h: mh as i32 }
     }
 
     fn draw_char(
@@ -1176,56 +1175,25 @@ impl TextItem {
         x: i32,
         y: i32,
         color: &ColorItem,
-        outline: u8,
-        outline_color: &ColorItem,
-        shadow_dist: u8,
-        shadow_color: &ColorItem,
+        _outline: u8,
+        _outline_color: &ColorItem,
+        _shadow_dist: u8,
+        _shadow_color: &ColorItem,
         clip_max_x: i32,
         do_draw: bool,
     ) -> i32 {
         let Some((mw, mh, ox, oy, mask)) = gb.export_alpha_mask() else {
-            return self.draw_char_advance_px(gb.get_width() as i32, outline, shadow_dist);
+            return gb.get_width() as i32;
         };
 
         let gx = x + ox as i32;
         let gy = y + oy as i32;
         let mw_usize = mw as usize;
         let mh_usize = mh as usize;
-        let adv = self.draw_char_advance_px(gb.get_width() as i32, outline, shadow_dist);
+        let adv = gb.get_width() as i32;
 
         if !do_draw {
             return adv;
-        }
-
-        if shadow_dist != 0 {
-            let d = shadow_dist as i32;
-            Self::draw_glyph_mask(buf, bw, bh, gx + d, gy + d, &mask, mw_usize, mh_usize, shadow_color, clip_max_x);
-        }
-
-        if outline != 0 {
-            let r = outline as i32;
-            for oy2 in -r..=r {
-                for ox2 in -r..=r {
-                    if ox2 == 0 && oy2 == 0 {
-                        continue;
-                    }
-                    if (ox2 * ox2 + oy2 * oy2) > (r * r) {
-                        continue;
-                    }
-                    Self::draw_glyph_mask(
-                        buf,
-                        bw,
-                        bh,
-                        gx + ox2,
-                        gy + oy2,
-                        &mask,
-                        mw_usize,
-                        mh_usize,
-                        outline_color,
-                        clip_max_x,
-                    );
-                }
-            }
         }
 
         Self::draw_glyph_mask(buf, bw, bh, gx, gy, &mask, mw_usize, mh_usize, color, clip_max_x);

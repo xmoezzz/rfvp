@@ -140,8 +140,7 @@ impl AnzuScene {
         // Scene.var_tbl[non_volatile_global_count + 0] and returns 0 unless the slot is Int.
         // In our Global implementation, this corresponds to Global::get_int_var(0), NOT Global::get(0).
         let global_speed_var0 = GLOBAL.lock().unwrap().get_int_var(0);
-        let release_special_wait = game_data.inputs_manager.get_input_down() != 0
-            || game_data.inputs_manager.get_input_state() != 0;
+        let release_special_wait = elapsed < 0;
         game_data
             .motion_manager
             .update_text_reveal(elapsed, global_speed_var0, release_special_wait, &game_data.fontface_manager);
