@@ -887,7 +887,7 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
 
     let mut gd = gd_write(&self.game_data);
     let nls = gd.get_nls();
-    let state_snap = crate::subsystem::save_state::SaveStateSnapshotV2::capture(&mut gd);
+    let state_snap = crate::subsystem::save_state::SaveStateSnapshotV1::capture(&mut gd);
 
     if slot == u32::MAX {
         // SaveCreate(3, nil/int): prepare local_saved payload in memory.

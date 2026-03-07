@@ -9,72 +9,124 @@ use atomic_refcell::AtomicRefCell;
 use serde::{Deserialize, Serialize};
 use super::gaiji_manager::GaijiManager;
 
+// Current font (reverse-engineered special id used by TextFont(..., -1, ...)).
+pub const FONTFACE_CURRENT: i32 = -1;
 // ＭＳ ゴシック
-pub const FONTFACE_MS_GOTHIC: i32 = -4;
+pub const FONTFACE_MS_GOTHIC: i32 = -2;
 // ＭＳ 明朝
 pub const FONTFACE_MS_MINCHO: i32 = -3;
 // ＭＳ Ｐゴシック
-pub const FONTFACE_MS_PGOTHIC: i32 = -2;
+pub const FONTFACE_MS_PGOTHIC: i32 = -4;
 // ＭＳ Ｐ明朝
-pub const FONTFACE_MS_PMINCHO: i32 = -1;
+pub const FONTFACE_MS_PMINCHO: i32 = -5;
 
 #[derive(Debug, Clone)]
 enum FontItem {
     Font(char),
     RubyFont(Vec<char>, Vec<char>),
+    SpecialUnit(String),
+    Wait(i32),
 }
 
-fn tokenize_content_text(content_text: &str) -> Vec<FontItem> {
+fn push_literal(items: &mut Vec<FontItem>, chars: &[char]) {
+    for &ch in chars {
+        items.push(FontItem::Font(ch));
+    }
+}
+
+fn tokenize_content_text(content_text: &str, special_unit_mode: u8, ruby_text_mode: u8, wait_control_mode: u8) -> Vec<FontItem> {
     let chrs = content_text.chars().collect::<Vec<_>>();
     let mut items: Vec<FontItem> = Vec::new();
     let mut i: usize = 0;
 
-    // Pattern: aaa[bbb|ccc]
-    // bbb: ruby
-    // ccc: base
     while i < chrs.len() {
         let chr = chrs[i];
-        if chr != '[' {
-            items.push(FontItem::Font(chr));
-            i += 1;
-            continue;
-        }
 
-        // Attempt ruby parsing; otherwise treat as literal '['.
-        let mut bar_idx: Option<usize> = None;
-        let mut end_idx: Option<usize> = None;
-
-        // Find '|'
-        let mut j = i + 1;
-        while j < chrs.len() {
-            if chrs[j] == '|' {
-                bar_idx = Some(j);
-                break;
-            }
-            if chrs[j] == ']' {
-                break;
-            }
-            j += 1;
-        }
-
-        if let Some(bar) = bar_idx {
-            let mut k = bar + 1;
-            while k < chrs.len() {
-                if chrs[k] == ']' {
-                    end_idx = Some(k);
+        if chr == '[' && ruby_text_mode != 0 {
+            let mut bar_idx: Option<usize> = None;
+            let mut end_idx: Option<usize> = None;
+            let mut j = i + 1;
+            while j < chrs.len() {
+                if chrs[j] == '|' {
+                    bar_idx = Some(j);
                     break;
                 }
-                k += 1;
+                if chrs[j] == ']' {
+                    break;
+                }
+                j += 1;
+            }
+            if let Some(bar) = bar_idx {
+                let mut k = bar + 1;
+                while k < chrs.len() {
+                    if chrs[k] == ']' {
+                        end_idx = Some(k);
+                        break;
+                    }
+                    k += 1;
+                }
+            }
+            if let (Some(bar), Some(end)) = (bar_idx, end_idx) {
+                let ruby = chrs[i + 1..bar].to_vec();
+                let base = chrs[bar + 1..end].to_vec();
+                if ruby_text_mode == 1 {
+                    push_literal(&mut items, &base);
+                } else {
+                    items.push(FontItem::RubyFont(ruby, base));
+                }
+                i = end + 1;
+                continue;
             }
         }
 
-        if let (Some(bar), Some(end)) = (bar_idx, end_idx) {
-            items.push(FontItem::RubyFont(chrs[i + 1..bar].to_vec(), chrs[bar + 1..end].to_vec()));
-            i = end + 1;
-        } else {
-            items.push(FontItem::Font('['));
-            i += 1;
+        if chr == '{' && wait_control_mode != 0 {
+            let mut end_idx: Option<usize> = None;
+            let mut j = i + 1;
+            let mut digits = String::new();
+            while j < chrs.len() {
+                if chrs[j] == '}' {
+                    end_idx = Some(j);
+                    break;
+                }
+                if !chrs[j].is_ascii_digit() {
+                    end_idx = None;
+                    break;
+                }
+                digits.push(chrs[j]);
+                j += 1;
+            }
+            if let Some(end) = end_idx {
+                if wait_control_mode == 2 {
+                    let n = digits.parse::<i32>().unwrap_or(0);
+                    let wait = if n == 0 { -1 } else { n.saturating_mul(100) };
+                    items.push(FontItem::Wait(wait));
+                }
+                i = end + 1;
+                continue;
+            }
         }
+
+        if chr == '<' && special_unit_mode != 0 {
+            let mut end_idx: Option<usize> = None;
+            let mut j = i + 1;
+            let mut inner = String::new();
+            while j < chrs.len() {
+                if chrs[j] == '>' {
+                    end_idx = Some(j);
+                    break;
+                }
+                inner.push(chrs[j]);
+                j += 1;
+            }
+            if let Some(end) = end_idx {
+                items.push(FontItem::SpecialUnit(inner));
+                i = end + 1;
+                continue;
+            }
+        }
+
+        items.push(FontItem::Font(chr));
+        i += 1;
     }
 
     items
@@ -83,10 +135,88 @@ fn tokenize_content_text(content_text: &str) -> Vec<FontItem> {
 fn fontitem_char_count(it: &FontItem) -> usize {
     match it {
         FontItem::Font(_) => 1,
-        // Reveal budget follows base text length; ruby is rendered only when the
-        // corresponding base run becomes visible.
         FontItem::RubyFont(_ruby, base) => base.len(),
+        FontItem::SpecialUnit(_) => 1,
+        FontItem::Wait(_) => 0,
     }
+}
+
+fn is_builtin_line_start_prohibited(ch: char) -> bool {
+    matches!(
+        ch,
+        ')' | ']' | '}'
+            | '）' | '］' | '｝'
+            | '〉' | '》' | '」' | '』' | '】' | '〕' | '〗' | '〙' | '〛'
+            | '﹂' | '﹄' | '｠' | '»'
+            | '、' | '。' | '，' | '．' | '・' | '：' | '；'
+            | '！' | '？' | '!' | '?'
+            | 'ヽ' | 'ヾ' | 'ゝ' | 'ゞ' | '々' | '〻'
+            | 'ー' | '〜' | '゠'
+            | 'ぁ' | 'ぃ' | 'ぅ' | 'ぇ' | 'ぉ' | 'っ' | 'ゃ' | 'ゅ' | 'ょ' | 'ゎ'
+            | 'ァ' | 'ィ' | 'ゥ' | 'ェ' | 'ォ' | 'ッ' | 'ャ' | 'ュ' | 'ョ' | 'ヮ' | 'ヵ' | 'ヶ'
+    )
+}
+
+fn fontitem_first_char(it: &FontItem) -> Option<char> {
+    match it {
+        FontItem::Font(ch) => Some(*ch),
+        FontItem::RubyFont(_ruby, base) => base.first().copied(),
+        FontItem::SpecialUnit(_) | FontItem::Wait(_) => None,
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct RectI32 {
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+}
+
+impl RectI32 {
+    fn is_empty(&self) -> bool {
+        self.w <= 0 || self.h <= 0
+    }
+
+    fn right(&self) -> i32 {
+        self.x + self.w
+    }
+
+    fn bottom(&self) -> i32 {
+        self.y + self.h
+    }
+
+    fn union(self, other: RectI32) -> RectI32 {
+        if self.is_empty() {
+            return other;
+        }
+        if other.is_empty() {
+            return self;
+        }
+        let x0 = self.x.min(other.x);
+        let y0 = self.y.min(other.y);
+        let x1 = self.right().max(other.right());
+        let y1 = self.bottom().max(other.bottom());
+        RectI32 { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+    }
+
+    fn clamp_to_buffer(self, bw: u32, bh: u32) -> RectI32 {
+        if self.is_empty() {
+            return self;
+        }
+        let bw = bw as i32;
+        let bh = bh as i32;
+        let x0 = self.x.clamp(0, bw);
+        let y0 = self.y.clamp(0, bh);
+        let x1 = self.right().clamp(0, bw);
+        let y1 = self.bottom().clamp(0, bh);
+        RectI32 { x: x0, y: y0, w: (x1 - x0).max(0), h: (y1 - y0).max(0) }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RevealQueueItem {
+    rect: RectI32,
 }
 
 pub struct FontEnumerator {
@@ -137,8 +267,8 @@ impl FontEnumerator {
             sys_ms_pgothic: AtomicRefCell::new(mspgothic),
             sys_ms_pmincho: AtomicRefCell::new(mspmincho),
             fonts: vec![],
-            system_fontface_id: 0,
-            current_font_name: String::new(),
+            system_fontface_id: FONTFACE_MS_GOTHIC,
+            current_font_name: "MS Gothic".to_string(),
         }
     }
 
@@ -185,6 +315,9 @@ impl FontEnumerator {
 
         // default: MSGOTHIC
         self.system_fontface_id = FONTFACE_MS_GOTHIC;
+        if self.current_font_name.is_empty() {
+            self.current_font_name = "MS Gothic".to_string();
+        }
         Ok(())
     }
 
@@ -196,12 +329,41 @@ impl FontEnumerator {
         &self.current_font_name
     }
 
+    fn resolve_current_font(&self) -> AtomicRefCell<fontdue::Font> {
+        let cur = self.current_font_name.as_str();
+        if cur.eq_ignore_ascii_case("MS Gothic") || cur.eq_ignore_ascii_case("ＭＳ ゴシック") {
+            return self.sys_ms_gothic.clone();
+        }
+        if cur.eq_ignore_ascii_case("MS Mincho") || cur.eq_ignore_ascii_case("ＭＳ 明朝") {
+            return self.sys_ms_mincho.clone();
+        }
+        if cur.eq_ignore_ascii_case("MS PGothic") || cur.eq_ignore_ascii_case("ＭＳ Ｐゴシック") {
+            return self.sys_ms_pgothic.clone();
+        }
+        if cur.eq_ignore_ascii_case("MS PMincho") || cur.eq_ignore_ascii_case("ＭＳ Ｐ明朝") {
+            return self.sys_ms_pmincho.clone();
+        }
+        for (name, font) in &self.fonts {
+            if name == cur {
+                return font.clone();
+            }
+        }
+        match self.system_fontface_id {
+            FONTFACE_MS_GOTHIC => self.sys_ms_gothic.clone(),
+            FONTFACE_MS_MINCHO => self.sys_ms_mincho.clone(),
+            FONTFACE_MS_PGOTHIC => self.sys_ms_pgothic.clone(),
+            FONTFACE_MS_PMINCHO => self.sys_ms_pmincho.clone(),
+            _ => self.default_font.clone(),
+        }
+    }
+
     /// Font id semantics:
     /// - id < 0: built-in/system fontfaces (special ids, NOT a bug)
     /// - id == 0: default fallback font
     /// - id > 0: user-loaded fonts (1-based)
     pub fn get_font(&self, id: i32) -> AtomicRefCell<fontdue::Font> {
         match id {
+            FONTFACE_CURRENT => self.resolve_current_font(),
             FONTFACE_MS_GOTHIC => self.sys_ms_gothic.clone(),
             FONTFACE_MS_MINCHO => self.sys_ms_mincho.clone(),
             FONTFACE_MS_PGOTHIC => self.sys_ms_pgothic.clone(),
@@ -221,6 +383,9 @@ impl FontEnumerator {
 
     pub fn get_font_name(&self, id: i32) -> Option<String> {
         match id {
+            FONTFACE_CURRENT => {
+                if self.current_font_name.is_empty() { None } else { Some(self.current_font_name.clone()) }
+            }
             FONTFACE_MS_GOTHIC => Some("MS Gothic".to_string()),
             FONTFACE_MS_MINCHO => Some("MS Mincho".to_string()),
             FONTFACE_MS_PGOTHIC => Some("MS PGothic".to_string()),
@@ -252,39 +417,46 @@ impl FontEnumerator {
 }
 
 #[derive(Debug, Clone)]
+// TextItem mirrors the reverse-engineered text object state.
+// Names here are corrected to reflect confirmed parser / layout semantics rather than
+// older guessed meanings.
 pub struct TextItem {
     offset_x: u16,
     offset_y: u16,
-    suspend_chrs: Vec<char>,
+    line_head_forbidden_chars: Vec<char>,
 
     text_content: String,
     content_text: String,
     content_items: Vec<FontItem>,
 
-    font_name_id: i32,
-    font_text_id: i32,
-    main_text_size: u8,
-    ruby_text_size: u8,
-    main_text_outline: u8,
-    ruby_text_outline: u8,
-    distance: u8,
+    // Keep the original idx1/idx2 naming here. These are the two text style slots copied
+    // into the parser / reveal state before TextPrint runs.
+    text_font_idx1: i32,
+    text_font_idx2: i32,
+    text_size1: u8,
+    text_size2: u8,
+    outline_size1: u8,
+    outline_size2: u8,
+    // Reverse-engineered TextShadowDist target. This participates in layout width, not only shading.
+    shadow_distance: u8,
     color1: ColorItem,
     color2: ColorItem,
     color3: ColorItem,
-    func1: u8,
-    func2: u8,
-    func3: u8,
-    space_vertical: i16,
-    space_horizon: i16,
-    text_start_horizon: u16,
-    text_start_vertical: u16,
-    // IDA: ruby_horizon (TextFormat arg5) and ruby_vertical (arg6) are signed in [-16,16]
-    ruby_vertical: i16,
-    ruby_horizon: i16,
+    // Reverse-engineered TextFunction mapping:
+    //   special_unit_mode -> <...>
+    //   ruby_text_mode    -> [...]
+    //   wait_control_mode -> {n}
+    special_unit_mode: u8,
+    ruby_text_mode: u8,
+    wait_control_mode: u8,
+    line_gap_y: i16,
+    main_gap_x: i16,
+    line_start_x: u16,
+    wrap_reserve_right: u16,
+    // IDA: ruby_gap_x (TextFormat arg5) and ruby_extra_y (arg6) are signed in [-16,16]
+    ruby_extra_y: i16,
+    ruby_gap_x: i16,
 
-    // Reverse-engineered: wrapping margin used for non-suspend characters.
-    // Current mapping is best-effort; only this mapping should change later, not layout logic.
-    suspend_margin: i16,
 
     skip_mode: u8,
     is_suspended: bool,
@@ -304,6 +476,11 @@ pub struct TextItem {
     // visible_chars: current reveal budget in pixels (0..=total_chars)
     total_chars: usize,
     visible_chars: usize,
+    wait_points: Vec<(usize, i32)>,
+    next_wait_index: usize,
+    pending_wait_ms: u32,
+    pending_special_wait: bool,
+    reveal_carry: i64,
 }
 
 impl TextItem {
@@ -311,30 +488,29 @@ impl TextItem {
         Self {
             offset_x: 0,
             offset_y: 0,
-            suspend_chrs: vec![],
+            line_head_forbidden_chars: vec![],
             text_content: String::new(),
             content_text: String::new(),
             content_items: vec![],
-            font_name_id: 0,
-            font_text_id: 0,
-            main_text_size: 0,
-            ruby_text_size: 0,
-            main_text_outline: 0,
-            ruby_text_outline: 0,
-            distance: 0,
+            text_font_idx1: 0,
+            text_font_idx2: 0,
+            text_size1: 0,
+            text_size2: 0,
+            outline_size1: 0,
+            outline_size2: 0,
+            shadow_distance: 0,
             color1: ColorItem::new(),
             color2: ColorItem::new(),
             color3: ColorItem::new(),
-            func1: 0,
-            func2: 0,
-            func3: 0,
-            space_vertical: 0,
-            space_horizon: 0,
-            text_start_horizon: 0,
-            text_start_vertical: 0,
-            ruby_vertical: 0,
-            ruby_horizon: 0,
-            suspend_margin: 0,
+            special_unit_mode: 0,
+            ruby_text_mode: 0,
+            wait_control_mode: 0,
+            line_gap_y: 0,
+            main_gap_x: 0,
+            line_start_x: 0,
+            wrap_reserve_right: 0,
+            ruby_extra_y: 0,
+            ruby_gap_x: 0,
             skip_mode: 0,
             is_suspended: false,
             x: 0,
@@ -348,6 +524,11 @@ impl TextItem {
             elapsed: 0,
             total_chars: 0,
             visible_chars: 0,
+            wait_points: vec![],
+            next_wait_index: 0,
+            pending_wait_ms: 0,
+            pending_special_wait: false,
+            reveal_carry: 0,
         }
     }
 
@@ -390,23 +571,23 @@ impl TextItem {
         self.dirty = true;
     }
 
-    pub fn set_font_name(&mut self, id: i32) {
-        self.font_name_id = id;
+    pub fn set_text_font_idx1(&mut self, id: i32) {
+        self.text_font_idx1 = id;
         self.dirty = true;
     }
 
-    pub fn set_font_text(&mut self, id: i32) {
-        self.font_text_id = id;
+    pub fn set_text_font_idx2(&mut self, id: i32) {
+        self.text_font_idx2 = id;
         self.dirty = true;
     }
 
     pub fn set_horizon_space(&mut self, space: i16) {
-        self.space_horizon = space;
+        self.main_gap_x = space;
         self.dirty = true;
     }
 
     pub fn set_vertical_space(&mut self, space: i16) {
-        self.space_vertical = space;
+        self.line_gap_y = space;
         self.dirty = true;
     }
 
@@ -414,41 +595,41 @@ impl TextItem {
         self.skip_mode = skip;
     }
 
-    pub fn set_main_text_size(&mut self, size: u8) {
-        self.main_text_size = size;
+    pub fn set_text_size1(&mut self, size: u8) {
+        self.text_size1 = size;
         self.dirty = true;
     }
 
-    pub fn set_ruby_text_size(&mut self, size: u8) {
-        self.ruby_text_size = size;
+    pub fn set_text_size2(&mut self, size: u8) {
+        self.text_size2 = size;
         self.dirty = true;
     }
 
-    pub fn set_main_text_outline(&mut self, outline: u8) {
-        self.main_text_outline = outline;
+    pub fn set_outline_size1(&mut self, outline: u8) {
+        self.outline_size1 = outline;
         self.dirty = true;
     }
 
-    pub fn set_ruby_text_outline(&mut self, outline: u8) {
-        self.ruby_text_outline = outline;
+    pub fn set_outline_size2(&mut self, outline: u8) {
+        self.outline_size2 = outline;
         self.dirty = true;
     }
 
     pub fn set_shadow_dist(&mut self, dist: u8) {
-        self.distance = dist;
+        self.shadow_distance = dist;
         self.dirty = true;
     }
 
-    pub fn set_function1(&mut self, func: u8) {
-        self.func1 = func;
+    pub fn set_special_unit_mode(&mut self, func: u8) {
+        self.special_unit_mode = func;
     }
 
-    pub fn set_function2(&mut self, func: u8) {
-        self.func2 = func;
+    pub fn set_ruby_text_mode(&mut self, func: u8) {
+        self.ruby_text_mode = func;
     }
 
-    pub fn set_function3(&mut self, func: u8) {
-        self.func3 = func;
+    pub fn set_wait_control_mode(&mut self, func: u8) {
+        self.wait_control_mode = func;
     }
 
     pub fn set_text_pos_x(&mut self, x: u16) {
@@ -463,8 +644,8 @@ impl TextItem {
         self.dirty = true;
     }
 
-    pub fn set_text_suspend_chr(&mut self, chrs: &str) {
-        self.suspend_chrs = chrs.chars().collect();
+    pub fn set_line_head_forbidden_chars(&mut self, chrs: &str) {
+        self.line_head_forbidden_chars = chrs.chars().collect();
         self.dirty = true;
     }
 
@@ -472,8 +653,12 @@ impl TextItem {
         self.speed = speed;
         self.elapsed = 0;
         // Reset reveal budget; immediate modes show all.
-        if self.speed <= 0 || self.skip_mode != 0 {
-            self.visible_chars = usize::MAX;
+        self.next_wait_index = 0;
+        self.pending_wait_ms = 0;
+        self.pending_special_wait = false;
+        self.reveal_carry = 0;
+        if self.speed == 0 {
+            self.visible_chars = self.total_chars;
         } else {
             self.visible_chars = 0;
         }
@@ -502,7 +687,11 @@ impl TextItem {
     }
 
     fn is_suspend_chr(&self, ch: char) -> bool {
-        self.suspend_chrs.contains(&ch)
+        self.line_head_forbidden_chars.contains(&ch)
+    }
+
+    fn is_line_start_prohibited(&self, ch: char) -> bool {
+        self.is_suspend_chr(ch) || is_builtin_line_start_prohibited(ch)
     }
 
     fn wrap_limit_px(&self, ch: char) -> i32 {
@@ -510,26 +699,176 @@ impl TextItem {
         if w <= 0 {
             return 0;
         }
-        if self.is_suspend_chr(ch) {
+        if self.is_line_start_prohibited(ch) {
             w
         } else {
-            (w - self.suspend_margin as i32).max(0)
+            (w - self.wrap_reserve_right as i32).max(0)
         }
     }
 
+    #[inline]
+    fn layout_extra_advance_px(outline: u8, distance: u8) -> i32 {
+        ((2 * outline as i32) + distance as i32 + 3) / 4
+    }
+
+    #[inline]
+    fn effective_gdi_font_size(size: f32, outline: u8, distance: u8) -> f32 {
+        let eff = 0.95f32 * (size - (outline as f32 * 0.5) - (distance as f32 * 0.25));
+        eff.max(1.0)
+    }
+
+    fn measure_char_advance(
+        &self,
+        font: &fontdue::Font,
+        size: f32,
+        _gaiji: &GaijiManager,
+        _size_slot: u8,
+        ch: char,
+        outline: u8,
+        distance: u8,
+    ) -> i32 {
+        let extra = Self::layout_extra_advance_px(outline, distance);
+        let eff_size = Self::effective_gdi_font_size(size, outline, distance);
+        let (metrics, _) = font.rasterize(ch, eff_size);
+        metrics.advance_width.ceil() as i32 + extra
+    }
+
+    fn measure_string_unit_advance(
+        &self,
+        font: &fontdue::Font,
+        size: f32,
+        gaiji: &GaijiManager,
+        size_slot: u8,
+        s: &str,
+        outline: u8,
+        distance: u8,
+    ) -> i32 {
+        let mut adv = 0i32;
+        for ch in s.chars() {
+            adv += self.measure_char_advance(font, size, gaiji, size_slot, ch, outline, distance);
+        }
+        adv
+    }
+
+    fn measure_special_unit_advance(
+        &self,
+        font: &fontdue::Font,
+        size: f32,
+        gaiji: &GaijiManager,
+        size_slot: u8,
+        s: &str,
+        outline: u8,
+        distance: u8,
+    ) -> i32 {
+        let extra = Self::layout_extra_advance_px(outline, distance);
+        if let Some(gb) = gaiji.get_texture(s, size_slot) {
+            return gb.get_width() as i32 + extra;
+        }
+        self.measure_string_unit_advance(font, size, gaiji, size_slot, s, outline, distance)
+    }
+
+    fn measure_item_advance(
+        &self,
+        main_font: &fontdue::Font,
+        ruby_font: &fontdue::Font,
+        main_size: f32,
+        ruby_size: f32,
+        gaiji: &GaijiManager,
+        main_slot: u8,
+        ruby_slot: u8,
+        item: &FontItem,
+    ) -> i32 {
+        match item {
+            FontItem::Font(ch) => self.measure_char_advance(
+                main_font,
+                main_size,
+                gaiji,
+                main_slot,
+                *ch,
+                self.outline_size1,
+                self.shadow_distance,
+            ) + self.main_gap_x as i32,
+            FontItem::RubyFont(ruby, base) => {
+                let mut base_adv = 0i32;
+                for ch in base {
+                    base_adv += self.measure_char_advance(
+                        main_font,
+                        main_size,
+                        gaiji,
+                        main_slot,
+                        *ch,
+                        self.outline_size1,
+                        self.shadow_distance,
+                    ) + self.main_gap_x as i32;
+                }
+                if self.ruby_text_mode == 2 {
+                    let mut ruby_adv = 0i32;
+                    for ch in ruby {
+                        ruby_adv += self.measure_char_advance(
+                            ruby_font,
+                            ruby_size,
+                            gaiji,
+                            ruby_slot,
+                            *ch,
+                            self.outline_size2,
+                            self.shadow_distance,
+                        ) + self.ruby_gap_x as i32;
+                    }
+                    base_adv.max(ruby_adv)
+                } else {
+                    base_adv
+                }
+            }
+            FontItem::SpecialUnit(s) => {
+                self.measure_special_unit_advance(
+                    main_font,
+                    main_size,
+                    gaiji,
+                    main_slot,
+                    s,
+                    self.outline_size1,
+                    self.shadow_distance,
+                ) + self.main_gap_x as i32
+            }
+            FontItem::Wait(_) => 0,
+        }
+    }
+
+    fn should_wrap_before_item(
+        &self,
+        pen_x: i32,
+        line_has_any: bool,
+        item_adv: i32,
+        first_char: Option<char>,
+    ) -> bool {
+        if !line_has_any || item_adv <= 0 {
+            return false;
+        }
+        let limit = first_char.map(|ch| self.wrap_limit_px(ch)).unwrap_or(self.w as i32);
+        if limit <= 0 {
+            return false;
+        }
+        pen_x + item_adv > limit
+    }
+
     fn parse_content_text(&mut self, content_text: &str) {
-        let items = tokenize_content_text(content_text);
+        let items = tokenize_content_text(content_text, self.special_unit_mode, self.ruby_text_mode, self.wait_control_mode);
 
         self.text_content = content_text.to_string();
         self.content_text = content_text.to_string();
         self.content_items = items;
 
-        // Column-sweep reveal: total required pixels is computed during rasterization.
+        // Reverse-engineered reveal works on queued texture rectangles, not raw character counts.
+        // We rebuild reveal budget and wait positions during rasterization using pixel reserves.
         self.total_chars = 0;
-        // Reverse-engineered: reveal mode depends on effective speed.
-        // speed == 0 => immediate; speed != 0 (including -1) => start hidden and advance by columns per tick.
+        self.wait_points.clear();
+        self.next_wait_index = 0;
+        self.pending_wait_ms = 0;
+        self.pending_special_wait = false;
+        self.reveal_carry = 0;
+
         if self.speed == 0 {
-            self.visible_chars = usize::MAX;
+            self.visible_chars = self.total_chars;
         } else {
             self.visible_chars = 0;
         }
@@ -537,26 +876,44 @@ impl TextItem {
         self.dirty = true;
     }
 
-    fn tick_reveal(&mut self, delta_ms: u32, global_var0: i32) {
-        if !self.loaded {
+    #[inline]
+    fn normalize_reveal_speed_units(speed: i64) -> i64 {
+        if (1..=10).contains(&speed) {
+            return speed.saturating_mul(1000);
+        }
+        speed
+    }
+
+    fn tick_reveal(&mut self, delta_ms: u32, global_var0: i32, release_special_wait: bool) {
+        if !self.loaded || self.is_suspended {
             return;
         }
-
-        // Reverse-engineered: TextPause freezes reveal progression.
-        if self.is_suspended {
-            return;
+        if self.pending_special_wait {
+            if release_special_wait {
+                self.pending_special_wait = false;
+                self.reveal_carry = 0;
+                self.dirty = true;
+            } else {
+                return;
+            }
+        }
+        if self.pending_wait_ms != 0 {
+            if delta_ms >= self.pending_wait_ms {
+                self.pending_wait_ms = 0;
+                self.reveal_carry = 0;
+            } else {
+                self.pending_wait_ms -= delta_ms;
+                return;
+            }
         }
 
-        // Effective speed: when speed < 0 (typically -1), use 700 * GLOBAL[0].
-        // The original engine treats any non-zero speed as progressive reveal, and speed==0 as immediate.
         let mut eff_speed: i64 = self.speed as i64;
         if eff_speed < 0 {
-            eff_speed = 700i64.saturating_mul(global_var0 as i64);
+            eff_speed = global_var0 as i64;
         }
-
-        if eff_speed == 0 {
-            // Immediate (full reveal). total_chars might not be known yet.
-            let target = if self.total_chars == 0 { usize::MAX } else { self.total_chars };
+        eff_speed = Self::normalize_reveal_speed_units(eff_speed);
+        if eff_speed <= 0 {
+            let target = self.total_chars;
             if self.visible_chars != target {
                 self.visible_chars = target;
                 self.dirty = true;
@@ -564,27 +921,31 @@ impl TextItem {
             return;
         }
 
-        // Column sweep step in pixels per tick: step = max(1, 1000 * dt / eff_speed).
-        // Note: eff_speed can be negative if GLOBAL[0] is negative; the engine clamps step<=0 to 1.
-        let mut step: i64 = (1000i64.saturating_mul(delta_ms as i64)) / eff_speed;
-        if step <= 0 {
-            step = 1;
-        }
-
-        // Keep an accumulator only for debugging/telemetry.
         self.elapsed = self.elapsed.saturating_add(delta_ms);
-
-        if self.visible_chars == usize::MAX {
+        self.reveal_carry = self.reveal_carry.saturating_add(1000i64.saturating_mul(delta_ms as i64));
+        let step: i64 = self.reveal_carry / eff_speed;
+        self.reveal_carry %= eff_speed;
+        if step <= 0 {
             return;
         }
 
-        let mut new_px: usize = self.visible_chars.saturating_add(step as usize);
-        if self.total_chars != 0 {
-            new_px = new_px.min(self.total_chars);
+        let mut new_units = self.visible_chars.saturating_add(step as usize).min(self.total_chars);
+        if self.next_wait_index < self.wait_points.len() {
+            let (wait_pos, wait_ms) = self.wait_points[self.next_wait_index];
+            if self.visible_chars < wait_pos && new_units >= wait_pos {
+                new_units = wait_pos;
+                self.reveal_carry = 0;
+                if wait_ms < 0 {
+                    self.pending_special_wait = true;
+                } else if wait_ms > 0 {
+                    self.pending_wait_ms = wait_ms as u32;
+                }
+                self.next_wait_index += 1;
+            }
         }
 
-        if new_px != self.visible_chars {
-            self.visible_chars = new_px;
+        if new_units != self.visible_chars {
+            self.visible_chars = new_units;
             self.dirty = true;
         }
     }
@@ -599,9 +960,6 @@ impl TextItem {
             return;
         }
 
-        // IMPORTANT: The renderer uses wgpu::BlendState::ALPHA_BLENDING (straight alpha).
-        // Therefore this buffer must store STRAIGHT (non-premultiplied) RGBA.
-        // We do source-over compositing in straight-alpha space.
         let idx = ((y * w + x) * 4) as usize;
         let (sr, sg, sb, sa) = rgba;
         if sa == 0 {
@@ -616,7 +974,6 @@ impl TextItem {
         let sa_u = sa as u32;
         let inv = 255u32 - sa_u;
 
-        // out_a = sa + da * (1 - sa)
         let out_a = sa_u + (da * inv + 127) / 255;
         if out_a == 0 {
             buf[idx] = 0;
@@ -626,7 +983,6 @@ impl TextItem {
             return;
         }
 
-        // out_rgb * out_a = sr*sa + dr*da*(1-sa)
         let tmp_r = (dr * da * inv + 127) / 255;
         let tmp_g = (dg * da * inv + 127) / 255;
         let tmp_b = (db * da * inv + 127) / 255;
@@ -640,6 +996,7 @@ impl TextItem {
         buf[idx + 2] = ((num_b + out_a / 2) / out_a).min(255) as u8;
         buf[idx + 3] = out_a.min(255) as u8;
     }
+
 
 
     fn draw_glyph_mask(
@@ -675,6 +1032,59 @@ impl TextItem {
         }
     }
 
+    fn draw_char_advance_px(&self, raw_advance: i32, outline: u8, shadow_dist: u8) -> i32 {
+        raw_advance + Self::layout_extra_advance_px(outline, shadow_dist)
+    }
+
+    fn glyph_bounds(x: i32, y: i32, w: i32, h: i32, outline: u8, shadow_dist: u8) -> RectI32 {
+        if w <= 0 || h <= 0 {
+            return RectI32::default();
+        }
+        let mut rect = RectI32 { x, y, w, h };
+        let r = outline as i32;
+        if r > 0 {
+            rect = RectI32 { x: rect.x - r, y: rect.y - r, w: rect.w + r * 2, h: rect.h + r * 2 };
+        }
+        if shadow_dist != 0 {
+            let d = shadow_dist as i32;
+            rect = rect.union(RectI32 { x: x + d, y: y + d, w, h });
+        }
+        rect
+    }
+
+    fn char_draw_bounds(
+        &self,
+        font: &fontdue::Font,
+        size: f32,
+        x: i32,
+        y: i32,
+        ch: char,
+        outline: u8,
+        shadow_dist: u8,
+    ) -> RectI32 {
+        let eff_size = Self::effective_gdi_font_size(size, outline, shadow_dist);
+        let (metrics, _) = font.rasterize(ch, eff_size);
+        let gx = x + metrics.xmin;
+        let gy = y - (metrics.ymin + metrics.height as i32);
+        Self::glyph_bounds(gx, gy, metrics.width as i32, metrics.height as i32, outline, shadow_dist)
+    }
+
+    fn gaiji_draw_bounds(
+        &self,
+        gb: &crate::subsystem::resources::graph_buff::GraphBuff,
+        x: i32,
+        y: i32,
+        outline: u8,
+        shadow_dist: u8,
+    ) -> RectI32 {
+        let Some((mw, mh, ox, oy, _mask)) = gb.export_alpha_mask() else {
+            return RectI32::default();
+        };
+        let gx = x + ox as i32;
+        let gy = y + oy as i32;
+        Self::glyph_bounds(gx, gy, mw as i32, mh as i32, outline, shadow_dist)
+    }
+
     fn draw_char(
         &self,
         buf: &mut [u8],
@@ -682,8 +1092,8 @@ impl TextItem {
         bh: u32,
         font: &fontdue::Font,
         size: f32,
-        gaiji: &GaijiManager,
-        size_slot: u8,
+        _gaiji: &GaijiManager,
+        _size_slot: u8,
         x: i32,
         y: i32,
         ch: char,
@@ -695,80 +1105,21 @@ impl TextItem {
         clip_max_x: i32,
         do_draw: bool,
     ) -> i32 {
-        // Gaiji (external glyph) substitution: if a gaiji entry exists for (ch, size_slot),
-        // render its alpha mask instead of rasterizing the font glyph.
-        if let Some(gb) = gaiji.get_texture(ch, size_slot) {
-            // For hidden glyphs, avoid exporting the alpha mask.
-            if !do_draw {
-                return gb.get_width() as i32;
-            }
-            if let Some((mw, mh, ox, oy, mask)) = gb.export_alpha_mask() {
-                let gx = x + ox as i32;
-                let gy = y + oy as i32;
-                let mw_usize = mw as usize;
-                let mh_usize = mh as usize;
-
-                // shadow
-                if shadow_dist != 0 {
-                    let d = shadow_dist as i32;
-                    Self::draw_glyph_mask(buf, bw, bh, gx + d, gy + d, &mask, mw_usize, mh_usize, shadow_color, clip_max_x);
-                }
-
-                // outline
-                if outline != 0 {
-                    let r = outline as i32;
-                    for oy2 in -r..=r {
-                        for ox2 in -r..=r {
-                            if ox2 == 0 && oy2 == 0 {
-                                continue;
-                            }
-                            // Use a circular kernel; square kernels make the stroke noticeably thicker.
-                            if (ox2 * ox2 + oy2 * oy2) > (r * r) {
-                                continue;
-                            }
-                            Self::draw_glyph_mask(
-                                buf,
-                                bw,
-                                bh,
-                                gx + ox2,
-                                gy + oy2,
-                                &mask,
-                                mw_usize,
-                                mh_usize,
-                                outline_color,
-                                clip_max_x,
-                            );
-                        }
-                    }
-                }
-
-                // fill
-                Self::draw_glyph_mask(buf, bw, bh, gx, gy, &mask, mw_usize, mh_usize, color, clip_max_x);
-
-                // Treat gaiji width as advance.
-                return mw as i32;
-            }
-        }
-
-        let (metrics, bitmap) = font.rasterize(ch, size);
+        let eff_size = Self::effective_gdi_font_size(size, outline, shadow_dist);
+        let (metrics, bitmap) = font.rasterize(ch, eff_size);
         let gx = x + metrics.xmin;
-        // fontdue metrics use a Y-up coordinate system:
-        // - ymin is the offset from the baseline to the *bottom* of the bitmap (negative => below baseline).
-        // Convert to our Y-down pixel space: top_y = baseline_y - (ymin + height).
         let gy = y - (metrics.ymin + metrics.height as i32);
 
-        let adv = metrics.advance_width.ceil() as i32;
+        let adv = self.draw_char_advance_px(metrics.advance_width.ceil() as i32, outline, shadow_dist);
 
         if !do_draw {
             return adv;
         }
 
-        // Entire glyph is to the right of the clip line.
         if clip_max_x <= gx {
             return adv;
         }
 
-        // shadow
         if shadow_dist != 0 {
             let d = shadow_dist as i32;
             Self::draw_glyph_mask(
@@ -785,7 +1136,6 @@ impl TextItem {
             );
         }
 
-        // outline
         if outline != 0 {
             let r = outline as i32;
             for oy in -r..=r {
@@ -793,7 +1143,6 @@ impl TextItem {
                     if ox == 0 && oy == 0 {
                         continue;
                     }
-                    // Use a circular kernel; square kernels make the stroke noticeably thicker.
                     if (ox * ox + oy * oy) > (r * r) {
                         continue;
                     }
@@ -813,10 +1162,207 @@ impl TextItem {
             }
         }
 
-        // fill
         Self::draw_glyph_mask(buf, bw, bh, gx, gy, &bitmap, metrics.width, metrics.height, color, clip_max_x);
 
         adv
+    }
+
+    fn draw_gaiji_unit(
+        &self,
+        buf: &mut [u8],
+        bw: u32,
+        bh: u32,
+        gb: &crate::subsystem::resources::graph_buff::GraphBuff,
+        x: i32,
+        y: i32,
+        color: &ColorItem,
+        outline: u8,
+        outline_color: &ColorItem,
+        shadow_dist: u8,
+        shadow_color: &ColorItem,
+        clip_max_x: i32,
+        do_draw: bool,
+    ) -> i32 {
+        let Some((mw, mh, ox, oy, mask)) = gb.export_alpha_mask() else {
+            return self.draw_char_advance_px(gb.get_width() as i32, outline, shadow_dist);
+        };
+
+        let gx = x + ox as i32;
+        let gy = y + oy as i32;
+        let mw_usize = mw as usize;
+        let mh_usize = mh as usize;
+        let adv = self.draw_char_advance_px(gb.get_width() as i32, outline, shadow_dist);
+
+        if !do_draw {
+            return adv;
+        }
+
+        if shadow_dist != 0 {
+            let d = shadow_dist as i32;
+            Self::draw_glyph_mask(buf, bw, bh, gx + d, gy + d, &mask, mw_usize, mh_usize, shadow_color, clip_max_x);
+        }
+
+        if outline != 0 {
+            let r = outline as i32;
+            for oy2 in -r..=r {
+                for ox2 in -r..=r {
+                    if ox2 == 0 && oy2 == 0 {
+                        continue;
+                    }
+                    if (ox2 * ox2 + oy2 * oy2) > (r * r) {
+                        continue;
+                    }
+                    Self::draw_glyph_mask(
+                        buf,
+                        bw,
+                        bh,
+                        gx + ox2,
+                        gy + oy2,
+                        &mask,
+                        mw_usize,
+                        mh_usize,
+                        outline_color,
+                        clip_max_x,
+                    );
+                }
+            }
+        }
+
+        Self::draw_glyph_mask(buf, bw, bh, gx, gy, &mask, mw_usize, mh_usize, color, clip_max_x);
+        adv
+    }
+
+
+
+    fn draw_string_unit(
+        &self,
+        buf: &mut [u8],
+        bw: u32,
+        bh: u32,
+        font: &fontdue::Font,
+        size: f32,
+        gaiji: &GaijiManager,
+        size_slot: u8,
+        x: i32,
+        y: i32,
+        s: &str,
+        color: &ColorItem,
+        outline: u8,
+        outline_color: &ColorItem,
+        shadow_dist: u8,
+        shadow_color: &ColorItem,
+        clip_max_x: i32,
+        do_draw: bool,
+    ) -> i32 {
+        let mut pen_x = x;
+        for ch in s.chars() {
+            let adv = self.draw_char(
+                buf, bw, bh, font, size, gaiji, size_slot, pen_x, y, ch,
+                color, outline, outline_color, shadow_dist, shadow_color, clip_max_x, do_draw,
+            );
+            pen_x += adv;
+        }
+        pen_x - x
+    }
+
+    fn trim_reveal_rect_to_alpha(src: &[u8], bw: u32, bh: u32, rect: RectI32) -> RectI32 {
+        let rect = rect.clamp_to_buffer(bw, bh);
+        if rect.is_empty() {
+            return rect;
+        }
+
+        let bw_usize = bw as usize;
+        let x0 = rect.x as usize;
+        let y0 = rect.y as usize;
+        let w = rect.w as usize;
+        let h = rect.h as usize;
+
+        let mut left = None;
+        let mut right = None;
+
+        for col in 0..w {
+            let mut any = false;
+            for row in 0..h {
+                let idx = (((y0 + row) * bw_usize + (x0 + col)) * 4 + 3) as usize;
+                if src[idx] != 0 {
+                    any = true;
+                    break;
+                }
+            }
+            if any {
+                left = Some(col as i32);
+                break;
+            }
+        }
+
+        for col in (0..w).rev() {
+            let mut any = false;
+            for row in 0..h {
+                let idx = (((y0 + row) * bw_usize + (x0 + col)) * 4 + 3) as usize;
+                if src[idx] != 0 {
+                    any = true;
+                    break;
+                }
+            }
+            if any {
+                right = Some(col as i32);
+                break;
+            }
+        }
+
+        match (left, right) {
+            (Some(l), Some(r)) if r >= l => RectI32 {
+                x: rect.x + l,
+                y: rect.y,
+                w: r - l + 1,
+                h: rect.h,
+            },
+            _ => RectI32::default(),
+        }
+    }
+
+    fn copy_reveal_columns(
+        dst: &mut [u8],
+        src: &[u8],
+        bw: u32,
+        rect: RectI32,
+        cols: i32,
+    ) {
+        if rect.is_empty() || cols <= 0 {
+            return;
+        }
+        let copy_w = cols.min(rect.w).max(0) as usize;
+        if copy_w == 0 {
+            return;
+        }
+        let bw_usize = bw as usize;
+        let x = rect.x as usize;
+        let y0 = rect.y as usize;
+        let h = rect.h as usize;
+        for row in 0..h {
+            let yy = y0 + row;
+            let start = ((yy * bw_usize + x) * 4) as usize;
+            let len = copy_w * 4;
+            let end = start + len;
+            dst[start..end].copy_from_slice(&src[start..end]);
+        }
+    }
+
+    fn apply_reveal_queue(&mut self, full_buffer: &[u8], bw: u32, _bh: u32, queue: &[RevealQueueItem]) {
+        self.pixel_buffer.fill(0);
+        let mut remaining = self.visible_chars as i32;
+        for item in queue {
+            if remaining <= 0 {
+                break;
+            }
+            let rect = item.rect;
+            if rect.is_empty() {
+                continue;
+            }
+            let cols = remaining.min(rect.w);
+            Self::copy_reveal_columns(&mut self.pixel_buffer, full_buffer, bw, rect, cols);
+            remaining -= cols;
+        }
     }
 
     fn rasterize_full(&mut self, fonts: &FontEnumerator, gaiji: &GaijiManager) -> Result<()> {
@@ -824,256 +1370,227 @@ impl TextItem {
         if !self.loaded {
             return Ok(());
         }
-        self.clear_buffer();
 
-        // font selection: prefer font_text_id, fallback to default
-        let font_cell = fonts.get_font(self.font_text_id);
-        let font_ref = font_cell.borrow();
+        let main_font_cell = fonts.get_font(self.text_font_idx1);
+        let main_font_ref = main_font_cell.borrow();
+        let ruby_font_cell = fonts.get_font(self.text_font_idx2);
+        let ruby_font_ref = ruby_font_cell.borrow();
 
         let bw = self.w as u32;
         let bh = self.h as u32;
 
-        let main_size = if self.main_text_size == 0 { 16.0 } else { self.main_text_size as f32 };
-        let ruby_size = if self.ruby_text_size == 0 { (main_size * 0.6).max(8.0) } else { self.ruby_text_size as f32 };
+        let main_size = if self.text_size1 == 0 { 16.0 } else { self.text_size1 as f32 };
+        let ruby_size = if self.text_size2 == 0 { (main_size * 0.6).max(8.0) } else { self.text_size2 as f32 };
+        let main_layout_size = Self::effective_gdi_font_size(main_size, self.outline_size1, self.shadow_distance);
+        let ruby_layout_size = Self::effective_gdi_font_size(ruby_size, self.outline_size2, self.shadow_distance);
 
-        // Gaiji key uses the size slot (12..64) passed by GaijiLoad; we align it with text size.
-        let main_slot: u8 = if self.main_text_size == 0 { 16 } else { self.main_text_size };
-        let ruby_slot: u8 = if self.ruby_text_size == 0 { (main_slot as f32 * 0.6).round().clamp(8.0, 64.0) as u8 } else { self.ruby_text_size };
+        let main_slot: u8 = if self.text_size1 == 0 { 16 } else { self.text_size1 };
+        let ruby_slot: u8 = if self.text_size2 == 0 { (main_slot as f32 * 0.6).round().clamp(8.0, 64.0) as u8 } else { self.text_size2 };
 
-        // Baseline placement:
-        // TextPos/TextFormat provide in-box coordinates for the text pen.
-        // The original engine treats the pen Y as a baseline coordinate (not the top of the glyph box),
-        // so we do NOT add ascent here; we only use font metrics for line height.
-        let lm = font_ref.horizontal_line_metrics(main_size);
-        let ascent_f = lm.map(|m| m.ascent).unwrap_or(main_size);
-        let descent_f = lm.map(|m| m.descent).unwrap_or(-main_size * 0.25);
+        let lm = main_font_ref.horizontal_line_metrics(main_layout_size);
+        let ascent_f = lm.map(|m| m.ascent).unwrap_or(main_layout_size);
+        let descent_f = lm.map(|m| m.descent).unwrap_or(-main_layout_size * 0.25);
         let line_gap_f = lm.map(|m| m.line_gap).unwrap_or(0.0);
 
-        let ascent_px = ascent_f.ceil() as i32;
-        let descent_px = descent_f.floor() as i32; // typically negative
-        let base_line_h = (ascent_f - descent_f + line_gap_f).ceil() as i32;
+        let main_top_reserve = ascent_f.ceil() as i32 + self.outline_size1 as i32;
+        let main_bottom_reserve = (-descent_f).ceil() as i32 + self.outline_size1 as i32 + self.shadow_distance as i32;
 
-        let outline_pad = self.main_text_outline as i32;
-        // Include user-configured line spacing, plus outline padding to avoid line-to-line overlap.
-        let line_h = base_line_h + self.space_vertical as i32 + outline_pad.saturating_mul(2);
-
-        // Current pen position (TextPos). The engine maintains (x,y) within the text box.
-        // IMPORTANT: (x,y) represent the top-left of the line box; convert to a baseline by
-        // adding ascent and outline padding. This matches the original engine's visual alignment,
-        // especially for Japanese punctuation marks (、。) which sit near the baseline.
-        let mut pen_x = (self.x as i32).max(self.text_start_horizon as i32);
-        let mut pen_y = self.text_start_vertical as i32 + self.y as i32 + ascent_px + outline_pad;
-
-        // Ruby line metrics (used to place ruby baseline above the base run).
-        let rlm = font_ref.horizontal_line_metrics(ruby_size);
-        let ruby_ascent_px = rlm.map(|m| m.ascent).unwrap_or(ruby_size).ceil() as i32;
-
-        // Reveal budget: column sweep in pixels across lines.
-        // visible_chars uses pixels; usize::MAX means "force full reveal" (clamped after rasterization).
-        let mut remaining_px: i64 = if self.visible_chars == usize::MAX {
-            i64::MAX / 4
+        // Ruby must participate in vertical layout.
+        // Keep the current baseline-up policy, but derive line height from the combined
+        // main+ruby reserves instead of only adding ruby font size heuristically.
+        let ruby_baseline_up = if self.ruby_text_mode == 2 {
+            (main_layout_size.ceil() as i32 + self.ruby_extra_y as i32).max(0)
         } else {
-            self.visible_chars as i64
+            0
         };
-
-        let mut total_required_px: i64 = 0;
-        let mut line_start_x: i32 = pen_x;
-        let mut line_has_any: bool = false;
-
-        let mut clip_max_x: i32 = if remaining_px <= 0 {
-            line_start_x
+        let (line_top_reserve, line_bottom_reserve) = if self.ruby_text_mode == 2 {
+            let rlm = ruby_font_ref.horizontal_line_metrics(ruby_layout_size);
+            let ruby_ascent_f = rlm.map(|m| m.ascent).unwrap_or(ruby_layout_size);
+            let ruby_descent_f = rlm.map(|m| m.descent).unwrap_or(-ruby_layout_size * 0.25);
+            let ruby_top_reserve = ruby_ascent_f.ceil() as i32 + self.outline_size2 as i32;
+            let ruby_bottom_reserve = (-ruby_descent_f).ceil() as i32 + self.outline_size2 as i32 + self.shadow_distance as i32;
+            (
+                main_top_reserve.max(ruby_baseline_up + ruby_top_reserve),
+                main_bottom_reserve.max((ruby_bottom_reserve - ruby_baseline_up).max(0)),
+            )
         } else {
-            (line_start_x as i64 + remaining_px)
-                .clamp(i32::MIN as i64, i32::MAX as i64) as i32
+            (main_top_reserve, main_bottom_reserve)
         };
+        let line_h = line_top_reserve + line_bottom_reserve + line_gap_f.ceil() as i32 + self.line_gap_y as i32;
 
-        let mut pixel_buffer = self.pixel_buffer.clone();
+        let mut pen_x = (self.x as i32).max(self.line_start_x as i32);
+        let mut pen_y = self.y as i32 + line_top_reserve;
 
-        // Helper: finish current line (update total_required_px and consume remaining_px).
-        let mut finish_line = |pen_x: i32,
-                               line_start_x: i32,
-                               line_has_any: &mut bool,
-                               remaining_px: &mut i64,
-                               total_required_px: &mut i64| {
-            if !*line_has_any {
+        let mut total_required_units: i64 = 0;
+        let mut line_has_any = false;
+        let mut full_buffer = vec![0u8; self.pixel_buffer.len()];
+        let mut reveal_queue: Vec<RevealQueueItem> = Vec::new();
+
+        self.wait_points.clear();
+        self.next_wait_index = 0;
+
+        let queue_reveal_rect = |queue: &mut Vec<RevealQueueItem>, total_required_units: &mut i64, bounds: RectI32, src: &[u8]| {
+            let rect = Self::trim_reveal_rect_to_alpha(src, bw, bh, bounds);
+            if rect.is_empty() {
                 return;
             }
-            let lw = (pen_x - line_start_x).max(0) as i64;
-            *total_required_px = (*total_required_px).saturating_add(lw);
-            if *remaining_px > 0 {
-                if *remaining_px >= lw {
-                    *remaining_px -= lw;
-                } else {
-                    *remaining_px = 0;
-                }
-            }
-            *line_has_any = false;
+            *total_required_units += rect.w as i64;
+            queue.push(RevealQueueItem { rect });
         };
 
         for item in self.content_items.clone() {
             match item {
+                FontItem::Wait(ms) => {
+                    self.wait_points.push((total_required_units.max(0) as usize, ms));
+                    continue;
+                }
+                FontItem::SpecialUnit(s) => {
+                    let item_for_measure = FontItem::SpecialUnit(s.clone());
+                    let item_adv = self.measure_item_advance(
+                        &main_font_ref,
+                        &ruby_font_ref,
+                        main_size,
+                        ruby_size,
+                        gaiji,
+                        main_slot,
+                        ruby_slot,
+                        &item_for_measure,
+                    );
+                    if self.should_wrap_before_item(pen_x, line_has_any, item_adv, None) {
+                        line_has_any = false;
+                        pen_x = self.line_start_x as i32;
+                        pen_y += line_h;
+                    }
+
+                    let mut item_bounds = RectI32::default();
+                    if let Some(gb) = gaiji.get_texture(&s, main_slot) {
+                        let adv = self.draw_gaiji_unit(
+                            &mut full_buffer, bw, bh, gb, pen_x, pen_y, &self.color1,
+                            self.outline_size1, &self.color2, self.shadow_distance, &self.color3, i32::MAX, true,
+                        );
+                        item_bounds = self.gaiji_draw_bounds(gb, pen_x, pen_y, self.outline_size1, self.shadow_distance);
+                        pen_x += adv + self.main_gap_x as i32;
+                    } else {
+                        let mut unit_x = pen_x;
+                        for ch in s.chars() {
+                            let adv = self.draw_char(
+                                &mut full_buffer, bw, bh, &main_font_ref, main_size, gaiji, main_slot, unit_x, pen_y, ch,
+                                &self.color1, self.outline_size1, &self.color2, self.shadow_distance, &self.color3, i32::MAX, true,
+                            );
+                            item_bounds = item_bounds.union(self.char_draw_bounds(&main_font_ref, main_size, unit_x, pen_y, ch, self.outline_size1, self.shadow_distance));
+                            unit_x += adv;
+                        }
+                        pen_x = unit_x + self.main_gap_x as i32;
+                    }
+                    queue_reveal_rect(&mut reveal_queue, &mut total_required_units, item_bounds, &full_buffer);
+                    line_has_any = true;
+                }
                 FontItem::Font(ch) => {
                     if ch == '\n' {
-                        finish_line(pen_x, line_start_x, &mut line_has_any, &mut remaining_px, &mut total_required_px);
-                        pen_x = self.text_start_horizon as i32;
+                        line_has_any = false;
+                        pen_x = self.line_start_x as i32;
                         pen_y += line_h;
-                        line_start_x = pen_x;
-                        clip_max_x = if remaining_px <= 0 {
-                            line_start_x
-                        } else {
-                            (line_start_x as i64 + remaining_px)
-                                .clamp(i32::MIN as i64, i32::MAX as i64) as i32
-                        };
                         continue;
                     }
 
-                    let limit = self.wrap_limit_px(ch);
-                    if limit > 0 && pen_x >= limit {
-                        finish_line(pen_x, line_start_x, &mut line_has_any, &mut remaining_px, &mut total_required_px);
-                        pen_x = self.text_start_horizon as i32;
-                        pen_y += line_h;
-                        line_start_x = pen_x;
-                        clip_max_x = if remaining_px <= 0 {
-                            line_start_x
-                        } else {
-                            (line_start_x as i64 + remaining_px)
-                                .clamp(i32::MIN as i64, i32::MAX as i64) as i32
-                        };
-                    }
-
-                    let do_draw = clip_max_x > pen_x;
-                    let adv = self.draw_char(
-                        &mut pixel_buffer,
-                        bw,
-                        bh,
-                        &font_ref,
+                    let item_for_measure = FontItem::Font(ch);
+                    let item_adv = self.measure_item_advance(
+                        &main_font_ref,
+                        &ruby_font_ref,
                         main_size,
+                        ruby_size,
                         gaiji,
                         main_slot,
-                        pen_x,
-                        pen_y,
-                        ch,
-                        &self.color1,
-                        self.main_text_outline,
-                        &self.color2,
-                        self.distance,
-                        &self.color3,
-                        clip_max_x,
-                        do_draw,
+                        ruby_slot,
+                        &item_for_measure,
                     );
-                    pen_x += adv + self.space_horizon as i32;
+                    if self.should_wrap_before_item(pen_x, line_has_any, item_adv, Some(ch)) {
+                        line_has_any = false;
+                        pen_x = self.line_start_x as i32;
+                        pen_y += line_h;
+                    }
+
+                    let adv = self.draw_char(
+                        &mut full_buffer, bw, bh, &main_font_ref, main_size, gaiji, main_slot, pen_x, pen_y, ch,
+                        &self.color1, self.outline_size1, &self.color2, self.shadow_distance, &self.color3, i32::MAX, true,
+                    );
+                    let bounds = self.char_draw_bounds(&main_font_ref, main_size, pen_x, pen_y, ch, self.outline_size1, self.shadow_distance);
+                    pen_x += adv + self.main_gap_x as i32;
+                    queue_reveal_rect(&mut reveal_queue, &mut total_required_units, bounds, &full_buffer);
                     line_has_any = true;
                 }
                 FontItem::RubyFont(ruby, base) => {
-                    // Simplistic: render base, then render ruby above the base run once the base is fully revealed.
-                    let mut base_start_x = pen_x;
+                    let item_for_measure = FontItem::RubyFont(ruby.clone(), base.clone());
+                    let item_adv = self.measure_item_advance(
+                        &main_font_ref,
+                        &ruby_font_ref,
+                        main_size,
+                        ruby_size,
+                        gaiji,
+                        main_slot,
+                        ruby_slot,
+                        &item_for_measure,
+                    );
+                    if self.should_wrap_before_item(
+                        pen_x,
+                        line_has_any,
+                        item_adv,
+                        fontitem_first_char(&item_for_measure),
+                    ) {
+                        line_has_any = false;
+                        pen_x = self.line_start_x as i32;
+                        pen_y += line_h;
+                    }
+
+                    let mut item_bounds = RectI32::default();
+                    let base_start_x = pen_x;
                     let mut base_total_adv = 0i32;
-                    let mut base_fully_visible = true;
 
-                    for (idx, ch) in base.iter().enumerate() {
-                        let limit = self.wrap_limit_px(*ch);
-                        if limit > 0 && pen_x >= limit {
-                            finish_line(pen_x, line_start_x, &mut line_has_any, &mut remaining_px, &mut total_required_px);
-                            pen_x = self.text_start_horizon as i32;
-                            pen_y += line_h;
-                            line_start_x = pen_x;
-                            clip_max_x = if remaining_px <= 0 {
-                                line_start_x
-                            } else {
-                                (line_start_x as i64 + remaining_px)
-                                    .clamp(i32::MIN as i64, i32::MAX as i64) as i32
-                            };
-                        }
-                        if idx == 0 {
-                            base_start_x = pen_x;
-                        }
-
-                        let do_draw = clip_max_x > pen_x;
+                    for ch in base.iter() {
                         let adv = self.draw_char(
-                            &mut pixel_buffer,
-                            bw,
-                            bh,
-                            &font_ref,
-                            main_size,
-                            gaiji,
-                            main_slot,
-                            pen_x,
-                            pen_y,
-                            *ch,
-                            &self.color1,
-                            self.main_text_outline,
-                            &self.color2,
-                            self.distance,
-                            &self.color3,
-                            clip_max_x,
-                            do_draw,
+                            &mut full_buffer, bw, bh, &main_font_ref, main_size, gaiji, main_slot, pen_x, pen_y, *ch,
+                            &self.color1, self.outline_size1, &self.color2, self.shadow_distance, &self.color3, i32::MAX, true,
                         );
-                        // If the clip line hasn't passed the advance end, treat it as not fully visible.
-                        if clip_max_x < pen_x + adv {
-                            base_fully_visible = false;
-                        }
-                        pen_x += adv + self.space_horizon as i32;
-                        base_total_adv += adv + self.space_horizon as i32;
-                        line_has_any = true;
+                        item_bounds = item_bounds.union(self.char_draw_bounds(&main_font_ref, main_size, pen_x, pen_y, *ch, self.outline_size1, self.shadow_distance));
+                        pen_x += adv + self.main_gap_x as i32;
+                        base_total_adv += adv + self.main_gap_x as i32;
                     }
 
-                    if !base_fully_visible {
-                        continue;
-                    }
-
-                    // Ruby placement: put ruby above the base run.
-                    let ruby_y = pen_y - ascent_px + ruby_ascent_px + self.ruby_vertical as i32;
-                    let mut ruby_x = base_start_x + (base_total_adv / 2) + self.ruby_horizon as i32;
-
-                    // compute ruby width (rough)
+                    let ruby_y = pen_y - ruby_baseline_up;
                     let mut ruby_width = 0i32;
                     for rch in ruby.iter() {
-                        let (metrics, _) = font_ref.rasterize(*rch, ruby_size);
-                        ruby_width += metrics.advance_width.ceil() as i32;
+                        ruby_width += self.measure_char_advance(&ruby_font_ref, ruby_size, gaiji, ruby_slot, *rch, self.outline_size2, self.shadow_distance)
+                            + self.ruby_gap_x as i32;
                     }
-                    ruby_x -= ruby_width / 2;
+                    let mut ruby_x = base_start_x + (base_total_adv - ruby_width) / 2;
 
                     for rch in ruby {
                         let adv = self.draw_char(
-                            &mut pixel_buffer,
-                            bw,
-                            bh,
-                            &font_ref,
-                            ruby_size,
-                            gaiji,
-                            ruby_slot,
-                            ruby_x,
-                            ruby_y,
-                            rch,
-                            &self.color1,
-                            self.ruby_text_outline,
-                            &self.color2,
-                            self.distance,
-                            &self.color3,
-                            i32::MAX,
-                            true,
+                            &mut full_buffer, bw, bh, &ruby_font_ref, ruby_size, gaiji, ruby_slot, ruby_x, ruby_y, rch,
+                            &self.color1, self.outline_size2, &self.color2, self.shadow_distance, &self.color3, i32::MAX, true,
                         );
-                        ruby_x += adv;
+                        item_bounds = item_bounds.union(self.char_draw_bounds(&ruby_font_ref, ruby_size, ruby_x, ruby_y, rch, self.outline_size2, self.shadow_distance));
+                        ruby_x += adv + self.ruby_gap_x as i32;
                     }
+
+                    queue_reveal_rect(&mut reveal_queue, &mut total_required_units, item_bounds, &full_buffer);
+                    line_has_any = true;
                 }
             }
         }
 
-        // Finish the last line.
-        finish_line(pen_x, line_start_x, &mut line_has_any, &mut remaining_px, &mut total_required_px);
-
-        self.pixel_buffer = pixel_buffer;
-
-        // Cache total required pixels and clamp current reveal budget.
-        self.total_chars = total_required_px.max(0) as usize;
-        if self.total_chars == 0 {
-            self.visible_chars = 0;
-        } else if self.visible_chars == usize::MAX || self.visible_chars > self.total_chars {
+        line_has_any = false;
+        self.total_chars = total_required_units.max(0) as usize;
+        if self.speed == 0 {
+            self.visible_chars = self.total_chars;
+        } else if self.visible_chars > self.total_chars {
             self.visible_chars = self.total_chars;
         }
 
+        self.apply_reveal_queue(&full_buffer, bw, bh, &reveal_queue);
         Ok(())
     }
+
 }
 
 impl Default for TextItem {
@@ -1103,9 +1620,9 @@ impl TextManager {
     }
 
     /// Tick reveal-by-time for all text slots.
-    pub fn tick(&mut self, delta_ms: u32, global_var0: i32) {
+    pub fn tick(&mut self, delta_ms: u32, global_var0: i32, release_special_wait: bool) {
         for t in self.items.iter_mut() {
-            t.tick_reveal(delta_ms, global_var0);
+            t.tick_reveal(delta_ms, global_var0, release_special_wait);
         }
     }
 
@@ -1124,9 +1641,13 @@ impl TextManager {
             if t.is_suspended {
                 continue;
             }
-            let target = if t.total_chars == 0 { usize::MAX } else { t.total_chars };
-            if t.visible_chars != target {
+            let target = t.total_chars;
+            if t.visible_chars != target || t.pending_wait_ms != 0 || t.pending_special_wait {
                 t.visible_chars = target;
+                t.pending_wait_ms = 0;
+                t.pending_special_wait = false;
+                t.reveal_carry = 0;
+                t.next_wait_index = t.wait_points.len();
                 t.dirty = true;
             }
         }
@@ -1160,8 +1681,8 @@ impl TextManager {
                 t.y,
                 t.w,
                 t.h,
-                t.font_name_id,
-                t.font_text_id,
+                t.text_font_idx1,
+                t.text_font_idx2,
                 t.speed,
                 t.visible_chars,
                 t.total_chars,
@@ -1187,10 +1708,18 @@ impl TextManager {
         let text = &mut self.items[id as usize];
         if text.get_loaded() {
             text.clear_buffer();
-            text.x = text.text_start_horizon;
-            text.y = 0;
+            text.text_content.clear();
+            text.content_text.clear();
+            text.content_items.clear();
+            text.total_chars = 0;
+            text.visible_chars = 0;
+            text.wait_points.clear();
             text.elapsed = 0;
-            text.dirty = true;
+            text.next_wait_index = 0;
+            text.pending_wait_ms = 0;
+            text.pending_special_wait = false;
+            text.reveal_carry = 0;
+            text.dirty = false;
         }
     }
 
@@ -1207,23 +1736,22 @@ impl TextManager {
         text.text_content.clear();
         text.content_text.clear();
         text.content_items.clear();
-        text.font_name_id = -2;
-        text.font_text_id = -2;
-        text.main_text_size = 16;
-        text.ruby_text_size = 12;
-        text.main_text_outline = 0;
-        text.ruby_text_outline = 0;
-        text.distance = 0;
-        text.func1 = 0;
-        text.func2 = 0;
-        text.func3 = 0;
-        text.space_vertical = 0;
-        text.space_horizon = 0;
-        text.text_start_horizon = 0;
-        text.text_start_vertical = 0;
-        text.ruby_horizon = 0;
-        text.ruby_vertical = 0;
-        text.suspend_margin = 0;
+        text.text_font_idx1 = -2;
+        text.text_font_idx2 = -2;
+        text.text_size1 = 16;
+        text.text_size2 = 12;
+        text.outline_size1 = 0;
+        text.outline_size2 = 0;
+        text.shadow_distance = 0;
+        text.special_unit_mode = 0;
+        text.ruby_text_mode = 0;
+        text.wait_control_mode = 0;
+        text.line_gap_y = 0;
+        text.main_gap_x = 0;
+        text.line_start_x = 0;
+        text.wrap_reserve_right = 0;
+        text.ruby_gap_x = 0;
+        text.ruby_extra_y = 0;
         text.skip_mode = 0;
         text.is_suspended = false;
         text.x = 0;
@@ -1231,7 +1759,12 @@ impl TextManager {
         text.speed = 0;
         text.total_chars = 0;
         text.visible_chars = 0;
-        text.suspend_chrs.clear();
+        text.wait_points.clear();
+        text.next_wait_index = 0;
+        text.pending_wait_ms = 0;
+        text.pending_special_wait = false;
+        text.reveal_carry = 0;
+        text.line_head_forbidden_chars.clear();
         text.dirty = true;
     }
 
@@ -1247,28 +1780,28 @@ impl TextManager {
         self.items[id as usize].set_color3(color);
     }
 
-    pub fn set_text_font_name(&mut self, id: i32, font_id: i32) {
-        self.items[id as usize].set_font_name(font_id);
+    pub fn set_text_font_idx1(&mut self, id: i32, font_id: i32) {
+        self.items[id as usize].set_text_font_idx1(font_id);
     }
 
-    pub fn set_text_font_text(&mut self, id: i32, font_id: i32) {
-        self.items[id as usize].set_font_text(font_id);
+    pub fn set_text_font_idx2(&mut self, id: i32, font_id: i32) {
+        self.items[id as usize].set_text_font_idx2(font_id);
     }
 
-    pub fn set_text_main_text_size(&mut self, id: i32, size: u8) {
-        self.items[id as usize].set_main_text_size(size);
+    pub fn set_text_size1(&mut self, id: i32, size: u8) {
+        self.items[id as usize].set_text_size1(size);
     }
 
-    pub fn set_text_ruby_text_size(&mut self, id: i32, size: u8) {
-        self.items[id as usize].set_ruby_text_size(size);
+    pub fn set_text_size2(&mut self, id: i32, size: u8) {
+        self.items[id as usize].set_text_size2(size);
     }
 
-    pub fn set_text_main_text_outline(&mut self, id: i32, outline: u8) {
-        self.items[id as usize].set_main_text_outline(outline);
+    pub fn set_text_outline1(&mut self, id: i32, outline: u8) {
+        self.items[id as usize].set_outline_size1(outline);
     }
 
-    pub fn set_text_ruby_text_outline(&mut self, id: i32, outline: u8) {
-        self.items[id as usize].set_ruby_text_outline(outline);
+    pub fn set_text_outline2(&mut self, id: i32, outline: u8) {
+        self.items[id as usize].set_outline_size2(outline);
     }
 
     pub fn set_text_shadow_dist(&mut self, id: i32, dist: u8) {
@@ -1286,34 +1819,34 @@ impl TextManager {
     pub fn apply_text_format(
         &mut self,
         id: i32,
-        space_vertical: Option<i16>,
-        space_horizon: Option<i16>,
-        text_start_vertical: Option<u16>,
-        text_start_horizon: Option<u16>,
-        ruby_horizon: Option<i16>,
-        ruby_vertical: Option<i16>,
+        line_gap_y: Option<i16>,
+        main_gap_x: Option<i16>,
+        wrap_reserve_right: Option<u16>,
+        line_start_x: Option<u16>,
+        ruby_gap_x: Option<i16>,
+        ruby_extra_y: Option<i16>,
     ) {
         let t = &mut self.items[id as usize];
-        if let Some(v) = space_vertical {
-            t.space_vertical = v;
+        if let Some(v) = line_gap_y {
+            t.line_gap_y = v;
         }
-        if let Some(v) = space_horizon {
-            t.space_horizon = v;
+        if let Some(v) = main_gap_x {
+            t.main_gap_x = v;
         }
-        if let Some(v) = text_start_vertical {
-            t.text_start_vertical = v;
+        if let Some(v) = wrap_reserve_right {
+            t.wrap_reserve_right = v;
         }
-        if let Some(v) = text_start_horizon {
-            t.text_start_horizon = v;
+        if let Some(v) = line_start_x {
+            t.line_start_x = v;
             if t.x < v {
                 t.x = v;
             }
         }
-        if let Some(v) = ruby_horizon {
-            t.ruby_horizon = v;
+        if let Some(v) = ruby_gap_x {
+            t.ruby_gap_x = v;
         }
-        if let Some(v) = ruby_vertical {
-            t.ruby_vertical = v;
+        if let Some(v) = ruby_extra_y {
+            t.ruby_extra_y = v;
         }
         t.dirty = true;
     }
@@ -1326,34 +1859,46 @@ impl TextManager {
         self.items[id as usize].set_text_pos_y(y);
     }
 
-    pub fn set_text_suspend_chr(&mut self, id: i32, chrs: &str) {
-        self.items[id as usize].set_text_suspend_chr(chrs);
+    pub fn set_line_head_forbidden_chars(&mut self, id: i32, chrs: &str) {
+        self.items[id as usize].set_line_head_forbidden_chars(chrs);
     }
 
     pub fn set_text_speed(&mut self, id: i32, speed: i32) {
         self.items[id as usize].set_speed(speed);
-        // reveal-by-time is not implemented yet; keep as metadata
     }
 
     pub fn set_text_content(&mut self, id: i32, content_text: &str) {
         self.items[id as usize].parse_content_text(content_text);
     }
 
-    pub fn set_text_function1(&mut self, id: i32, func: u8) {
-        self.items[id as usize].set_function1(func);
+    pub fn set_text_special_unit_mode(&mut self, id: i32, func: u8) {
+        let t = &mut self.items[id as usize];
+        t.set_special_unit_mode(func);
+        let content = t.content_text.clone();
+        t.parse_content_text(&content);
     }
 
-    pub fn set_text_function2(&mut self, id: i32, func: u8) {
-        self.items[id as usize].set_function2(func);
+    pub fn set_text_ruby_mode(&mut self, id: i32, func: u8) {
+        let t = &mut self.items[id as usize];
+        t.set_ruby_text_mode(func);
+        let content = t.content_text.clone();
+        t.parse_content_text(&content);
     }
 
-    pub fn set_text_function3(&mut self, id: i32, func: u8) {
-        self.items[id as usize].set_function3(func);
+    pub fn set_text_wait_mode(&mut self, id: i32, func: u8) {
+        let t = &mut self.items[id as usize];
+        t.set_wait_control_mode(func);
+        let content = t.content_text.clone();
+        t.parse_content_text(&content);
     }
 
     pub fn set_text_suspend(&mut self, id: i32, suspend: bool) {
         self.items[id as usize].set_suspend(suspend);
     }
+    pub fn set_text_suspend_chr(&mut self, id: i32, chrs: &str) {
+        self.items[id as usize].set_line_head_forbidden_chars(chrs);
+    }
+
 
     pub fn get_text_suspend(&self, id: i32) -> bool {
         self.items[id as usize].get_suspend()
@@ -1363,11 +1908,11 @@ impl TextManager {
         self.items[id as usize].set_text_skip(skip);
     }
 
-    pub fn set_text_space_vertical(&mut self, id: i32, space: i16) {
+    pub fn set_text_line_gap_y(&mut self, id: i32, space: i16) {
         self.items[id as usize].set_vertical_space(space);
     }
 
-    pub fn set_text_space_horizon(&mut self, id: i32, space: i16) {
+    pub fn set_text_main_gap_x(&mut self, id: i32, space: i16) {
         self.items[id as usize].set_horizon_space(space);
     }
 
@@ -1411,31 +1956,30 @@ impl TextManager {
 pub struct TextItemSnapshotV1 {
     pub offset_x: u16,
     pub offset_y: u16,
-    pub suspend_chrs: Vec<char>,
+    pub line_head_forbidden_chars: Vec<char>,
 
     pub text_content: String,
     pub content_text: String,
 
-    pub font_name_id: i32,
-    pub font_text_id: i32,
-    pub main_text_size: u8,
-    pub ruby_text_size: u8,
-    pub main_text_outline: u8,
-    pub ruby_text_outline: u8,
-    pub distance: u8,
+    pub text_font_idx1: i32,
+    pub text_font_idx2: i32,
+    pub text_size1: u8,
+    pub text_size2: u8,
+    pub outline_size1: u8,
+    pub outline_size2: u8,
+    pub shadow_distance: u8,
     pub color1: ColorItem,
     pub color2: ColorItem,
     pub color3: ColorItem,
-    pub func1: u8,
-    pub func2: u8,
-    pub func3: u8,
-    pub space_vertical: i16,
-    pub space_horizon: i16,
-    pub text_start_horizon: u16,
-    pub text_start_vertical: u16,
-    pub ruby_vertical: i16,
-    pub ruby_horizon: i16,
-    pub suspend_margin: i16,
+    pub special_unit_mode: u8,
+    pub ruby_text_mode: u8,
+    pub wait_control_mode: u8,
+    pub line_gap_y: i16,
+    pub main_gap_x: i16,
+    pub line_start_x: u16,
+    pub wrap_reserve_right: u16,
+    pub ruby_extra_y: i16,
+    pub ruby_gap_x: i16,
 
     pub skip_mode: u8,
     pub is_suspended: bool,
@@ -1450,6 +1994,10 @@ pub struct TextItemSnapshotV1 {
     pub elapsed: u32,
     pub total_chars: usize,
     pub visible_chars: usize,
+    pub wait_points: Vec<(usize, i32)>,
+    pub next_wait_index: usize,
+    pub pending_wait_ms: u32,
+    pub pending_special_wait: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1463,29 +2011,28 @@ impl TextItem {
         TextItemSnapshotV1 {
             offset_x: self.offset_x,
             offset_y: self.offset_y,
-            suspend_chrs: self.suspend_chrs.clone(),
+            line_head_forbidden_chars: self.line_head_forbidden_chars.clone(),
             text_content: self.text_content.clone(),
             content_text: self.content_text.clone(),
-            font_name_id: self.font_name_id,
-            font_text_id: self.font_text_id,
-            main_text_size: self.main_text_size,
-            ruby_text_size: self.ruby_text_size,
-            main_text_outline: self.main_text_outline,
-            ruby_text_outline: self.ruby_text_outline,
-            distance: self.distance,
+            text_font_idx1: self.text_font_idx1,
+            text_font_idx2: self.text_font_idx2,
+            text_size1: self.text_size1,
+            text_size2: self.text_size2,
+            outline_size1: self.outline_size1,
+            outline_size2: self.outline_size2,
+            shadow_distance: self.shadow_distance,
             color1: self.color1.clone(),
             color2: self.color2.clone(),
             color3: self.color3.clone(),
-            func1: self.func1,
-            func2: self.func2,
-            func3: self.func3,
-            space_vertical: self.space_vertical,
-            space_horizon: self.space_horizon,
-            text_start_horizon: self.text_start_horizon,
-            text_start_vertical: self.text_start_vertical,
-            ruby_vertical: self.ruby_vertical,
-            ruby_horizon: self.ruby_horizon,
-            suspend_margin: self.suspend_margin,
+            special_unit_mode: self.special_unit_mode,
+            ruby_text_mode: self.ruby_text_mode,
+            wait_control_mode: self.wait_control_mode,
+            line_gap_y: self.line_gap_y,
+            main_gap_x: self.main_gap_x,
+            line_start_x: self.line_start_x,
+            wrap_reserve_right: self.wrap_reserve_right,
+            ruby_extra_y: self.ruby_extra_y,
+            ruby_gap_x: self.ruby_gap_x,
             skip_mode: self.skip_mode,
             is_suspended: self.is_suspended,
             x: self.x,
@@ -1499,37 +2046,40 @@ impl TextItem {
             elapsed: self.elapsed,
             total_chars: self.total_chars,
             visible_chars: self.visible_chars,
+            wait_points: self.wait_points.clone(),
+            next_wait_index: self.next_wait_index,
+            pending_wait_ms: self.pending_wait_ms,
+            pending_special_wait: self.pending_special_wait,
         }
     }
 
     fn apply_snapshot_v1(&mut self, snap: &TextItemSnapshotV1) {
         self.offset_x = snap.offset_x;
         self.offset_y = snap.offset_y;
-        self.suspend_chrs = snap.suspend_chrs.clone();
+        self.line_head_forbidden_chars = snap.line_head_forbidden_chars.clone();
 
         self.text_content = snap.text_content.clone();
         self.content_text = snap.content_text.clone();
 
-        self.font_name_id = snap.font_name_id;
-        self.font_text_id = snap.font_text_id;
-        self.main_text_size = snap.main_text_size;
-        self.ruby_text_size = snap.ruby_text_size;
-        self.main_text_outline = snap.main_text_outline;
-        self.ruby_text_outline = snap.ruby_text_outline;
-        self.distance = snap.distance;
+        self.text_font_idx1 = snap.text_font_idx1;
+        self.text_font_idx2 = snap.text_font_idx2;
+        self.text_size1 = snap.text_size1;
+        self.text_size2 = snap.text_size2;
+        self.outline_size1 = snap.outline_size1;
+        self.outline_size2 = snap.outline_size2;
+        self.shadow_distance = snap.shadow_distance;
         self.color1 = snap.color1.clone();
         self.color2 = snap.color2.clone();
         self.color3 = snap.color3.clone();
-        self.func1 = snap.func1;
-        self.func2 = snap.func2;
-        self.func3 = snap.func3;
-        self.space_vertical = snap.space_vertical;
-        self.space_horizon = snap.space_horizon;
-        self.text_start_horizon = snap.text_start_horizon;
-        self.text_start_vertical = snap.text_start_vertical;
-        self.ruby_vertical = snap.ruby_vertical;
-        self.ruby_horizon = snap.ruby_horizon;
-        self.suspend_margin = snap.suspend_margin;
+        self.special_unit_mode = snap.special_unit_mode;
+        self.ruby_text_mode = snap.ruby_text_mode;
+        self.wait_control_mode = snap.wait_control_mode;
+        self.line_gap_y = snap.line_gap_y;
+        self.main_gap_x = snap.main_gap_x;
+        self.line_start_x = snap.line_start_x;
+        self.wrap_reserve_right = snap.wrap_reserve_right;
+        self.ruby_extra_y = snap.ruby_extra_y;
+        self.ruby_gap_x = snap.ruby_gap_x;
 
         self.skip_mode = snap.skip_mode;
         self.is_suspended = snap.is_suspended;
@@ -1544,11 +2094,14 @@ impl TextItem {
         self.elapsed = snap.elapsed;
         self.total_chars = snap.total_chars;
         self.visible_chars = snap.visible_chars;
+        self.wait_points = snap.wait_points.clone();
+        self.next_wait_index = snap.next_wait_index;
+        self.pending_wait_ms = snap.pending_wait_ms;
+        self.pending_special_wait = snap.pending_special_wait;
+        self.reveal_carry = 0;
 
         // Rebuild derived token list to keep future incremental rendering functional.
-        self.content_items = tokenize_content_text(&self.content_text);
-        // total_chars/visible_chars are measured in pixels (column sweep). We keep the snapshot values
-        // and let the next rasterization recompute total_chars from font metrics.
+        self.content_items = tokenize_content_text(&self.content_text, self.special_unit_mode, self.ruby_text_mode, self.wait_control_mode);
         if self.total_chars > 0 && self.visible_chars > self.total_chars {
             self.visible_chars = self.total_chars;
         }

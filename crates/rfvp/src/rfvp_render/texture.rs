@@ -60,9 +60,19 @@ pub struct GpuTexture {
     size: (u32, u32),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TextureFilterMode {
+    Linear,
+    Nearest,
+}
+
 impl GpuTexture {
     pub fn new(resources: &GpuCommonResources, img: &DynamicImage, label: Option<&str>) -> Self {
-        Self::new_with_format(resources, img, label, wgpu::TextureFormat::Rgba8UnormSrgb)
+        Self::new_with_filter(resources, img, label, wgpu::TextureFormat::Rgba8UnormSrgb, TextureFilterMode::Linear)
+    }
+
+    pub fn new_nearest(resources: &GpuCommonResources, img: &DynamicImage, label: Option<&str>) -> Self {
+        Self::new_with_filter(resources, img, label, wgpu::TextureFormat::Rgba8UnormSrgb, TextureFilterMode::Nearest)
     }
 
     /// Create a non-sRGB RGBA8 texture.
@@ -73,14 +83,15 @@ impl GpuTexture {
         img: &DynamicImage,
         label: Option<&str>,
     ) -> Self {
-        Self::new_with_format(resources, img, label, wgpu::TextureFormat::Rgba8Unorm)
+        Self::new_with_filter(resources, img, label, wgpu::TextureFormat::Rgba8Unorm, TextureFilterMode::Linear)
     }
 
-    fn new_with_format(
+    fn new_with_filter(
         resources: &GpuCommonResources,
         img: &DynamicImage,
         label: Option<&str>,
         format: wgpu::TextureFormat,
+        filter_mode: TextureFilterMode,
     ) -> Self {
         // Avoid an extra allocation when the source is already RGBA8.
         let (rgba, w, h): (std::borrow::Cow<'_, [u8]>, u32, u32) = match img {
@@ -118,13 +129,17 @@ impl GpuTexture {
         );
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let sampler_filter = match filter_mode {
+            TextureFilterMode::Linear => wgpu::FilterMode::Linear,
+            TextureFilterMode::Nearest => wgpu::FilterMode::Nearest,
+        };
         let sampler = resources.device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("rfvp_render.texture_sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
+            mag_filter: sampler_filter,
+            min_filter: sampler_filter,
             mipmap_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });

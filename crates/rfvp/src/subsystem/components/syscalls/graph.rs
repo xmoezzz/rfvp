@@ -997,12 +997,11 @@ pub fn gaiji_load(game_data: &mut GameData, code: &Variant, size: &Variant, fnam
         return Ok(Variant::Nil);
     }
 
-    let code = code.chars().collect::<Vec<_>>().first().unwrap().to_owned();
     let buff = game_data.vfs_load_file(fname)?;
 
     game_data
         .motion_manager
-        .set_gaiji(code, size as u8, fname, buff)?;
+        .set_gaiji(code.clone(), size as u8, fname, buff)?;
 
     Ok(Variant::Nil)
 }

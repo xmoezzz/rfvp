@@ -10,7 +10,7 @@ use crate::subsystem::resources::{
 use crate::subsystem::world::GameData;
 use crate::subsystem::resources::save_manager::SaveItem;
 use crate::debug_ui;
-use crate::subsystem::save_state::{DecodedSaveState, try_decode_state_chunk};
+use crate::subsystem::save_state::try_decode_state_chunk_v1;
 
 /// Drives the script VM (which is coroutine-based, not OS-thread based).
 ///
@@ -77,14 +77,9 @@ if let Some(slot) = game.save_manager.take_load_request() {
                 log::error!("load: failed to parse save header for slot {}: {:#}", slot, e);
             }
 
-            match try_decode_state_chunk(&bytes) {
-                Ok(Some(DecodedSaveState::V2(s))) => {
+            match try_decode_state_chunk_v1(&bytes) {
+                Ok(Some(s)) => {
                     if let Err(e) = s.apply(game, &mut self.tm) {
-                        log::error!("load: apply SaveStateSnapshotV2 failed: {:#}", e);
-                    }
-                }
-                Ok(Some(DecodedSaveState::V1(s))) => {
-                    if let Err(e) = s.apply(game) {
                         log::error!("load: apply SaveStateSnapshotV1 failed: {:#}", e);
                     }
                 }

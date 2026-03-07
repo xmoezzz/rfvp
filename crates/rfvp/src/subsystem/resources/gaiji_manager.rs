@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use serde::{Deserialize, Serialize};
 use anyhow::Result;
@@ -8,30 +8,30 @@ use super::vfs::Vfs;
 
 #[derive(Debug, Clone)]
 pub struct GaijiItem {
-    pub code: char,
+    pub key: String,
     pub size: u8,
     pub texture: GraphBuff,
 }
 
 impl GaijiItem {
-    pub fn new(code: char, size: u8, texture: GraphBuff) -> Self {
+    pub fn new(key: String, size: u8, texture: GraphBuff) -> Self {
         Self {
-            code,
+            key,
             size,
             texture,
         }
     }
 
-    pub fn set_code(&mut self, code: char) {
-        self.code = code;
+    pub fn set_key(&mut self, key: String) {
+        self.key = key;
     }
 
     pub fn set_size(&mut self, size: u8) {
         self.size = size;
     }
 
-    pub fn get_code(&self) -> char {
-        self.code
+    pub fn get_key(&self) -> &str {
+        &self.key
     }
 
     pub fn get_size(&self) -> u8 {
@@ -44,7 +44,7 @@ impl GaijiItem {
 }
 
 pub struct GaijiManager {
-    item: HashMap<char, HashMap<u8, GaijiItem>>
+    item: HashMap<String, BTreeMap<u8, GaijiItem>>
 }
 
 impl Default for GaijiManager {
@@ -60,22 +60,35 @@ impl GaijiManager {
         }
     }
 
-    pub fn set_gaiji(&mut self, code: char, size: u8, texture: GraphBuff) {
-        let item = GaijiItem::new(code, size, texture);
-        self.item.entry(code).or_insert_with(HashMap::new);
-        if let Some(entry) = self.item.get_mut(&code) {
-            entry.insert(size, item);
+    pub fn set_gaiji(&mut self, key: String, size: u8, texture: GraphBuff) {
+        let item = GaijiItem::new(key.clone(), size, texture);
+        self.item.entry(key).or_insert_with(BTreeMap::new).insert(size, item);
+    }
+
+    pub fn get_exact(&self, key: &str, size: u8) -> Option<&GaijiItem> {
+        self.item.get(key)?.get(&size)
+    }
+
+    pub fn get_nearest(&self, key: &str, size: u8) -> Option<&GaijiItem> {
+        let versions = self.item.get(key)?;
+        let mut best: Option<&GaijiItem> = None;
+        let mut best_delta = u16::MAX;
+        for (entry_size, item) in versions.iter() {
+            let delta = (*entry_size as i16 - size as i16).unsigned_abs();
+            if delta < best_delta {
+                best_delta = delta;
+                best = Some(item);
+            }
         }
+        best
     }
 
-    /// Lookup a gaiji mapping for the given trigger character and size slot.
-    pub fn get(&self, code: char, size: u8) -> Option<&GaijiItem> {
-        self.item.get(&code)?.get(&size)
+    pub fn get(&self, key: &str, size: u8) -> Option<&GaijiItem> {
+        self.get_exact(key, size).or_else(|| self.get_nearest(key, size))
     }
 
-    /// Convenience helper to access the mapped texture, if any.
-    pub fn get_texture(&self, code: char, size: u8) -> Option<&GraphBuff> {
-        self.get(code, size).map(|it| it.get_texture())
+    pub fn get_texture(&self, key: &str, size: u8) -> Option<&GraphBuff> {
+        self.get(key, size).map(|it| it.get_texture())
     }
 
 }
@@ -86,7 +99,7 @@ impl GaijiManager {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GaijiEntrySnapshotV1 {
-    pub code: char,
+    pub key: String,
     pub size: u8,
     pub texture: GraphBuffSnapshotV1,
 }
@@ -99,11 +112,10 @@ pub struct GaijiManagerSnapshotV1 {
 impl GaijiManager {
     pub fn capture_snapshot_v1(&self) -> GaijiManagerSnapshotV1 {
         let mut entries = Vec::new();
-        for (code, size_map) in &self.item {
+        for (key, size_map) in &self.item {
             for (size, item) in size_map {
-                // Gaiji textures are always 1bpp glyph images, so we keep load_kind.
                 entries.push(GaijiEntrySnapshotV1 {
-                    code: *code,
+                    key: key.clone(),
                     size: *size,
                     texture: item.texture.capture_snapshot_with_id(0),
                 });
@@ -117,7 +129,7 @@ impl GaijiManager {
         for e in &snap.entries {
             let mut gb = GraphBuff::new();
             gb.apply_snapshot_v1(&e.texture, vfs)?;
-            self.set_gaiji(e.code, e.size, gb);
+            self.set_gaiji(e.key.clone(), e.size, gb);
         }
         Ok(())
     }

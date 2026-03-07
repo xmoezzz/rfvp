@@ -213,6 +213,7 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
         &mut self,
         elapsed: i64,
         global_speed_var0: i32,
+        release_special_wait: bool,
         fonts: &crate::subsystem::resources::text_manager::FontEnumerator,
     ) {
         // In the original engine, holding Ctrl (or issuing ControlPulse) forces text reveal
@@ -220,7 +221,7 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
         if elapsed < 0 {
             self.text_manager.force_reveal_all_non_suspended();
         } else {
-            self.text_manager.tick(elapsed as u32, global_speed_var0);
+            self.text_manager.tick(elapsed as u32, global_speed_var0, release_special_wait);
         }
         self.text_reprint(fonts);
     }
@@ -764,10 +765,10 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
         }
     }
 
-    pub fn set_gaiji(&mut self, code: char, size: u8, filename: &str, buff: Vec<u8>) -> Result<()> {
+    pub fn set_gaiji(&mut self, key: String, size: u8, filename: &str, buff: Vec<u8>) -> Result<()> {
         let mut texture = GraphBuff::new();
         texture.load_gaiji_fontface_glyph(filename, buff)?;
-        self.gaiji_manager.set_gaiji(code, size, texture);
+        self.gaiji_manager.set_gaiji(key, size, texture);
         Ok(())
     }
 

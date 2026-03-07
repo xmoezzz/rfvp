@@ -86,6 +86,10 @@ pub struct DebugPrimTile {
 }
 
 impl GpuPrimRenderer {
+    fn use_nearest_graph_sampler(graph_id: u16, graph: &GraphBuff) -> bool {
+        (4064..=4095).contains(&graph_id) || graph.load_kind == GraphBuffLoadKind::GaijiGlyph
+    }
+
     pub fn new(resources: Arc<GpuCommonResources>, virtual_size: (u32, u32)) -> Self {
         let vb_capacity = 1024 * 6; // initial: 1024 quads
         let vb = VertexBuffer::new_updatable(resources.as_ref(), vb_capacity, Some("GpuPrimRenderer.vertex_buffer"));
@@ -400,7 +404,11 @@ impl GpuPrimRenderer {
             // Fallback: recreate texture on format/size changes.
         }
 
-        let tex = GpuTexture::new(resources, img, Some(&format!("graph_{}", graph_id)));
+        let tex = if Self::use_nearest_graph_sampler(graph_id, graph) {
+            GpuTexture::new_nearest(resources, img, Some(&format!("graph_{}", graph_id)))
+        } else {
+            GpuTexture::new(resources, img, Some(&format!("graph_{}", graph_id)))
+        };
         self.graph_cache.insert(graph_id, GraphGpuEntry { generation: gen, texture: tex });
     }
 

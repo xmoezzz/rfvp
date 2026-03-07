@@ -741,7 +741,7 @@ pub fn take_pending_vm_snapshot(&mut self) -> Option<ThreadManagerSnapshotV1> {
         thumb_w: u32,
         thumb_h: u32,
         thumb_rgba: &[u8],
-        state: Option<&crate::subsystem::save_state::SaveStateSnapshotV2>,
+        state: Option<&crate::subsystem::save_state::SaveStateSnapshotV1>,
     ) -> Result<()> {
         let expected = (thumb_w as usize)
             .saturating_mul(thumb_h as usize)
@@ -756,7 +756,7 @@ pub fn take_pending_vm_snapshot(&mut self) -> Option<ThreadManagerSnapshotV1> {
 
         let mut bytes = self.build_save_file_bytes(nls, thumb_rgba)?;
         if let Some(snap) = state {
-            crate::subsystem::save_state::append_state_chunk_v2(&mut bytes, snap)?;
+            crate::subsystem::save_state::append_state_chunk_v1(&mut bytes, snap)?;
         }
 
         self.local_saved_bytes = Some(bytes);
@@ -804,7 +804,7 @@ pub fn take_pending_vm_snapshot(&mut self) -> Option<ThreadManagerSnapshotV1> {
         thumb_w: u32,
         thumb_h: u32,
         thumb_rgba: &[u8],
-        state: Option<&crate::subsystem::save_state::SaveStateSnapshotV2>,
+        state: Option<&crate::subsystem::save_state::SaveStateSnapshotV1>,
     ) -> Result<()> {
         if !self.save_requested || self.current_save_slot == u32::MAX {
             return Ok(());
@@ -822,7 +822,7 @@ pub fn take_pending_vm_snapshot(&mut self) -> Option<ThreadManagerSnapshotV1> {
 
         let mut bytes = self.build_save_file_bytes(nls, thumb_rgba)?;
         if let Some(snap) = state {
-            crate::subsystem::save_state::append_state_chunk_v2(&mut bytes, snap)?;
+            crate::subsystem::save_state::append_state_chunk_v1(&mut bytes, snap)?;
         }
         let path = SaveItem::get_save_path(self.current_save_slot);
         if let Some(parent) = path.parent() {

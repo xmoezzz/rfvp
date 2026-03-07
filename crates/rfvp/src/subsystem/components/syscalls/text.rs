@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use crate::subsystem::world::GameData;
-use crate::{script::Variant, subsystem::resources::text_manager::FONTFACE_MS_GOTHIC};
+use crate::script::Variant;
 
 use super::{get_var, Syscaller};
 
@@ -120,10 +120,8 @@ pub fn text_color(
 }
 
 
-// ＭＳ ゴシック
-// ＭＳ 明朝
-// ＭＳ Ｐゴシック
-// ＭＳ Ｐ明朝
+// -1 current font
+// -2..-5 built-in Japanese fonts
 pub fn text_font(
     game_data: &mut GameData,
     id: &Variant,
@@ -157,7 +155,7 @@ pub fn text_font(
             game_data
                 .motion_manager
                 .text_manager
-                .set_text_font_name(id, *fid);
+                .set_text_font_idx1(id, *fid);
         }
     }
 
@@ -166,7 +164,7 @@ pub fn text_font(
             game_data
                 .motion_manager
                 .text_manager
-                .set_text_font_text(id, *fid2);
+                .set_text_font_idx2(id, *fid2);
         }
     }
 
@@ -208,20 +206,12 @@ pub fn text_font_set(game_data: &mut GameData, id: &Variant) -> Result<Variant> 
         },
     };
 
-    if id >= -5 && id < game_data.fontface_manager.get_font_count() {
+    if id >= -5 && id <= game_data.fontface_manager.get_font_count() {
         if let Some(font_name) = game_data.fontface_manager.get_font_name(id) {
             game_data.fontface_manager.set_system_fontface_id(id);
-            game_data.fontface_manager.set_current_font_name(&font_name)
+            game_data.fontface_manager.set_current_font_name(&font_name);
         }
-    } else {
-        game_data
-            .fontface_manager
-            .set_system_fontface_id(FONTFACE_MS_GOTHIC);
-        game_data
-            .fontface_manager
-            .set_current_font_name("ＭＳ ゴシック");
     }
-    game_data.fontface_manager.set_system_fontface_id(id);
     Ok(Variant::Nil)
 }
 
@@ -290,11 +280,14 @@ pub fn text_format(
 pub fn text_function(
     game_data: &mut GameData,
     id: &Variant,
-    func1: &Variant,
-    func2: &Variant,
-    func3: &Variant,
+    special_unit_mode: &Variant,
+    ruby_mode: &Variant,
+    wait_mode: &Variant,
 ) -> Result<Variant> {
-    // IDA (TextFunction): each argument is optional; only applies when within range.
+    // Reverse-engineered TextFunction mapping:
+    //   arg1 -> <...> special-unit mode    (0..1)
+    //   arg2 -> [...] ruby parser mode     (0..2)
+    //   arg3 -> {n} wait-control mode      (0..2)
     let id = match id {
         Variant::Int(id) => *id,
         _ => {
@@ -308,30 +301,30 @@ pub fn text_function(
         return Ok(Variant::Nil);
     }
 
-    if let Variant::Int(v) = func1 {
+    if let Variant::Int(v) = special_unit_mode {
         if (0..=1).contains(v) {
             game_data
                 .motion_manager
                 .text_manager
-                .set_text_function1(id, *v as u8);
+                .set_text_special_unit_mode(id, *v as u8);
         }
     }
 
-    if let Variant::Int(v) = func2 {
+    if let Variant::Int(v) = ruby_mode {
         if (0..=2).contains(v) {
             game_data
                 .motion_manager
                 .text_manager
-                .set_text_function2(id, *v as u8);
+                .set_text_ruby_mode(id, *v as u8);
         }
     }
 
-    if let Variant::Int(v) = func3 {
+    if let Variant::Int(v) = wait_mode {
         if (0..=2).contains(v) {
             game_data
                 .motion_manager
                 .text_manager
-                .set_text_function3(id, *v as u8);
+                .set_text_wait_mode(id, *v as u8);
         }
     }
 
@@ -366,7 +359,7 @@ pub fn text_out_size(
             game_data
                 .motion_manager
                 .text_manager
-                .set_text_main_text_outline(id, *v as u8);
+                .set_text_outline1(id, *v as u8);
         }
     }
 
@@ -375,7 +368,7 @@ pub fn text_out_size(
             game_data
                 .motion_manager
                 .text_manager
-                .set_text_ruby_text_outline(id, *v as u8);
+                .set_text_outline2(id, *v as u8);
         }
     }
 
@@ -579,7 +572,7 @@ pub fn text_size(
             game_data
                 .motion_manager
                 .text_manager
-                .set_text_main_text_size(id, *v as u8);
+                .set_text_size1(id, *v as u8);
         }
     }
 
@@ -588,7 +581,7 @@ pub fn text_size(
             game_data
                 .motion_manager
                 .text_manager
-                .set_text_ruby_text_size(id, *v as u8);
+                .set_text_size2(id, *v as u8);
         }
     }
 
