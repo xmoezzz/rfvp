@@ -196,8 +196,12 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
         self.snow_motion_container.exec_snow_motion(elapsed as i32, screen_w, screen_h);
     }
 
-    pub fn set_anim_motion(&mut self, prim_id: u32, base_graph_id: i32, start: i32, end: i32) -> Result<()> {
-        self.sprite_anim_container.set_motion(prim_id, base_graph_id, start, end)
+    pub fn set_anim_motion(&mut self, prim_id: u32, sprt_prim_id: i32, time: i32, typ: i32) -> Result<()> {
+        self.sprite_anim_container.set_motion(prim_id, sprt_prim_id, time, typ)
+    }
+
+    pub fn append_anim_motion(&mut self, prim_id: u32, sprt_prim_id: i32, time: i32) -> Result<()> {
+        self.sprite_anim_container.append_motion(prim_id, sprt_prim_id, time)
     }
 
     pub fn stop_anim_motion(&mut self, prim_id: u32) -> Result<()> {

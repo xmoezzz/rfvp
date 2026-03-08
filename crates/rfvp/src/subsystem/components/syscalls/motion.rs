@@ -1168,19 +1168,27 @@ unsafe impl Send for V3DSet {}
 unsafe impl Sync for V3DSet {}
 
 
-/// MotionAnim(prim_id, graph_id, start, end)
+/// MotionAnim(prim_id, sprt_prim_id, time, mode_or_nil)
 /// IDA SYSCALL_SPECS: argc=4
 pub struct MotionAnim;
 impl Syscaller for MotionAnim {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
         let prim_id = get_var!(args, 0).as_int().unwrap_or(0) as u32;
-        let graph_id = get_var!(args, 1).as_int().unwrap_or(0) as i32;
-        let start = get_var!(args, 2).as_int().unwrap_or(0) as i32;
-        let end = get_var!(args, 3).as_int().unwrap_or(0) as i32;
+        let sprt_prim_id = get_var!(args, 1).as_int().unwrap_or(0) as i32;
+        let time = get_var!(args, 2).as_int().unwrap_or(0) as i32;
+        let mode = get_var!(args, 3);
 
-        let _ = game_data
-            .motion_manager
-            .set_anim_motion(prim_id, graph_id, start, end);
+        let _ = match mode {
+            Variant::Int(v) if *v <= 1 => game_data
+                .motion_manager
+                .set_anim_motion(prim_id, sprt_prim_id, time, 1),
+            Variant::Int(v) if *v <= 2 => game_data
+                .motion_manager
+                .set_anim_motion(prim_id, sprt_prim_id, time, 2),
+            _ => game_data
+                .motion_manager
+                .append_anim_motion(prim_id, sprt_prim_id, time),
+        };
         Ok(Variant::Nil)
     }
 }
