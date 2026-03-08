@@ -262,33 +262,14 @@ impl GpuPrimRenderer {
         )
     }
 
-    fn build_local_transform(&self, prim: &Prim) -> Mat4 {
-        let x = prim.get_x() as f32;
-        let y = prim.get_y() as f32;
-        let opx = prim.get_opx() as f32;
-        let opy = prim.get_opy() as f32;
-        let sx = prim.get_factor_x() as f32 / 1000.0;
-        let sy = prim.get_factor_y() as f32 / 1000.0;
-
-        // Angle unit: 3600 == 360 degrees (i.e., 900 == 90 degrees).
-        // Screen space uses y-down; use negative angle to keep expected clockwise-positive.
-        let theta = -(prim.get_angle() as f32) * std::f32::consts::TAU / 3600.0;
-
-        // IMPORTANT: scale order.
-        // The original engine applies rotation first, then scales along screen axes.
-        // This corresponds to S * R in matrix order (R is applied first to the vector).
-        Mat4::from_translation(vec3(x, y, 0.0))
-            * Mat4::from_translation(vec3(opx, opy, 0.0))
-            * Mat4::from_scale(vec3(sx, sy, 1.0))
-            * Mat4::from_rotation_z(theta)
-            * Mat4::from_translation(vec3(-opx, -opy, 0.0))
-    }
 
     fn build_draw_model(
         &self,
         prim: &Prim,
-        world_x: f32,
-        world_y: f32,
+        parent_x: f32,
+        parent_y: f32,
+        draw_x: f32,
+        draw_y: f32,
         off_x: f32,
         off_y: f32,
         pivot_x: f32,
@@ -297,82 +278,50 @@ impl GpuPrimRenderer {
         v3d_y: i32,
         v3d_z: i32,
     ) -> Mat4 {
-        let opx = prim.get_opx() as f32;
-        let opy = prim.get_opy() as f32;
-
-        // Angle unit: 3600 == 360 degrees (i.e., 900 == 90 degrees).
-        // Screen space uses y-down; use negative angle to keep expected clockwise-positive.
         let theta = -(prim.get_angle() as f32) * std::f32::consts::TAU / 3600.0;
-
         let attr = prim.get_attr();
-        // IDA: (m_Attribute & 2) enables OP-based pivot behavior.
-        let use_op_pivot = (attr & 2) != 0;
+        let pos_x = parent_x + draw_x;
+        let pos_y = parent_y + draw_y;
+        let local_x = off_x - pivot_x;
+        let local_y = off_y - pivot_y;
+
         if (attr & 4) != 0 {
-            // V3D prim: center-based space + perspective scaling by depth.
-            //
-            // IDA (sub_42B740) behavior summary:
-            //   - If (attr & 2) != 0: vertices are pre-shifted by (-OPX, -OPY).
-            //   - Then rotate/scale about origin.
-            //   - Then translate by (x,y) with camera shift, and finally apply screen-center shift.
-            //
-            // In matrix form for our top-left vertex quad (0..w, 0..h):
-            //   M = T(center + pos - camShift) * R * S * T(-OP)
-            // (the T(-OP) term is omitted when (attr & 2) == 0).
             let (vw, vh) = (self.virtual_size.0 as f32, self.virtual_size.1 as f32);
             let center_x = vw * 0.5;
             let center_y = vh * 0.5;
 
             let mut fx = prim.get_factor_x() as f32;
             let mut fy = prim.get_factor_y() as f32;
-            if fx.abs() < 1e-6 { fx = 1.0; }
-            if fy.abs() < 1e-6 { fy = 1.0; }
+            if fx.abs() < 1e-6 {
+                fx = 1.0;
+            }
+            if fy.abs() < 1e-6 {
+                fy = 1.0;
+            }
 
             let mut depth = prim.get_z() as f32 - v3d_z as f32;
-            if depth.abs() < 1e-3 { depth = 1.0; }
+            if depth.abs() < 1e-3 {
+                depth = 1.0;
+            }
 
             let sx = fx / depth;
             let sy = fy / depth;
-
             let cam_shift_x = 1000.0 * (v3d_x as f32) / fx;
             let cam_shift_y = 1000.0 * (v3d_y as f32) / fy;
 
-            // NOTE: GraphBuff offset is a local-space translation that should participate in R/S.
-            // In V3D mode we keep legacy behavior (offset applied in the same stage as world).
-            let px = (world_x + off_x) - cam_shift_x;
-            let py = (world_y + off_y) - cam_shift_y;
-
-            let t = Mat4::from_translation(vec3(center_x + px, center_y + py, 0.0));
-            let r = Mat4::from_rotation_z(theta);
-            let s = Mat4::from_scale(vec3(sx, sy, 1.0));
-            let pre = if use_op_pivot {
-                Mat4::from_translation(vec3(-opx, -opy, 0.0))
-            } else {
-                Mat4::IDENTITY
-            };
-
-            // Apply rotation first, then scale.
-            t * s * r * pre
+            Mat4::from_translation(vec3(center_x, center_y, 0.0))
+                * Mat4::from_scale(vec3(sx, sy, 1.0))
+                * Mat4::from_translation(vec3(pos_x - cam_shift_x, pos_y - cam_shift_y, 0.0))
+                * Mat4::from_rotation_z(theta)
+                * Mat4::from_translation(vec3(local_x, local_y, 0.0))
         } else {
-            // Non-V3D prim: standard 2D transform in top-left space.
             let sx = prim.get_factor_x() as f32 / 1000.0;
             let sy = prim.get_factor_y() as f32 / 1000.0;
 
-            // Non-V3D: build local transform first, then apply GraphBuff offset in local space.
-            // This ensures offset participates in rotation/scale and pivot behavior is consistent.
-            let t_world = Mat4::from_translation(vec3(world_x, world_y, 0.0));
-            let r = Mat4::from_rotation_z(theta);
-            let s = Mat4::from_scale(vec3(sx, sy, 1.0));
-            let t_off = Mat4::from_translation(vec3(off_x, off_y, 0.0));
-
-            let (px, py) = if use_op_pivot { (opx, opy) } else { (pivot_x, pivot_y) };
-
-            // Apply rotation first, then scale.
-            t_world
-                * Mat4::from_translation(vec3(px, py, 0.0))
-                * s
-                * r
-                * Mat4::from_translation(vec3(-px, -py, 0.0))
-                * t_off
+            Mat4::from_translation(vec3(pos_x + pivot_x, pos_y + pivot_y, 0.0))
+                * Mat4::from_scale(vec3(sx, sy, 1.0))
+                * Mat4::from_rotation_z(theta)
+                * Mat4::from_translation(vec3(local_x, local_y, 0.0))
         }
     }
 
@@ -470,7 +419,6 @@ impl GpuPrimRenderer {
         });
     }
 
-
     fn collect_tree(
         &mut self,
         resources: &GpuCommonResources,
@@ -482,7 +430,8 @@ impl GpuPrimRenderer {
         v3d_y: i32,
         v3d_z: i32,
         prim_id: i16,
-        acc_model: Mat4,
+        parent_x: f32,
+        parent_y: f32,
         visit: &mut [u8],
         depth: usize,
     ) {
@@ -504,37 +453,22 @@ impl GpuPrimRenderer {
             return;
         }
         if visit[prim_idx] == 2 {
-            // Duplicate reference (should not happen in a tree). Skip.
             return;
         }
         visit[prim_idx] = 1;
 
-        // -----------------------------
-        // Base prim (container semantics)
-        // -----------------------------
-        // base prim is used for:
-        //  - container translation (x/y)
-        //  - alpha (after sprt impersonation override per your comment)
-        //  - child traversal (first_child)
         let base_prim = prim_manager.get_prim_immutable(prim_id);
         if !base_prim.get_draw_flag() {
             visit[prim_idx] = 2;
             return;
         }
 
-        let base_x = base_prim.get_x() as f32;
-        let base_y = base_prim.get_y() as f32;
-        let base_a = base_prim.get_alpha() as f32 / 255.0;
-        let first_child = base_prim.get_first_child_idx();
+        let draw_x = base_prim.get_x() as f32;
+        let draw_y = base_prim.get_y() as f32;
+        let draw_alpha = base_prim.get_alpha() as f32 / 255.0;
 
-        // Sprt impersonation: follow m_Sprt chain; resolve final draw prim id.
-        // IDA semantics you described: draw prim can be impersonated via sprt chain.
-        let mut draw_id: i16 = prim_id;
-        let mut sprt: i16 = base_prim.get_sprt();
-
-        // base_prim no longer needed beyond captured locals; it will drop naturally later,
-        // but we don't rely on it anymore to avoid move/borrow issues.
-
+        let mut draw_id = prim_id;
+        let mut sprt = base_prim.get_sprt();
         while sprt != -1 {
             if sprt < 0 || sprt >= 4096 {
                 log::error!("collect_tree: invalid sprt id {sprt} under prim_id {prim_id}");
@@ -550,130 +484,29 @@ impl GpuPrimRenderer {
 
             draw_id = sprt;
             sprt = sref.get_sprt();
-            // sref dropped here
         }
 
-        // Borrow final draw prim for renderable properties (w/h/u/v/transform/type/etc.)
         let draw_prim = prim_manager.get_prim_immutable(draw_id);
-
-        // -----------------------------
-        // Transform semantics (render-side): propagate full local model down the prim tree.
-        //
-        // Local model (Non-V3D):
-        //   M_local = T(x,y) * T(pivot) * R * S * T(-pivot)
-        // Children inherit:
-        //   acc_child = acc_parent * M_local
-        // Draw path adds GraphBuff offset in local space:
-        //   M_draw = acc_child * T(off)
-        //
-        // Pivot rule:
-        //   - if (attr & 2) != 0: use OPX/OPY
-        //   - else: use GraphBuff.u/v when available (Sprt/Text); fallback to OP
-        //
-        // V3D prims (attr & 4): keep legacy draw model behavior and do NOT inherit parent
-        // rotation/scale (only its own translation is used for traversal).
-        // -----------------------------
-        let attr = base_prim.get_attr();
-        let is_v3d = (attr & 4) != 0;
-        let use_op_pivot = (attr & 2) != 0;
-
-        // If we need a graph pivot, resolve it eagerly (best-effort).
-        let mut graph_pivot: Option<(f32, f32)> = None;
-        if !use_op_pivot {
-            match draw_prim.get_type() {
-                PrimType::PrimTypeSprt => {
-                    let tex_id = draw_prim.get_texture_id();
-                    let graph_id = if tex_id >= 0 {
-                        Some(tex_id as u16)
-                    } else if tex_id == -2 {
-                        Some(crate::subsystem::resources::videoplayer::MOVIE_GRAPH_ID)
-                    } else {
-                        None
-                    };
-                    if let Some(gid) = graph_id {
-                        if let Some(g) = graphs.get(gid as usize) {
-                            graph_pivot = Some((g.get_u() as f32, g.get_v() as f32));
-                        }
-                    }
-                }
-                PrimType::PrimTypeText => {
-                    let slot = draw_prim.get_text_index();
-                    if (0..=31).contains(&slot) {
-                        let gid = 4064u16 + slot as u16;
-                        if let Some(g) = graphs.get(gid as usize) {
-                            graph_pivot = Some((g.get_u() as f32, g.get_v() as f32));
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        let opx = base_prim.get_opx() as f32;
-        let opy = base_prim.get_opy() as f32;
-        let (pivot_x, pivot_y) = if use_op_pivot {
-            (opx, opy)
-        } else {
-            graph_pivot.unwrap_or((opx, opy))
-        };
-
-        let parent_model = if is_v3d { Mat4::IDENTITY } else { acc_model };
-
-        // Compute local model used for traversal (children inherit this model).
-        let local_for_children = if is_v3d {
-            Mat4::from_translation(vec3(base_x, base_y, 0.0))
-        } else {
-            let sx = base_prim.get_factor_x() as f32 / 1000.0;
-            let sy = base_prim.get_factor_y() as f32 / 1000.0;
-            let theta = -(base_prim.get_angle() as f32) * std::f32::consts::TAU / 3600.0;
-            Mat4::from_translation(vec3(base_x, base_y, 0.0))
-                * Mat4::from_translation(vec3(pivot_x, pivot_y, 0.0))
-                * Mat4::from_scale(vec3(sx, sy, 1.0))
-                * Mat4::from_rotation_z(theta)
-                * Mat4::from_translation(vec3(-pivot_x, -pivot_y, 0.0))
-        };
-
-        let node_model = parent_model * local_for_children;
-        let world_origin = node_model.transform_point3(vec3(0.0, 0.0, 0.0));
+        let draw_type = draw_prim.get_type();
+        let first_child = draw_prim.get_first_child_idx();
 
         crate::trace::render(format_args!(
-            "[prim] depth={} prim_id={} draw_id={} base(x,y)=({:.2},{:.2}) origin=({:.2},{:.2}) alpha={:.3} pivot=({:.2},{:.2}) wh={}-{} type={:?} sprt_first={} attr=0x{:08X}",
+            "[prim] depth={} prim_id={} draw_id={} parent=({:.2},{:.2}) draw_xy=({:.2},{:.2}) alpha={:.3} type={:?} attr=0x{:08X}",
             depth,
             prim_id,
             draw_id,
-            base_x,
-            base_y,
-            world_origin.x,
-            world_origin.y,
-            base_a,
-            pivot_x,
-            pivot_y,
-            draw_prim.get_w() as f32,
-            draw_prim.get_h() as f32,
-            draw_prim.get_type(),
-            base_prim.get_sprt(),
-            attr,
+            parent_x,
+            parent_y,
+            draw_x,
+            draw_y,
+            draw_alpha,
+            draw_type,
+            draw_prim.get_attr(),
         ));
 
-        let tex_id = draw_prim.get_texture_id() as u16;
-        if let Some(g) = graphs.get(tex_id as usize) {
-            if self.graph_cache.contains_key(&tex_id) {
-                crate::trace::render(format_args!(
-                    "[prim-graph] prim_id={} draw_id={} offset(x,y)=({},{}) uv=({},{}))",
-                    prim_id,
-                    draw_id,
-                    g.get_offset_x(),
-                    g.get_offset_y(),
-                    g.get_u(),
-                    g.get_v(),
-                ));
-            }
-        }
-
-
-        match draw_prim.get_type() {
-            PrimType::PrimTypeGroup => {
-                // No draw; traverse children.
+        match draw_type {
+            PrimType::PrimTypeGroup | PrimType::PrimTypeNone => {
+                // No direct draw. Traversal handled below.
             }
 
             PrimType::PrimTypeSprt => {
@@ -686,71 +519,62 @@ impl GpuPrimRenderer {
                     None
                 };
 
-                if let Some(tex_id) = graph_id {
-                    if let Some(g) = graphs.get(tex_id as usize) {
-                        // Collect a tile even if the graph is not loaded/uploaded yet.
-                        self.push_debug_tile(draw_id, tex_id, DebugPrimTileKind::Sprt, Some(g));
-
-                        self.upload_graph_if_needed(resources, tex_id, g);
-                        if self.graph_cache.contains_key(&tex_id) {
+                if let Some(graph_id) = graph_id {
+                    if let Some(g) = graphs.get(graph_id as usize) {
+                        self.push_debug_tile(draw_id, graph_id, DebugPrimTileKind::Sprt, Some(g));
+                        self.upload_graph_if_needed(resources, graph_id, g);
+                        if self.graph_cache.contains_key(&graph_id) {
                             let (tw, th) = match g.get_texture().as_ref() {
                                 Some(img) => img.dimensions(),
                                 None => (0, 0),
                             };
                             if tw > 0 && th > 0 {
-                                let mut w = draw_prim.get_w() as f32;
-                                let mut h = draw_prim.get_h() as f32;
-                                if w <= 0.0 {
-                                    w = g.get_width() as f32;
-                                }
-                                if h <= 0.0 {
-                                    h = g.get_height() as f32;
-                                }
-
                                 let attr = draw_prim.get_attr();
                                 let use_rect = (attr & 1) != 0;
 
-                                let (mut w, mut h, mut u, mut v) = if use_rect {
+                                let (w, h, u, v) = if use_rect {
                                     let mut w = draw_prim.get_w() as f32;
                                     let mut h = draw_prim.get_h() as f32;
-                                    if w <= 0.0 { w = g.get_width() as f32; }
-                                    if h <= 0.0 { h = g.get_height() as f32; }
-
-                                    // IDA: clamp to graph_width/height
-                                    w = w.min(g.get_width() as f32);
-                                    h = h.min(g.get_height() as f32);
-
-                                    (w, h, draw_prim.get_u() as f32, draw_prim.get_v() as f32)
+                                    if w <= 0.0 {
+                                        w = g.get_width() as f32;
+                                    }
+                                    if h <= 0.0 {
+                                        h = g.get_height() as f32;
+                                    }
+                                    (
+                                        w.min(g.get_width() as f32),
+                                        h.min(g.get_height() as f32),
+                                        draw_prim.get_u() as f32,
+                                        draw_prim.get_v() as f32,
+                                    )
                                 } else {
                                     (g.get_width() as f32, g.get_height() as f32, 0.0, 0.0)
                                 };
 
                                 let uv0 = vec2(u / tw as f32, v / th as f32);
                                 let uv1 = vec2((u + w) / tw as f32, (v + h) / th as f32);
-
-                                // Alpha comes from base prim (original container prim).
-                                let color = vec4(1.0, 1.0, 1.0, base_a);
+                                let color = vec4(1.0, 1.0, 1.0, draw_alpha);
                                 let off_x = g.get_offset_x() as f32;
                                 let off_y = g.get_offset_y() as f32;
-
-                                let model = if is_v3d {
-                                    // V3D: keep legacy behavior; ignore inherited parent rotation/scale.
-                                    self.build_draw_model(
-                                        &base_prim,
-                                        base_x,
-                                        base_y,
-                                        off_x,
-                                        off_y,
-                                        pivot_x,
-                                        pivot_y,
-                                        v3d_x,
-                                        v3d_y,
-                                        v3d_z,
-                                    )
+                                let (pivot_x, pivot_y) = if (attr & 2) != 0 {
+                                    (draw_prim.get_opx() as f32, draw_prim.get_opy() as f32)
                                 } else {
-                                    // Non-V3D: offset is a local-space translation (participates in R/S).
-                                    node_model * Mat4::from_translation(vec3(off_x, off_y, 0.0))
+                                    (g.get_u() as f32, g.get_v() as f32)
                                 };
+                                let model = self.build_draw_model(
+                                    &draw_prim,
+                                    parent_x,
+                                    parent_y,
+                                    draw_x,
+                                    draw_y,
+                                    off_x,
+                                    off_y,
+                                    pivot_x,
+                                    pivot_y,
+                                    v3d_x,
+                                    v3d_y,
+                                    v3d_z,
+                                );
 
                                 self.emit_sprite_vertices(
                                     model,
@@ -759,7 +583,7 @@ impl GpuPrimRenderer {
                                     uv0,
                                     uv1,
                                     color,
-                                    DrawTextureKey::Graph(tex_id),
+                                    DrawTextureKey::Graph(graph_id),
                                 );
                             }
                         }
@@ -768,14 +592,11 @@ impl GpuPrimRenderer {
             }
 
             PrimType::PrimTypeText => {
-                // Text primitives own a dedicated texture slot (0..31) mapped to GraphBuff[4064 + slot].
                 let slot = draw_prim.get_text_index();
                 if (0..=31).contains(&slot) {
                     let graph_id = 4064u16 + slot as u16;
                     if let Some(g) = graphs.get(graph_id as usize) {
-                        // Collect a tile even if the graph is not loaded/uploaded yet.
                         self.push_debug_tile(draw_id, graph_id, DebugPrimTileKind::Text, Some(g));
-
                         self.upload_graph_if_needed(resources, graph_id, g);
                         if self.graph_cache.contains_key(&graph_id) {
                             let (tw, th) = match g.get_texture().as_ref() {
@@ -783,56 +604,51 @@ impl GpuPrimRenderer {
                                 None => (0, 0),
                             };
                             if tw > 0 && th > 0 {
-                                let mut w = draw_prim.get_w() as f32;
-                                let mut h = draw_prim.get_h() as f32;
-                                if w <= 0.0 {
-                                    w = g.get_width() as f32;
-                                }
-                                if h <= 0.0 {
-                                    h = g.get_height() as f32;
-                                }
-
                                 let attr = draw_prim.get_attr();
                                 let use_rect = (attr & 1) != 0;
-
-                                let (mut w, mut h, mut u, mut v) = if use_rect {
+                                let (w, h, u, v) = if use_rect {
                                     let mut w = draw_prim.get_w() as f32;
                                     let mut h = draw_prim.get_h() as f32;
-                                    if w <= 0.0 { w = g.get_width() as f32; }
-                                    if h <= 0.0 { h = g.get_height() as f32; }
-
-                                    // IDA: clamp to graph_width/height
-                                    w = w.min(g.get_width() as f32);
-                                    h = h.min(g.get_height() as f32);
-
-                                    (w, h, draw_prim.get_u() as f32, draw_prim.get_v() as f32)
+                                    if w <= 0.0 {
+                                        w = g.get_width() as f32;
+                                    }
+                                    if h <= 0.0 {
+                                        h = g.get_height() as f32;
+                                    }
+                                    (
+                                        w.min(g.get_width() as f32),
+                                        h.min(g.get_height() as f32),
+                                        draw_prim.get_u() as f32,
+                                        draw_prim.get_v() as f32,
+                                    )
                                 } else {
                                     (g.get_width() as f32, g.get_height() as f32, 0.0, 0.0)
                                 };
 
                                 let uv0 = vec2(u / tw as f32, v / th as f32);
                                 let uv1 = vec2((u + w) / tw as f32, (v + h) / th as f32);
-
-                                let color = vec4(1.0, 1.0, 1.0, base_a);
+                                let color = vec4(1.0, 1.0, 1.0, draw_alpha);
                                 let off_x = g.get_offset_x() as f32;
                                 let off_y = g.get_offset_y() as f32;
-
-                                let model = if is_v3d {
-                                    self.build_draw_model(
-                                        &base_prim,
-                                        base_x,
-                                        base_y,
-                                        off_x,
-                                        off_y,
-                                        pivot_x,
-                                        pivot_y,
-                                        v3d_x,
-                                        v3d_y,
-                                        v3d_z,
-                                    )
+                                let (pivot_x, pivot_y) = if (attr & 2) != 0 {
+                                    (draw_prim.get_opx() as f32, draw_prim.get_opy() as f32)
                                 } else {
-                                    node_model * Mat4::from_translation(vec3(off_x, off_y, 0.0))
+                                    (g.get_u() as f32, g.get_v() as f32)
                                 };
+                                let model = self.build_draw_model(
+                                    &draw_prim,
+                                    parent_x,
+                                    parent_y,
+                                    draw_x,
+                                    draw_y,
+                                    off_x,
+                                    off_y,
+                                    pivot_x,
+                                    pivot_y,
+                                    v3d_x,
+                                    v3d_y,
+                                    v3d_z,
+                                );
 
                                 self.emit_sprite_vertices(
                                     model,
@@ -850,8 +666,6 @@ impl GpuPrimRenderer {
             }
 
             PrimType::PrimTypeSnow => {
-                // Snow flakes are positioned in this node's local space; they inherit
-                // the accumulated transform like other primitives.
                 let snow_id = draw_prim.get_texture_id();
                 if snow_id >= 0 {
                     if let Some(sm) = snow_motions.get(snow_id as usize) {
@@ -864,17 +678,13 @@ impl GpuPrimRenderer {
                             let a0 = sm.color_r as f32;
                             let a1 = sm.color_b_or_extra as f32;
                             let a2 = sm.color_g as f32;
-
                             let p0 = sm.period_min as f32;
                             let p1 = sm.time_override as f32;
                             let p2 = sm.period_max as f32;
-
                             let base_tex = sm.texture_id as i32;
                             let vcnt = sm.variant_count.max(1) as u32;
-
                             let tile_w_cfg = (sm.flake_w - 1) as f32;
                             let tile_h_cfg = (sm.flake_h - 1) as f32;
-
                             let count = sm.flake_count.max(0).min(1024) as usize;
                             let mut pushed_debug_tile = false;
                             for j in 0..count {
@@ -890,29 +700,23 @@ impl GpuPrimRenderer {
                                 } else {
                                     a2
                                 };
-
-                                let alpha = (alpha_u8.clamp(0.0, 255.0) / 255.0) * base_a;
+                                let alpha = (alpha_u8.clamp(0.0, 255.0) / 255.0) * draw_alpha;
                                 let color = vec4(1.0, 1.0, 1.0, alpha);
-
                                 let vi = (flake.variant_idx % vcnt) as i32;
                                 let graph_i32 = base_tex + vi;
                                 if graph_i32 < 0 {
                                     continue;
                                 }
                                 let graph_id = graph_i32 as u16;
-
                                 if let Some(g) = graphs.get(graph_id as usize) {
                                     if !pushed_debug_tile {
-                                        // Record one representative tile per snow prim (first valid graph).
                                         self.push_debug_tile(draw_id, graph_id, DebugPrimTileKind::Snow, Some(g));
                                         pushed_debug_tile = true;
                                     }
-
                                     self.upload_graph_if_needed(resources, graph_id, g);
                                     if !self.graph_cache.contains_key(&graph_id) {
                                         continue;
                                     }
-
                                     let (tw, th) = match g.get_texture().as_ref() {
                                         Some(img) => img.dimensions(),
                                         None => (0, 0),
@@ -920,37 +724,22 @@ impl GpuPrimRenderer {
                                     if tw == 0 || th == 0 {
                                         continue;
                                     }
-
-                                    let scale = if flake.period > 0.0 {
-                                        1000.0 / flake.period
-                                    } else {
-                                        1.0
-                                    };
-
+                                    let scale = if flake.period > 0.0 { 1000.0 / flake.period } else { 1.0 };
                                     let tile_w = tile_w_cfg.min(tw as f32 - 1.0).max(0.0);
                                     let tile_h = tile_h_cfg.min(th as f32 - 1.0).max(0.0);
-
                                     let w = tile_w * scale;
                                     let h = tile_h * scale;
-
-                                    let u0 = 0.0;
-                                    let v0 = 0.0;
-                                    let u1 = tile_w / tw as f32;
-                                    let v1 = tile_h / th as f32;
-
-                                    let flake_model = node_model
-                                        * Mat4::from_translation(vec3(
-                                            flake.x - w * 0.5,
-                                            flake.y - h * 0.5,
-                                            0.0,
-                                        ));
-
+                                    let flake_model = Mat4::from_translation(vec3(
+                                        parent_x + draw_x + flake.x - w * 0.5,
+                                        parent_y + draw_y + flake.y - h * 0.5,
+                                        0.0,
+                                    ));
                                     self.emit_sprite_vertices(
                                         flake_model,
                                         w,
                                         h,
-                                        vec2(u0, v0),
-                                        vec2(u1, v1),
+                                        vec2(0.0, 0.0),
+                                        vec2(tile_w / tw as f32, tile_h / th as f32),
                                         color,
                                         DrawTextureKey::Graph(graph_id),
                                     );
@@ -971,26 +760,27 @@ impl GpuPrimRenderer {
                         c.get_r() as f32 / 255.0,
                         c.get_g() as f32 / 255.0,
                         c.get_b() as f32 / 255.0,
-                        base_a * (c.get_a() as f32 / 255.0),
+                        draw_alpha * (c.get_a() as f32 / 255.0),
                     );
-
-                    let model = if is_v3d {
-                        self.build_draw_model(
-                            &base_prim,
-                            base_x,
-                            base_y,
-                            0.0,
-                            0.0,
-                            pivot_x,
-                            pivot_y,
-                            v3d_x,
-                            v3d_y,
-                            v3d_z,
-                        )
+                    let (pivot_x, pivot_y) = if (draw_prim.get_attr() & 2) != 0 {
+                        (draw_prim.get_opx() as f32, draw_prim.get_opy() as f32)
                     } else {
-                        node_model
+                        (0.0, 0.0)
                     };
-
+                    let model = self.build_draw_model(
+                        &draw_prim,
+                        parent_x,
+                        parent_y,
+                        draw_x,
+                        draw_y,
+                        0.0,
+                        0.0,
+                        pivot_x,
+                        pivot_y,
+                        v3d_x,
+                        v3d_y,
+                        v3d_z,
+                    );
                     self.emit_sprite_vertices(
                         model,
                         w,
@@ -1003,22 +793,12 @@ impl GpuPrimRenderer {
                 }
             }
 
-            PrimType::PrimTypeNone => {
-                // No draw; traverse children.
-            }
-
             _ => {}
         }
 
-        // -----------------------------
-        // Traverse children
-        // Children inherit the full accumulated model (translation + rotation + scale + pivot)
-        // from this node, matching the original engine's hierarchical transform semantics.
-        // -----------------------------
         let mut children: Vec<i16> = Vec::new();
         let mut child = first_child;
         let mut steps: usize = 0;
-
         while child != -1 {
             if steps >= 4096 {
                 log::error!(
@@ -1027,18 +807,17 @@ impl GpuPrimRenderer {
                 break;
             }
             steps += 1;
-
             if child < 0 || child >= 4096 {
                 log::error!("collect_tree: invalid child id {child} under prim_id {prim_id}");
                 break;
             }
-
             children.push(child);
-
             let p = prim_manager.get_prim_immutable(child);
             child = p.get_next_sibling_idx();
         }
 
+        let next_parent_x = parent_x + draw_x;
+        let next_parent_y = parent_y + draw_y;
         for cid in children {
             self.collect_tree(
                 resources,
@@ -1050,7 +829,8 @@ impl GpuPrimRenderer {
                 v3d_y,
                 v3d_z,
                 cid,
-                node_model,
+                next_parent_x,
+                next_parent_y,
                 visit,
                 depth + 1,
             );
@@ -1084,7 +864,8 @@ impl GpuPrimRenderer {
                 motion.get_v3d_y(),
                 motion.get_v3d_z(),
                 0, // root
-                Mat4::IDENTITY,
+                0.0,
+                0.0,
                 &mut visit,
                 0,
             );
@@ -1108,7 +889,8 @@ impl GpuPrimRenderer {
                 motion.get_v3d_y(),
                 motion.get_v3d_z(),
                 root,
-                Mat4::IDENTITY,
+                0.0,
+                0.0,
                 &mut visit,
                 0,
             );
