@@ -875,14 +875,19 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
     let src_h = self.virtual_size.1.max(1);
 
     let thumb_rgba = if thumb_w > 0 && thumb_h > 0 && (thumb_w != src_w || thumb_h != src_h) {
-        if let Some(img) = RgbaImage::from_raw(src_w, src_h, rgba.clone()) {
+        let expected_len = (src_w as usize)
+            .saturating_mul(src_h as usize)
+            .saturating_mul(4);
+        if rgba.len() == expected_len {
+            let img = RgbaImage::from_raw(src_w, src_h, rgba)
+                .expect("save capture readback length already validated");
             let resized = image::imageops::resize(&img, thumb_w, thumb_h, FilterType::Triangle);
             resized.into_raw()
         } else {
             rgba
         }
     } else {
-        rgba.clone()
+        rgba
     };
 
     let mut gd = gd_write(&self.game_data);

@@ -321,7 +321,7 @@ pub struct SaveManager {
     /// Request to prepare an in-memory save payload (original engine: local_saved).
     need_save_prepare: bool,
     /// Prepared save bytes (header + thumbnail + optional RFVS chunk) for SaveWrite.
-    local_saved_bytes: Option<Vec<u8>>,
+    local_saved_bytes: Option<Box<[u8]>>,
 }
 
 impl Default for SaveManager {
@@ -759,7 +759,7 @@ pub fn take_pending_vm_snapshot(&mut self) -> Option<ThreadManagerSnapshotV1> {
             crate::subsystem::save_state::append_state_chunk_v1(&mut bytes, snap)?;
         }
 
-        self.local_saved_bytes = Some(bytes);
+        self.local_saved_bytes = Some(bytes.into_boxed_slice());
         self.need_save_prepare = false;
         Ok(())
     }
@@ -875,7 +875,7 @@ pub fn take_pending_vm_snapshot(&mut self) -> Option<ThreadManagerSnapshotV1> {
     }
 
     pub fn load_slot_into_current_from_bytes(&mut self, slot: u32, nls: Nls, bytes: &[u8]) -> Result<()> {
-        let item = SaveItem::load_from_mem(&bytes.to_vec(), nls)?;
+        let item = SaveItem::load_from_mem(bytes, nls)?;
         self.current_save_slot = slot;
         self.current_title = item.title.clone();
         self.current_scene_title = item.scene_title.clone();

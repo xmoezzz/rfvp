@@ -267,6 +267,10 @@ impl GraphBuff {
     }
 
     pub fn load_from_buff(&mut self, buff: Vec<u8>, width: u32, height: u32) -> Result<()> {
+        self.load_from_buff_ref(&buff, width, height)
+    }
+
+    pub fn load_from_buff_ref(&mut self, buff: &[u8], width: u32, height: u32) -> Result<()> {
         if width == 0 || height == 0 {
             return Err(anyhow!("load_from_buff: invalid size {}x{}", width, height));
         }
@@ -286,17 +290,6 @@ impl GraphBuff {
             ));
         }
 
-        // Buffers provided through this interface are treated as RGBA8.
-        let img = image::RgbaImage::from_raw(width, height, buff)
-            .ok_or_else(|| anyhow!("load_from_buff: RgbaImage::from_raw failed ({}x{})", width, height))?;
-
-        self.texture = Some(DynamicImage::ImageRgba8(img));
-        self.texture_ready = true;
-
-        self.texture_path.clear();
-        self.offset_x = 0;
-        self.offset_y = 0;
-
         if width > u16::MAX as u32 || height > u16::MAX as u32 {
             return Err(anyhow!(
                 "load_from_buff: size too large for u16: {}x{}",
@@ -304,12 +297,29 @@ impl GraphBuff {
                 height
             ));
         }
+
+        let reused = match self.texture.as_mut() {
+            Some(DynamicImage::ImageRgba8(img)) if img.width() == width && img.height() == height => {
+                img.as_mut().copy_from_slice(buff);
+                true
+            }
+            _ => false,
+        };
+
+        if !reused {
+            let img = image::RgbaImage::from_raw(width, height, buff.to_vec())
+                .ok_or_else(|| anyhow!("load_from_buff: RgbaImage::from_raw failed ({}x{})", width, height))?;
+            self.texture = Some(DynamicImage::ImageRgba8(img));
+        }
+
+        self.texture_ready = true;
+        self.texture_path.clear();
+        self.offset_x = 0;
+        self.offset_y = 0;
         self.width = width as u16;
         self.height = height as u16;
-
         self.u = 0;
         self.v = 0;
-
         self.mark_dirty();
         self.load_kind = GraphBuffLoadKind::RawRgba;
         Ok(())
@@ -556,7 +566,10 @@ impl GraphBuff {
             load_kind: self.load_kind,
             rgba: if self.texture_path.is_empty() {
                 // In-memory textures (text buffers, intermediate results). Persist raw RGBA.
-                self.texture.as_ref().map(|img| img.to_rgba8().into_raw())
+                self.texture.as_ref().map(|img| match img {
+                    DynamicImage::ImageRgba8(rgba) => rgba.as_raw().clone(),
+                    _ => img.to_rgba8().into_raw(),
+                })
             } else {
                 None
             },
@@ -578,7 +591,7 @@ impl GraphBuff {
                 Err(e) => {
                     // Fall back to embedded pixels if provided.
                     if let Some(rgba) = &snap.rgba {
-                        self.load_from_buff(rgba.clone(), snap.width as u32, snap.height as u32)?;
+                        self.load_from_buff_ref(rgba, snap.width as u32, snap.height as u32)?;
                         self.offset_x = snap.offset_x;
                         self.offset_y = snap.offset_y;
                         self.u = snap.u;
@@ -609,7 +622,7 @@ impl GraphBuff {
 
         // No path: require pixels.
         if let Some(rgba) = &snap.rgba {
-            self.load_from_buff(rgba.clone(), snap.width as u32, snap.height as u32)?;
+            self.load_from_buff_ref(rgba, snap.width as u32, snap.height as u32)?;
             self.offset_x = snap.offset_x;
             self.offset_y = snap.offset_y;
             self.u = snap.u;

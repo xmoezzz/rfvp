@@ -1884,14 +1884,14 @@ impl TextManager {
         self.items[id as usize].set_horizon_space(space);
     }
 
-    /// Render (if dirty) and export RGBA8 buffer for uploading to GraphBuff.
-    pub fn build_slot_rgba(
+    /// Render a slot when needed and return its size. Pixels stay owned by the text item.
+    pub fn rasterize_slot_if_needed(
         &mut self,
         id: i32,
         fonts: &FontEnumerator,
         gaiji: &GaijiManager,
         force: bool,
-    ) -> Result<Option<(Vec<u8>, u32, u32)>> {
+    ) -> Result<Option<(u32, u32)>> {
         if !(0..32).contains(&id) {
             return Ok(None);
         }
@@ -1908,11 +1908,22 @@ impl TextManager {
         let expected = (w as usize)
             .checked_mul(h as usize)
             .and_then(|v| v.checked_mul(4))
-            .ok_or_else(|| anyhow!("build_slot_rgba: size overflow"))?;
+            .ok_or_else(|| anyhow!("rasterize_slot_if_needed: size overflow"))?;
         if t.pixel_buffer.len() != expected {
-            bail!("build_slot_rgba: invalid buffer length");
+            bail!("rasterize_slot_if_needed: invalid buffer length");
         }
-        Ok(Some((t.pixel_buffer.clone(), w, h)))
+        Ok(Some((w, h)))
+    }
+
+    pub fn slot_rgba_bytes(&self, id: i32) -> Option<&[u8]> {
+        if !(0..32).contains(&id) {
+            return None;
+        }
+        let t = &self.items[id as usize];
+        if !t.loaded {
+            return None;
+        }
+        Some(&t.pixel_buffer)
     }
 }
 
@@ -2009,7 +2020,7 @@ impl TextItem {
             h: self.h,
             speed: self.speed,
             loaded: self.loaded,
-            pixel_buffer: self.pixel_buffer.clone(),
+            pixel_buffer: Vec::new(),
             dirty: self.dirty,
             elapsed: self.elapsed,
             total_chars: self.total_chars,
@@ -2057,7 +2068,7 @@ impl TextItem {
         self.h = snap.h;
         self.speed = snap.speed;
         self.loaded = snap.loaded;
-        self.pixel_buffer = snap.pixel_buffer.clone();
+        self.pixel_buffer.clear();
         self.dirty = snap.dirty;
         self.elapsed = snap.elapsed;
         self.total_chars = snap.total_chars;
@@ -2077,13 +2088,13 @@ impl TextItem {
         // Buffer size must match w/h.
         self.ensure_buffer();
 
-        // If buffer is present in snapshot and size matches, prefer it.
+        // Snapshots no longer duplicate the fully rendered RGBA buffer.
+        // Re-render lazily when pixels were omitted or inconsistent.
         let expected = (self.w as usize)
             .checked_mul(self.h as usize)
             .and_then(|v| v.checked_mul(4))
             .unwrap_or(0);
-        if self.pixel_buffer.len() != expected {
-            // Snapshot buffer missing or inconsistent. Force re-render on next tick.
+        if snap.pixel_buffer.is_empty() || self.pixel_buffer.len() != expected {
             self.pixel_buffer = vec![0; expected];
             self.dirty = true;
         }

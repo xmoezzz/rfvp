@@ -926,8 +926,20 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
             return Ok(());
         }
         let graph_id: u16 = 4064u16 + slot as u16;
-        if let Some((rgba, w, h)) = self.text_manager.build_slot_rgba(slot, fonts, &self.gaiji_manager, force_render)? {
-            self.load_texture_from_buff(graph_id, rgba, w, h)?;
+        let uploaded = {
+            let (text_manager, gaiji_manager, textures) = (&mut self.text_manager, &self.gaiji_manager, &mut self.textures);
+            if let Some((w, h)) = text_manager.rasterize_slot_if_needed(slot, fonts, gaiji_manager, force_render)? {
+                if let Some(rgba) = text_manager.slot_rgba_bytes(slot) {
+                    textures[graph_id as usize].load_from_buff_ref(rgba, w, h)?;
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        };
+        if uploaded {
             self.refresh_prims(graph_id);
         }
         Ok(())

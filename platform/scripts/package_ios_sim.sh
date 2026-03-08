@@ -17,7 +17,7 @@ SCHEME="${SCHEME:-RFVPLauncher}"
 CONFIG="${CONFIG:-Debug}"
 
 # Simulator selection
-SIM_NAME="${SIM_NAME:-iPhone 15}"
+SIM_NAME="${SIM_NAME:-iPhone 17}"
 SIM_UDID="${SIM_UDID:-}"  # optional; if set, overrides SIM_NAME
 
 mkdir -p "$DIST_DIR" "$BUILD_DIR"
@@ -47,7 +47,7 @@ resolve_target_udid() {
 
   # Pick the first available device line matching exact "SIM_NAME ("
   # Example line:
-  #   iPhone 15 (E3D0....-....) (Shutdown)
+  #   iPhone 17 (E3D0....-....) (Shutdown)
   local line
   line="$(xcrun simctl list devices available | grep -F "  $SIM_NAME (" | head -n 1 || true)"
   if [[ -z "$line" ]]; then

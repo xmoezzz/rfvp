@@ -347,6 +347,10 @@ impl GameData {
         self.memory_cache.clone()
     }
 
+    pub fn cache_ref(&self) -> &[u8] {
+        &self.memory_cache
+    }
+
     pub fn se_player_mut(&mut self) -> &mut SePlayer {
         &mut self.se_player
     }
