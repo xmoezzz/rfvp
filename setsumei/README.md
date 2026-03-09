@@ -1,7 +1,7 @@
 ## Progress
-This project is currently in the early stages of development. The core features are being implemented, currently focusing on a specific version of the FVP engine. 
+- Ready!
 
 ### Timeline
 
-- Bootable, we can reach the main menu.
+- Playable!
     ![rfvp booting screenshot](../images/title.png)
