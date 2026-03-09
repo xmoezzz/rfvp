@@ -744,6 +744,36 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
         graph.set_color_tone(r, g, b);
     }
 
+    fn text_slot_has_active_fadeout_alpha(&self, slot: i32) -> bool {
+        if !(0..32).contains(&slot) {
+            return false;
+        }
+        for prim_id in 1..4096i16 {
+            let is_target_text_prim = {
+                let prim = self.prim_manager.get_prim_immutable(prim_id);
+                prim.get_type() == PrimType::PrimTypeText && prim.get_text_index() == slot as i16
+            };
+            if !is_target_text_prim {
+                continue;
+            }
+            let mut walker = prim_id;
+            loop {
+                if self.alpha_motion_container.has_running_fadeout_motion(walker as u32) {
+                    return true;
+                }
+                let parent = {
+                    let p = self.prim_manager.get_prim_immutable(walker);
+                    p.get_parent()
+                };
+                if parent < 0 {
+                    break;
+                }
+                walker = parent;
+            }
+        }
+        false
+    }
+
     pub fn refresh_prims(&mut self, graph_id: u16) {
         for prim in self.prim_manager.get_prims_mut().iter_mut().skip(1) {
             let mut prim = prim.borrow_mut();
@@ -923,6 +953,9 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
         force_render: bool,
     ) -> anyhow::Result<()> {
         if !(0..32).contains(&slot) {
+            return Ok(());
+        }
+        if self.text_slot_has_active_fadeout_alpha(slot) {
             return Ok(());
         }
         let graph_id: u16 = 4064u16 + slot as u16;

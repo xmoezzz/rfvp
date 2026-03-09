@@ -304,6 +304,12 @@ impl AlphaMotionContainer {
         self.motions[i].is_running()
     }
 
+    pub fn has_running_fadeout_motion(&self, prim_id: u32) -> bool {
+        self.motions.iter().any(|m| {
+            m.is_running() && m.get_prim_id() == prim_id && m.get_dst_alpha() < m.get_src_alpha()
+        })
+    }
+
     pub fn exec_alpha_motion(
         &mut self,
         prim_manager: &PrimManager,

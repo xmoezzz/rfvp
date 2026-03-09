@@ -219,17 +219,6 @@ struct RevealQueueItem {
     rect: RectI32,
 }
 
-#[derive(Debug, Clone)]
-struct GlyphSourceSurface {
-    x: i32,
-    y: i32,
-    w: usize,
-    h: usize,
-    src_w: usize,
-    src_h: usize,
-    labels: Vec<u8>,
-}
-
 pub struct FontEnumerator {
     // Default fallback font used when id == 0 or when a requested font is missing.
     default_font: AtomicRefCell<fontdue::Font>,
@@ -492,6 +481,16 @@ pub struct TextItem {
     pending_wait_ms: u32,
     pending_special_wait: bool,
     reveal_carry: i64,
+
+    // Runtime-only incremental text surface state.
+    // Reverse-engineered draw_text_to_texture/copy_to_texture appends newly revealed columns
+    // into an already submitted texture; it does not rebuild the visible surface from column 0
+    // every tick. Keep the fully rasterized sentence and the reveal queue here so reveal ticks can
+    // append only the delta.
+    full_buffer: Vec<u8>,
+    reveal_queue: Vec<RevealQueueItem>,
+    applied_visible_chars: usize,
+    layout_dirty: bool,
 }
 
 impl TextItem {
@@ -540,6 +539,10 @@ impl TextItem {
             pending_wait_ms: 0,
             pending_special_wait: false,
             reveal_carry: 0,
+            full_buffer: vec![],
+            reveal_queue: vec![],
+            applied_visible_chars: 0,
+            layout_dirty: false,
         }
     }
 
@@ -559,6 +562,11 @@ impl TextItem {
         self.is_suspended = suspend;
     }
 
+    fn mark_layout_dirty(&mut self) {
+        self.layout_dirty = true;
+        self.dirty = true;
+    }
+
     pub fn set_w(&mut self, w: u16) {
         self.w = w;
     }
@@ -569,37 +577,37 @@ impl TextItem {
 
     pub fn set_color1(&mut self, color: &ColorItem) {
         self.color1 = color.clone();
-        self.dirty = true;
+        self.mark_layout_dirty();
     }
 
     pub fn set_color2(&mut self, color: &ColorItem) {
         self.color2 = color.clone();
-        self.dirty = true;
+        self.mark_layout_dirty();
     }
 
     pub fn set_color3(&mut self, color: &ColorItem) {
         self.color3 = color.clone();
-        self.dirty = true;
+        self.mark_layout_dirty();
     }
 
     pub fn set_text_font_idx1(&mut self, id: i32) {
         self.text_font_idx1 = id;
-        self.dirty = true;
+        self.mark_layout_dirty();
     }
 
     pub fn set_text_font_idx2(&mut self, id: i32) {
         self.text_font_idx2 = id;
-        self.dirty = true;
+        self.mark_layout_dirty();
     }
 
     pub fn set_horizon_space(&mut self, space: i16) {
         self.main_gap_x = space;
-        self.dirty = true;
+        self.mark_layout_dirty();
     }
 
     pub fn set_vertical_space(&mut self, space: i16) {
         self.line_gap_y = space;
-        self.dirty = true;
+        self.mark_layout_dirty();
     }
 
     pub fn set_text_skip(&mut self, skip: u8) {
@@ -608,27 +616,27 @@ impl TextItem {
 
     pub fn set_text_size1(&mut self, size: u8) {
         self.text_size1 = size;
-        self.dirty = true;
+        self.mark_layout_dirty();
     }
 
     pub fn set_text_size2(&mut self, size: u8) {
         self.text_size2 = size;
-        self.dirty = true;
+        self.mark_layout_dirty();
     }
 
     pub fn set_outline_size1(&mut self, outline: u8) {
         self.outline_size1 = outline;
-        self.dirty = true;
+        self.mark_layout_dirty();
     }
 
     pub fn set_outline_size2(&mut self, outline: u8) {
         self.outline_size2 = outline;
-        self.dirty = true;
+        self.mark_layout_dirty();
     }
 
     pub fn set_shadow_dist(&mut self, dist: u8) {
         self.shadow_distance = dist;
-        self.dirty = true;
+        self.mark_layout_dirty();
     }
 
     pub fn set_special_unit_mode(&mut self, func: u8) {
@@ -646,18 +654,18 @@ impl TextItem {
     pub fn set_text_pos_x(&mut self, x: u16) {
         self.x = x;
         // TextPos affects layout immediately.
-        self.dirty = true;
+        self.mark_layout_dirty();
     }
 
     pub fn set_text_pos_y(&mut self, y: u16) {
         self.y = y;
         // TextPos affects layout immediately.
-        self.dirty = true;
+        self.mark_layout_dirty();
     }
 
     pub fn set_line_head_forbidden_chars(&mut self, chrs: &str) {
         self.line_head_forbidden_chars = chrs.chars().collect();
-        self.dirty = true;
+        self.mark_layout_dirty();
     }
 
     pub fn set_speed(&mut self, speed: i32) {
@@ -668,12 +676,13 @@ impl TextItem {
         self.pending_wait_ms = 0;
         self.pending_special_wait = false;
         self.reveal_carry = 0;
+        self.applied_visible_chars = 0;
         if self.speed == 0 {
             self.visible_chars = self.total_chars;
         } else {
             self.visible_chars = 0;
         }
-        self.dirty = true;
+        self.mark_layout_dirty();
     }
 
     fn ensure_buffer(&mut self) {
@@ -682,11 +691,17 @@ impl TextItem {
         let expected = w.saturating_mul(h).saturating_mul(4);
         if expected == 0 {
             self.pixel_buffer.clear();
+            self.full_buffer.clear();
+            self.reveal_queue.clear();
+            self.applied_visible_chars = 0;
             self.loaded = false;
             return;
         }
         if self.pixel_buffer.len() != expected {
             self.pixel_buffer.resize(expected, 0);
+        }
+        if self.full_buffer.len() != expected {
+            self.full_buffer.resize(expected, 0);
         }
         self.loaded = true;
     }
@@ -695,6 +710,12 @@ impl TextItem {
         if !self.pixel_buffer.is_empty() {
             self.pixel_buffer.fill(0);
         }
+        if !self.full_buffer.is_empty() {
+            self.full_buffer.fill(0);
+        }
+        self.reveal_queue.clear();
+        self.applied_visible_chars = 0;
+        self.layout_dirty = false;
     }
 
     fn is_suspend_chr(&self, ch: char) -> bool {
@@ -723,17 +744,7 @@ impl TextItem {
     }
 
     #[inline]
-    fn source_units_to_dest_px(v: u8) -> i32 {
-        ((v as i32) + 3) / 4
-    }
-
-    #[inline]
     fn effective_gdi_font_size(size: f32, outline: u8, distance: u8) -> f32 {
-        // RE: create_font() uses CreateFontA height
-        //   -95 * (2 * (2 * size - outline) - shadow) / 100
-        // and sub_425B80 downsamples a 4x source mask back into destination pixels.
-        // Algebraically, that becomes 0.95 * (size - outline / 2 - shadow / 4)
-        // in destination-space sizing, so the layout formula itself is already aligned.
         let eff = 0.95f32 * (size - (outline as f32 * 0.5) - (distance as f32 * 0.25));
         eff.max(1.0)
     }
@@ -886,6 +897,9 @@ impl TextItem {
         self.pending_wait_ms = 0;
         self.pending_special_wait = false;
         self.reveal_carry = 0;
+        self.applied_visible_chars = 0;
+        self.reveal_queue.clear();
+        self.full_buffer.fill(0);
 
         if self.speed == 0 {
             self.visible_chars = self.total_chars;
@@ -893,7 +907,7 @@ impl TextItem {
             self.visible_chars = 0;
         }
         self.elapsed = 0;
-        self.dirty = true;
+        self.mark_layout_dirty();
     }
 
     #[inline]
@@ -936,6 +950,9 @@ impl TextItem {
             let target = self.total_chars;
             if self.visible_chars != target {
                 self.visible_chars = target;
+                if !self.layout_dirty {
+                    self.apply_reveal_delta_to_current_target();
+                }
                 self.dirty = true;
             }
             return;
@@ -966,6 +983,9 @@ impl TextItem {
 
         if new_units != self.visible_chars {
             self.visible_chars = new_units;
+            if !self.layout_dirty {
+                self.apply_reveal_delta_to_current_target();
+            }
             self.dirty = true;
         }
     }
@@ -1017,216 +1037,7 @@ impl TextItem {
         buf[idx + 3] = out_a.min(255) as u8;
     }
 
-    fn alpha_to_binary_mask(mask: &[u8]) -> Vec<u8> {
-        // The original path feeds sub_425E30 from GetGlyphOutlineA(..., format=1), which is a 1bpp mask.
-        // We do not have that API here, so we first collapse the supersampled grayscale bitmap to a
-        // binary source mask before applying the reverse-engineered label expansion and 4x4 resolve.
-        mask.iter().map(|&cov| if cov >= 0x80 { 1 } else { 0 }).collect()
-    }
 
-    #[inline]
-    fn floor_div_i32(v: i32, d: i32) -> i32 {
-        debug_assert!(d > 0);
-        if v >= 0 {
-            v / d
-        } else {
-            -((-v + d - 1) / d)
-        }
-    }
-
-    #[inline]
-    fn ceil_div_i32(v: i32, d: i32) -> i32 {
-        debug_assert!(d > 0);
-        if v >= 0 {
-            (v + d - 1) / d
-        } else {
-            -((-v) / d)
-        }
-    }
-
-    fn expand_outline_labels(labels: &mut [u8], sw: usize, sh: usize, outline_steps: u8) {
-        if outline_steps == 0 || sw == 0 || sh == 0 {
-            return;
-        }
-
-        for step in 1..=outline_steps {
-            let prev = step;
-            let next = step.saturating_add(1);
-            let snapshot = labels.to_vec();
-            for y in 0..sh {
-                for x in 0..sw {
-                    let idx = y * sw + x;
-                    if snapshot[idx] != prev {
-                        continue;
-                    }
-                    if y > 0 {
-                        let up = idx - sw;
-                        if labels[up] == 0 {
-                            labels[up] = next;
-                        }
-                    }
-                    if x + 1 < sw {
-                        let right = idx + 1;
-                        if labels[right] == 0 {
-                            labels[right] = next;
-                        }
-                    }
-                    if y + 1 < sh {
-                        let down = idx + sw;
-                        if labels[down] == 0 {
-                            labels[down] = next;
-                        }
-                    }
-                    if x > 0 {
-                        let left = idx - 1;
-                        if labels[left] == 0 {
-                            labels[left] = next;
-                        }
-                    }
-                }
-            }
-        }
-
-        for px in labels.iter_mut() {
-            if *px > 2 {
-                *px = 2;
-            }
-        }
-    }
-
-    fn stamp_shadow_labels(labels: &mut [u8], sw: usize, sh: usize, shadow_steps: u8) {
-        if shadow_steps == 0 || sw == 0 || sh == 0 {
-            return;
-        }
-
-        let d = shadow_steps as usize;
-        let snapshot = labels.to_vec();
-        for y in 0..sh {
-            for x in 0..sw {
-                let idx = y * sw + x;
-                if !(1..=2).contains(&snapshot[idx]) {
-                    continue;
-                }
-                let tx = x + d;
-                let ty = y + d;
-                if tx >= sw || ty >= sh {
-                    continue;
-                }
-                let tidx = ty * sw + tx;
-                if labels[tidx] == 0 {
-                    labels[tidx] = 3;
-                }
-            }
-        }
-    }
-
-    fn rasterize_glyph_source_surface(
-        &self,
-        font: &fontdue::Font,
-        size: f32,
-        x: i32,
-        y: i32,
-        ch: char,
-        outline: u8,
-        shadow_dist: u8,
-    ) -> (i32, Option<GlyphSourceSurface>) {
-        let eff_size = Self::effective_gdi_font_size(size, outline, shadow_dist);
-        let (metrics, _) = font.rasterize(ch, eff_size);
-        let adv = self.draw_char_advance_px(metrics.advance_width.ceil() as i32, outline, shadow_dist);
-
-        let (src_metrics, src_bitmap) = font.rasterize(ch, eff_size * 4.0);
-        if src_metrics.width == 0 || src_metrics.height == 0 {
-            return (adv, None);
-        }
-
-        let pad_src = outline as usize + shadow_dist as usize;
-        let sw = src_metrics.width + pad_src * 2;
-        let sh = src_metrics.height + pad_src * 2;
-        let mut labels = vec![0u8; sw.saturating_mul(sh)];
-        let src_fill = Self::alpha_to_binary_mask(&src_bitmap);
-        for row in 0..src_metrics.height {
-            let src_start = row * src_metrics.width;
-            let dst_start = (row + pad_src) * sw + pad_src;
-            let dst_end = dst_start + src_metrics.width;
-            labels[dst_start..dst_end].copy_from_slice(&src_fill[src_start..src_start + src_metrics.width]);
-        }
-
-        Self::expand_outline_labels(&mut labels, sw, sh, outline);
-        Self::stamp_shadow_labels(&mut labels, sw, sh, shadow_dist);
-
-        let gx = x + Self::floor_div_i32(src_metrics.xmin - pad_src as i32, 4);
-        let top_from_baseline_src = src_metrics.ymin + src_metrics.height as i32 + pad_src as i32;
-        let gy = y - Self::ceil_div_i32(top_from_baseline_src, 4);
-        let dw = (sw + 3) / 4;
-        let dh = (sh + 3) / 4;
-
-        (
-            adv,
-            Some(GlyphSourceSurface {
-                x: gx,
-                y: gy,
-                w: dw,
-                h: dh,
-                src_w: sw,
-                src_h: sh,
-                labels,
-            }),
-        )
-    }
-
-    fn resolve_glyph_labels_rgba(
-        labels: &[u8],
-        sw: usize,
-        sh: usize,
-        fill_color: &ColorItem,
-        outline_color: &ColorItem,
-        shadow_color: &ColorItem,
-    ) -> (usize, usize, Vec<u8>) {
-        let dw = (sw + 3) / 4;
-        let dh = (sh + 3) / 4;
-        let mut rgba = vec![0u8; dw.saturating_mul(dh).saturating_mul(4)];
-
-        let fill = (fill_color.get_r(), fill_color.get_g(), fill_color.get_b(), fill_color.get_a());
-        let outline = (
-            outline_color.get_r(),
-            outline_color.get_g(),
-            outline_color.get_b(),
-            outline_color.get_a(),
-        );
-        let shadow = (
-            shadow_color.get_r(),
-            shadow_color.get_g(),
-            shadow_color.get_b(),
-            shadow_color.get_a(),
-        );
-
-        for dy in 0..dh {
-            for dx in 0..dw {
-                let mut counts = [0u32; 4];
-                for sy in 0..4usize {
-                    for sx in 0..4usize {
-                        let src_x = dx * 4 + sx;
-                        let src_y = dy * 4 + sy;
-                        if src_x >= sw || src_y >= sh {
-                            continue;
-                        }
-                        let label = labels[src_y * sw + src_x] as usize;
-                        if label <= 3 {
-                            counts[label] += 1;
-                        }
-                    }
-                }
-
-                let idx = (dy * dw + dx) * 4;
-                rgba[idx] = ((fill.0 as u32 * counts[1] + outline.0 as u32 * counts[2] + shadow.0 as u32 * counts[3]) >> 4) as u8;
-                rgba[idx + 1] = ((fill.1 as u32 * counts[1] + outline.1 as u32 * counts[2] + shadow.1 as u32 * counts[3]) >> 4) as u8;
-                rgba[idx + 2] = ((fill.2 as u32 * counts[1] + outline.2 as u32 * counts[2] + shadow.2 as u32 * counts[3]) >> 4) as u8;
-                rgba[idx + 3] = ((fill.3 as u32 * counts[1] + outline.3 as u32 * counts[2] + shadow.3 as u32 * counts[3]) >> 4) as u8;
-            }
-        }
-
-        (dw, dh, rgba)
-    }
 
     fn draw_glyph_mask(
         buf: &mut [u8],
@@ -1261,35 +1072,24 @@ impl TextItem {
         }
     }
 
-    fn draw_rgba_surface(
-        buf: &mut [u8],
-        bw: u32,
-        bh: u32,
-        x0: i32,
-        y0: i32,
-        rgba: &[u8],
-        mw: usize,
-        mh: usize,
-        clip_max_x: i32,
-    ) {
-        for my in 0..mh {
-            for mx in 0..mw {
-                let idx = (my * mw + mx) * 4;
-                let a = rgba[idx + 3];
-                if a == 0 {
-                    continue;
-                }
-                let dx = x0 + mx as i32;
-                if dx >= clip_max_x {
-                    continue;
-                }
-                Self::put_pixel_blend(buf, bw, bh, dx, y0 + my as i32, (rgba[idx], rgba[idx + 1], rgba[idx + 2], a));
-            }
-        }
-    }
-
     fn draw_char_advance_px(&self, raw_advance: i32, outline: u8, shadow_dist: u8) -> i32 {
         raw_advance + Self::layout_extra_advance_px(outline, shadow_dist)
+    }
+
+    fn glyph_bounds(x: i32, y: i32, w: i32, h: i32, outline: u8, shadow_dist: u8) -> RectI32 {
+        if w <= 0 || h <= 0 {
+            return RectI32::default();
+        }
+        let mut rect = RectI32 { x, y, w, h };
+        let r = outline as i32;
+        if r > 0 {
+            rect = RectI32 { x: rect.x - r, y: rect.y - r, w: rect.w + r * 2, h: rect.h + r * 2 };
+        }
+        if shadow_dist != 0 {
+            let d = shadow_dist as i32;
+            rect = rect.union(RectI32 { x: x + d, y: y + d, w, h });
+        }
+        rect
     }
 
     fn char_draw_bounds(
@@ -1302,11 +1102,11 @@ impl TextItem {
         outline: u8,
         shadow_dist: u8,
     ) -> RectI32 {
-        let (_, surface) = self.rasterize_glyph_source_surface(font, size, x, y, ch, outline, shadow_dist);
-        let Some(surface) = surface else {
-            return RectI32::default();
-        };
-        RectI32 { x: surface.x, y: surface.y, w: surface.w as i32, h: surface.h as i32 }
+        let eff_size = Self::effective_gdi_font_size(size, outline, shadow_dist);
+        let (metrics, _) = font.rasterize(ch, eff_size);
+        let gx = x + metrics.xmin;
+        let gy = y - (metrics.ymin + metrics.height as i32);
+        Self::glyph_bounds(gx, gy, metrics.width as i32, metrics.height as i32, outline, shadow_dist)
     }
 
     fn gaiji_draw_bounds(
@@ -1345,29 +1145,65 @@ impl TextItem {
         clip_max_x: i32,
         do_draw: bool,
     ) -> i32 {
-        let (adv, surface) = self.rasterize_glyph_source_surface(font, size, x, y, ch, outline, shadow_dist);
-        let Some(surface) = surface else {
-            return adv;
-        };
+        let eff_size = Self::effective_gdi_font_size(size, outline, shadow_dist);
+        let (metrics, bitmap) = font.rasterize(ch, eff_size);
+        let gx = x + metrics.xmin;
+        let gy = y - (metrics.ymin + metrics.height as i32);
+
+        let adv = self.draw_char_advance_px(metrics.advance_width.ceil() as i32, outline, shadow_dist);
 
         if !do_draw {
             return adv;
         }
-        if clip_max_x <= surface.x {
+
+        if clip_max_x <= gx {
             return adv;
         }
 
-        let sw = surface.src_w;
-        let sh = surface.src_h;
-        let (dw, dh, rgba) = Self::resolve_glyph_labels_rgba(
-            &surface.labels,
-            sw,
-            sh,
-            color,
-            outline_color,
-            shadow_color,
-        );
-        Self::draw_rgba_surface(buf, bw, bh, surface.x, surface.y, &rgba, dw, dh, clip_max_x);
+        if shadow_dist != 0 {
+            let d = shadow_dist as i32;
+            Self::draw_glyph_mask(
+                buf,
+                bw,
+                bh,
+                gx + d,
+                gy + d,
+                &bitmap,
+                metrics.width,
+                metrics.height,
+                shadow_color,
+                clip_max_x,
+            );
+        }
+
+        if outline != 0 {
+            let r = outline as i32;
+            for oy in -r..=r {
+                for ox in -r..=r {
+                    if ox == 0 && oy == 0 {
+                        continue;
+                    }
+                    if (ox * ox + oy * oy) > (r * r) {
+                        continue;
+                    }
+                    Self::draw_glyph_mask(
+                        buf,
+                        bw,
+                        bh,
+                        gx + ox,
+                        gy + oy,
+                        &bitmap,
+                        metrics.width,
+                        metrics.height,
+                        outline_color,
+                        clip_max_x,
+                    );
+                }
+            }
+        }
+
+        Self::draw_glyph_mask(buf, bw, bh, gx, gy, &bitmap, metrics.width, metrics.height, color, clip_max_x);
+
         adv
     }
 
@@ -1494,22 +1330,29 @@ impl TextItem {
         }
     }
 
-    fn copy_reveal_columns(
+    fn copy_reveal_columns_range(
         dst: &mut [u8],
         src: &[u8],
         bw: u32,
+        bh: u32,
         rect: RectI32,
+        skip_cols: i32,
         cols: i32,
     ) {
         if rect.is_empty() || cols <= 0 {
             return;
         }
-        let copy_w = cols.min(rect.w).max(0) as usize;
+        let rect = rect.clamp_to_buffer(bw, bh);
+        if rect.is_empty() {
+            return;
+        }
+        let skip_cols = skip_cols.max(0).min(rect.w);
+        let copy_w = cols.min(rect.w - skip_cols).max(0) as usize;
         if copy_w == 0 {
             return;
         }
         let bw_usize = bw as usize;
-        let x = rect.x as usize;
+        let x = (rect.x + skip_cols) as usize;
         let y0 = rect.y as usize;
         let h = rect.h as usize;
         for row in 0..h {
@@ -1521,21 +1364,59 @@ impl TextItem {
         }
     }
 
-    fn apply_reveal_queue(&mut self, full_buffer: &[u8], bw: u32, _bh: u32, queue: &[RevealQueueItem]) {
-        self.pixel_buffer.fill(0);
-        let mut remaining = self.visible_chars as i32;
-        for item in queue {
-            if remaining <= 0 {
-                break;
-            }
+    fn clear_visible_surface(&mut self) {
+        if !self.pixel_buffer.is_empty() {
+            self.pixel_buffer.fill(0);
+        }
+        self.applied_visible_chars = 0;
+    }
+
+    fn apply_reveal_delta_to_current_target(&mut self) {
+        if self.visible_chars <= self.applied_visible_chars {
+            return;
+        }
+        if self.pixel_buffer.len() != self.full_buffer.len() {
+            return;
+        }
+        let bw = self.w as u32;
+        let bh = self.h as u32;
+        let mut consumed_cols = 0usize;
+        let old_visible = self.applied_visible_chars;
+        let target_visible = self.visible_chars.min(self.total_chars);
+        for item in &self.reveal_queue {
             let rect = item.rect;
             if rect.is_empty() {
                 continue;
             }
-            let cols = remaining.min(rect.w);
-            Self::copy_reveal_columns(&mut self.pixel_buffer, full_buffer, bw, rect, cols);
-            remaining -= cols;
+            let item_cols = rect.w.max(0) as usize;
+            let item_start = consumed_cols;
+            let item_end = consumed_cols.saturating_add(item_cols);
+            if target_visible <= item_start {
+                break;
+            }
+            if old_visible < item_end {
+                let start_in_item = old_visible.saturating_sub(item_start).min(item_cols) as i32;
+                let end_in_item = target_visible.saturating_sub(item_start).min(item_cols) as i32;
+                if end_in_item > start_in_item {
+                    Self::copy_reveal_columns_range(
+                        &mut self.pixel_buffer,
+                        &self.full_buffer,
+                        bw,
+                        bh,
+                        rect,
+                        start_in_item,
+                        end_in_item - start_in_item,
+                    );
+                }
+            }
+            consumed_cols = item_end;
         }
+        self.applied_visible_chars = target_visible;
+    }
+
+    fn rebuild_visible_surface_from_cache(&mut self) {
+        self.clear_visible_surface();
+        self.apply_reveal_delta_to_current_target();
     }
 
     fn rasterize_full(&mut self, fonts: &FontEnumerator, gaiji: &GaijiManager) -> Result<()> {
@@ -1565,8 +1446,8 @@ impl TextItem {
         let descent_f = lm.map(|m| m.descent).unwrap_or(-main_layout_size * 0.25);
         let line_gap_f = lm.map(|m| m.line_gap).unwrap_or(0.0);
 
-        let main_top_reserve = ascent_f.ceil() as i32 + Self::source_units_to_dest_px(self.outline_size1);
-        let main_bottom_reserve = (-descent_f).ceil() as i32 + Self::source_units_to_dest_px(self.outline_size1) + Self::source_units_to_dest_px(self.shadow_distance);
+        let main_top_reserve = ascent_f.ceil() as i32 + self.outline_size1 as i32;
+        let main_bottom_reserve = (-descent_f).ceil() as i32 + self.outline_size1 as i32 + self.shadow_distance as i32;
 
         // Ruby must participate in vertical layout.
         // Keep the current baseline-up policy, but derive line height from the combined
@@ -1580,8 +1461,8 @@ impl TextItem {
             let rlm = ruby_font_ref.horizontal_line_metrics(ruby_layout_size);
             let ruby_ascent_f = rlm.map(|m| m.ascent).unwrap_or(ruby_layout_size);
             let ruby_descent_f = rlm.map(|m| m.descent).unwrap_or(-ruby_layout_size * 0.25);
-            let ruby_top_reserve = ruby_ascent_f.ceil() as i32 + Self::source_units_to_dest_px(self.outline_size2);
-            let ruby_bottom_reserve = (-ruby_descent_f).ceil() as i32 + Self::source_units_to_dest_px(self.outline_size2) + Self::source_units_to_dest_px(self.shadow_distance);
+            let ruby_top_reserve = ruby_ascent_f.ceil() as i32 + self.outline_size2 as i32;
+            let ruby_bottom_reserve = (-ruby_descent_f).ceil() as i32 + self.outline_size2 as i32 + self.shadow_distance as i32;
             (
                 main_top_reserve.max(ruby_baseline_up + ruby_top_reserve),
                 main_bottom_reserve.max((ruby_bottom_reserve - ruby_baseline_up).max(0)),
@@ -1760,7 +1641,11 @@ impl TextItem {
             self.visible_chars = self.total_chars;
         }
 
-        self.apply_reveal_queue(&full_buffer, bw, bh, &reveal_queue);
+        self.full_buffer = full_buffer;
+        self.reveal_queue = reveal_queue;
+        self.clear_visible_surface();
+        self.apply_reveal_delta_to_current_target();
+        self.layout_dirty = false;
         Ok(())
     }
 
@@ -1821,6 +1706,9 @@ impl TextManager {
                 t.pending_special_wait = false;
                 t.reveal_carry = 0;
                 t.next_wait_index = t.wait_points.len();
+                if !t.layout_dirty {
+                    t.apply_reveal_delta_to_current_target();
+                }
                 t.dirty = true;
             }
         }
@@ -1892,7 +1780,11 @@ impl TextManager {
             text.pending_wait_ms = 0;
             text.pending_special_wait = false;
             text.reveal_carry = 0;
-            text.dirty = false;
+            text.applied_visible_chars = 0;
+            text.layout_dirty = false;
+            // TextClear must upload the cleared texture immediately so any following alpha/move
+            // motion acts on the already submitted blank surface, not on stale glyphs.
+            text.dirty = true;
         }
     }
 
@@ -1937,6 +1829,10 @@ impl TextManager {
         text.pending_wait_ms = 0;
         text.pending_special_wait = false;
         text.reveal_carry = 0;
+        text.applied_visible_chars = 0;
+        text.reveal_queue.clear();
+        text.full_buffer.fill(0);
+        text.layout_dirty = true;
         text.line_head_forbidden_chars.clear();
         text.dirty = true;
     }
@@ -2104,10 +2000,6 @@ impl TextManager {
         if !t.loaded {
             return Ok(None);
         }
-        if force || t.dirty {
-            t.rasterize_full(fonts, gaiji)?;
-            t.dirty = false;
-        }
         let w = t.w as u32;
         let h = t.h as u32;
         let expected = (w as usize)
@@ -2117,6 +2009,15 @@ impl TextManager {
         if t.pixel_buffer.len() != expected {
             bail!("rasterize_slot_if_needed: invalid buffer length");
         }
+        let needs_raster = t.layout_dirty || t.full_buffer.len() != expected;
+        let needs_upload = force || t.dirty || needs_raster;
+        if !needs_upload {
+            return Ok(None);
+        }
+        if needs_raster {
+            t.rasterize_full(fonts, gaiji)?;
+        }
+        t.dirty = false;
         Ok(Some((w, h)))
     }
 
@@ -2283,6 +2184,10 @@ impl TextItem {
         self.pending_wait_ms = snap.pending_wait_ms;
         self.pending_special_wait = snap.pending_special_wait;
         self.reveal_carry = 0;
+        self.full_buffer.clear();
+        self.reveal_queue.clear();
+        self.applied_visible_chars = 0;
+        self.layout_dirty = true;
 
         // Rebuild derived token list to keep future incremental rendering functional.
         self.content_items = tokenize_content_text(&self.content_text, self.special_unit_mode, self.ruby_text_mode, self.wait_control_mode);
