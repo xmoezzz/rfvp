@@ -17,6 +17,16 @@
 * Windows EXE: [setsumei/HOW-TO-BUILD.windows-msvc.md](setsumei/HOW-TO-BUILD.windows-msvc.md)
 * Linux ELF: [setsumei/HOW-TO-BUILD.host.md](setsumei/HOW-TO-BUILD.host.md)
 
+### Installation
+
+RFVP provides platform-specific installation guides under [`setsumei/installation`](setsumei/installation):
+
+- [Windows](setsumei/installation/Windows.md)
+- [Linux](setsumei/installation/Linux.md)
+- [macOS](setsumei/installation/macOS.md)
+- [iOS](setsumei/installation/iOS.md)
+- [Android](setsumei/installation/Android.md)
+
 ### Supported Platforms and Packaging Types
 | Platform | Packaging Type(s) Supported                                | Launcher | Standalone Executable | Architectures                       |
 | -------- | ---------------------------------------------------------- | -------: | --------------------: | ----------------------------------- |
