@@ -107,10 +107,6 @@ pub struct App {
     /// In this mode we must never block inside winit's event pumping.
     pump_mode: bool,
 
-    /// iOS touch host-mode tracks a single active touch and maps it onto the existing
-    /// mouse-left semantics used by the engine.
-    mobile_touch_active: bool,
-
     // WindowMode support
     windowed_restore: Option<WindowedRestoreState>,
     last_fullscreen_flag: i32,
@@ -181,8 +177,12 @@ impl App {
         {
             let mut gd = gd_write(&self.game_data);
             self.layer_machine.apply_scene_action(SceneAction::Start, &mut **gd);
-            if gd.has_cursor(1) {
-                gd.switch_cursor(1);
+            let current = gd.get_current_cursor_index();
+            if gd.has_cursor(current) {
+                gd.switch_cursor(current);
+            } else if gd.has_cursor(0) {
+                gd.set_current_cursor_index(0);
+                gd.switch_cursor(0);
             }
         }
     }
@@ -1233,9 +1233,11 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
 
     /// Resize the presentation surface in host-driven mode.
     pub fn host_resize(&mut self, surface_width: u32, surface_height: u32) {
-        // iOS host wrapper already passes physical pixel dimensions.
-        let w = surface_width.max(1);
-        let h = surface_height.max(1);
+        // The host typically reports view sizes in logical points. Convert to physical pixels
+        // using the scale factor captured at creation time.
+        let scale = self.native_scale_factor.max(0.5);
+        let w = (((surface_width as f64) * scale).round() as u32).max(1);
+        let h = (((surface_height as f64) * scale).round() as u32).max(1);
 
         self.surface_config.width = w;
         self.surface_config.height = h;
@@ -1287,12 +1289,12 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
         let vw = vw_u as f64;
         let vh = vh_u as f64;
 
-        let mut wake_vm = false;
-
+        // Update input state under the same lock as the desktop event path.
         {
             let mut gd = gd_write(&self.game_data);
             let render_flag = gd.get_render_flag();
 
+            // Map surface physical pixels -> virtual game pixels.
             let (vx, vy, in_content) = if render_flag == 2 {
                 let mut vx = (px * vw / sw) as i32;
                 let mut vy = (py * vh / sh) as i32;
@@ -1320,51 +1322,18 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
                 (vx, vy, in_content)
             };
 
+            gd.inputs_manager.notify_mouse_move(vx, vy);
+            gd.inputs_manager.set_mouse_in(in_content);
+
             match phase {
-                0 => {
-                    if !self.mobile_touch_active {
-                        gd.inputs_manager.notify_mouse_move(vx, vy);
-                        gd.inputs_manager.set_mouse_in(in_content);
-                        gd.inputs_manager.notify_mouse_down(KeyCode::MouseLeft);
-                        gd.inputs_manager.begin_frame();
-                        self.mobile_touch_active = true;
-                        wake_vm = true;
-                    }
-                }
-                1 => {
-                    if self.mobile_touch_active {
-                        gd.inputs_manager.notify_mouse_move(vx, vy);
-                        gd.inputs_manager.set_mouse_in(in_content);
-                        gd.inputs_manager.begin_frame();
-                        wake_vm = true;
-                    }
-                }
-                2 => {
-                    if self.mobile_touch_active {
-                        gd.inputs_manager.notify_mouse_move(vx, vy);
-                        gd.inputs_manager.set_mouse_in(in_content);
-                        gd.inputs_manager.notify_mouse_up(KeyCode::MouseLeft);
-                        gd.inputs_manager.begin_frame();
-                        self.mobile_touch_active = false;
-                        wake_vm = true;
-                    }
-                }
-                3 => {
-                    if self.mobile_touch_active {
-                        gd.inputs_manager.set_mouse_in(false);
-                        gd.inputs_manager.notify_mouse_up(KeyCode::MouseLeft);
-                        gd.inputs_manager.begin_frame();
-                        self.mobile_touch_active = false;
-                        wake_vm = true;
-                    }
-                }
+                0 => gd.inputs_manager.notify_mouse_down(KeyCode::MouseLeft),
+                2 | 3 => gd.inputs_manager.notify_mouse_up(KeyCode::MouseLeft),
                 _ => {}
             }
         }
 
-        if wake_vm {
-            self.vm_worker.send_input_signal();
-        }
+        // Wake the VM immediately so scripts can react without waiting for the next frame.
+        self.vm_worker.send_input_signal();
     }
 
     /// Inject a single-finger touch event from an Android host.
@@ -2137,7 +2106,6 @@ impl AppBuilder {
                 ptr::addr_of_mut!((*p).window).write(Some(window.clone()));
                 ptr::addr_of_mut!((*p).native_scale_factor).write(window.scale_factor());
                 ptr::addr_of_mut!((*p).pump_mode).write(false);
-                ptr::addr_of_mut!((*p).mobile_touch_active).write(false);
                 ptr::addr_of_mut!((*p).windowed_restore).write(None);
                 ptr::addr_of_mut!((*p).last_fullscreen_flag).write(3);
 
@@ -2224,7 +2192,10 @@ impl AppBuilder {
         } else {
             1.0
         };
-        let surface_size_px = (surface_size.0.max(1), surface_size.1.max(1));
+        let surface_size_px = (
+            ((surface_size.0 as f64) * scale).round().max(1.0) as u32,
+            ((surface_size.1 as f64) * scale).round().max(1.0) as u32,
+        );
 
         let (instance, adapter, resources, render_target, surface, surface_config) =
             futures::executor::block_on(AppBuilder::init_render_ios(ui_view, surface_size_px, self.size));
@@ -2240,8 +2211,7 @@ impl AppBuilder {
         self.script_engine.start_main(entry_point);
         self.world.nls = self.parser.nls.clone();
 
-        // Cursor animations are not used in iOS host-mode.
-        self.world.set_cursor_table(HashMap::new());
+        // Keep cursor table semantics in host-mode as well; only the display backend differs.
 
         // Fullscreen quad used for dissolve overlays (virtual space, pixel coordinates).
         let (dissolve_vertex_buffer, dissolve_index_buffer, dissolve_num_indices) = {
@@ -2295,7 +2265,6 @@ impl AppBuilder {
                 ptr::addr_of_mut!((*p).window).write(None);
                 ptr::addr_of_mut!((*p).native_scale_factor).write(scale);
                 ptr::addr_of_mut!((*p).pump_mode).write(true);
-                ptr::addr_of_mut!((*p).mobile_touch_active).write(false);
                 ptr::addr_of_mut!((*p).windowed_restore).write(None);
                 ptr::addr_of_mut!((*p).last_fullscreen_flag).write(3);
 
@@ -2393,8 +2362,7 @@ impl AppBuilder {
         self.script_engine.start_main(entry_point);
         self.world.nls = self.parser.nls.clone();
 
-        // Cursor animations are not used in Android host-mode.
-        self.world.set_cursor_table(HashMap::new());
+        // Keep cursor table semantics in host-mode as well; only the display backend differs.
 
         // Fullscreen quad used for dissolve overlays (virtual space, pixel coordinates).
         let (dissolve_vertex_buffer, dissolve_index_buffer, dissolve_num_indices) = {

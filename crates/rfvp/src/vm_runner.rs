@@ -51,6 +51,7 @@ impl VmRunner {
     ///
     /// `frame_time_ms` is the elapsed time budget for timers (wait/sleep/etc.).
     pub fn tick(&mut self, game: &mut GameData, parser: &mut Parser, frame_time_ms: u64) -> Result<VmTickReport> {
+        self.process_deferred_text_requests(game);
         // The VM itself is cooperative; the engine decides when to advance contexts.
         // If the game is halted (e.g. waiting for IO / modal UI), we do not advance contexts.
         if game.get_halt() {
@@ -129,6 +130,7 @@ if let Some(slot) = game.save_manager.take_load_request() {
             if status.contains(ThreadState::CONTEXT_STATUS_RUNNING)
                 && !status.contains(ThreadState::CONTEXT_STATUS_WAIT)
                 && !status.contains(ThreadState::CONTEXT_STATUS_SLEEP)
+                && !status.contains(ThreadState::CONTEXT_STATUS_TEXT)
                 && !status.contains(ThreadState::CONTEXT_STATUS_DISSOLVE_WAIT)
             {
                 self.run_one_context(tid, game, parser)?;
@@ -158,6 +160,35 @@ if game.save_manager.wants_vm_snapshot_capture() {
         }
 
         Ok(report)
+    }
+
+    fn process_deferred_text_requests(&mut self, game: &mut GameData) {
+        let mut keep = std::collections::VecDeque::new();
+        while let Some(req) = game.thread_wrapper.pop() {
+            match req {
+                ThreadRequest::TextResume(id) => {
+                    let mut st = self.tm.get_context_status(id);
+                    st.remove(ThreadState::CONTEXT_STATUS_TEXT);
+                    st.insert(ThreadState::CONTEXT_STATUS_RUNNING);
+                    self.tm.set_context_status(id, st);
+                }
+                other => keep.push_back(other),
+            }
+        }
+        while let Some(req) = keep.pop_front() {
+            match req {
+                ThreadRequest::Start(id, addr) => game.thread_wrapper.thread_start(id, addr),
+                ThreadRequest::Wait(time) => game.thread_wrapper.thread_wait(time),
+                ThreadRequest::DissolveWait() => game.thread_wrapper.dissolve_wait(),
+                ThreadRequest::Sleep(time) => game.thread_wrapper.thread_sleep(time),
+                ThreadRequest::Raise(time) => game.thread_wrapper.thread_raise(time),
+                ThreadRequest::Next() => game.thread_wrapper.thread_next(),
+                ThreadRequest::TextWait(id) => game.thread_wrapper.thread_text_wait(id),
+                ThreadRequest::Exit(id) => game.thread_wrapper.thread_exit(id),
+                ThreadRequest::ShouldBreak() => game.thread_wrapper.should_break(),
+                ThreadRequest::TextResume(id) => game.thread_wrapper.thread_text_resume(id),
+            }
+        }
     }
 
     fn advance_timers_and_state(&mut self, tid: u32, dissolve_type: DissolveType, dissolve2_transitioning: bool, frame_time_ms: u64) {
@@ -256,6 +287,19 @@ if game.save_manager.wants_vm_snapshot_capture() {
                     ThreadRequest::Next() => {
                         self.tm.thread_next();
                         must_yield = true;
+                    }
+                    ThreadRequest::TextWait(id) => {
+                        let mut st = self.tm.get_context_status(id);
+                        st.insert(ThreadState::CONTEXT_STATUS_TEXT);
+                        st.remove(ThreadState::CONTEXT_STATUS_RUNNING);
+                        self.tm.set_context_status(id, st);
+                        must_yield = true;
+                    }
+                    ThreadRequest::TextResume(id) => {
+                        let mut st = self.tm.get_context_status(id);
+                        st.remove(ThreadState::CONTEXT_STATUS_TEXT);
+                        st.insert(ThreadState::CONTEXT_STATUS_RUNNING);
+                        self.tm.set_context_status(id, st);
                     }
                     ThreadRequest::Exit(id) => {
                         self.tm.thread_exit(id);

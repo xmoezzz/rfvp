@@ -250,7 +250,7 @@ impl Default for GameData {
             main_thread_exited: false,
             game_should_exit: false,
             cursor_table: HashMap::new(),
-            current_cursor_index: 0, // means use the defualt cursor
+            current_cursor_index: 0,
             halt: false,
             debug_vm: Default::default(),
         }
@@ -464,7 +464,7 @@ impl GameData {
     }
 
     pub fn switch_cursor(&mut self, index: u32) {
-        if index == self.current_cursor_index || index == 0 {
+        if index == self.current_cursor_index {
             return;
         }
 

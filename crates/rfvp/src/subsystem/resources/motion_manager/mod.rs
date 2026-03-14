@@ -219,7 +219,7 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
         global_speed_var0: i32,
         release_special_wait: bool,
         fonts: &crate::subsystem::resources::text_manager::FontEnumerator,
-    ) {
+    ) -> Vec<u32> {
         // In the original engine, holding Ctrl (or issuing ControlPulse) forces text reveal
         // to complete immediately for the current frame.
         if elapsed < 0 {
@@ -228,6 +228,7 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
             self.text_manager.tick(elapsed as u32, global_speed_var0, release_special_wait);
         }
         self.text_reprint(fonts);
+        self.text_manager.collect_completed_sync_print_waiters()
     }
 
     pub fn update_alpha_motions(

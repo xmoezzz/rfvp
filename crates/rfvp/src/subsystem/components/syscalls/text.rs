@@ -2,6 +2,8 @@ use anyhow::Result;
 
 use crate::subsystem::world::GameData;
 use crate::script::Variant;
+use crate::script::global::GLOBAL;
+use crate::subsystem::resources::input_manager::KeyCode;
 
 use super::{get_var, Syscaller};
 
@@ -473,6 +475,22 @@ pub fn text_print(game_data: &mut GameData, id: &Variant, content: &Variant) -> 
             let _ = game_data
                 .motion_manager
                 .text_upload_slot(id, &game_data.fontface_manager, true);
+            let ctrl_down = (game_data.inputs_manager.get_input_state() & (1u32 << (KeyCode::Ctrl as u32))) != 0;
+            let pulse = game_data.inputs_manager.peek_control_pulse();
+            let global0 = GLOBAL.lock().unwrap().get_int_var(0);
+            if game_data
+                .motion_manager
+                .text_manager
+                .should_block_on_print(id, global0, ctrl_down, pulse)
+            {
+                let tid = game_data.get_current_thread();
+                game_data
+                    .motion_manager
+                    .text_manager
+                    .arm_sync_print_wait(id, tid);
+                game_data.thread_wrapper.thread_text_wait(tid);
+                game_data.thread_wrapper.should_break();
+            }
             Ok(Variant::Nil)
         }
         Variant::ConstString(s, addr) => {
@@ -487,6 +505,22 @@ pub fn text_print(game_data: &mut GameData, id: &Variant, content: &Variant) -> 
             let _ = game_data
                 .motion_manager
                 .text_upload_slot(id, &game_data.fontface_manager, true);
+            let ctrl_down = (game_data.inputs_manager.get_input_state() & (1u32 << (KeyCode::Ctrl as u32))) != 0;
+            let pulse = game_data.inputs_manager.peek_control_pulse();
+            let global0 = GLOBAL.lock().unwrap().get_int_var(0);
+            if game_data
+                .motion_manager
+                .text_manager
+                .should_block_on_print(id, global0, ctrl_down, pulse)
+            {
+                let tid = game_data.get_current_thread();
+                game_data
+                    .motion_manager
+                    .text_manager
+                    .arm_sync_print_wait(id, tid);
+                game_data.thread_wrapper.thread_text_wait(tid);
+                game_data.thread_wrapper.should_break();
+            }
 
             let first = game_data.motion_manager.text_manager.mark_readed_text_first(*addr);
             if first {

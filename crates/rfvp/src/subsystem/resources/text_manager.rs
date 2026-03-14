@@ -491,6 +491,10 @@ pub struct TextItem {
     reveal_queue: Vec<RevealQueueItem>,
     applied_visible_chars: usize,
     layout_dirty: bool,
+
+    // Runtime-only original-engine sync-print wait state used by preview slots.
+    sync_wait_thread: Option<u32>,
+    sync_wait_active: bool,
 }
 
 impl TextItem {
@@ -543,6 +547,8 @@ impl TextItem {
             reveal_queue: vec![],
             applied_visible_chars: 0,
             layout_dirty: false,
+            sync_wait_thread: None,
+            sync_wait_active: false,
         }
     }
 
@@ -900,6 +906,8 @@ impl TextItem {
         self.applied_visible_chars = 0;
         self.reveal_queue.clear();
         self.full_buffer.fill(0);
+        self.sync_wait_active = false;
+        self.sync_wait_thread = None;
 
         if self.speed == 0 {
             self.visible_chars = self.total_chars;
@@ -916,6 +924,41 @@ impl TextItem {
             return speed.saturating_mul(1000);
         }
         speed
+    }
+
+    fn effective_reveal_speed_units(&self, global_var0: i32) -> i64 {
+        let mut eff_speed: i64 = self.speed as i64;
+        if eff_speed < 0 {
+            eff_speed = global_var0 as i64;
+        }
+        Self::normalize_reveal_speed_units(eff_speed)
+    }
+
+    fn reveal_is_complete(&self) -> bool {
+        self.visible_chars >= self.total_chars
+            && self.next_wait_index >= self.wait_points.len()
+            && self.pending_wait_ms == 0
+            && !self.pending_special_wait
+    }
+
+    fn should_use_sync_print_wait(&self, global_var0: i32, ctrl_down: bool, pulse: bool) -> bool {
+        if self.skip_mode != 0 {
+            return false;
+        }
+        if ctrl_down || pulse {
+            return false;
+        }
+        self.effective_reveal_speed_units(global_var0) > 0
+    }
+
+    fn arm_sync_print_wait(&mut self, thread_id: u32) {
+        self.sync_wait_thread = Some(thread_id);
+        self.sync_wait_active = true;
+    }
+
+    fn clear_sync_print_wait(&mut self) {
+        self.sync_wait_thread = None;
+        self.sync_wait_active = false;
     }
 
     fn tick_reveal(&mut self, delta_ms: u32, global_var0: i32, release_special_wait: bool) {
@@ -1677,6 +1720,37 @@ impl TextManager {
         }
     }
 
+    pub fn should_block_on_print(&self, id: i32, global_var0: i32, ctrl_down: bool, pulse: bool) -> bool {
+        if !(0..32).contains(&id) {
+            return false;
+        }
+        let t = &self.items[id as usize];
+        if !t.loaded {
+            return false;
+        }
+        t.should_use_sync_print_wait(global_var0, ctrl_down, pulse)
+    }
+
+    pub fn arm_sync_print_wait(&mut self, id: i32, thread_id: u32) {
+        if !(0..32).contains(&id) {
+            return;
+        }
+        self.items[id as usize].arm_sync_print_wait(thread_id);
+    }
+
+    pub fn collect_completed_sync_print_waiters(&mut self) -> Vec<u32> {
+        let mut out = Vec::new();
+        for t in self.items.iter_mut() {
+            if t.sync_wait_active && t.reveal_is_complete() {
+                if let Some(id) = t.sync_wait_thread.take() {
+                    out.push(id);
+                }
+                t.sync_wait_active = false;
+            }
+        }
+        out
+    }
+
     /// Tick reveal-by-time for all text slots.
     pub fn tick(&mut self, delta_ms: u32, global_var0: i32, release_special_wait: bool) {
         for t in self.items.iter_mut() {
@@ -1710,6 +1784,9 @@ impl TextManager {
                     t.apply_reveal_delta_to_current_target();
                 }
                 t.dirty = true;
+            }
+            if t.reveal_is_complete() {
+                t.sync_wait_active = false;
             }
         }
     }
@@ -1782,6 +1859,7 @@ impl TextManager {
             text.reveal_carry = 0;
             text.applied_visible_chars = 0;
             text.layout_dirty = false;
+            text.clear_sync_print_wait();
             // TextClear must upload the cleared texture immediately so any following alpha/move
             // motion acts on the already submitted blank surface, not on stale glyphs.
             text.dirty = true;

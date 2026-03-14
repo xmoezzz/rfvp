@@ -57,6 +57,7 @@ bitflags! {
         const CONTEXT_STATUS_RUNNING = 1;
         const CONTEXT_STATUS_WAIT = 2;
         const CONTEXT_STATUS_SLEEP = 4;
+        const CONTEXT_STATUS_TEXT = 8;
         const CONTEXT_STATUS_DISSOLVE_WAIT = 16;
     }
 }

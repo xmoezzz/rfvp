@@ -61,8 +61,14 @@ impl Syscaller for CursorChange {
         if !(0..4).contains(&id) {
             return Ok(Variant::Nil);
         }
-        // Engine cursor shape/theme. If your backend supports it, map id to a winit CursorIcon.
-        game_data.window_mut().set_cursor_kind(id);
+        let index = id as u32;
+        if game_data.has_cursor(index) {
+            game_data.switch_cursor(index);
+        } else {
+            game_data.set_current_cursor_index(index);
+            // Fallback to backend cursor kind only when no ANI cursor is available.
+            game_data.window_mut().set_cursor_kind(id);
+        }
         Ok(Variant::Nil)
     }
 }

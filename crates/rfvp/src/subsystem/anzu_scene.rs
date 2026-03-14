@@ -71,7 +71,15 @@ impl Scene for AnzuScene {
             frame_duration
         };
 
-        self.update_text_reveal(game_data, elapsed);
+        let completed = game_data.motion_manager.update_text_reveal(
+            elapsed,
+            GLOBAL.lock().unwrap().get_int_var(0),
+            elapsed < 0,
+            &game_data.fontface_manager,
+        );
+        for tid in completed {
+            game_data.thread_wrapper.thread_text_resume(tid);
+        }
     }
 
 }

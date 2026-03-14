@@ -13,6 +13,10 @@ pub enum ThreadRequest {
     Raise(u32),
     /// yield the current thread
     Next(),
+    /// wait for text reveal to complete on the current thread
+    TextWait(u32),
+    /// resume a thread blocked by text reveal
+    TextResume(u32),
     /// exit the corresponding thread, None is for all threads,
     /// If all threads are exited, the game will be impossible to manipulate through the script engine
     Exit(Option<u32>),
@@ -56,6 +60,14 @@ impl ThreadWrapper {
 
     pub fn thread_next(&mut self) {
         self.requests.push_back(ThreadRequest::Next());
+    }
+
+    pub fn thread_text_wait(&mut self, id: u32) {
+        self.requests.push_back(ThreadRequest::TextWait(id));
+    }
+
+    pub fn thread_text_resume(&mut self, id: u32) {
+        self.requests.push_back(ThreadRequest::TextResume(id));
     }
 
     pub fn thread_exit(&mut self, id: Option<u32>) {
