@@ -1,0 +1,8 @@
+[book]
+title = "RFVP Documentation"
+language = "en"
+src = "setsumei"
+
+[build]
+build-dir = "book"
+create-missing = false

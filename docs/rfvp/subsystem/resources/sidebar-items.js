@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["color_manager","flag_manager","gaiji_manager","graph_buff","history_manager","input_manager","motion_manager","parts_manager","prim","save_manager","text_manager","texture","thread_manager","thread_wrapper","time","timer_manager","vfs","videoplayer","window"]};

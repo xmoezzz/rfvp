@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["parts_assign","parts_load","parts_motion","parts_motion_pause","parts_motion_stop","parts_motion_test","parts_rgb","parts_select"],"struct":["PartsAssign","PartsLoad","PartsMotion","PartsMotionPause","PartsMotionStop","PartsMotionTest","PartsRGB","PartsSelect"]};

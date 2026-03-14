@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RFVP Rust API Docs</title>
+  <style>
+    :root {
+      --bg: #3a6ea5;
+      --desktop: #3a6ea5;
+      --window-bg: #d4d0c8;
+      --panel: #d4d0c8;
+      --text: #000000;
+      --title-start: #0a246a;
+      --title-end: #a6caf0;
+      --border-dark: #404040;
+      --border-mid: #808080;
+      --border-light: #ffffff;
+      --border-soft: #c0c0c0;
+      --button-face: #d4d0c8;
+      --link: #0000cc;
+      --link-visited: #551a8b;
+      --green: #008080;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--desktop);
+      color: var(--text);
+      font-family: Tahoma, "MS Sans Serif", Arial, sans-serif;
+      font-size: 14px;
+      line-height: 1.4;
+      min-height: 100%;
+    }
+
+    a {
+      color: var(--link);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    a:visited {
+      color: var(--link-visited);
+    }
+
+    .page {
+      min-height: 100vh;
+      padding: 24px 16px 48px;
+    }
+
+    .window {
+      max-width: 980px;
+      margin: 0 auto;
+      background: var(--window-bg);
+      border-top: 2px solid var(--border-light);
+      border-left: 2px solid var(--border-light);
+      border-right: 2px solid var(--border-dark);
+      border-bottom: 2px solid var(--border-dark);
+      box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.15);
+    }
+
+    .title-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 6px;
+      background: linear-gradient(to right, var(--title-start), var(--title-end));
+      color: #ffffff;
+      font-weight: bold;
+      user-select: none;
+    }
+
+    .title-left {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .title-icon {
+      width: 16px;
+      height: 16px;
+      background: #ffffff;
+      color: #0a246a;
+      border: 1px solid #0a246a;
+      font-size: 11px;
+      line-height: 14px;
+      text-align: center;
+      font-weight: bold;
+      flex: 0 0 auto;
+    }
+
+    .title-text {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .title-buttons {
+      display: flex;
+      gap: 2px;
+    }
+
+    .title-btn {
+      width: 18px;
+      height: 18px;
+      background: var(--button-face);
+      border-top: 1px solid var(--border-light);
+      border-left: 1px solid var(--border-light);
+      border-right: 1px solid var(--border-dark);
+      border-bottom: 1px solid var(--border-dark);
+      color: #000;
+      font-size: 11px;
+      line-height: 14px;
+      text-align: center;
+    }
+
+    .menu-bar {
+      display: flex;
+      gap: 18px;
+      padding: 6px 10px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border-soft);
+      font-size: 13px;
+    }
+
+    .content {
+      padding: 14px;
+    }
+
+    .hero {
+      padding: 14px;
+      margin-bottom: 14px;
+      background: #efefe7;
+      border-top: 1px solid var(--border-light);
+      border-left: 1px solid var(--border-light);
+      border-right: 1px solid var(--border-mid);
+      border-bottom: 1px solid var(--border-mid);
+    }
+
+    .hero h1 {
+      margin: 0 0 8px;
+      font-size: 24px;
+      line-height: 1.2;
+    }
+
+    .hero p {
+      margin: 6px 0;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 14px;
+    }
+
+    .group-box {
+      position: relative;
+      margin: 0;
+      padding: 18px 12px 12px;
+      border-top: 1px solid var(--border-mid);
+      border-left: 1px solid var(--border-mid);
+      border-right: 1px solid var(--border-light);
+      border-bottom: 1px solid var(--border-light);
+      background: var(--panel);
+      min-width: 0;
+    }
+
+    .group-box legend {
+      padding: 0 6px;
+      font-weight: bold;
+      font-size: 13px;
+      color: #000;
+    }
+
+    .crate-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    .crate-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 6px 2px;
+      border-bottom: 1px dotted #b0b0b0;
+    }
+
+    .crate-item:last-child {
+      border-bottom: none;
+    }
+
+    .crate-icon {
+      width: 16px;
+      height: 16px;
+      margin-top: 1px;
+      background: #ffffcc;
+      border: 1px solid #808000;
+      flex: 0 0 auto;
+      position: relative;
+    }
+
+    .crate-icon::after {
+      content: "";
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 10px;
+      height: 2px;
+      background: #808000;
+      box-shadow: 0 4px 0 #808000, 0 8px 0 #808000;
+    }
+
+    .crate-main {
+      min-width: 0;
+    }
+
+    .crate-main a {
+      font-weight: bold;
+    }
+
+    .crate-path {
+      margin-top: 2px;
+      color: #333;
+      font-family: "Courier New", monospace;
+      font-size: 12px;
+      word-break: break-all;
+    }
+
+    .notes {
+      margin: 0;
+      padding-left: 18px;
+    }
+
+    .notes li {
+      margin: 6px 0;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .btn {
+      display: inline-block;
+      padding: 4px 10px;
+      color: #000;
+      background: var(--button-face);
+      border-top: 1px solid var(--border-light);
+      border-left: 1px solid var(--border-light);
+      border-right: 1px solid var(--border-dark);
+      border-bottom: 1px solid var(--border-dark);
+      text-decoration: none;
+      font-size: 13px;
+    }
+
+    .btn:active {
+      border-top: 1px solid var(--border-dark);
+      border-left: 1px solid var(--border-dark);
+      border-right: 1px solid var(--border-light);
+      border-bottom: 1px solid var(--border-light);
+    }
+
+    .status-bar {
+      display: flex;
+      gap: 8px;
+      padding: 6px;
+      border-top: 1px solid var(--border-soft);
+      background: var(--panel);
+    }
+
+    .status-seg {
+      padding: 2px 8px;
+      border-top: 1px solid var(--border-mid);
+      border-left: 1px solid var(--border-mid);
+      border-right: 1px solid var(--border-light);
+      border-bottom: 1px solid var(--border-light);
+      font-size: 12px;
+      background: #e8e6df;
+    }
+
+    .status-seg.right {
+      margin-left: auto;
+    }
+
+    @media (max-width: 720px) {
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .hero h1 {
+        font-size: 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="window">
+      <div class="title-bar">
+        <div class="title-left">
+          <div class="title-icon">R</div>
+          <div class="title-text">RFVP Rust API Documentation</div>
+        </div>
+        <div class="title-buttons" aria-hidden="true">
+          <div class="title-btn">_</div>
+          <div class="title-btn">□</div>
+          <div class="title-btn">×</div>
+        </div>
+      </div>
+
+      <div class="menu-bar">
+        <span>File</span>
+        <span>View</span>
+        <span>Navigate</span>
+        <span>Help</span>
+      </div>
+
+      <div class="content">
+        <div class="hero">
+          <h1>RFVP Rust API Docs</h1>
+          <p>
+            This page is a handwritten entry point for the workspace API documentation generated by
+            <code>cargo doc --workspace --no-deps</code>.
+          </p>
+          <p>
+            The main runtime crate is <strong>rfvp</strong>. Other crates are listed below for direct access.
+          </p>
+
+          <div class="toolbar">
+            <a class="btn" href="rfvp/index.html">Open rfvp</a>
+            <a class="btn" href="assembler/index.html">Open assembler</a>
+            <a class="btn" href="wmv_decoder/index.html">Open wmv_decoder</a>
+          </div>
+        </div>
+
+        <div class="grid">
+          <fieldset class="group-box">
+            <legend>Workspace crates</legend>
+            <ul class="crate-list">
+              <li class="crate-item">
+                <div class="crate-icon"></div>
+                <div class="crate-main">
+                  <a href="rfvp/index.html">rfvp</a>
+                  <div class="crate-path">docs/rfvp/index.html</div>
+                </div>
+              </li>
+              <li class="crate-item">
+                <div class="crate-icon"></div>
+                <div class="crate-main">
+                  <a href="assembler/index.html">assembler</a>
+                  <div class="crate-path">docs/assembler/index.html</div>
+                </div>
+              </li>
+              <li class="crate-item">
+                <div class="crate-icon"></div>
+                <div class="crate-main">
+                  <a href="disassembler/index.html">disassembler</a>
+                  <div class="crate-path">docs/disassembler/index.html</div>
+                </div>
+              </li>
+              <li class="crate-item">
+                <div class="crate-icon"></div>
+                <div class="crate-main">
+                  <a href="video_player_wgpu/index.html">video_player_wgpu</a>
+                  <div class="crate-path">docs/video_player_wgpu/index.html</div>
+                </div>
+              </li>
+              <li class="crate-item">
+                <div class="crate-icon"></div>
+                <div class="crate-main">
+                  <a href="na_mpeg2_decoder/index.html">na_mpeg2_decoder</a>
+                  <div class="crate-path">docs/na_mpeg2_decoder/index.html</div>
+                </div>
+              </li>
+              <li class="crate-item">
+                <div class="crate-icon"></div>
+                <div class="crate-main">
+                  <a href="wmv_decoder/index.html">wmv_decoder</a>
+                  <div class="crate-path">docs/wmv_decoder/index.html</div>
+                </div>
+              </li>
+              <li class="crate-item">
+                <div class="crate-icon"></div>
+                <div class="crate-main">
+                  <a href="lua2hcb_compiler/index.html">lua2hcb_compiler</a>
+                  <div class="crate-path">docs/lua2hcb_compiler/index.html</div>
+                </div>
+              </li>
+              <li class="crate-item">
+                <div class="crate-icon"></div>
+                <div class="crate-main">
+                  <a href="hcb2lua_decompiler/index.html">hcb2lua_decompiler</a>
+                  <div class="crate-path">docs/hcb2lua_decompiler/index.html</div>
+                </div>
+              </li>
+              <li class="crate-item">
+                <div class="crate-icon"></div>
+                <div class="crate-main">
+                  <a href="sizecheck/index.html">sizecheck</a>
+                  <div class="crate-path">docs/sizecheck/index.html</div>
+                </div>
+              </li>
+            </ul>
+          </fieldset>
+
+          <fieldset class="group-box">
+            <legend>Notes</legend>
+            <ul class="notes">
+              <li>The documentation under this site is generated from the current Rust workspace.</li>
+              <li>This page is only a manual entry point. The real API pages are the rustdoc outputs under each crate.</li>
+              <li>If workspace members change, this page should be updated manually.</li>
+              <li>For GitHub Pages branch deployment, keep this file at <code>docs/index.html</code>.</li>
+            </ul>
+          </fieldset>
+        </div>
+      </div>
+
+      <div class="status-bar">
+        <div class="status-seg">Ready</div>
+        <div class="status-seg">Workspace API docs</div>
+        <div class="status-seg right">NT AUTHORITY\SYSTEM</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

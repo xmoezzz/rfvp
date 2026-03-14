@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["global_savedata_path","save_global_savedata_v1","try_decode_global_savedata_v1","try_load_global_savedata_v1"],"struct":["GlobalSaveDataV1"]};

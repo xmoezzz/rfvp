@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["app_config","load_script"]};
