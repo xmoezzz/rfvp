@@ -67,11 +67,25 @@ pub fn system_project_dir(_game_data: &mut GameData, _dir: &Variant) -> Result<V
 }
 
 pub fn system_at_skipname(
-    _game_data: &mut GameData,
-    _arg0: &Variant,
-    _arg1: &Variant,
+    game_data: &mut GameData,
+    arg0: &Variant,
+    arg1: &Variant,
 ) -> Result<Variant> {
-    Ok(Variant::Nil)
+    let name = match arg0 {
+        Variant::String(name) | Variant::ConstString(name, _) => name.as_str(),
+        _ => {
+            log::warn!("system_at_skipname: invalid name argument: {:?}", arg0);
+            return Ok(Variant::Nil);
+        }
+    };
+
+    if arg1.is_nil() {
+        return Ok(game_data.get_named_system_value(name).unwrap_or(Variant::Nil));
+    }
+
+    let value = arg1.clone();
+    game_data.set_named_system_value(name, value.clone());
+    Ok(value)
 }
 
 /// WindowMode(mode)

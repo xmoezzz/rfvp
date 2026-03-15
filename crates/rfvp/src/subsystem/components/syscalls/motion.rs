@@ -20,6 +20,42 @@ fn int_or_default(v: &Variant, default: i32) -> i32 {
     }
 }
 
+#[inline]
+fn normalize_motion_duration(duration: &Variant, syscall_name: &str) -> i32 {
+    let raw = match duration {
+        Variant::Int(v) => *v,
+        // Compatibility: many scripts pass Nil here to request an immediate/short motion.
+        // Treat it as a minimal valid duration without warning spam.
+        Variant::Nil => 1,
+        other => {
+            log::debug!(
+                "{}: invalid duration type {:?}, fallback to 1",
+                syscall_name,
+                other
+            );
+            1
+        }
+    };
+
+    if raw <= 0 {
+        log::debug!(
+            "{}: duration {} <= 0, fallback to 1",
+            syscall_name,
+            raw
+        );
+        1
+    } else if raw > 300000 {
+        log::debug!(
+            "{}: duration {} > 300000, clamped to 300000",
+            syscall_name,
+            raw
+        );
+        300000
+    } else {
+        raw
+    }
+}
+
 pub fn motion_alpha(
     game_data: &mut GameData,
     id: &Variant,
@@ -60,18 +96,7 @@ pub fn motion_alpha(
             .get_alpha(),
     };
 
-    let duration = match duration {
-        Variant::Int(duration) => *duration,
-        _ => {
-            log::error!("Invalid duration");
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if duration <= 0 || duration > 300000 {
-        log::error!("Duration must be between 0 and 300000");
-        return Ok(Variant::Nil);
-    }
+    let duration = normalize_motion_duration(duration, "MotionAlpha");
 
     // Scripts frequently pass Nil to indicate "default".
     // For alpha motion, default is linear interpolation (0).
@@ -182,18 +207,7 @@ pub fn motion_move(
         _ => game_data.motion_manager.prim_manager.get_prim(id).get_y(),
     };
 
-    let duration = match duration {
-        Variant::Int(duration) => *duration,
-        _ => {
-            log::error!("Invalid duration");
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if duration <= 0 || duration > 300000 {
-        log::error!("Duration must be between 0 and 300000");
-        return Ok(Variant::Nil);
-    }
+    let duration = normalize_motion_duration(duration, "MotionMove");
 
     // Default for move motion is linear (1). Nil means "use default".
     let typ = int_or_default(typ, 0);
@@ -296,18 +310,7 @@ pub fn motion_move_r(
         _ => game_data.motion_manager.prim_manager.get_prim(id).get_rotation(),
     };
 
-    let duration = match duration {
-        Variant::Int(duration) => *duration,
-        _ => {
-            log::error!("Invalid duration");
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if duration <= 0 || duration > 300000 {
-        log::error!("Duration must be between 0 and 300000");
-        return Ok(Variant::Nil);
-    }
+    let duration = normalize_motion_duration(duration, "MotionMoveR");
 
     // Default for rotation motion is linear (1). Nil means "use default".
     let typ = int_or_default(typ, 0);
@@ -441,18 +444,7 @@ pub fn motion_move_s2(
             .into(),
     };
 
-    let duration = match duration {
-        Variant::Int(duration) => *duration,
-        _ => {
-            log::error!("Invalid duration");
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if duration <= 0 || duration > 300000 {
-        log::error!("Duration must be between 0 and 300000");
-        return Ok(Variant::Nil);
-    }
+    let duration = normalize_motion_duration(duration, "MotionMoveS2");
 
     // Default for scale motion is linear (1). Nil means "use default".
     let typ = int_or_default(typ, 0);
@@ -565,18 +557,7 @@ pub fn motion_move_z(
             .into(),
     };
 
-    let duration = match duration {
-        Variant::Int(duration) => *duration,
-        _ => {
-            log::error!("Invalid duration");
-            return Ok(Variant::Nil);
-        },
-    };
-
-    if duration <= 0 || duration > 300000 {
-        log::error!("Duration must be between 0 and 300000");
-        return Ok(Variant::Nil);
-    }
+    let duration = normalize_motion_duration(duration, "MotionMoveZ");
 
     // Default for z motion is linear (1). Nil means "use default".
     let typ = int_or_default(typ, 0);
@@ -717,18 +698,7 @@ pub fn v3d_motion(
         }
     };
 
-    let duration = match duration {
-        Variant::Int(duration) => *duration,
-        _ => {
-            log::error!("Invalid duration");
-            return Ok(Variant::Nil);
-        }
-    };
-
-    if duration <= 0 || duration > 300000 {
-        log::error!("Duration must be between 1 and 300000");
-        return Ok(Variant::Nil);
-    }
+    let duration = normalize_motion_duration(duration, "V3DMotion");
 
     // Default for v3d motion is linear (1). Nil means "use default".
     let typ_i32 = int_or_default(typ, 1);

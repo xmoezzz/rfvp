@@ -200,6 +200,20 @@ impl SePlayer {
         self.se_slots[slot].is_some()
     }
 
+    /// Called once per frame to clear slots whose sounds have finished playing naturally.
+    /// Without this, `is_playing()` would never return `false` after a non-looping sound completes,
+    /// because Kira leaves the handle in-place with `PlaybackState::Stopped`.
+    pub fn tick_cleanup(&mut self) {
+        use kira::sound::PlaybackState;
+        for slot in 0..SE_SLOT_COUNT {
+            if let Some(handle) = &self.se_slots[slot] {
+                if handle.state() == PlaybackState::Stopped {
+                    self.se_slots[slot] = None;
+                }
+            }
+        }
+    }
+
     pub fn set_type(&mut self, slot: i32, kind: i32) {
         let slot = slot as usize;
         self.se_kinds[slot] = Some(kind);

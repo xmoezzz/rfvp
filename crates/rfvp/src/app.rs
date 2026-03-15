@@ -491,7 +491,18 @@ impl App {
                 // Ceil to milliseconds to avoid starving script timers on sub-ms frames.
                 (frame_us + 999) / 1000
             };
-            gd.timer_manager.tick(frame_ms.min(u32::MAX as u64) as u32);
+            // Do not advance auto-read timers while text is still being revealed.
+            // The timer should only start counting once the text animation has completed,
+            // matching the original engine's auto-read behaviour.
+            let text_scrolling = gd.motion_manager.text_manager.has_active_text_reveal();
+            if !text_scrolling {
+                gd.timer_manager.tick(frame_ms.min(u32::MAX as u64) as u32);
+            }
+
+            // Remove handles for sounds that finished playing naturally so that
+            // `is_playing()` returns `false` and script voice-wait loops can exit.
+            gd.se_player_mut().tick_cleanup();
+            gd.bgm_player_mut().tick_cleanup();
 
             let prev_dissolve = self.last_dissolve_type;
             let prev_dissolve2 = self.last_dissolve2_transitioning;

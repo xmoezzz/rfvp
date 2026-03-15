@@ -154,6 +154,7 @@ pub struct GameData {
     cursor_table: HashMap<u32, CursorBundle>,
     current_cursor_index: u32,
     halt: bool,
+    named_system_values: HashMap<String, Variant>,
 
     pub(crate) debug_vm: crate::debug_ui::vm_snapshot::VmSnapshot,
 }
@@ -207,6 +208,7 @@ impl GameData {
         ptr::addr_of_mut!((*dst).cursor_table).write(HashMap::new());
         ptr::addr_of_mut!((*dst).current_cursor_index).write(0);
         ptr::addr_of_mut!((*dst).halt).write(false);
+        ptr::addr_of_mut!((*dst).named_system_values).write(HashMap::new());
         ptr::addr_of_mut!((*dst).debug_vm).write(Default::default());
     }
 }
@@ -252,6 +254,7 @@ impl Default for GameData {
             cursor_table: HashMap::new(),
             current_cursor_index: 0, // means use the defualt cursor
             halt: false,
+            named_system_values: HashMap::new(),
             debug_vm: Default::default(),
         }
     }
@@ -377,6 +380,14 @@ impl GameData {
 
     pub fn audio_manager(&self) -> Arc<AudioManager> {
         self.audio_manager.clone()
+    }
+
+    pub fn get_named_system_value(&self, name: &str) -> Option<Variant> {
+        self.named_system_values.get(name).cloned()
+    }
+
+    pub fn set_named_system_value(&mut self, name: impl Into<String>, value: Variant) {
+        self.named_system_values.insert(name.into(), value);
     }
 
     pub fn set_prim_root(&mut self, root: i16) {

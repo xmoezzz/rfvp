@@ -1769,6 +1769,17 @@ impl TextManager {
         self.items[id as usize].arm_sync_print_wait(thread_id);
     }
 
+    /// Returns `true` if any text slot is still actively revealing content.
+    ///
+    /// This is intentionally broader than `sync_wait_active`: auto-read timers must not
+    /// advance while characters are still being drawn, even if the script thread is not
+    /// currently parked on a sync-print wait flag.
+    pub fn has_active_text_reveal(&self) -> bool {
+        self.items
+            .iter()
+            .any(|t| t.loaded && !t.is_suspended && !t.reveal_is_complete())
+    }
+
     pub fn collect_completed_sync_print_waiters(&mut self) -> Vec<u32> {
         let mut out = Vec::new();
         for t in self.items.iter_mut() {
