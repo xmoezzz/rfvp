@@ -83,6 +83,16 @@ fn gd_write<'a>(gd: &'a Arc<RwLock<Box<GameData>>>) -> RwLockWriteGuard<'a, Box<
 }
 
 
+
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+fn find_exact_game_video_mode(window: &Window, game_size: (u32, u32)) -> Option<winit::monitor::VideoModeHandle> {
+    let monitor = window.current_monitor().or_else(|| window.primary_monitor())?;
+    monitor.video_modes().find(|mode| {
+        let size = mode.size();
+        size.width == game_size.0 && size.height == game_size.1
+    })
+}
+
 #[derive(Clone, Copy, Debug)]
 struct WindowedRestoreState {
     size: PhysicalSize<u32>,
@@ -177,12 +187,8 @@ impl App {
         {
             let mut gd = gd_write(&self.game_data);
             self.layer_machine.apply_scene_action(SceneAction::Start, &mut **gd);
-            let current = gd.get_current_cursor_index();
-            if gd.has_cursor(current) {
-                gd.switch_cursor(current);
-            } else if gd.has_cursor(0) {
-                gd.set_current_cursor_index(0);
-                gd.switch_cursor(0);
+            if gd.has_cursor(1) {
+                gd.switch_cursor(1);
             }
         }
     }
@@ -323,12 +329,12 @@ impl App {
                                         // to return from fullscreen).
                                         let mut gd = gd_write(&self.game_data);
                                         let cur = gd.get_render_flag();
-                                        let last = if self.last_fullscreen_flag == 2 || self.last_fullscreen_flag == 3 {
+                                        let last = if self.last_fullscreen_flag == 1 || self.last_fullscreen_flag == 2 {
                                             self.last_fullscreen_flag
                                         } else {
-                                            3
+                                            1
                                         };
-                                        let next = if cur == 2 || cur == 3 { 0 } else { last };
+                                        let next = if cur == 1 || cur == 2 { 0 } else { last };
                                         gd.set_render_flag(next);
                                     }
                                     _ => {}
@@ -553,7 +559,6 @@ impl App {
 
         match flag {
             0 => {
-                // Windowed
                 w.set_fullscreen(None);
                 w.set_decorations(true);
                 w.set_maximized(false);
@@ -566,34 +571,47 @@ impl App {
                 }
             }
             1 => {
-                // "Full window" (maximize), distinct from fullscreen.
-                w.set_fullscreen(None);
-                w.set_decorations(true);
-                w.set_maximized(true);
-            }
-            2 | 3 => {
-                // Fullscreen.
-                self.last_fullscreen_flag = flag;
-
-                // Capture current window bounds so we can restore them when returning to windowed.
+                self.last_fullscreen_flag = 1;
                 if self.windowed_restore.is_none() {
                     let size = w.inner_size();
                     let pos = w.outer_position().ok();
                     self.windowed_restore = Some(WindowedRestoreState { size, pos });
                 }
-
-                // Best-effort borderless fullscreen on the current monitor.
                 let monitor = w.current_monitor();
                 w.set_fullscreen(Some(Fullscreen::Borderless(monitor)));
             }
-            _ => {
-                // Unknown flags are ignored at the backend layer.
+            2 => {
+                if let Some(mode) = find_exact_game_video_mode(w, self.virtual_size) {
+                    self.last_fullscreen_flag = 2;
+                    if self.windowed_restore.is_none() {
+                        let size = w.inner_size();
+                        let pos = w.outer_position().ok();
+                        self.windowed_restore = Some(WindowedRestoreState { size, pos });
+                    }
+                    w.set_fullscreen(Some(Fullscreen::Exclusive(mode)));
+                } else {
+                    // Reverse-engineered behavior requires exact support for the exclusive path.
+                    // Do not silently reinterpret render_flag=2 as another fullscreen mode.
+                    log::error!("WindowMode(-1): exact exclusive mode is unavailable during apply; restoring windowed mode");
+                    w.set_fullscreen(None);
+                    w.set_decorations(true);
+                    w.set_maximized(false);
+                    if let Some(st) = self.windowed_restore.take() {
+                        w.request_inner_size(st.size);
+                        if let Some(pos) = st.pos {
+                            let _ = w.set_outer_position(pos);
+                        }
+                    }
+                    let mut gd = gd_write(&self.game_data);
+                    gd.set_render_flag_local(0);
+                }
             }
+            _ => {}
         }
     }
 
 
-    fn virtual_to_window_cursor_pos(&self, vx: i32, vy: i32, render_flag: i32) -> PhysicalPosition<f64> {
+    fn virtual_to_window_cursor_pos(&self, vx: i32, vy: i32, _render_flag: i32) -> PhysicalPosition<f64> {
         let sw = self.surface_config.width.max(1) as f64;
         let sh = self.surface_config.height.max(1) as f64;
         let vw = self.virtual_size.0.max(1) as f64;
@@ -602,11 +620,6 @@ impl App {
         let vx = vx.clamp(0, (vw as i32).saturating_sub(1)) as f64;
         let vy = vy.clamp(0, (vh as i32).saturating_sub(1)) as f64;
 
-        if render_flag == 2 {
-            let px = (vx + 0.5) * sw / vw;
-            let py = (vy + 0.5) * sh / vh;
-            return PhysicalPosition::new(px, py);
-        }
 
         let scale = (sw / vw).min(sh / vh);
         let dst_w = vw * scale;
@@ -836,20 +849,16 @@ impl App {
             let sw = self.surface_config.width.max(1) as f32;
             let sh = self.surface_config.height.max(1) as f32;
 
-            // Two fullscreen presentation modes exist in the original engine:
-            // - render_flag==2: stretch-to-fill (may distort aspect ratio)
-            // - render_flag==3: keep-aspect (letterbox)
-            // For windowed modes (0/1), keep-aspect matches typical behavior.
-            let render_flag = gd_read(&self.game_data).get_render_flag();
-
-            let (scale_x, scale_y, off_x, off_y) = if render_flag == 2 {
-                (sw / vw, sh / vh, 0.0f32, 0.0f32)
-            } else {
-                let s = (sw / vw).min(sh / vh);
-                let dst_w = vw * s;
-                let dst_h = vh * s;
-                ((s), (s), (sw - dst_w) * 0.5, (sh - dst_h) * 0.5)
-            };
+            // Reverse-engineered WindowMode behavior only proves aspect-preserving presentation
+            // for the normal host-backed path. Do not assign any special presentation semantics to
+            // internal render_flag==3; it is only exposed by the query remap (3 -> -2).
+            let s = (sw / vw).min(sh / vh);
+            let dst_w = vw * s;
+            let dst_h = vh * s;
+            let scale_x = s;
+            let scale_y = s;
+            let off_x = (sw - dst_w) * 0.5;
+            let off_y = (sh - dst_h) * 0.5;
 
             let proj_surface = mat4(
                 vec4(2.0 / sw, 0.0, 0.0, 0.0),
@@ -1292,35 +1301,23 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
         // Update input state under the same lock as the desktop event path.
         {
             let mut gd = gd_write(&self.game_data);
-            let render_flag = gd.get_render_flag();
+            // Map surface physical pixels -> virtual game pixels using the same keep-aspect
+            // content rectangle as the presentation pass.
+            let scale = (sw / vw).min(sh / vh);
+            let dst_w = vw * scale;
+            let dst_h = vh * scale;
+            let off_x = (sw - dst_w) * 0.5;
+            let off_y = (sh - dst_h) * 0.5;
 
-            // Map surface physical pixels -> virtual game pixels.
-            let (vx, vy, in_content) = if render_flag == 2 {
-                let mut vx = (px * vw / sw) as i32;
-                let mut vy = (py * vh / sh) as i32;
+            let in_content = px >= off_x && px < (off_x + dst_w) && py >= off_y && py < (off_y + dst_h);
+            let mut vx = ((px - off_x) / scale) as i32;
+            let mut vy = ((py - off_y) / scale) as i32;
+            if in_content {
                 let max_x = (vw as i32).saturating_sub(1);
                 let max_y = (vh as i32).saturating_sub(1);
                 vx = vx.clamp(0, max_x);
                 vy = vy.clamp(0, max_y);
-                (vx, vy, true)
-            } else {
-                let scale = (sw / vw).min(sh / vh);
-                let dst_w = vw * scale;
-                let dst_h = vh * scale;
-                let off_x = (sw - dst_w) * 0.5;
-                let off_y = (sh - dst_h) * 0.5;
-
-                let in_content = px >= off_x && px < (off_x + dst_w) && py >= off_y && py < (off_y + dst_h);
-                let mut vx = ((px - off_x) / scale) as i32;
-                let mut vy = ((py - off_y) / scale) as i32;
-                if in_content {
-                    let max_x = (vw as i32).saturating_sub(1);
-                    let max_y = (vh as i32).saturating_sub(1);
-                    vx = vx.clamp(0, max_x);
-                    vy = vy.clamp(0, max_y);
-                }
-                (vx, vy, in_content)
-            };
+            }
 
             gd.inputs_manager.notify_mouse_move(vx, vy);
             gd.inputs_manager.set_mouse_in(in_content);
@@ -1360,34 +1357,21 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
 
         {
             let mut gd = gd_write(&self.game_data);
-            let render_flag = gd.get_render_flag();
+            let scale = (sw / vw).min(sh / vh);
+            let dst_w = vw * scale;
+            let dst_h = vh * scale;
+            let off_x = (sw - dst_w) * 0.5;
+            let off_y = (sh - dst_h) * 0.5;
 
-            let (vx, vy, in_content) = if render_flag == 2 {
-                let mut vx = (px * vw / sw) as i32;
-                let mut vy = (py * vh / sh) as i32;
+            let in_content = px >= off_x && px < (off_x + dst_w) && py >= off_y && py < (off_y + dst_h);
+            let mut vx = ((px - off_x) / scale) as i32;
+            let mut vy = ((py - off_y) / scale) as i32;
+            if in_content {
                 let max_x = (vw as i32).saturating_sub(1);
                 let max_y = (vh as i32).saturating_sub(1);
                 vx = vx.clamp(0, max_x);
                 vy = vy.clamp(0, max_y);
-                (vx, vy, true)
-            } else {
-                let scale = (sw / vw).min(sh / vh);
-                let dst_w = vw * scale;
-                let dst_h = vh * scale;
-                let off_x = (sw - dst_w) * 0.5;
-                let off_y = (sh - dst_h) * 0.5;
-
-                let in_content = px >= off_x && px < (off_x + dst_w) && py >= off_y && py < (off_y + dst_h);
-                let mut vx = ((px - off_x) / scale) as i32;
-                let mut vy = ((py - off_y) / scale) as i32;
-                if in_content {
-                    let max_x = (vw as i32).saturating_sub(1);
-                    let max_y = (vh as i32).saturating_sub(1);
-                    vx = vx.clamp(0, max_x);
-                    vy = vy.clamp(0, max_y);
-                }
-                (vx, vy, in_content)
-            };
+            }
 
             gd.inputs_manager.notify_mouse_move(vx, vy);
             gd.inputs_manager.set_mouse_in(in_content);
@@ -1926,9 +1910,9 @@ impl AppBuilder {
 
         let window = Arc::new(window);
 
-        // Expose a best-effort "fullscreen capable" flag to scripts via WindowMode(3).
-        // The original engine checks platform capabilities; here we treat having a monitor as "capable".
-        self.world.set_can_fullscreen(window.current_monitor().is_some());
+        // WindowMode(3) in the original engine reflects whether an exact game-resolution
+        // exclusive fullscreen mode is available.
+        self.world.set_can_fullscreen(find_exact_game_video_mode(&window, self.size).is_some());
 
         // Debug HUD window (created hidden, toggled via F2).
         let hud_window: Option<Arc<Window>> = if debug_ui::enabled() && !cfg!(any(target_os="ios", target_os="android")) {
@@ -2107,7 +2091,7 @@ impl AppBuilder {
                 ptr::addr_of_mut!((*p).native_scale_factor).write(window.scale_factor());
                 ptr::addr_of_mut!((*p).pump_mode).write(false);
                 ptr::addr_of_mut!((*p).windowed_restore).write(None);
-                ptr::addr_of_mut!((*p).last_fullscreen_flag).write(3);
+                ptr::addr_of_mut!((*p).last_fullscreen_flag).write(1);
 
                 ptr::addr_of_mut!((*p).vm_worker).write(vm_worker);
                 ptr::addr_of_mut!((*p).pending_vm_frame_ms).write(0);
@@ -2183,7 +2167,7 @@ impl AppBuilder {
     pub fn build_ios(mut self, ui_view: NonNull<c_void>, surface_size: (u32, u32), native_scale_factor: f64) -> anyhow::Result<Box<App>> {
         // Mobile is always fullscreen.
         self.world.set_can_fullscreen(true);
-        self.world.set_render_flag_local(2);
+        self.world.set_render_flag_local(1);
 
         self.add_late_internal_systems_to_schedule();
 
@@ -2211,7 +2195,8 @@ impl AppBuilder {
         self.script_engine.start_main(entry_point);
         self.world.nls = self.parser.nls.clone();
 
-        // Keep cursor table semantics in host-mode as well; only the display backend differs.
+        // Cursor animations are not used in iOS host-mode.
+        self.world.set_cursor_table(HashMap::new());
 
         // Fullscreen quad used for dissolve overlays (virtual space, pixel coordinates).
         let (dissolve_vertex_buffer, dissolve_index_buffer, dissolve_num_indices) = {
@@ -2266,7 +2251,7 @@ impl AppBuilder {
                 ptr::addr_of_mut!((*p).native_scale_factor).write(scale);
                 ptr::addr_of_mut!((*p).pump_mode).write(true);
                 ptr::addr_of_mut!((*p).windowed_restore).write(None);
-                ptr::addr_of_mut!((*p).last_fullscreen_flag).write(3);
+                ptr::addr_of_mut!((*p).last_fullscreen_flag).write(1);
 
                 ptr::addr_of_mut!((*p).vm_worker).write(vm_worker);
                 ptr::addr_of_mut!((*p).pending_vm_frame_ms).write(0);
@@ -2333,7 +2318,7 @@ impl AppBuilder {
     ) -> anyhow::Result<Box<App>> {
         // Mobile is always fullscreen.
         self.world.set_can_fullscreen(true);
-        self.world.set_render_flag_local(2);
+        self.world.set_render_flag_local(1);
 
         self.add_late_internal_systems_to_schedule();
 
@@ -2362,7 +2347,8 @@ impl AppBuilder {
         self.script_engine.start_main(entry_point);
         self.world.nls = self.parser.nls.clone();
 
-        // Keep cursor table semantics in host-mode as well; only the display backend differs.
+        // Cursor animations are not used in Android host-mode.
+        self.world.set_cursor_table(HashMap::new());
 
         // Fullscreen quad used for dissolve overlays (virtual space, pixel coordinates).
         let (dissolve_vertex_buffer, dissolve_index_buffer, dissolve_num_indices) = {
@@ -2417,7 +2403,7 @@ impl AppBuilder {
                 ptr::addr_of_mut!((*p).native_scale_factor).write(scale);
                 ptr::addr_of_mut!((*p).pump_mode).write(true);
                 ptr::addr_of_mut!((*p).windowed_restore).write(None);
-                ptr::addr_of_mut!((*p).last_fullscreen_flag).write(3);
+                ptr::addr_of_mut!((*p).last_fullscreen_flag).write(1);
 
                 ptr::addr_of_mut!((*p).vm_worker).write(vm_worker);
                 ptr::addr_of_mut!((*p).pending_vm_frame_ms).write(0);

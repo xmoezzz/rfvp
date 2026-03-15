@@ -492,7 +492,7 @@ pub struct TextItem {
     applied_visible_chars: usize,
     layout_dirty: bool,
 
-    // Runtime-only original-engine sync-print wait state used by preview slots.
+    // Runtime-only sync-print wait state used by preview slots.
     sync_wait_thread: Option<u32>,
     sync_wait_active: bool,
 }

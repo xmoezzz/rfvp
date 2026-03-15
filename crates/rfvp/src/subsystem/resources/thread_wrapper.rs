@@ -13,7 +13,7 @@ pub enum ThreadRequest {
     Raise(u32),
     /// yield the current thread
     Next(),
-    /// wait for text reveal to complete on the current thread
+    /// wait for text reveal to complete on the given thread
     TextWait(u32),
     /// resume a thread blocked by text reveal
     TextResume(u32),

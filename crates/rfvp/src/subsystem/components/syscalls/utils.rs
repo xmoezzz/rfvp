@@ -76,15 +76,22 @@ pub fn system_at_skipname(
 
 /// WindowMode(mode)
 ///
-/// This syscall is lifecycle-critical in the original engine; it is not a simple "flag".
-/// The script uses it to:
-///   - switch between windowed/fullscreen rendering modes (via an internal `render_flag`)
-///   - query the current mode
-///   - query fullscreen capability
-///   - control a special "first frame" behavior used by the engine when losing focus
+/// Reverse-engineered behavior from the original engine:
 ///
-/// We preserve observable semantics at the script level, while the backend (winit) may
-/// choose to honor the requested mode change.
+/// - `0`: set internal `render_flag = 0`, return `0`
+/// - `1`: set internal `render_flag = 1`, return `1`
+/// - `-1`: if exact game-resolution exclusive fullscreen is supported, set
+///   `render_flag = 2` and return `-1`; otherwise leave the mode unchanged and return `1`
+/// - `2`: query current mode, with script-visible remap `2 -> -1` and `3 -> -2`
+/// - `3`: query support for the `-1` mode
+/// - `4`: set `is_first_frame = true`
+/// - `5`: set `is_first_frame = false`
+/// - `6`: query `is_first_frame`
+///
+/// Important restriction from reverse engineering: the original `WindowMode` implementation
+/// only proves normal production of internal render flags `0`, `1`, and `2`. The query
+/// remap for internal `3 -> -2` exists, but its real producer / display semantics are not
+/// closed here, so this port does not assign any special rendering behavior to `render_flag==3`.
 pub fn window_mode(game_data: &mut GameData, mode: &Variant) -> Result<Variant> {
     let v = match mode {
         Variant::Int(m) => *m,
@@ -100,17 +107,18 @@ pub fn window_mode(game_data: &mut GameData, mode: &Variant) -> Result<Variant> 
         return Ok(Variant::Nil);
     }
 
-    // Mobile platforms are always fullscreen. Titles may attempt to toggle modes,
-    // but we treat those requests as no-ops while still reporting fullscreen.
+    // Mobile hosts are always fullscreen at the OS level. We preserve the script-visible
+    // behavior by exposing the WindowMode(1) semantics: fullscreen host surface with
+    // aspect-preserving game presentation.
     #[cfg(any(target_os = "ios", target_os = "android"))]
     {
         match v {
             0 | 1 | -1 => {
                 game_data.set_can_fullscreen(true);
-                game_data.set_render_flag_local(2);
-                return Ok(Variant::Int(0));
+                game_data.set_render_flag_local(1);
+                return Ok(Variant::Int(1));
             }
-            2 => return Ok(Variant::Int(-1)),
+            2 => return Ok(Variant::Int(1)),
             3 => return Ok(Variant::True),
             _ => {}
         }
@@ -123,13 +131,12 @@ pub fn window_mode(game_data: &mut GameData, mode: &Variant) -> Result<Variant> 
             Ok(Variant::Int(0))
         }
         1 => {
-            // Maximized (non-fullscreen)
+            // Non-exclusive fullscreen. Presentation stays aspect-preserving.
             game_data.set_render_flag(1);
             Ok(Variant::Int(1))
         }
         -1 => {
-            // If fullscreen is supported, enter fullscreen-stretch (render_flag=2) and return -1.
-            // Otherwise return 1 and do not change mode.
+            // Exact game-resolution exclusive fullscreen. Only enter when support was proven.
             if game_data.get_can_fullscreen() {
                 game_data.set_render_flag(2);
                 Ok(Variant::Int(-1))
@@ -156,17 +163,17 @@ pub fn window_mode(game_data: &mut GameData, mode: &Variant) -> Result<Variant> 
             }
         }
         4 => {
-            // Set the legacy flag (semantics are title-dependent).
+            // Enables the original WM_ACTIVATEAPP focus-loss fallback path.
             game_data.set_is_first_frame(true);
             Ok(Variant::Nil)
         }
         5 => {
-            // Clear the legacy flag.
+            // Disables the original WM_ACTIVATEAPP focus-loss fallback path.
             game_data.set_is_first_frame(false);
             Ok(Variant::Nil)
         }
         6 => {
-            // Query the legacy flag.
+            // Query the WM_ACTIVATEAPP focus-loss fallback flag.
             if game_data.get_is_first_frame() {
                 Ok(Variant::True)
             } else {

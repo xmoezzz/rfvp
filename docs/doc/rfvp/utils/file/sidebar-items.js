@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["app_base_path","open_file","read_file","read_file_modification_time","set_base_path"],"struct":["FileReaderError","PathBuilder"]};

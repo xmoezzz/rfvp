@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["pipelines","render_target","texture","vertex_buffer","vertices"],"struct":["GpuCommonResources"]};

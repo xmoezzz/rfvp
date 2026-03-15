@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["VLC_INIT_INPUT_LE","VLC_INIT_OUTPUT_LE","VLC_INIT_STATIC_OVERLONG","VLC_INIT_USE_STATIC"],"fn":["ff_vlc_init_from_lengths","ff_vlc_init_sparse","get_vlc2"],"struct":["Vlc","VlcElem"],"type":["VlcBaseType"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["TextureFilterMode"],"struct":["BindGroupLayouts","GpuTexture","TextureBindGroup"]};

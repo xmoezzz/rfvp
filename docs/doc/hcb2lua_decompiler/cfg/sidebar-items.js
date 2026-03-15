@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["BlockTerm"],"fn":["block_term","build_cfg","inst_stack_delta"],"struct":["BasicBlock","FunctionCfg"]};
