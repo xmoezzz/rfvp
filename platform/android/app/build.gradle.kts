@@ -5,6 +5,7 @@ plugins {
 android {
     namespace = "com.rfvp.launcher"
     compileSdk = 36
+    ndkVersion = "25.2.9519653"
 
     defaultConfig {
         applicationId = "com.rfvp.launcher"
