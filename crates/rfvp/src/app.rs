@@ -84,13 +84,21 @@ fn gd_write<'a>(gd: &'a Arc<RwLock<Box<GameData>>>) -> RwLockWriteGuard<'a, Box<
 
 
 
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 fn find_exact_game_video_mode(window: &Window, game_size: (u32, u32)) -> Option<winit::monitor::VideoModeHandle> {
-    let monitor = window.current_monitor().or_else(|| window.primary_monitor())?;
-    monitor.video_modes().find(|mode| {
-        let size = mode.size();
-        size.width == game_size.0 && size.height == game_size.1
-    })
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    {
+        let monitor = window.current_monitor().or_else(|| window.primary_monitor())?;
+        return monitor.video_modes().find(|mode| {
+            let size = mode.size();
+            size.width == game_size.0 && size.height == game_size.1
+        });
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        let _ = (window, game_size);
+        None
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
