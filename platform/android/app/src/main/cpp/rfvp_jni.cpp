@@ -20,6 +20,7 @@ using resize_fn_t = void (*)(void* handle, uint32_t w_px, uint32_t h_px);
 using set_surface_fn_t = void (*)(void* handle, void* native_window_ptr, uint32_t w_px, uint32_t h_px);
 using touch_fn_t = void (*)(void* handle, int32_t phase, double x_px, double y_px);
 using destroy_fn_t = void (*)(void* handle);
+using save_state_fn_t = int32_t (*)(void* handle);
 using init_context_fn_t = void (*)(void* java_vm_ptr, void* app_context_global_ref);
 
 struct Api {
@@ -29,6 +30,7 @@ struct Api {
     set_surface_fn_t set_surface = nullptr;
     touch_fn_t touch = nullptr;
     destroy_fn_t destroy = nullptr;
+    save_state_fn_t save_state = nullptr;
     init_context_fn_t init_context = nullptr;
 };
 
@@ -64,6 +66,7 @@ const char* lib_path = "librfvp.so";
         g_api.set_surface = reinterpret_cast<set_surface_fn_t>(load("rfvp_android_set_surface"));
         g_api.touch = reinterpret_cast<touch_fn_t>(load("rfvp_android_touch"));
         g_api.destroy = reinterpret_cast<destroy_fn_t>(load("rfvp_android_destroy"));
+        g_api.save_state = reinterpret_cast<save_state_fn_t>(load("rfvp_android_save_state"));
         g_api.init_context = reinterpret_cast<init_context_fn_t>(load("rfvp_android_init_context"));
 
         if (g_api.create && g_api.step && g_api.resize && g_api.set_surface && g_api.touch && g_api.destroy) {
@@ -74,6 +77,9 @@ const char* lib_path = "librfvp.so";
 
         if (!g_api.init_context) {
             LOGW("rfvp_android_init_context is missing; audio backends may crash (ndk-context not initialized)");
+        }
+        if (!g_api.save_state) {
+            LOGW("rfvp_android_save_state is missing; onPause settings save will be skipped");
         }
     });
 }
@@ -267,4 +273,19 @@ Java_com_rfvp_launcher_NativeRfvp_destroy(JNIEnv*, jclass, jlong handle) {
         std::lock_guard<std::mutex> lk(g_win_mu);
         release_window_locked(handle);
     }
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_com_rfvp_launcher_NativeRfvp_saveState(JNIEnv*, jclass, jlong handle) {
+    load_api_or_log();
+    if (handle == 0) {
+        LOGW("saveState: handle is 0 (skipped)");
+        return 0;
+    }
+    if (!g_api.save_state) {
+        LOGE("saveState: rfvp_android_save_state symbol is null (skipped)");
+        return 0;
+    }
+    const int32_t rc = g_api.save_state(reinterpret_cast<void*>(handle));
+    return static_cast<jint>(rc);
 }

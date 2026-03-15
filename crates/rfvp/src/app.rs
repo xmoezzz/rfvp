@@ -257,6 +257,17 @@ impl App {
         gd.inputs_manager.get_hud_up().to_string()
     }
 
+    /// Flush global save state to disk (flags, read-text bitmap, audio settings, etc.).
+    /// Safe to call at any time while the engine is alive (e.g. from `onPause`).
+    pub fn save_state(&self) -> bool {
+        let gd = gd_read(&self.game_data);
+        if let Err(e) = crate::subsystem::global_savedata::save_global_savedata_v1(&gd) {
+            log::error!("save_state: {:#}", e);
+            return false;
+        }
+        true
+    }
+
     fn handle_event(&mut self, event: Event<()>, loopd: &winit::event_loop::ActiveEventLoop) {
         // NOTE: In pump-mode we must not block inside winit, because the host (SwiftUI/Android/iOS)
         // drives the app by repeatedly calling `rfvp_pump_step()`.
@@ -1963,6 +1974,9 @@ impl AppBuilder {
             .lock()
             .unwrap()
             .init_with(non_volatile_global_count, volatile_global_count);
+        if let Err(e) = self.world.fontface_manager.init_fontface() {
+            log::error!("Failed to initialize fontface manager: {:#}", e);
+        }
         if let Err(e) = crate::subsystem::global_savedata::try_load_global_savedata_v1(&mut self.world) {
             log::error!("Failed to load global savedata: {:#}", e);
         }
@@ -2206,6 +2220,9 @@ impl AppBuilder {
         let non_volatile_global_count = self.parser.get_non_volatile_global_count();
         let volatile_global_count = self.parser.get_volatile_global_count();
         GLOBAL.lock().unwrap().init_with(non_volatile_global_count, volatile_global_count);
+        if let Err(e) = self.world.fontface_manager.init_fontface() {
+            log::error!("Failed to initialize fontface manager: {:#}", e);
+        }
         if let Err(e) = crate::subsystem::global_savedata::try_load_global_savedata_v1(&mut self.world) {
             log::error!("Failed to load global savedata: {:#}", e);
         }
@@ -2358,6 +2375,9 @@ impl AppBuilder {
         let non_volatile_global_count = self.parser.get_non_volatile_global_count();
         let volatile_global_count = self.parser.get_volatile_global_count();
         GLOBAL.lock().unwrap().init_with(non_volatile_global_count, volatile_global_count);
+        if let Err(e) = self.world.fontface_manager.init_fontface() {
+            log::error!("Failed to initialize fontface manager: {:#}", e);
+        }
         if let Err(e) = crate::subsystem::global_savedata::try_load_global_savedata_v1(&mut self.world) {
             log::error!("Failed to load global savedata: {:#}", e);
         }

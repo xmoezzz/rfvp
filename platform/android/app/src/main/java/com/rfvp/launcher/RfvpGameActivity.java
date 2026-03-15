@@ -33,6 +33,8 @@ import java.nio.charset.StandardCharsets;
 public final class RfvpGameActivity extends AppCompatActivity
         implements SurfaceHolder.Callback, Choreographer.FrameCallback, View.OnTouchListener {
 
+    private static final String TAG = "RfvpGameActivity";
+
     private SurfaceView surfaceView;
 
     private long handle = 0;
@@ -80,6 +82,11 @@ public final class RfvpGameActivity extends AppCompatActivity
     @Override
     protected void onPause() {
         stopFrameLoop();
+        // Persist global save state (flags, read-text bitmap, settings) so it survives
+        // if the process is later killed by Android without a clean onDestroy.
+        if (handle != 0) {
+            NativeRfvp.saveState(handle);
+        }
         super.onPause();
     }
 

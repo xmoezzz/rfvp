@@ -64,4 +64,7 @@ public final class NativeRfvp {
 
     /** Destroy the instance. */
     public static native void destroy(long handle);
+
+    /** Flush global save state (flags, read-text bitmap, current font selection, etc.). */
+    public static native int saveState(long handle);
 }

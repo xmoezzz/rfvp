@@ -273,17 +273,28 @@ impl FontEnumerator {
     }
 
     pub fn init_fontface(&mut self) -> Result<()> {
-        // if font is already loaded, just set system_fontface_id
-        if self.system_fontface_id != 0 {
+        // Avoid duplicate entries when init is called multiple times.
+        if !self.fonts.is_empty() {
             return Ok(());
         }
 
-        let base = app_base_path();
-        let path = base.join("font");
+        let mut path = app_base_path().join("font");
         if !path.exists() {
+            // Android/Linux file systems are case-sensitive; many games ship `FONT`/`Font`.
+            let alt_font = app_base_path().join("Font");
+            let alt_upper = app_base_path().join("FONT");
+            if alt_font.exists() {
+                path = alt_font;
+            } else if alt_upper.exists() {
+                path = alt_upper;
+            }
+        }
+        if !path.exists() {
+            log::info!("Font scan skipped: no font dir under {}", app_base_path().get_path().display());
             return Ok(());
         }
 
+        let mut loaded_count: usize = 0;
         for entry in fs::read_dir(path.get_path())? {
             let entry = entry?;
             let md = entry.metadata()?;
@@ -309,9 +320,20 @@ impl FontEnumerator {
                     continue;
                 }
             };
-            let name = p.to_string_lossy().to_string();
+            let name = p
+                .file_name()
+                .and_then(|x| x.to_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| p.to_string_lossy().to_string());
             self.fonts.push((name, AtomicRefCell::new(font)));
+            loaded_count += 1;
         }
+
+        log::info!(
+            "Font scan done: loaded {} custom font(s) from {}",
+            loaded_count,
+            path.get_path().display()
+        );
 
         // default: MSGOTHIC
         self.system_fontface_id = FONTFACE_MS_GOTHIC;
@@ -346,6 +368,15 @@ impl FontEnumerator {
         for (name, font) in &self.fonts {
             if name == cur {
                 return font.clone();
+            }
+            // Backward compatibility: old builds persisted absolute font paths.
+            if let Some(legacy_file_name) = std::path::Path::new(cur)
+                .file_name()
+                .and_then(|x| x.to_str())
+            {
+                if name == legacy_file_name {
+                    return font.clone();
+                }
             }
         }
         match self.system_fontface_id {

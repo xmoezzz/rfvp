@@ -214,6 +214,19 @@ pub unsafe extern "C" fn rfvp_android_destroy(handle: *mut c_void) {
     drop(Box::from_raw(handle as *mut App));
 }
 
+/// Flush global save state to disk while keeping the engine alive.
+/// Called from Android `onPause()` via JNI.
+#[no_mangle]
+pub unsafe extern "C" fn rfvp_android_save_state(handle: *mut c_void) -> i32 {
+    if handle.is_null() {
+        log::warn!("rfvp_android_save_state: null handle (skipped)");
+        return 0;
+    }
+    let app: &App = &*(handle as *const App);
+    let ok = app.save_state();
+    if ok { 1 } else { 0 }
+}
+
 #[cfg(target_os = "android")]
 #[no_mangle]
 pub unsafe extern "C" fn android_main(_app: *mut core::ffi::c_void) {
