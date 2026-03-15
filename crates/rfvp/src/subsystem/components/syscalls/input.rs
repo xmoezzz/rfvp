@@ -83,9 +83,10 @@ pub fn control_pulse(game_data: &mut GameData) -> Result<Variant> {
 }
 
 pub fn control_mask(game_data: &mut GameData, mask: &Variant) -> Result<Variant> {
-    // IDA: control_is_masked = (args[0].Type == 0)
-    // i.e. passing Nil enables the mask; any non-nil disables it.
-    let masked = mask.is_nil();
+    // Game behavior indicates Nil should keep Ctrl/Shift active (unmasked).
+    // Use non-nil to explicitly mask control keys.
+    let masked = !mask.is_nil();
+    log::info!("[input] ControlMask syscall: arg={:?}, resolved_masked={}", mask, masked);
     game_data.inputs_manager.set_control_mask(masked);
 
     Ok(Variant::Nil)

@@ -22,9 +22,37 @@ use log::LevelFilter;
 use boot::{app_config, load_script};
 use crate::app::App;
 
+/// Parse `--nls <value>` or `--nls=<value>` from argv, default to ShiftJIS.
+fn parse_nls_arg() -> Nls {
+    let args: Vec<String> = std::env::args().collect();
+    let mut i = 1;
+    while i < args.len() {
+        let a = &args[i];
+        if let Some(val) = a.strip_prefix("--nls=") {
+            return val.parse().unwrap_or_else(|e| {
+                eprintln!("rfvp: {e}");
+                std::process::exit(1);
+            });
+        } else if a == "--nls" {
+            if let Some(val) = args.get(i + 1) {
+                return val.parse().unwrap_or_else(|e| {
+                    eprintln!("rfvp: {e}");
+                    std::process::exit(1);
+                });
+            } else {
+                eprintln!("rfvp: --nls requires a value (sjis, gbk, utf8)");
+                std::process::exit(1);
+            }
+        }
+        i += 1;
+    }
+    Nls::ShiftJIS
+}
+
 fn main() -> Result<()> {
     // env_logger::init();
-    let parser = load_script(Nls::ShiftJIS)?;
+    let nls = parse_nls_arg();
+    let parser = load_script(nls)?;
     let title  = parser.get_title();
     let size = parser.get_screen_size();
     let script_engine = ThreadManager::new();
@@ -35,7 +63,7 @@ fn main() -> Result<()> {
         .with_window_title(&title)
         .with_window_size(size)
         .with_parser(parser)
-        .with_vfs(Nls::ShiftJIS)?
+        .with_vfs(nls)?
         .run();
 
     // handle.shutdown();

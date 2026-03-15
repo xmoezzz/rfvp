@@ -142,9 +142,7 @@ pub struct InputManager {
 
 impl Default for InputManager {
     fn default() -> Self {
-        let mut s = Self::new();
-        s.control_is_masked = true;
-        s
+        Self::new()
     }
 }
 
@@ -543,6 +541,7 @@ impl InputManager {
 
     // ignore both control and shift when masked
     pub fn set_control_mask(&mut self, mask: bool) {
+        log::info!("[input] ControlMask called: masked={}", mask);
         self.control_is_masked = mask;
     }
 
