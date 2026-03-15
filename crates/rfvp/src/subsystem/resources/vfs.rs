@@ -333,11 +333,13 @@ impl Vfs {
         file.save(name, content)
     }
 
-    /// Find loose `.ani` files in `<game_root>/graph`.
+    /// Find loose `cursor*.ani` files next to the game executable/root.
     ///
-    /// Note: this does not (yet) scan packs. It's primarily used for cursor assets.
+    /// Reverse-engineered behavior: the original engine loads `cursor1.ani`,
+    /// `cursor2.ani`, `cursor3.ani` by bare filename, not from `graph/`.
+    /// This intentionally only scans the app base path and does not look inside packs.
     pub fn find_ani(&self) -> Result<Vec<PathBuf>> {
-        let path = app_base_path().join("graph").join("*.ani");
+        let path = app_base_path().join("cursor*.ani");
 
         let matches: Vec<_> = glob(path.get_path().to_str().unwrap())?.flatten().collect();
         Ok(matches)

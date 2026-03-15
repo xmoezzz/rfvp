@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["DecodeError","PixelFormat"],"struct":["Decoder","Frame"],"type":["Result"]};

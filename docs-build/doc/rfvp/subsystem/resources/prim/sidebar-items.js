@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["INVAILD_PRIM_HANDLE"],"enum":["PrimType"],"struct":["Prim","PrimManager","PrimManagerSnapshotV1","PrimSnapshotV1"]};

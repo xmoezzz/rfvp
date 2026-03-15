@@ -464,7 +464,7 @@ impl GameData {
     }
 
     pub fn switch_cursor(&mut self, index: u32) {
-        if index == self.current_cursor_index || index == 0 {
+        if index == self.current_cursor_index {
             return;
         }
 

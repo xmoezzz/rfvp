@@ -1,0 +1,58 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="API documentation for the Rust `input` mod in crate `rfvp`."><title>rfvp::subsystem::components::syscalls::input - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../../../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../../../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../../../../static.files/rustdoc-ca0dd0c4.css"><meta name="rustdoc-vars" data-root-path="../../../../../" data-static-root-path="../../../../../static.files/" data-current-crate="rfvp" data-themes="" data-resource-suffix="" data-rustdoc-version="1.92.0 (ded5c06cf 2025-12-08)" data-channel="1.92.0" data-search-js="search-d69d8955.js" data-stringdex-js="stringdex-c3e638e9.js" data-settings-js="settings-c38705f0.js" ><script src="../../../../../static.files/storage-e2aeef58.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../../../../static.files/main-ce535bd0.js"></script><noscript><link rel="stylesheet" href="../../../../../static.files/noscript-263c88ec.css"></noscript><link rel="alternate icon" type="image/png" href="../../../../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../../../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module input</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../../../../rfvp/index.html">rfvp</a><span class="version">0.2.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module input</a></h2><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#functions" title="Functions">Functions</a></li></ul></section><div id="rustdoc-modnav"><h2><a href="../index.html">In rfvp::<wbr>subsystem::<wbr>components::<wbr>syscalls</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../../../../index.html">rfvp</a>::<wbr><a href="../../../index.html">subsystem</a>::<wbr><a href="../../index.html">components</a>::<wbr><a href="../index.html">syscalls</a></div><h1>Module <span>input</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../../../../src/rfvp/subsystem/components/syscalls/input.rs.html#3-335">Source</a> </span></div><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.ControlMask.html" title="struct rfvp::subsystem::components::syscalls::input::ControlMask">Control<wbr>Mask</a></dt><dd>Enable/disable control and shift keys, which are used to speed up text display in AVG games.
+When <code>control</code> is masked, both control and shift keys are disabled.
+Arg1: mask (nil to enable, non-nil to disable)</dd><dt><a class="struct" href="struct.ControlPulse.html" title="struct rfvp::subsystem::components::syscalls::input::ControlPulse">Control<wbr>Pulse</a></dt><dd>Skip mode in AVG games
+No arguments</dd><dt><a class="struct" href="struct.InputFlash.html" title="struct rfvp::subsystem::components::syscalls::input::InputFlash">Input<wbr>Flash</a></dt><dd>Refresh all input states, such as which keys are pressed
+No arguments</dd><dt><a class="struct" href="struct.InputGetCursIn.html" title="struct rfvp::subsystem::components::syscalls::input::InputGetCursIn">Input<wbr>GetCurs<wbr>In</a></dt><dd>Get whether the cursor is within the window
+No arguments
+Returns true if the cursor is inside the window, nil otherwise</dd><dt><a class="struct" href="struct.InputGetCursX.html" title="struct rfvp::subsystem::components::syscalls::input::InputGetCursX">Input<wbr>GetCursX</a></dt><dd>Get the X coordinate of the cursor, relative to the window
+No arguments
+Returns an integer value representing the X coordinate</dd><dt><a class="struct" href="struct.InputGetCursY.html" title="struct rfvp::subsystem::components::syscalls::input::InputGetCursY">Input<wbr>GetCursY</a></dt><dd>Get the Y coordinate of the cursor, relative to the window
+No arguments
+Returns an integer value representing the Y coordinate</dd><dt><a class="struct" href="struct.InputGetDown.html" title="struct rfvp::subsystem::components::syscalls::input::InputGetDown">Input<wbr>GetDown</a></dt><dd>FVP’s keycode:
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum KeyCode {
+Shift = 0,
+Ctrl = 1,
+LeftClick = 2, // virtual
+RightClick = 3, // virtual
+MouseLeft = 4,
+MouseRight = 5,
+Esc = 6,
+Enter = 7,
+Space = 8,
+UpArrow = 9,
+DownArrow = 10,
+LeftArrow = 11,
+RightArrow = 12,
+F1 = 13,
+F2 = 14,
+F3 = 15,
+F4 = 16,
+F5 = 17,
+F6 = 18,
+F7 = 19,
+F8 = 20,
+F9 = 21,
+F10 = 22,
+F11 = 23,
+F12 = 24,
+Tab = 25,
+}</dd><dt><a class="struct" href="struct.InputGetEvent.html" title="struct rfvp::subsystem::components::syscalls::input::InputGetEvent">Input<wbr>GetEvent</a></dt><dd>Get the next input event from the queue
+No arguments
+Returns a table with the following structure if an event is available:
+{ keycode, x, y }
+where <code>keycode</code> is an integer representing the keycode,
+and <code>x</code>, <code>y</code> are the cursor coordinates at the time of the event.
+Returns nil if no event is available.</dd><dt><a class="struct" href="struct.InputGetRepeat.html" title="struct rfvp::subsystem::components::syscalls::input::InputGetRepeat">Input<wbr>GetRepeat</a></dt><dd>Get the keys that are currently being repeated
+Notice that both wheel movements and button repeats will be reset to 0 during each frame update.
+No arguments
+Returns an integer value representing the keycode, or 0 if no key is being repeated</dd><dt><a class="struct" href="struct.InputGetState.html" title="struct rfvp::subsystem::components::syscalls::input::InputGetState">Input<wbr>GetState</a></dt><dd>Get the current state of all keys, such as which keys are pressed
+No arguments
+Returns an integer value representing the bitmask of the current key states</dd><dt><a class="struct" href="struct.InputGetUp.html" title="struct rfvp::subsystem::components::syscalls::input::InputGetUp">Input<wbr>GetUp</a></dt><dd>Get the keycode of the most recently released key
+No arguments
+Returns an integer value representing the keycode, or nil if no key has been released</dd><dt><a class="struct" href="struct.InputGetWheel.html" title="struct rfvp::subsystem::components::syscalls::input::InputGetWheel">Input<wbr>GetWheel</a></dt><dd>Get mouse wheel value (usually for scrolling)
+Notice that the wheel value will be reset to 0 during each frame update.
+No arguments
+Returns an integer value representing the wheel movement</dd><dt><a class="struct" href="struct.InputSetClick.html" title="struct rfvp::subsystem::components::syscalls::input::InputSetClick">Input<wbr>SetClick</a></dt><dd>Set the click state from script side.
+Maybe this is used to simulate mouse clicks in certain scenarios.
+Arg1: clicked (0 for not clicked, 1 for clicked)</dd></dl><h2 id="functions" class="section-header">Functions<a href="#functions" class="anchor">§</a></h2><dl class="item-table"><dt><a class="fn" href="fn.control_mask.html" title="fn rfvp::subsystem::components::syscalls::input::control_mask">control_<wbr>mask</a></dt><dt><a class="fn" href="fn.control_pulse.html" title="fn rfvp::subsystem::components::syscalls::input::control_pulse">control_<wbr>pulse</a></dt><dd>Skip mode in AVG games</dd><dt><a class="fn" href="fn.input_flash.html" title="fn rfvp::subsystem::components::syscalls::input::input_flash">input_<wbr>flash</a></dt><dt><a class="fn" href="fn.input_get_curs_in.html" title="fn rfvp::subsystem::components::syscalls::input::input_get_curs_in">input_<wbr>get_<wbr>curs_<wbr>in</a></dt><dt><a class="fn" href="fn.input_get_curs_x.html" title="fn rfvp::subsystem::components::syscalls::input::input_get_curs_x">input_<wbr>get_<wbr>curs_<wbr>x</a></dt><dt><a class="fn" href="fn.input_get_curs_y.html" title="fn rfvp::subsystem::components::syscalls::input::input_get_curs_y">input_<wbr>get_<wbr>curs_<wbr>y</a></dt><dt><a class="fn" href="fn.input_get_down.html" title="fn rfvp::subsystem::components::syscalls::input::input_get_down">input_<wbr>get_<wbr>down</a></dt><dt><a class="fn" href="fn.input_get_event.html" title="fn rfvp::subsystem::components::syscalls::input::input_get_event">input_<wbr>get_<wbr>event</a></dt><dt><a class="fn" href="fn.input_get_repeat.html" title="fn rfvp::subsystem::components::syscalls::input::input_get_repeat">input_<wbr>get_<wbr>repeat</a></dt><dt><a class="fn" href="fn.input_get_state.html" title="fn rfvp::subsystem::components::syscalls::input::input_get_state">input_<wbr>get_<wbr>state</a></dt><dt><a class="fn" href="fn.input_get_up.html" title="fn rfvp::subsystem::components::syscalls::input::input_get_up">input_<wbr>get_<wbr>up</a></dt><dt><a class="fn" href="fn.input_get_wheel.html" title="fn rfvp::subsystem::components::syscalls::input::input_get_wheel">input_<wbr>get_<wbr>wheel</a></dt><dt><a class="fn" href="fn.input_set_click.html" title="fn rfvp::subsystem::components::syscalls::input::input_set_click">input_<wbr>set_<wbr>click</a></dt></dl></section></div></main></body></html>

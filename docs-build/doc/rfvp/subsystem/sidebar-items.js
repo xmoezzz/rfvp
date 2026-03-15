@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["anzu_scene","components","global_savedata","package","resources","save_state","scene","state","world"]};

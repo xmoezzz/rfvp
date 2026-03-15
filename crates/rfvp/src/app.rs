@@ -187,8 +187,15 @@ impl App {
         {
             let mut gd = gd_write(&self.game_data);
             self.layer_machine.apply_scene_action(SceneAction::Start, &mut **gd);
-            if gd.has_cursor(1) {
+            let current = gd.get_current_cursor_index();
+            if current != 0 && gd.has_cursor(current) {
+                gd.switch_cursor(current);
+            } else if gd.has_cursor(1) {
+                gd.set_current_cursor_index(0);
                 gd.switch_cursor(1);
+            } else {
+                gd.set_current_cursor_index(0);
+                gd.window_mut().set_cursor_kind(0);
             }
         }
     }
@@ -632,13 +639,14 @@ impl App {
     }
 
     fn update_cursor(&mut self) {
-        let (cursor_frame, pending_cursor_visible, pending_cursor_pos, render_flag) = {
+        let (cursor_frame, pending_cursor_kind, pending_cursor_visible, pending_cursor_pos, render_flag) = {
             let mut gd = gd_write(&self.game_data);
             let frame = gd.update_cursor();
+            let cursor_kind = *gd.window_ref().new_cursor();
             let visible = gd.window_ref().new_cursor_visible();
             let pos = gd.window_ref().new_cursor_pos();
             let render_flag = gd.get_render_flag();
-            (frame, visible, pos, render_flag)
+            (frame, cursor_kind, visible, pos, render_flag)
         };
 
         let window_cursor_pos = pending_cursor_pos
@@ -650,6 +658,8 @@ impl App {
         };
         if let Some(frame) = cursor_frame {
             w.set_cursor(frame);
+        } else if let Some(icon) = pending_cursor_kind {
+            w.set_cursor(icon);
         }
         if let Some(visible) = pending_cursor_visible {
             w.set_cursor_visible(visible);
