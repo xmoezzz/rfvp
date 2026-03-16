@@ -1963,6 +1963,9 @@ impl AppBuilder {
             .lock()
             .unwrap()
             .init_with(non_volatile_global_count, volatile_global_count);
+        if let Err(e) = self.world.fontface_manager.init_fontface() {
+            log::error!("Failed to scan font directory: {:#}", e);
+        }
         if let Err(e) = crate::subsystem::global_savedata::try_load_global_savedata_v1(&mut self.world) {
             log::error!("Failed to load global savedata: {:#}", e);
         }
@@ -2206,6 +2209,9 @@ impl AppBuilder {
         let non_volatile_global_count = self.parser.get_non_volatile_global_count();
         let volatile_global_count = self.parser.get_volatile_global_count();
         GLOBAL.lock().unwrap().init_with(non_volatile_global_count, volatile_global_count);
+        if let Err(e) = self.world.fontface_manager.init_fontface() {
+            log::error!("Failed to scan font directory: {:#}", e);
+        }
         if let Err(e) = crate::subsystem::global_savedata::try_load_global_savedata_v1(&mut self.world) {
             log::error!("Failed to load global savedata: {:#}", e);
         }
@@ -2358,6 +2364,9 @@ impl AppBuilder {
         let non_volatile_global_count = self.parser.get_non_volatile_global_count();
         let volatile_global_count = self.parser.get_volatile_global_count();
         GLOBAL.lock().unwrap().init_with(non_volatile_global_count, volatile_global_count);
+        if let Err(e) = self.world.fontface_manager.init_fontface() {
+            log::error!("Failed to scan font directory: {:#}", e);
+        }
         if let Err(e) = crate::subsystem::global_savedata::try_load_global_savedata_v1(&mut self.world) {
             log::error!("Failed to load global savedata: {:#}", e);
         }
