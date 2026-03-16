@@ -2,6 +2,8 @@ package com.rfvp.launcher;
 
 import android.content.Context;
 import android.net.Uri;
+import android.os.Environment;
+import android.provider.DocumentsContract;
 
 import androidx.annotation.Nullable;
 import androidx.documentfile.provider.DocumentFile;
@@ -87,9 +89,10 @@ public final class GameLibrary {
     }
 
     /**
-     * Import the selected folder into app-private storage.
+     * Import the selected folder in no-copy mode.
      *
-     * NOTE: This method only performs the file copy + title extraction.
+     * We only record a directly accessible filesystem path and do not duplicate data.
+     *
      * The caller must decide NLS and then call {@link #addImportedGame(ImportedGameDraft, String)}.
      */
     public ImportedGameDraft importFromTreeUri(Uri treeUri) throws Exception {
@@ -98,24 +101,20 @@ public final class GameLibrary {
             throw new IllegalArgumentException("Selected URI is not a directory");
         }
 
-        String id = UUID.randomUUID().toString();
-        File gamesRoot = new File(ctx.getFilesDir(), "Games");
-        //noinspection ResultOfMethodCallIgnored
-        gamesRoot.mkdirs();
-
-        File dstRoot = new File(gamesRoot, id);
-        lastPartialDir = dstRoot;
-
-        if (!dstRoot.mkdirs()) {
-            throw new IllegalStateException("Failed to create import dir");
+        // No-copy mode: SAF tree must be mappable to a directly accessible path.
+        String directRootPath = tryResolveDirectRootPath(treeUri);
+        if (directRootPath == null || directRootPath.isEmpty()) {
+            throw new IllegalStateException("Selected folder provider is not supported in no-copy mode. Please select a local storage folder.");
         }
 
-        copyTree(tree, dstRoot);
+        File directRoot = new File(directRootPath);
+        if (!directRoot.isDirectory()) {
+            throw new IllegalStateException("Selected folder path is not accessible: " + directRootPath);
+        }
 
-        File hcb = findFirstHcb(dstRoot);
+        File hcb = findFirstHcb(directRoot);
         if (hcb == null) {
-            deleteRecursively(dstRoot);
-            throw new IllegalStateException("No .hcb found in imported folder");
+            throw new IllegalStateException("No .hcb found in selected folder");
         }
 
         String title = HcbTitleReader.readTitle(hcb);
@@ -123,8 +122,51 @@ public final class GameLibrary {
             title = "Untitled";
         }
 
-        lastPartialDir = null;
-        return new ImportedGameDraft(id, title, dstRoot.getAbsolutePath(), System.currentTimeMillis());
+        return new ImportedGameDraft(
+                UUID.randomUUID().toString(),
+                title,
+                directRoot.getAbsolutePath(),
+                System.currentTimeMillis()
+        );
+    }
+
+    @Nullable
+    private static String tryResolveDirectRootPath(Uri treeUri) {
+        if (treeUri == null) return null;
+        if (!"content".equalsIgnoreCase(treeUri.getScheme())) return null;
+
+        try {
+            String authority = treeUri.getAuthority();
+            if (!"com.android.externalstorage.documents".equals(authority)) {
+                return null;
+            }
+
+            String docId = DocumentsContract.getTreeDocumentId(treeUri);
+            if (docId == null || docId.isEmpty()) return null;
+
+            String[] parts = docId.split(":", 2);
+            if (parts.length < 1) return null;
+
+            String volume = parts[0];
+            String relative = parts.length > 1 ? parts[1] : "";
+
+            File base;
+            if ("primary".equalsIgnoreCase(volume)) {
+                base = Environment.getExternalStorageDirectory();
+            } else {
+                // Common pattern for removable storage volume names.
+                base = new File("/storage", volume);
+            }
+
+            if (base == null) return null;
+
+            if (relative == null || relative.isEmpty()) {
+                return base.getAbsolutePath();
+            }
+            return new File(base, relative).getAbsolutePath();
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 
     public GameEntry addImportedGame(ImportedGameDraft draft, String nls) throws Exception {

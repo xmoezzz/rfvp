@@ -2,7 +2,10 @@ package com.rfvp.launcher;
 
 import android.content.Intent;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.provider.Settings;
 import android.widget.Button;
 import android.widget.Toast;
 
@@ -20,7 +23,7 @@ import java.util.List;
 /**
  * Minimal launcher UI:
  * - Shows imported games as a scrollable grid.
- * - Import: select a directory (SAF), then copy into app-private storage so native code can access it via a real path.
+ * - Import: select a directory (SAF), then record a direct path in no-copy mode.
  * - Run: taps a tile -> writes launch.json -> starts GameActivity.
  */
 public final class LauncherActivity extends AppCompatActivity implements GameAdapter.Listener {
@@ -45,7 +48,7 @@ public final class LauncherActivity extends AppCompatActivity implements GameAda
         rv.setAdapter(adapter);
 
         Button importBtn = findViewById(R.id.btn_import);
-        importBtn.setOnClickListener(v -> openTreeLauncher.launch(null));
+        importBtn.setOnClickListener(v -> startImportFlow());
 
         refresh();
     }
@@ -53,6 +56,41 @@ public final class LauncherActivity extends AppCompatActivity implements GameAda
     private void refresh() {
         List<GameEntry> entries = library.load();
         adapter.setItems(entries);
+    }
+
+    private void startImportFlow() {
+        if (!hasAllFilesAccess()) {
+            showAllFilesAccessPrompt();
+            return;
+        }
+        openTreeLauncher.launch(null);
+    }
+
+    private boolean hasAllFilesAccess() {
+        // MANAGE_EXTERNAL_STORAGE applies on Android 11+.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            return Environment.isExternalStorageManager();
+        }
+        return true;
+    }
+
+    private void showAllFilesAccessPrompt() {
+        new AlertDialog.Builder(this)
+                .setTitle("Grant Storage Access")
+                .setMessage("No-copy import requires 'All files access'. Please grant it, then import again.")
+                .setPositiveButton("Open Settings", (d, w) -> {
+                    try {
+                        Intent i = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
+                        i.setData(Uri.parse("package:" + getPackageName()));
+                        startActivity(i);
+                    } catch (Throwable t) {
+                        // Fallback to generic all-files access settings.
+                        Intent i = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+                        startActivity(i);
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     private void onImportTreeSelected(@Nullable Uri treeUri) {
@@ -65,7 +103,7 @@ public final class LauncherActivity extends AppCompatActivity implements GameAda
         try {
             getContentResolver().takePersistableUriPermission(treeUri, flags);
         } catch (Throwable ignored) {
-            // Some providers may not support persistable perms; import copy will still work for this run.
+            // Some providers may not support persistable perms; direct-path import may still work.
         }
 
         Toast.makeText(this, "Importing...", Toast.LENGTH_SHORT).show();
