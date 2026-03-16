@@ -22,10 +22,10 @@ impl FromStr for Nls {
 
     fn from_str(s: &str) -> anyhow::Result<Self> {
         match s.to_ascii_lowercase().as_str() {
-            "sjis" => Ok(Nls::ShiftJIS),
-            "gbk" => Ok(Nls::GBK),
-            "utf8" => Ok(Nls::UTF8),
-            _ => Err(anyhow::anyhow!("unknown NLS")),
+            "sjis" | "shiftjis" | "shift_jis" | "shift-jis" => Ok(Nls::ShiftJIS),
+            "gbk" | "gb2312" | "gb18030" => Ok(Nls::GBK),
+            "utf8" | "utf-8" => Ok(Nls::UTF8),
+            _ => Err(anyhow::anyhow!("unknown NLS '{}', valid values: sjis, gbk, utf8", s)),
         }
     }
 }
