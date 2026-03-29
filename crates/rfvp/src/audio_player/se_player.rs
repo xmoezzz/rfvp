@@ -13,6 +13,8 @@ use crate::subsystem::resources::vfs::Vfs;
 
 pub const SE_SLOT_COUNT: usize = 256;
 
+pub const SOUND_TYPE_COUNT: usize = 10;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SeSlotSnapshotV1 {
     pub slot: u16,
@@ -38,6 +40,7 @@ pub struct SePlayer {
     se_datas: [Option<StaticSoundData>; SE_SLOT_COUNT],
     se_kinds: [Option<i32>; SE_SLOT_COUNT],
     se_names: [Option<String>; SE_SLOT_COUNT],
+    se_type_volumes: [f32; SOUND_TYPE_COUNT],
     se_muted: [bool; SE_SLOT_COUNT],
     se_volumes: [f32; SE_SLOT_COUNT],
 
@@ -64,6 +67,7 @@ impl SePlayer {
             se_datas: [(); SE_SLOT_COUNT].map(|_| None),
             se_kinds: [(); SE_SLOT_COUNT].map(|_| None),
             se_names: [(); SE_SLOT_COUNT].map(|_| None),
+            se_type_volumes: [1.0; SOUND_TYPE_COUNT],
             se_muted: [false; SE_SLOT_COUNT],
             se_volumes: [1.0; SE_SLOT_COUNT],
             se_repeat: [false; SE_SLOT_COUNT],
@@ -85,6 +89,17 @@ impl SePlayer {
         self.load(slot, se)
     }
 
+    fn type_volume_for_slot(&self, slot: usize) -> f32 {
+        match self.se_kinds[slot] {
+            Some(kind) if (0..SOUND_TYPE_COUNT as i32).contains(&kind) => self.se_type_volumes[kind as usize],
+            _ => 1.0,
+        }
+    }
+
+    fn effective_volume_for_slot(&self, slot: usize) -> f32 {
+        self.se_volumes[slot] * self.type_volume_for_slot(slot)
+    }
+
     pub fn play(
         &mut self,
         slot: i32,
@@ -98,7 +113,8 @@ impl SePlayer {
         self.se_repeat[slot] = repeat;
         self.se_pan[slot] = pan;
         self.se_volumes[slot] = volume;
-        let actual_volume = if self.se_muted[slot] { 0.0 } else { volume };let bgm = match &self.se_datas[slot] {
+        let actual_volume = if self.se_muted[slot] { 0.0 } else { self.effective_volume_for_slot(slot) };
+        let bgm = match &self.se_datas[slot] {
             Some(data) => data.clone(),
             None => {
                 log::error!("Tried to play BGM slot {}, but no BGM was loaded", slot);
@@ -133,7 +149,8 @@ impl SePlayer {
 
         
         self.se_volumes[slot] = volume;
-        let actual_volume = if self.se_muted[slot] { 0.0 } else { volume };if let Some(handle) = self.se_slots[slot].as_mut() {
+        let actual_volume = if self.se_muted[slot] { 0.0 } else { self.effective_volume_for_slot(slot) };
+        if let Some(handle) = self.se_slots[slot].as_mut() {
             handle.set_volume(actual_volume, tween);
         } else {
             warn!(
@@ -144,9 +161,20 @@ impl SePlayer {
     }
 
     pub fn set_type_volume(&mut self, kind: i32, volume: f32, tween: kira::Tween) {
+        if !(0..SOUND_TYPE_COUNT as i32).contains(&kind) {
+            return;
+        }
+        self.se_type_volumes[kind as usize] = volume;
         for slot in 0..SE_SLOT_COUNT {
             if self.se_kinds[slot] == Some(kind) {
-                self.set_volume(slot as i32, volume, tween);
+                let actual_volume = if self.se_muted[slot] {
+                    0.0
+                } else {
+                    self.effective_volume_for_slot(slot)
+                };
+                if let Some(handle) = self.se_slots[slot].as_mut() {
+                    handle.set_volume(actual_volume, tween);
+                }
             }
         }
     }
@@ -203,6 +231,14 @@ impl SePlayer {
     pub fn set_type(&mut self, slot: i32, kind: i32) {
         let slot = slot as usize;
         self.se_kinds[slot] = Some(kind);
+        let actual_volume = if self.se_muted[slot] {
+            0.0
+        } else {
+            self.effective_volume_for_slot(slot)
+        };
+        if let Some(handle) = self.se_slots[slot].as_mut() {
+            handle.set_volume(actual_volume, kira::Tween::default());
+        }
     }
     pub fn debug_summary(&self) -> SeDebugSummary {
         let loaded_datas = self.se_datas.iter().filter(|x| x.is_some()).count();

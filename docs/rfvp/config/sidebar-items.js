@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"mod":["app_config","logger_config","window_config"]};

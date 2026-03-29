@@ -45,10 +45,14 @@ pub fn set_base_path(path: &str) {
 /// This will give you the path to the executable (when in build mode) or to the root of the current project.
 pub fn app_base_path() -> PathBuilder {
     if env::var_os("FVP_TEST").is_some() {
+        let mut testcase_path = "testcase".to_string();
+        if let Ok(testcase) = env::var("FVP_TESTCASE") {
+            testcase_path = testcase;
+        }
         if let Some(manifest_dir) = env::var_os("CARGO_MANIFEST_DIR") {
             let mut p = path::PathBuf::from(manifest_dir);
             p.push("../..");
-            p.push("testcase");
+            p.push(testcase_path);
             return PathBuilder { path_buff: p };
         }
     }

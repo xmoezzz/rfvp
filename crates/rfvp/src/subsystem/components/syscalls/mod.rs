@@ -17,6 +17,7 @@ pub mod parts;
 pub mod other_anm;
 pub mod saveload;
 pub mod generated;
+pub mod legacy;
 
 pub trait Syscaller {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> anyhow::Result<Variant>;

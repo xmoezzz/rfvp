@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["TraceKind"],"fn":["dump","enabled","motion","motion_every","motion_max","prim_evt","prim_tree_every","prim_tree_max_depth","prim_tree_max_nodes","render","should_dump_motion","should_dump_prim_tree","syscall","vm"]};

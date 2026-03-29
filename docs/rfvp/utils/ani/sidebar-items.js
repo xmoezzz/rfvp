@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["DecodeError"],"fn":["icondir_to_custom_cursor"],"struct":["AnimatedCursor","AnimatedCursorFlags","AnimatedCursorMetadata","CursorBundle","Decoder"]};

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["main"],"mod":["asm","compile","ir","lua","meta"],"struct":["Cli"]};

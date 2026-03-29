@@ -21,7 +21,14 @@ target
 #.idea/
 
 testcase/
+WA_funta_RURU/
+HappyMarguerite/
+AngelWish/
+AKASEKA_HD/
 dist/
+
+
+docs-build/
 
 platform/macos/RFVPLauncher/Vendor/librfvp.dylib
 platform/macos/RFVPLauncher/Vendor/*

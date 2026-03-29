@@ -1,9 +1,32 @@
+use std::sync::Mutex;
+
 use anyhow::Result;
 
 use crate::script::Variant;
 use crate::subsystem::world::GameData;
 
 use super::{get_var, Syscaller};
+
+lazy_static::lazy_static! {
+    static ref EXIT_DIALOG_STATE: Mutex<ExitDialogState> = Mutex::new(ExitDialogState::default());
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct ExitDialogState {
+    pending_request: bool,
+}
+
+pub fn request_exit_dialog() {
+    let mut state = EXIT_DIALOG_STATE.lock().unwrap();
+    state.pending_request = true;
+}
+
+pub fn take_pending_exit_dialog_request() -> bool {
+    let mut state = EXIT_DIALOG_STATE.lock().unwrap();
+    let pending = state.pending_request;
+    state.pending_request = false;
+    pending
+}
 
 pub fn debug_message(
     _game_data: &mut GameData,
@@ -397,9 +420,16 @@ impl Syscaller for DissolveWait {
 
 /// ExitDialog()
 /// IDA SYSCALL_SPECS: argc=0
+///
+/// Original engines showed a native MessageBox Yes/No prompt and, on Yes,
+/// posted a window message that continued the normal close path. In rfvp we do
+/// not prompt here; we treat ExitDialog as an immediate confirmed exit request
+/// and let the existing app/main-loop close path consume it.
 pub struct ExitDialog;
 impl Syscaller for ExitDialog {
-    fn call(&self, _game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+        request_exit_dialog();
+        game_data.thread_wrapper.should_break();
         Ok(Variant::Nil)
     }
 }

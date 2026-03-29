@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["main","output_dir_from_file"],"mod":["cfg","decode","lua","lua_opt","opcode","parser"],"struct":["Args"]};

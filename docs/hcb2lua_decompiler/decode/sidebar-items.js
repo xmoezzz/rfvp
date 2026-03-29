@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["Op"],"fn":["all_call_targets","all_syscalls","decode_one","decode_program"],"struct":["Function","Instruction","Program"]};

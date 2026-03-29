@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["FONTFACE_CURRENT","FONTFACE_MS_GOTHIC","FONTFACE_MS_MINCHO","FONTFACE_MS_PGOTHIC","FONTFACE_MS_PMINCHO"],"struct":["FontEnumerator","TextItem","TextItemSnapshotV1","TextManager","TextManagerSnapshotV1"]};

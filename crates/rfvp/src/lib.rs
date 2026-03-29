@@ -13,6 +13,8 @@ pub mod vm_worker;
 pub mod debug_ui;
 pub mod trace;
 pub mod boot;
+pub mod legacy_save_load_ui;
+pub mod exit_confirm_ui;
 
 #[cfg(target_os = "ios")]
 mod ios_host;

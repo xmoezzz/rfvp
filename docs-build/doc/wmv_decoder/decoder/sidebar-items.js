@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["apply_idct","apply_loop_filter","apply_overlap_filter","apply_rangered_compress","apply_rangered_expand","idct8x8"],"struct":["AcPredBuffer","DcPredBuffer","MacroblockDecoder","MvPredictor","Wmv2DcPredBuffer","YuvFrame"]};

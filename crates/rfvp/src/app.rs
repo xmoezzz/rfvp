@@ -60,6 +60,10 @@ use winit::raw_window_handle::{
 
 use crate::rendering::gpu_prim::GpuPrimRenderer;
 use crate::debug_ui::{self, hud::{DebugHud, HudInput, HudSnapshot}};
+use crate::exit_confirm_ui::{ExitConfirmOutcome, ExitConfirmUi};
+use crate::legacy_save_load_ui::LegacySaveLoadUi;
+use crate::subsystem::components::syscalls::legacy::{legacy_save_load_menu_visible, set_legacy_save_load_menu_visible, take_pending_save_load_request};
+use crate::subsystem::components::syscalls::utils::take_pending_exit_dialog_request;
 use crate::debug_ui::log_ring::{self, LogRing};
 use crate::subsystem::resources::motion_manager::DissolveType;
 
@@ -169,6 +173,9 @@ pub struct App {
     // waiting on DISSOLVE_WAIT immediately via an EngineEvent.
     last_dissolve_type: DissolveType,
     last_dissolve2_transitioning: bool,
+    legacy_save_load_ui: LegacySaveLoadUi,
+    exit_confirm_ui: ExitConfirmUi,
+    pending_app_exit: bool,
 }
 
 impl App {
@@ -257,6 +264,21 @@ impl App {
         gd.inputs_manager.get_hud_up().to_string()
     }
 
+
+    fn apply_exit_confirm_outcome(&mut self, outcome: ExitConfirmOutcome) {
+        match outcome {
+            ExitConfirmOutcome::Confirmed => {
+                let mut gd = gd_write(&self.game_data);
+                if gd.get_close_immediate() {
+                    self.pending_app_exit = true;
+                } else {
+                    gd.set_close_pending(true);
+                }
+            }
+            ExitConfirmOutcome::Cancelled => {}
+        }
+    }
+
     fn handle_event(&mut self, event: Event<()>, loopd: &winit::event_loop::ActiveEventLoop) {
         // NOTE: In pump-mode we must not block inside winit, because the host (SwiftUI/Android/iOS)
         // drives the app by repeatedly calling `rfvp_pump_step()`.
@@ -273,14 +295,7 @@ impl App {
                 } if window_id == self.window.as_mut().unwrap().id() => {
                     match event {
                         WindowEvent::CloseRequested => {
-                            // ExitMode(2) can disable immediate close; in that case the engine
-                            // marks "close pending" and lets the script decide when to exit.
-                            let mut gd = gd_write(&self.game_data);
-                            if gd.get_close_immediate() {
-                                loopd.exit();
-                            } else {
-                                gd.set_close_pending(true);
-                            }
+                            self.exit_confirm_ui.open();
                         }
                         WindowEvent::Focused(_focused) => {
                             // Do not introduce WindowMode side effects on focus changes.
@@ -334,7 +349,7 @@ impl App {
                             gd_write(&self.game_data).inputs_manager.frame_reset();
                         }
                         WindowEvent::KeyboardInput { event, .. } => {
-                            if event.state == winit::event::ElementState::Pressed && !event.repeat {
+                            if !self.legacy_save_load_ui.is_active() && !self.exit_confirm_ui.is_active() && event.state == winit::event::ElementState::Pressed && !event.repeat {
                                 match event.physical_key {
                                     PhysicalKey::Code(KeyCode::F2) => {
                                         self.toggle_hud_window();
@@ -358,14 +373,37 @@ impl App {
                         }
                     _ => {}
                     }
-                    {
-                        let mut gd = gd_write(&self.game_data);
-                        update_input_events(
-                            event,
-                            &mut **gd,
-                            (self.surface_config.width, self.surface_config.height),
-                            self.virtual_size,
-                        );
+                    let consumed_by_exit_modal = self.exit_confirm_ui.handle_window_event(
+                        event,
+                        (self.surface_config.width, self.surface_config.height),
+                        self.virtual_size,
+                    );
+                    if let Some(outcome) = self.exit_confirm_ui.take_outcome() {
+                        self.apply_exit_confirm_outcome(outcome);
+                    }
+                    if self.exit_confirm_ui.is_active() || consumed_by_exit_modal {
+                        // Exit confirm is modal; do not forward input into the game while it is open.
+                    } else {
+                        let consumed_by_legacy_modal = {
+                            let mut gd = gd_write(&self.game_data);
+                            self.legacy_save_load_ui.handle_window_event(
+                                event,
+                                (self.surface_config.width, self.surface_config.height),
+                                self.virtual_size,
+                                &mut **gd,
+                            )
+                        };
+                        if !consumed_by_legacy_modal {
+                            let mut gd = gd_write(&self.game_data);
+                            update_input_events(
+                                event,
+                                &mut **gd,
+                                (self.surface_config.width, self.surface_config.height),
+                                self.virtual_size,
+                            );
+                        } else if !self.legacy_save_load_ui.is_active() {
+                            set_legacy_save_load_menu_visible(false);
+                        }
                     }
 
                 }
@@ -430,6 +468,11 @@ impl App {
                     }
                 }
                 Event::AboutToWait => {
+                    if self.pending_app_exit {
+                        loopd.exit();
+                        return;
+                    }
+
                     // ExitMode(3): after the main script context exits, terminate the host loop.
                     let (should_exit, main_exited) = {
                         let gd = gd_read(&self.game_data);
@@ -495,6 +538,20 @@ impl App {
             // InputGetEvent, which uses a separate ring buffer.
             gd.inputs_manager.begin_frame();
 
+            if take_pending_exit_dialog_request() {
+                self.exit_confirm_ui.open();
+            }
+            if let Some(req) = take_pending_save_load_request() {
+                self.legacy_save_load_ui.open(req, gd);
+                set_legacy_save_load_menu_visible(true);
+            }
+            if self.legacy_save_load_ui.is_active() && !legacy_save_load_menu_visible() {
+                self.legacy_save_load_ui.close();
+            }
+            if self.exit_confirm_ui.is_active() || self.legacy_save_load_ui.is_active() {
+                gd.set_halt(true);
+            }
+
             // Movie update must run even when the VM/scheduler is halted for modal playback.
             let mut video_tick_failed = false;
             {
@@ -516,7 +573,7 @@ impl App {
 
             let modal_movie = gd.video_manager.is_modal_active();
 
-            if !modal_movie {
+            if !modal_movie && !self.legacy_save_load_ui.is_active() && !self.exit_confirm_ui.is_active() {
                 self.layer_machine
                     .apply_scene_action(SceneAction::Update, gd);
                 self.scheduler.execute(gd);
@@ -544,8 +601,11 @@ impl App {
             gd.set_current_thread(0);
 
             if gd.get_halt() {
-                // Preserve halt while a modal Movie is active.
-                if !gd.video_manager.is_modal_active() {
+                // Preserve halt while a modal Movie or compatibility layer is active.
+                if !gd.video_manager.is_modal_active()
+                    && !self.legacy_save_load_ui.is_active()
+                    && !self.exit_confirm_ui.is_active()
+                {
                     gd.set_halt(false);
                 }
             }
@@ -695,6 +755,14 @@ impl App {
     }
 }
 
+        {
+            let mut gd = gd_write(&self.game_data);
+            self.legacy_save_load_ui
+                .update(&self.resources, &mut **gd, self.virtual_size);
+            self.exit_confirm_ui
+                .update(&self.resources, self.virtual_size);
+        }
+
         let dissolve_color: Option<glam::Vec4>;
         let dissolve2_color: Option<glam::Vec4>;
         {
@@ -810,6 +878,10 @@ impl App {
             }
 
             self.prim_renderer.draw_virtual_overlay(&mut pass, &self.resources.pipelines.sprite, proj);
+            self.legacy_save_load_ui
+                .draw(&mut pass, &self.resources.pipelines.sprite, proj);
+            self.exit_confirm_ui
+                .draw(&mut pass, &self.resources.pipelines.sprite, proj);
         }
 
 
@@ -1308,6 +1380,37 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
         let px = x_points * scale;
         let py = y_points * scale;
 
+        if self.exit_confirm_ui.is_active() {
+            let consumed = self.exit_confirm_ui.handle_touch(
+                phase,
+                px,
+                py,
+                (self.surface_config.width, self.surface_config.height),
+                self.virtual_size,
+            );
+            if let Some(outcome) = self.exit_confirm_ui.take_outcome() {
+                self.apply_exit_confirm_outcome(outcome);
+            }
+            if consumed || self.exit_confirm_ui.is_active() {
+                return;
+            }
+        }
+
+        if self.legacy_save_load_ui.is_active() {
+            let mut gd = gd_write(&self.game_data);
+            let consumed = self.legacy_save_load_ui.handle_touch(
+                phase,
+                px,
+                py,
+                (self.surface_config.width, self.surface_config.height),
+                self.virtual_size,
+                &mut **gd,
+            );
+            if consumed || self.legacy_save_load_ui.is_active() {
+                return;
+            }
+        }
+
         let (sw_u, sh_u) = (self.surface_config.width.max(1), self.surface_config.height.max(1));
         let (vw_u, vh_u) = (self.virtual_size.0.max(1), self.virtual_size.1.max(1));
 
@@ -1364,6 +1467,37 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
 
         let px = x_px;
         let py = y_px;
+
+        if self.exit_confirm_ui.is_active() {
+            let consumed = self.exit_confirm_ui.handle_touch(
+                phase,
+                px,
+                py,
+                (self.surface_config.width, self.surface_config.height),
+                self.virtual_size,
+            );
+            if let Some(outcome) = self.exit_confirm_ui.take_outcome() {
+                self.apply_exit_confirm_outcome(outcome);
+            }
+            if consumed || self.exit_confirm_ui.is_active() {
+                return;
+            }
+        }
+
+        if self.legacy_save_load_ui.is_active() {
+            let mut gd = gd_write(&self.game_data);
+            let consumed = self.legacy_save_load_ui.handle_touch(
+                phase,
+                px,
+                py,
+                (self.surface_config.width, self.surface_config.height),
+                self.virtual_size,
+                &mut **gd,
+            );
+            if consumed || self.legacy_save_load_ui.is_active() {
+                return;
+            }
+        }
 
         let (sw_u, sh_u) = (self.surface_config.width.max(1), self.surface_config.height.max(1));
         let (vw_u, vh_u) = (self.virtual_size.0.max(1), self.virtual_size.1.max(1));
@@ -2082,6 +2216,8 @@ impl AppBuilder {
         // NOTE: iOS main-thread stack is small. Avoid constructing large `App` values on the stack.
         // Initialize `App` directly on the heap, then run `setup()`.
         let prim_renderer = GpuPrimRenderer::new(resources.clone(), self.size);
+        let legacy_save_load_ui = LegacySaveLoadUi::new(&resources, self.size);
+        let exit_confirm_ui = ExitConfirmUi::new(&resources, self.size);
         let layer_machine = SceneMachine {
             current_scene: self.scene,
         };
@@ -2137,6 +2273,9 @@ impl AppBuilder {
                 ptr::addr_of_mut!((*p).dissolve_num_indices).write(dissolve_num_indices);
                 ptr::addr_of_mut!((*p).last_dissolve_type).write(DissolveType::None);
                 ptr::addr_of_mut!((*p).last_dissolve2_transitioning).write(false);
+                ptr::addr_of_mut!((*p).legacy_save_load_ui).write(legacy_save_load_ui);
+                ptr::addr_of_mut!((*p).exit_confirm_ui).write(exit_confirm_ui);
+                ptr::addr_of_mut!((*p).pending_app_exit).write(false);
 
                 ptr::addr_of_mut!((*p).debug_hud).write(debug_hud);
                 ptr::addr_of_mut!((*p).hud_window).write(hud_window.clone());
@@ -2252,6 +2391,8 @@ impl AppBuilder {
         let vm_worker = VmWorker::spawn(game_data.clone(), self.parser, self.script_engine);
 
         let prim_renderer = GpuPrimRenderer::new(resources.clone(), self.size);
+        let legacy_save_load_ui = LegacySaveLoadUi::new(&resources, self.size);
+        let exit_confirm_ui = ExitConfirmUi::new(&resources, self.size);
         let layer_machine = SceneMachine {
             current_scene: self.scene,
         };
@@ -2305,6 +2446,9 @@ impl AppBuilder {
                 ptr::addr_of_mut!((*p).dissolve_num_indices).write(dissolve_num_indices);
                 ptr::addr_of_mut!((*p).last_dissolve_type).write(DissolveType::None);
                 ptr::addr_of_mut!((*p).last_dissolve2_transitioning).write(false);
+                ptr::addr_of_mut!((*p).legacy_save_load_ui).write(legacy_save_load_ui);
+                ptr::addr_of_mut!((*p).exit_confirm_ui).write(exit_confirm_ui);
+                ptr::addr_of_mut!((*p).pending_app_exit).write(false);
 
                 // HUD is disabled in iOS host mode.
                 ptr::addr_of_mut!((*p).debug_hud).write(None);
@@ -2407,6 +2551,8 @@ impl AppBuilder {
         let vm_worker = VmWorker::spawn(game_data.clone(), self.parser, self.script_engine);
 
         let prim_renderer = GpuPrimRenderer::new(resources.clone(), self.size);
+        let legacy_save_load_ui = LegacySaveLoadUi::new(&resources, self.size);
+        let exit_confirm_ui = ExitConfirmUi::new(&resources, self.size);
         let layer_machine = SceneMachine {
             current_scene: self.scene,
         };
@@ -2461,6 +2607,9 @@ impl AppBuilder {
                 ptr::addr_of_mut!((*p).dissolve_num_indices).write(dissolve_num_indices);
                 ptr::addr_of_mut!((*p).last_dissolve_type).write(DissolveType::None);
                 ptr::addr_of_mut!((*p).last_dissolve2_transitioning).write(false);
+                ptr::addr_of_mut!((*p).legacy_save_load_ui).write(legacy_save_load_ui);
+                ptr::addr_of_mut!((*p).exit_confirm_ui).write(exit_confirm_ui);
+                ptr::addr_of_mut!((*p).pending_app_exit).write(false);
 
                 // HUD is disabled in Android host mode.
                 ptr::addr_of_mut!((*p).debug_hud).write(None);

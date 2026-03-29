@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["timer_get","timer_set","timer_suspend"],"struct":["TimerGet","TimerSet","TimerSuspend"]};

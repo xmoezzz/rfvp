@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["Nls"],"fn":["as_str","as_u16","as_u32_opt","as_u8","load_meta"],"struct":["Meta","Syscall"]};

@@ -13,6 +13,8 @@ mod rfvp_audio;
 mod vm_runner;
 mod trace;
 mod boot;
+mod legacy_save_load_ui;
+mod exit_confirm_ui;
 
 use script::parser::{Nls, Parser};
 use subsystem::{anzu_scene::AnzuScene, resources::thread_manager::ThreadManager};

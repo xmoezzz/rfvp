@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"struct":["AsfWmaDecoder","AsfWmv2Decoder","DecodedAudioFrame","DecodedFrame","Wmv2Decoder"]};

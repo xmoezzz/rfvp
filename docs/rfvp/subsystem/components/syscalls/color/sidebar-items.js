@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["color_set"],"struct":["ColorSet"]};

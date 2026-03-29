@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["Error","TimerType"],"struct":["Time","Timer","Timers"]};

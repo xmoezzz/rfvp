@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["load","save_create","save_data","save_thumb_size","save_write"],"struct":["Load","SaveCreate","SaveData","SaveThumbSize","SaveWrite"]};

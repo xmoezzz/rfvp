@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["wmv2_idct_add","wmv2_idct_put"]};

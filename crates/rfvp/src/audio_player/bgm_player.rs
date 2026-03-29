@@ -15,6 +15,8 @@ use crate::subsystem::resources::vfs::Vfs;
 
 pub const BGM_SLOT_COUNT: usize = 4;
 
+pub const SOUND_TYPE_COUNT: usize = 10;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BgmSlotSnapshotV1 {
     pub slot: u8,
@@ -40,6 +42,7 @@ pub struct BgmPlayer {
     bgm_datas: [Option<StaticSoundData>; BGM_SLOT_COUNT],
     bgm_kinds: [Option<i32>; BGM_SLOT_COUNT],
     bgm_names: [Option<String>; BGM_SLOT_COUNT],
+    bgm_type_volumes: [f32; SOUND_TYPE_COUNT],
     bgm_muted: [bool; BGM_SLOT_COUNT],
     bgm_volumes: [f32; BGM_SLOT_COUNT],
     bgm_repeat: [bool; BGM_SLOT_COUNT],
@@ -69,6 +72,7 @@ impl BgmPlayer {
             bgm_datas: [(); BGM_SLOT_COUNT].map(|_| None),
             bgm_kinds: [(); BGM_SLOT_COUNT].map(|_| None),
             bgm_names: [(); BGM_SLOT_COUNT].map(|_| None),
+            bgm_type_volumes: [1.0; SOUND_TYPE_COUNT],
             bgm_muted: [false; BGM_SLOT_COUNT],
             bgm_volumes: [1.0; BGM_SLOT_COUNT],
             bgm_repeat: [false; BGM_SLOT_COUNT],
@@ -90,6 +94,17 @@ impl BgmPlayer {
         self.load(slot, bgm)
     }
 
+    fn type_volume_for_slot(&self, slot: usize) -> f32 {
+        match self.bgm_kinds[slot] {
+            Some(kind) if (0..SOUND_TYPE_COUNT as i32).contains(&kind) => self.bgm_type_volumes[kind as usize],
+            _ => 1.0,
+        }
+    }
+
+    fn effective_volume_for_slot(&self, slot: usize) -> f32 {
+        self.bgm_volumes[slot] * self.type_volume_for_slot(slot)
+    }
+
     pub fn play(
         &mut self,
         slot: i32,
@@ -103,7 +118,8 @@ impl BgmPlayer {
         self.bgm_pan[slot] = pan;
         self.bgm_repeat[slot] = repeat;
         self.bgm_volumes[slot] = volume;
-        let actual_volume = if self.bgm_muted[slot] { 0.0 } else { volume };let bgm = match &self.bgm_datas[slot] {
+        let actual_volume = if self.bgm_muted[slot] { 0.0 } else { self.effective_volume_for_slot(slot) };
+        let bgm = match &self.bgm_datas[slot] {
             Some(data) => data.clone(),
             None => {
                 log::error!("Tried to play BGM slot {}, but no BGM was loaded", slot);
@@ -138,7 +154,8 @@ impl BgmPlayer {
 
         
         self.bgm_volumes[slot] = volume;
-        let actual_volume = if self.bgm_muted[slot] { 0.0 } else { volume };if let Some(handle) = self.bgm_slots[slot].as_mut() {
+        let actual_volume = if self.bgm_muted[slot] { 0.0 } else { self.effective_volume_for_slot(slot) };
+        if let Some(handle) = self.bgm_slots[slot].as_mut() {
             handle.set_volume(actual_volume, tween);
         } else {
             warn!(
@@ -184,6 +201,33 @@ impl BgmPlayer {
     pub fn set_type(&mut self, slot: i32, kind: i32) {
         let slot = slot as usize;
         self.bgm_kinds[slot] = Some(kind);
+        let actual_volume = if self.bgm_muted[slot] {
+            0.0
+        } else {
+            self.effective_volume_for_slot(slot)
+        };
+        if let Some(handle) = self.bgm_slots[slot].as_mut() {
+            handle.set_volume(actual_volume, Tween::default());
+        }
+    }
+
+    pub fn set_type_volume(&mut self, kind: i32, volume: f32, tween: Tween) {
+        if !(0..SOUND_TYPE_COUNT as i32).contains(&kind) {
+            return;
+        }
+        self.bgm_type_volumes[kind as usize] = volume;
+        for slot in 0..BGM_SLOT_COUNT {
+            if self.bgm_kinds[slot] == Some(kind) {
+                let actual_volume = if self.bgm_muted[slot] {
+                    0.0
+                } else {
+                    self.effective_volume_for_slot(slot)
+                };
+                if let Some(handle) = self.bgm_slots[slot].as_mut() {
+                    handle.set_volume(actual_volume, tween);
+                }
+            }
+        }
     }
     pub fn debug_summary(&self) -> BgmDebugSummary {
         let loaded_datas = self.bgm_datas.iter().filter(|x| x.is_some()).count();

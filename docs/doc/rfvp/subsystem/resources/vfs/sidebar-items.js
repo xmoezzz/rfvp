@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"struct":["SubFile","Vfs","VfsEntry","VfsFile"],"trait":["ReadSeek"],"type":["VfsStream"]};

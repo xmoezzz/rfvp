@@ -194,6 +194,36 @@ pub fn audio_type(
     Ok(Variant::Nil)
 }
 
+// AngelWish legacy ABI: AudioVol(channel, volume)
+// - registered with 2 parameters in the early engine
+// - same effect target as later AudioVol, but without crossfade
+pub fn audio_vol_legacy_aw(
+    game_data: &mut GameData,
+    channel: &Variant,
+    volume: &Variant,
+) -> Result<Variant> {
+    let Some(channel) = channel.as_int() else {
+        return Ok(Variant::Nil);
+    };
+    if !(0..4).contains(&channel) {
+        return Ok(Variant::Nil);
+    }
+
+    let Some(vol_i) = volume.as_int() else {
+        return Ok(Variant::Nil);
+    };
+    if !(0..=100).contains(&vol_i) {
+        return Ok(Variant::Nil);
+    }
+
+    let vol = vol_i as f64 / 100.0;
+    game_data
+        .bgm_player_mut()
+        .set_volume(channel, vol as f32, kira::Tween::default());
+
+    Ok(Variant::Nil)
+}
+
 // set the volume of the specific channel
 pub fn audio_vol(
     game_data: &mut GameData,
@@ -471,6 +501,35 @@ pub fn sound_type_vol(
     Ok(Variant::Nil)
 }
 
+// AngelWish legacy ABI: SoundVol(channel, volume)
+// - registered with 2 parameters in the early engine
+// - same channel-volume effect as the later syscall, but without crossfade
+pub fn sound_volume_legacy_aw(
+    game_data: &mut GameData,
+    channel: &Variant,
+    volume: &Variant,
+) -> Result<Variant> {
+    let Some(channel) = channel.as_int() else {
+        return Ok(Variant::Nil);
+    };
+    if !(0..32).contains(&channel) {
+        return Ok(Variant::Nil);
+    }
+
+    let Some(volume) = volume.as_int() else {
+        return Ok(Variant::Nil);
+    };
+    if !(0..=100).contains(&volume) {
+        return Ok(Variant::Nil);
+    }
+
+    game_data
+        .se_player_mut()
+        .set_volume(channel, volume as f32 / 100.0, kira::Tween::default());
+
+    Ok(Variant::Nil)
+}
+
 pub fn sound_volume(
     game_data: &mut GameData,
     channel: &Variant,
@@ -611,6 +670,13 @@ unsafe impl Sync for AudioType {}
 pub struct AudioVol;
 impl Syscaller for AudioVol {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        if args.len() == 2 {
+            return audio_vol_legacy_aw(
+                game_data,
+                super::get_var!(args, 0),
+                super::get_var!(args, 1),
+            );
+        }
         audio_vol(
             game_data,
             super::get_var!(args, 0),
@@ -727,6 +793,13 @@ unsafe impl Sync for SoundTypeVol {}
 pub struct SoundVol;
 impl Syscaller for SoundVol {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        if args.len() == 2 {
+            return sound_volume_legacy_aw(
+                game_data,
+                super::get_var!(args, 0),
+                super::get_var!(args, 1),
+            );
+        }
         sound_volume(
             game_data,
             super::get_var!(args, 0),
@@ -742,6 +815,13 @@ unsafe impl Sync for SoundVol {}
 pub struct SoundVolume;
 impl Syscaller for SoundVolume {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        if args.len() == 2 {
+            return sound_volume_legacy_aw(
+                game_data,
+                super::get_var!(args, 0),
+                super::get_var!(args, 1),
+            );
+        }
         sound_volume(
             game_data,
             super::get_var!(args, 0),

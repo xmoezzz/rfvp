@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["BGM_SLOT_COUNT"],"struct":["BgmDebugSummary","BgmPlayer","BgmPlayerSnapshotV1","BgmSlotInfo","BgmSlotSnapshotV1"]};

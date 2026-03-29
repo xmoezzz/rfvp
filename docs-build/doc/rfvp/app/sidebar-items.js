@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"struct":["App","AppBuilder","BuiltApp","PumpInstance"]};

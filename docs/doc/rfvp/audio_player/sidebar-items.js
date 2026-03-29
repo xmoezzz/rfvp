@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"mod":["bgm_player","se_player"]};

@@ -76,6 +76,68 @@ pub fn text_clear(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     Ok(Variant::Nil)
 }
 
+// AngelWish legacy ABI: TextColor(id, color1, color2)
+// - registered with 3 parameters in the early engine
+// - updates only the first two color slots
+pub fn text_color_legacy_aw(
+    game_data: &mut GameData,
+    id: &Variant,
+    color1_id: &Variant,
+    color2_id: &Variant,
+) -> Result<Variant> {
+    let id = match id {
+        Variant::Int(id) => *id,
+        _ => return Ok(Variant::Nil),
+    };
+    if !(0..8).contains(&id) {
+        return Ok(Variant::Nil);
+    }
+
+    if let Variant::Int(cid) = color1_id {
+        if (0..256).contains(cid) {
+            let color = game_data.motion_manager.color_manager.get_entry(*cid as u8);
+            game_data.motion_manager.text_manager.set_text_color1(id, color);
+        }
+    }
+
+    if let Variant::Int(cid) = color2_id {
+        if (0..256).contains(cid) {
+            let color = game_data.motion_manager.color_manager.get_entry(*cid as u8);
+            game_data.motion_manager.text_manager.set_text_color2(id, color);
+        }
+    }
+
+    Ok(Variant::Nil)
+}
+
+// AngelWish legacy ABI: TextFont(id, font_id)
+// - registered with 2 parameters in the early engine
+// - updates only the primary font slot
+pub fn text_font_legacy_aw(
+    game_data: &mut GameData,
+    id: &Variant,
+    font_id: &Variant,
+) -> Result<Variant> {
+    let id = match id {
+        Variant::Int(id) => *id,
+        _ => return Ok(Variant::Nil),
+    };
+    if !(0..8).contains(&id) {
+        return Ok(Variant::Nil);
+    }
+
+    if let Variant::Int(fid) = font_id {
+        if (-1..=1).contains(fid) {
+            game_data
+                .motion_manager
+                .text_manager
+                .set_text_font_idx1(id, *fid);
+        }
+    }
+
+    Ok(Variant::Nil)
+}
+
 pub fn text_color(
     game_data: &mut GameData,
     id: &Variant,
@@ -334,6 +396,34 @@ pub fn text_function(
 }
 
 
+// AngelWish legacy ABI: TextOutSize(id, outline)
+// - registered with 2 parameters in the early engine
+// - updates only the primary outline slot
+pub fn text_out_size_legacy_aw(
+    game_data: &mut GameData,
+    id: &Variant,
+    outline: &Variant,
+) -> Result<Variant> {
+    let id = match id {
+        Variant::Int(id) => *id,
+        _ => return Ok(Variant::Nil),
+    };
+    if !(0..8).contains(&id) {
+        return Ok(Variant::Nil);
+    }
+
+    if let Variant::Int(v) = outline {
+        if (0..=8).contains(v) {
+            game_data
+                .motion_manager
+                .text_manager
+                .set_text_outline1(id, *v as u8);
+        }
+    }
+
+    Ok(Variant::Nil)
+}
+
 pub fn text_out_size(
     game_data: &mut GameData,
     id: &Variant,
@@ -472,6 +562,7 @@ pub fn text_print(game_data: &mut GameData, id: &Variant, content: &Variant) -> 
                 return Ok(Variant::Nil);
             }
             game_data.motion_manager.text_manager.set_text_content(id, s);
+            super::legacy::on_legacy_text_print(s, id);
             let _ = game_data
                 .motion_manager
                 .text_upload_slot(id, &game_data.fontface_manager, true);
@@ -502,6 +593,7 @@ pub fn text_print(game_data: &mut GameData, id: &Variant, content: &Variant) -> 
             // IMPORTANT: without uploading the updated slot buffer, the visible text stays stale
             // (typically still the cleared TextBuff), which makes the message window appear empty.
             game_data.motion_manager.text_manager.set_text_content(id, s);
+            super::legacy::on_legacy_text_print(s, id);
             let _ = game_data
                 .motion_manager
                 .text_upload_slot(id, &game_data.fontface_manager, true);
@@ -578,6 +670,34 @@ pub fn text_shadow_dist(game_data: &mut GameData, id: &Variant, dist: &Variant) 
     Ok(Variant::Nil)
 }
 
+
+// AngelWish legacy ABI: TextSize(id, size)
+// - registered with 2 parameters in the early engine
+// - updates only the primary size slot
+pub fn text_size_legacy_aw(
+    game_data: &mut GameData,
+    id: &Variant,
+    size: &Variant,
+) -> Result<Variant> {
+    let id = match id {
+        Variant::Int(id) => *id,
+        _ => return Ok(Variant::Nil),
+    };
+    if !(0..8).contains(&id) {
+        return Ok(Variant::Nil);
+    }
+
+    if let Variant::Int(v) = size {
+        if (8..=64).contains(v) {
+            game_data
+                .motion_manager
+                .text_manager
+                .set_text_size1(id, *v as u8);
+        }
+    }
+
+    Ok(Variant::Nil)
+}
 
 pub fn text_size(
     game_data: &mut GameData,
@@ -800,6 +920,14 @@ unsafe impl Sync for TextClear {}
 pub struct TextColor;
 impl Syscaller for TextColor {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        if args.len() == 3 {
+            return text_color_legacy_aw(
+                game_data,
+                get_var!(args, 0),
+                get_var!(args, 1),
+                get_var!(args, 2),
+            );
+        }
         text_color(
             game_data,
             get_var!(args, 0),
@@ -817,6 +945,13 @@ unsafe impl Sync for TextColor {}
 pub struct TextFont;
 impl Syscaller for TextFont {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        if args.len() == 2 {
+            return text_font_legacy_aw(
+                game_data,
+                get_var!(args, 0),
+                get_var!(args, 1),
+            );
+        }
         text_font(
             game_data,
             get_var!(args, 0),
@@ -915,6 +1050,13 @@ unsafe impl Sync for TextFunction {}
 pub struct TextOutSize;
 impl Syscaller for TextOutSize {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        if args.len() == 2 {
+            return text_out_size_legacy_aw(
+                game_data,
+                get_var!(args, 0),
+                get_var!(args, 1),
+            );
+        }
         text_out_size(
             game_data,
             get_var!(args, 0),
@@ -997,6 +1139,13 @@ unsafe impl Sync for TextShadowDist {}
 pub struct TextSize;
 impl Syscaller for TextSize {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+        if args.len() == 2 {
+            return text_size_legacy_aw(
+                game_data,
+                get_var!(args, 0),
+                get_var!(args, 1),
+            );
+        }
         text_size(
             game_data,
             get_var!(args, 0),

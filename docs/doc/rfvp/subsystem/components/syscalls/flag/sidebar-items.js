@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["flag_get","flag_set"],"struct":["FlagGet","FlagSet"]};

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"struct":["PartsItem","PartsItemSnapshotV1","PartsManager","PartsManagerSnapshotV1","PartsMotion","PartsMotionSnapshotV1"]};

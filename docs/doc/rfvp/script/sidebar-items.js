@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["Variant"],"fn":["vm_add","vm_div","vm_mul","vm_sub"],"mod":["context","global","inst","opcode","parser"],"struct":["Table"],"trait":["VmSyscall"]};

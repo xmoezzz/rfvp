@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["assemble","build_sysdesc","enc_cstr","enc_text","op_size","opcode"]};

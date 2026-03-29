@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["SYSCALL_SPECS"],"fn":["register_unimplemented_syscalls"],"struct":["SyscallSpec","UnimplementedSyscall"]};

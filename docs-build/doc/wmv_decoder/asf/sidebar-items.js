@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["GUID_ASF_DATA","GUID_ASF_HEADER","GUID_FILE_PROPERTIES","GUID_STREAM_PROPERTIES","GUID_STREAM_TYPE_AUDIO","GUID_STREAM_TYPE_VIDEO"],"struct":["AsfFile","AsfPayload","AudioStreamInfo","Guid","ObjectHeader","VideoStreamInfo"]};

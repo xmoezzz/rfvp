@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["history_get","history_set"],"struct":["HistoryGet","HistorySet"]};

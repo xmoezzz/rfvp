@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["dissolve","lip_anim","lip_sync","snow","snow_start","snow_stop"],"struct":["Dissolve","LipAnim","LipSync","Snow","SnowStart","SnowStop"]};

@@ -6,6 +6,12 @@ use crate::script::parser::Nls;
 use crate::subsystem::components::syscalls::cursor::{CursorChange, CursorMove, CursorShow};
 use crate::subsystem::components::syscalls::utils::{Debmess, DissolveWait, ExitDialog, TitleMenu, UnimplementedNamed, nullsub_2};
 use crate::subsystem::components::syscalls::generated::SYSCALL_SPECS;
+use crate::subsystem::components::syscalls::legacy::{
+    ChrAdd, ChrGetRGB, ChrGetVol, ConfigDisplay, ConfigEtc, ConfigSet, ConfigSound,
+    LoadFile, LoadQuick, LoadTitle, MoviePlay, PrimSetClip, QuickCopy, QuickState,
+    SaveFile, SaveLoadMenu, SaveName, SaveQuick, SaveTitle, SoundPan, TextDataGet,
+    TextDataSet, TextHistory, TextHyphenation,
+};
 
 use crate::script::{Variant, VmSyscall};
 use crate::subsystem::components::syscalls::graph::{
@@ -690,6 +696,31 @@ lazy_static::lazy_static! {
         m.insert("Snow".into(), Box::new(Snow));
         m.insert("SnowStart".into(), Box::new(SnowStart));
         m.insert("SnowStop".into(), Box::new(SnowStop));
+
+        m.insert("ChrAdd".into(), Box::new(ChrAdd));
+        m.insert("ChrGetRGB".into(), Box::new(ChrGetRGB));
+        m.insert("ChrGetVol".into(), Box::new(ChrGetVol));
+        m.insert("ConfigDisplay".into(), Box::new(ConfigDisplay));
+        m.insert("ConfigEtc".into(), Box::new(ConfigEtc));
+        m.insert("ConfigSet".into(), Box::new(ConfigSet));
+        m.insert("ConfigSound".into(), Box::new(ConfigSound));
+        m.insert("LoadFile".into(), Box::new(LoadFile));
+        m.insert("LoadQuick".into(), Box::new(LoadQuick));
+        m.insert("LoadTitle".into(), Box::new(LoadTitle));
+        m.insert("MoviePlay".into(), Box::new(MoviePlay));
+        m.insert("PrimSetClip".into(), Box::new(PrimSetClip));
+        m.insert("QuickCopy".into(), Box::new(QuickCopy));
+        m.insert("QuickState".into(), Box::new(QuickState));
+        m.insert("SaveFile".into(), Box::new(SaveFile));
+        m.insert("SaveLoadMenu".into(), Box::new(SaveLoadMenu));
+        m.insert("SaveName".into(), Box::new(SaveName));
+        m.insert("SaveQuick".into(), Box::new(SaveQuick));
+        m.insert("SaveTitle".into(), Box::new(SaveTitle));
+        m.insert("SoundPan".into(), Box::new(SoundPan));
+        m.insert("TextDataGet".into(), Box::new(TextDataGet));
+        m.insert("TextDataSet".into(), Box::new(TextDataSet));
+        m.insert("TextHistory".into(), Box::new(TextHistory));
+        m.insert("TextHyphenation".into(), Box::new(TextHyphenation));
 
         // Auto-register the extracted syscall catalog as default stubs.
 

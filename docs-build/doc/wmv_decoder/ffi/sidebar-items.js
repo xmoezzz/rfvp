@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["wmv2_decoder_create","wmv2_decoder_decode","wmv2_decoder_destroy","wmv2_decoder_get_frame"],"struct":["Wmv2FrameView"]};

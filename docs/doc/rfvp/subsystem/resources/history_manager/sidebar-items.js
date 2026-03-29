@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["HistoryFunction"],"struct":["HistoryEntry","HistoryManager"]};

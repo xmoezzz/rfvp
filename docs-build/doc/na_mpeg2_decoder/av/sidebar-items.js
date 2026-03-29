@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["MpegAvEvent"],"struct":["MpegAudioF32","MpegAvPipeline","MpegRgbaFrame"]};

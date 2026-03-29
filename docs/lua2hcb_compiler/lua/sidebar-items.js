@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["Stmt"],"fn":["extract_if_cond","extract_while_cond","is_comment_or_empty","is_else","is_elseif","is_end","is_if_start","is_while_start","parse_block","parse_lua","split_functions","strip_local"],"struct":["Function"]};

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["ff_simple_idct48_add","ff_simple_idct84_add","ff_simple_idct_add_int16_8bit","ff_simple_idct_int16_8bit"]};

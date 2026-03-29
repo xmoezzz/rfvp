@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["main"],"static":["VERTEX_ATTRS"],"struct":["State","Vertex"]};

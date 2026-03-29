@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"struct":["GaijiEntrySnapshotV1","GaijiItem","GaijiManager","GaijiManagerSnapshotV1"]};

@@ -451,6 +451,7 @@ pub fn take_pending_vm_snapshot(&mut self) -> Option<ThreadManagerSnapshotV1> {
 }
 
 
+
     pub fn asynchronously_save(&mut self, slot: u32) {
         // mark the save status as dirty and perform the 'delayed' save
         self.current_save_slot = slot;
@@ -845,8 +846,7 @@ pub fn take_pending_vm_snapshot(&mut self) -> Option<ThreadManagerSnapshotV1> {
     pub fn consume_save_write_result(&mut self) {
         self.save_requested = false;
         self.savedata_prepared = false;
-        self.current_save_slot = u32::MAX;
-    }
+        self.current_save_slot = u32::MAX;    }
 
     /// Request a load of a save slot (deferred to the engine loop).
     pub fn request_load(&mut self, slot: u32) {
@@ -859,8 +859,7 @@ pub fn take_pending_vm_snapshot(&mut self) -> Option<ThreadManagerSnapshotV1> {
         if !self.should_load {
             return None;
         }
-        self.should_load = false;
-        Some(self.load_slot)
+        self.should_load = false;        Some(self.load_slot)
     }
 
     /// Load a save slot into the current save fields.

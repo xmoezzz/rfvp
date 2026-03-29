@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["movie_play","movie_state","movie_stop"],"struct":["Movie","MovieState","MovieStop"]};

@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["rfvp_pump_create","rfvp_pump_destroy","rfvp_pump_step","rfvp_run_entry"],"mod":["app","audio_player","boot","config","debug_ui","rendering","rfvp_audio","rfvp_render","script","subsystem","trace","utils","vm_runner","vm_worker","window"],"struct":["RfvpPumpHandle"]};
