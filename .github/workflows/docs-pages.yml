@@ -28,6 +28,11 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install native dependencies for docs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libglib2.0-dev
+          
       - name: Build workspace docs
         run: cargo doc --workspace --no-deps
 
