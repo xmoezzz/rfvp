@@ -6,6 +6,7 @@
 * Playable?
 * See [setsusmei](setsumei/README.md) for details.
 ![IN-GAME](./images/in-game.png)
+![legacy](./images/legacy.png)
 
 ### rfvp debug HUD
 * Enable it with F2 hotkey (Fn + F2 on MacOS)
