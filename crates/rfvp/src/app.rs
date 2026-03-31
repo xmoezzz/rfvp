@@ -175,6 +175,7 @@ pub struct App {
     last_dissolve2_transitioning: bool,
     legacy_save_load_ui: LegacySaveLoadUi,
     exit_confirm_ui: ExitConfirmUi,
+    builtin_exit_ui_enabled: bool,
     pending_app_exit: bool,
 }
 
@@ -295,7 +296,11 @@ impl App {
                 } if window_id == self.window.as_mut().unwrap().id() => {
                     match event {
                         WindowEvent::CloseRequested => {
-                            self.exit_confirm_ui.open();
+                            if self.builtin_exit_ui_enabled {
+                                self.exit_confirm_ui.open();
+                            } else {
+                                self.apply_exit_confirm_outcome(ExitConfirmOutcome::Confirmed);
+                            }
                         }
                         WindowEvent::Focused(_focused) => {
                             // Do not introduce WindowMode side effects on focus changes.
@@ -539,7 +544,13 @@ impl App {
             gd.inputs_manager.begin_frame();
 
             if take_pending_exit_dialog_request() {
-                self.exit_confirm_ui.open();
+                if self.builtin_exit_ui_enabled {
+                    self.exit_confirm_ui.open();
+                } else if gd.get_close_immediate() {
+                    self.pending_app_exit = true;
+                } else {
+                    gd.set_close_pending(true);
+                }
             }
             if let Some(req) = take_pending_save_load_request() {
                 self.legacy_save_load_ui.open(req, gd);
@@ -1728,6 +1739,14 @@ impl AppBuilder {
         self
     }
 
+    fn builtin_exit_ui_enabled(&self) -> bool {
+        self
+            .parser
+            .get_all_syscalls()
+            .values()
+            .any(|sys| sys.name == "ConfigEtc")
+    }
+
     async fn init_render(
         window: Arc<Window>,
         hud_window: Option<Arc<Window>>,
@@ -2200,6 +2219,7 @@ impl AppBuilder {
             (vb, ib, indices.len() as u32)
         };
 
+        let builtin_exit_ui_enabled = self.builtin_exit_ui_enabled();
         let game_data = Arc::new(RwLock::new(self.world));
         let debug_ring = log_ring::get().unwrap_or_else(|| log_ring::init(4096));
         let vm_worker = VmWorker::spawn(game_data.clone(), self.parser, self.script_engine);
@@ -2276,6 +2296,7 @@ impl AppBuilder {
                 ptr::addr_of_mut!((*p).last_dissolve2_transitioning).write(false);
                 ptr::addr_of_mut!((*p).legacy_save_load_ui).write(legacy_save_load_ui);
                 ptr::addr_of_mut!((*p).exit_confirm_ui).write(exit_confirm_ui);
+                ptr::addr_of_mut!((*p).builtin_exit_ui_enabled).write(builtin_exit_ui_enabled);
                 ptr::addr_of_mut!((*p).pending_app_exit).write(false);
 
                 ptr::addr_of_mut!((*p).debug_hud).write(debug_hud);
@@ -2387,6 +2408,7 @@ impl AppBuilder {
             (vb, ib, indices.len() as u32)
         };
 
+        let builtin_exit_ui_enabled = self.builtin_exit_ui_enabled();
         let game_data = Arc::new(RwLock::new(self.world));
         let debug_ring = log_ring::get().unwrap_or_else(|| log_ring::init(4096));
         let vm_worker = VmWorker::spawn(game_data.clone(), self.parser, self.script_engine);
@@ -2449,6 +2471,7 @@ impl AppBuilder {
                 ptr::addr_of_mut!((*p).last_dissolve2_transitioning).write(false);
                 ptr::addr_of_mut!((*p).legacy_save_load_ui).write(legacy_save_load_ui);
                 ptr::addr_of_mut!((*p).exit_confirm_ui).write(exit_confirm_ui);
+                ptr::addr_of_mut!((*p).builtin_exit_ui_enabled).write(builtin_exit_ui_enabled);
                 ptr::addr_of_mut!((*p).pending_app_exit).write(false);
 
                 // HUD is disabled in iOS host mode.
@@ -2547,6 +2570,7 @@ impl AppBuilder {
             (vb, ib, indices.len() as u32)
         };
 
+        let builtin_exit_ui_enabled = self.builtin_exit_ui_enabled();
         let game_data = Arc::new(RwLock::new(self.world));
         let debug_ring = log_ring::get().unwrap_or_else(|| log_ring::init(4096));
         let vm_worker = VmWorker::spawn(game_data.clone(), self.parser, self.script_engine);
@@ -2610,6 +2634,7 @@ impl AppBuilder {
                 ptr::addr_of_mut!((*p).last_dissolve2_transitioning).write(false);
                 ptr::addr_of_mut!((*p).legacy_save_load_ui).write(legacy_save_load_ui);
                 ptr::addr_of_mut!((*p).exit_confirm_ui).write(exit_confirm_ui);
+                ptr::addr_of_mut!((*p).builtin_exit_ui_enabled).write(builtin_exit_ui_enabled);
                 ptr::addr_of_mut!((*p).pending_app_exit).write(false);
 
                 // HUD is disabled in Android host mode.
