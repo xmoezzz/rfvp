@@ -757,10 +757,11 @@ impl App {
 
         {
             let mut gd = gd_write(&self.game_data);
+            let surface_size = (self.surface_config.width, self.surface_config.height);
             self.legacy_save_load_ui
-                .update(&self.resources, &mut **gd, self.virtual_size);
+                .update(&self.resources, &mut **gd, self.virtual_size, surface_size);
             self.exit_confirm_ui
-                .update(&self.resources, self.virtual_size);
+                .update(&self.resources, self.virtual_size, surface_size);
         }
 
         let dissolve_color: Option<glam::Vec4>;
@@ -878,10 +879,6 @@ impl App {
             }
 
             self.prim_renderer.draw_virtual_overlay(&mut pass, &self.resources.pipelines.sprite, proj);
-            self.legacy_save_load_ui
-                .draw(&mut pass, &self.resources.pipelines.sprite, proj);
-            self.exit_confirm_ui
-                .draw(&mut pass, &self.resources.pipelines.sprite, proj);
         }
 
 
@@ -967,6 +964,10 @@ impl App {
                 self.render_target.bind_group(),
                 present_m,
             );
+            self.legacy_save_load_ui
+                .draw(&mut pass, &self.resources.pipelines.sprite_screen, proj_surface);
+            self.exit_confirm_ui
+                .draw(&mut pass, &self.resources.pipelines.sprite_screen, proj_surface);
         }
 
         self.resources.queue.submit(Some(encoder.finish()));

@@ -134,7 +134,7 @@ impl DebugHud {
             // Register a native wgpu texture view for egui.
             let tex_id = self
                 .renderer
-                .register_native_texture(device, view, wgpu::FilterMode::Linear);
+                .register_native_texture(device, view, wgpu::FilterMode::Nearest);
 
             self.prim_tile_textures.insert(gid, (gen, tex_id, size));
         }
