@@ -75,7 +75,7 @@ pub enum KeyCode {
     Shift = 0,
     Ctrl = 1,
     LeftClick = 2, // left mouse button & enter, a virtual keycode
-    RightClick = 3, // right mouse button & esc, a virtual keycode
+    RightClick = 3, // right mouse button, a virtual keycode
     MouseLeft = 4,
     MouseRight = 5,
     Esc = 6,
@@ -306,7 +306,7 @@ impl InputManager {
 
     #[inline]
     fn virtual_right_active(bits: u32) -> bool {
-        (bits & (Self::bit_for(KeyCode::MouseRight) | Self::bit_for(KeyCode::Esc))) != 0
+        (bits & Self::bit_for(KeyCode::MouseRight)) != 0
     }
 
     #[inline]

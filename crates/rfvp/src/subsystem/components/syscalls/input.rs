@@ -161,7 +161,7 @@ unsafe impl Sync for InputGetCursY {}
 ///     Shift = 0,
 ///     Ctrl = 1,
 ///     LeftClick = 2, // virtual
-///     RightClick = 3, // virtual
+///     RightClick = 3, // virtual, derived from right mouse only
 ///     MouseLeft = 4,
 ///     MouseRight = 5,
 ///     Esc = 6,
