@@ -64,6 +64,7 @@ pub struct RenderTarget {
     view: wgpu::TextureView,
     sampler: wgpu::Sampler,
     bind_group: TextureBindGroup,
+    logical_size: (u32, u32),
     size: (u32, u32),
     quad_vb: wgpu::Buffer,
     quad_vertices: std::ops::Range<u32>,
@@ -72,8 +73,8 @@ pub struct RenderTarget {
 impl RenderTarget {
     pub const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
-    pub fn new(resources: &GpuCommonResources, size: (u32, u32), label: Option<&str>) -> Self {
-        let (w, h) = (size.0.max(1), size.1.max(1));
+    pub fn new(resources: &GpuCommonResources, logical_size: (u32, u32), backing_size: (u32, u32), label: Option<&str>) -> Self {
+        let (w, h) = (backing_size.0.max(1), backing_size.1.max(1));
         let texture = resources.device.create_texture(&wgpu::TextureDescriptor {
             label,
             size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
@@ -108,8 +109,8 @@ impl RenderTarget {
 
         // Fullscreen quad in virtual pixel space.
         // Coordinate system: origin at top-left, x right, y down.
-        let vw = w as f32;
-        let vh = h as f32;
+        let vw = logical_size.0.max(1) as f32;
+        let vh = logical_size.1.max(1) as f32;
         let x0 = 0.0;
         let y0 = 0.0;
         let x1 = vw;
@@ -137,6 +138,7 @@ impl RenderTarget {
             view,
             sampler,
             bind_group: TextureBindGroup::new(bind_group),
+            logical_size,
             size: (w, h),
             quad_vb,
             quad_vertices: 0..6,
@@ -146,7 +148,7 @@ impl RenderTarget {
     pub fn projection_matrix(&self) -> Mat4 {
         // Virtual space: origin at top-left, x right, y down.
         // Maps pixel coordinates (0..w, 0..h) into NDC (-1..1, 1..-1).
-        let (w, h) = (self.size.0 as f32, self.size.1 as f32);
+        let (w, h) = (self.logical_size.0.max(1) as f32, self.logical_size.1.max(1) as f32);
         mat4(
             vec4(2.0 / w, 0.0, 0.0, 0.0),
             vec4(0.0, -2.0 / h, 0.0, 0.0),
@@ -157,6 +159,10 @@ impl RenderTarget {
 
     pub fn bind_group(&self) -> &TextureBindGroup {
         &self.bind_group
+    }
+
+    pub fn backing_size(&self) -> (u32, u32) {
+        self.size
     }
 
     pub fn vertex_source<'a>(&'a self) -> VertexSource<'a> {

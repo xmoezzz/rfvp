@@ -232,6 +232,36 @@ impl App {
             gd.set_window(crate::subsystem::resources::window::Window::new((w, h), 1.0));
         }
     }
+    fn current_hidpi_scale(&self) -> f32 {
+        self.window
+            .as_ref()
+            .map(|w| w.scale_factor() as f32)
+            .unwrap_or(self.native_scale_factor as f32)
+            .max(1.0)
+    }
+
+    fn desired_render_target_backing_size(&self) -> (u32, u32) {
+        let scale = self.current_hidpi_scale();
+        let w = ((self.virtual_size.0.max(1) as f32) * scale)
+            .round()
+            .max(self.virtual_size.0.max(1) as f32) as u32;
+        let h = ((self.virtual_size.1.max(1) as f32) * scale)
+            .round()
+            .max(self.virtual_size.1.max(1) as f32) as u32;
+        (w.max(1), h.max(1))
+    }
+
+    fn sync_render_target_backing(&mut self) {
+        let desired = self.desired_render_target_backing_size();
+        if self.render_target.backing_size() != desired {
+            self.render_target = RenderTarget::new(
+                &self.resources,
+                self.virtual_size,
+                desired,
+                Some("Window RenderTarget"),
+            );
+        }
+    }
     fn window(&self) -> &Arc<Window> {
         self.window.as_ref().expect("No window found")
     }
@@ -280,6 +310,14 @@ impl App {
         }
     }
 
+    fn request_exit_dialog_ui_or_confirm(&mut self) {
+        if self.builtin_exit_ui_enabled {
+            self.exit_confirm_ui.open();
+        } else {
+            self.apply_exit_confirm_outcome(ExitConfirmOutcome::Confirmed);
+        }
+    }
+
     fn handle_event(&mut self, event: Event<()>, loopd: &winit::event_loop::ActiveEventLoop) {
         // NOTE: In pump-mode we must not block inside winit, because the host (SwiftUI/Android/iOS)
         // drives the app by repeatedly calling `rfvp_pump_step()`.
@@ -296,11 +334,7 @@ impl App {
                 } if window_id == self.window.as_mut().unwrap().id() => {
                     match event {
                         WindowEvent::CloseRequested => {
-                            if self.builtin_exit_ui_enabled {
-                                self.exit_confirm_ui.open();
-                            } else {
-                                self.apply_exit_confirm_outcome(ExitConfirmOutcome::Confirmed);
-                            }
+                            self.request_exit_dialog_ui_or_confirm();
                         }
                         WindowEvent::Focused(_focused) => {
                             // Do not introduce WindowMode side effects on focus changes.
@@ -512,12 +546,26 @@ impl App {
         let mut notify_dissolve_done = false;
         let frame_ms: u64;
 
+        let text_render_scale = self
+            .window
+            .as_ref()
+            .map(|w| w.scale_factor() as f32)
+            .unwrap_or(self.native_scale_factor as f32)
+            .max(1.0);
+        let pending_exit_dialog = take_pending_exit_dialog_request();
+        let pending_save_load = take_pending_save_load_request();
+
+        if pending_exit_dialog {
+            self.request_exit_dialog_ui_or_confirm();
+        }
+
         {
             // Take the write lock once and never re-lock inside this scope.
             // IMPORTANT: avoid borrowing fields via the RwLockWriteGuard multiple times; always
             // project through a single &mut GameData binding.
             let mut gd_guard = gd_write(&self.game_data);
             let gd = &mut *gd_guard;
+            gd.motion_manager.text_manager.set_render_scale(text_render_scale);
 
             let frame_duration = gd.time_mut_ref().frame();
             let frame_us = frame_duration.as_micros() as u64;
@@ -543,16 +591,7 @@ impl App {
             // InputGetEvent, which uses a separate ring buffer.
             gd.inputs_manager.begin_frame();
 
-            if take_pending_exit_dialog_request() {
-                if self.builtin_exit_ui_enabled {
-                    self.exit_confirm_ui.open();
-                } else if gd.get_close_immediate() {
-                    self.pending_app_exit = true;
-                } else {
-                    gd.set_close_pending(true);
-                }
-            }
-            if let Some(req) = take_pending_save_load_request() {
+            if let Some(req) = pending_save_load {
                 self.legacy_save_load_ui.open(req, gd);
                 set_legacy_save_load_menu_visible(true);
             }
@@ -754,6 +793,7 @@ impl App {
     }
 
     fn render_frame(&mut self) -> anyhow::Result<()> {
+        self.sync_render_target_backing();
 
 // Commit a pending SaveWrite using a prepared in-memory payload (local_saved),
 // without capturing the current frame. This matches the original engine's
@@ -985,9 +1025,9 @@ impl App {
 
         
 if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_capture) {
+    let src_w = readback.width.max(1);
+    let src_h = readback.height.max(1);
     let rgba = readback.map_to_rgba8(&self.resources.device);
-    let src_w = self.virtual_size.0.max(1);
-    let src_h = self.virtual_size.1.max(1);
 
     let thumb_rgba = if thumb_w > 0 && thumb_h > 0 && (thumb_w != src_w || thumb_h != src_h) {
         let expected_len = (src_w as usize)
@@ -1739,14 +1779,6 @@ impl AppBuilder {
         self
     }
 
-    fn builtin_exit_ui_enabled(&self) -> bool {
-        self
-            .parser
-            .get_all_syscalls()
-            .values()
-            .any(|sys| sys.name == "ConfigEtc")
-    }
-
     async fn init_render(
         window: Arc<Window>,
         hud_window: Option<Arc<Window>>,
@@ -1857,6 +1889,7 @@ impl AppBuilder {
         let render_target = RenderTarget::new(
             &resources,
             virtual_size,
+            virtual_size,
             Some("Window RenderTarget"),
         );
 
@@ -1959,7 +1992,7 @@ impl AppBuilder {
             pipelines,
         });
 
-        let render_target = RenderTarget::new(&resources, virtual_size, Some("iOS RenderTarget"));
+        let render_target = RenderTarget::new(&resources, virtual_size, virtual_size, Some("iOS RenderTarget"));
 
         (instance, adapter, resources, render_target, surface, config)
     }
@@ -2055,7 +2088,7 @@ impl AppBuilder {
             pipelines,
         });
 
-        let render_target = RenderTarget::new(&resources, virtual_size, Some("Android RenderTarget"));
+        let render_target = RenderTarget::new(&resources, virtual_size, virtual_size, Some("Android RenderTarget"));
 
         (instance, adapter, resources, render_target, surface, config)
     }
@@ -2219,7 +2252,7 @@ impl AppBuilder {
             (vb, ib, indices.len() as u32)
         };
 
-        let builtin_exit_ui_enabled = self.builtin_exit_ui_enabled();
+        let builtin_exit_ui_enabled = self.parser.get_all_syscalls().values().any(|syscall| syscall.name == "ConfigEtc");
         let game_data = Arc::new(RwLock::new(self.world));
         let debug_ring = log_ring::get().unwrap_or_else(|| log_ring::init(4096));
         let vm_worker = VmWorker::spawn(game_data.clone(), self.parser, self.script_engine);
@@ -2408,7 +2441,7 @@ impl AppBuilder {
             (vb, ib, indices.len() as u32)
         };
 
-        let builtin_exit_ui_enabled = self.builtin_exit_ui_enabled();
+        let builtin_exit_ui_enabled = self.parser.get_all_syscalls().values().any(|syscall| syscall.name == "ConfigEtc");
         let game_data = Arc::new(RwLock::new(self.world));
         let debug_ring = log_ring::get().unwrap_or_else(|| log_ring::init(4096));
         let vm_worker = VmWorker::spawn(game_data.clone(), self.parser, self.script_engine);
@@ -2570,7 +2603,7 @@ impl AppBuilder {
             (vb, ib, indices.len() as u32)
         };
 
-        let builtin_exit_ui_enabled = self.builtin_exit_ui_enabled();
+        let builtin_exit_ui_enabled = self.parser.get_all_syscalls().values().any(|syscall| syscall.name == "ConfigEtc");
         let game_data = Arc::new(RwLock::new(self.world));
         let debug_ring = log_ring::get().unwrap_or_else(|| log_ring::init(4096));
         let vm_worker = VmWorker::spawn(game_data.clone(), self.parser, self.script_engine);

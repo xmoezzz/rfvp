@@ -36,6 +36,8 @@ pub struct GraphBuff {
     pub offset_y: u16,
     pub width: u16,
     pub height: u16,
+    pub display_width: u16,
+    pub display_height: u16,
     pub u: u16,
     pub v: u16,
 
@@ -62,6 +64,8 @@ impl GraphBuff {
             offset_y: 0,
             width: 0,
             height: 0,
+            display_width: 0,
+            display_height: 0,
             u: 0,
             v: 0,
             generation: 0,
@@ -121,6 +125,14 @@ impl GraphBuff {
 
     pub fn get_height(&self) -> u16 {
         self.height
+    }
+
+    pub fn get_display_width(&self) -> u16 {
+        if self.display_width == 0 { self.width } else { self.display_width }
+    }
+
+    pub fn get_display_height(&self) -> u16 {
+        if self.display_height == 0 { self.height } else { self.display_height }
     }
 
     /// Export this graph as an 8-bit coverage mask (alpha plane) for text rendering.
@@ -183,6 +195,8 @@ impl GraphBuff {
         self.offset_y = 0;
         self.width = 0;
         self.height = 0;
+        self.display_width = 0;
+        self.display_height = 0;
         self.u = 0;
         self.v = 0;
         self.load_kind = GraphBuffLoadKind::Unknown;
@@ -207,6 +221,8 @@ impl GraphBuff {
         self.offset_y = nvsg_texture.get_offset_y();
         self.width = nvsg_texture.get_width();
         self.height = nvsg_texture.get_height();
+        self.display_width = self.width;
+        self.display_height = self.height;
         self.u = nvsg_texture.get_u();
         self.v = nvsg_texture.get_v();
         self.texture_path = file_name.to_string();
@@ -232,6 +248,8 @@ impl GraphBuff {
         self.offset_y = nvsg_texture.get_offset_y();
         self.width = nvsg_texture.get_width();
         self.height = nvsg_texture.get_height();
+        self.display_width = self.width;
+        self.display_height = self.height;
         self.u = nvsg_texture.get_u();
         self.v = nvsg_texture.get_v();
         self.texture_path = file_name.to_string();
@@ -257,6 +275,8 @@ impl GraphBuff {
         self.offset_y = nvsg_texture.get_offset_y();
         self.width = nvsg_texture.get_width();
         self.height = nvsg_texture.get_height();
+        self.display_width = self.width;
+        self.display_height = self.height;
         self.u = nvsg_texture.get_u();
         self.v = nvsg_texture.get_v();
         self.texture_path = file_name.to_string();
@@ -267,12 +287,16 @@ impl GraphBuff {
     }
 
     pub fn load_from_buff(&mut self, buff: Vec<u8>, width: u32, height: u32) -> Result<()> {
-        self.load_from_buff_ref(&buff, width, height)
+        self.load_from_buff_ref_with_display_size(&buff, width, height, width, height)
     }
 
     pub fn load_from_buff_ref(&mut self, buff: &[u8], width: u32, height: u32) -> Result<()> {
-        if width == 0 || height == 0 {
-            return Err(anyhow!("load_from_buff: invalid size {}x{}", width, height));
+        self.load_from_buff_ref_with_display_size(buff, width, height, width, height)
+    }
+
+    pub fn load_from_buff_ref_with_display_size(&mut self, buff: &[u8], width: u32, height: u32, display_width: u32, display_height: u32) -> Result<()> {
+        if width == 0 || height == 0 || display_width == 0 || display_height == 0 {
+            return Err(anyhow!("load_from_buff: invalid size {}x{} (display {}x{})", width, height, display_width, display_height));
         }
 
         let expected = (width as usize)
@@ -290,11 +314,13 @@ impl GraphBuff {
             ));
         }
 
-        if width > u16::MAX as u32 || height > u16::MAX as u32 {
+        if width > u16::MAX as u32 || height > u16::MAX as u32 || display_width > u16::MAX as u32 || display_height > u16::MAX as u32 {
             return Err(anyhow!(
-                "load_from_buff: size too large for u16: {}x{}",
+                "load_from_buff: size too large for u16: {}x{} (display {}x{})",
                 width,
-                height
+                height,
+                display_width,
+                display_height
             ));
         }
 
@@ -318,6 +344,8 @@ impl GraphBuff {
         self.offset_y = 0;
         self.width = width as u16;
         self.height = height as u16;
+        self.display_width = display_width as u16;
+        self.display_height = display_height as u16;
         self.u = 0;
         self.v = 0;
         self.mark_dirty();
@@ -521,6 +549,8 @@ pub struct GraphBuffSnapshotV1 {
     pub offset_y: u16,
     pub width: u16,
     pub height: u16,
+    pub display_width: u16,
+    pub display_height: u16,
     pub u: u16,
     pub v: u16,
     pub load_kind: GraphBuffLoadKind,
@@ -543,6 +573,8 @@ impl GraphBuff {
                 offset_y: self.offset_y,
                 width: self.width,
                 height: self.height,
+                display_width: self.get_display_width(),
+                display_height: self.get_display_height(),
                 u: self.u,
                 v: self.v,
                 load_kind: self.load_kind,
@@ -561,6 +593,8 @@ impl GraphBuff {
             offset_y: self.offset_y,
             width: self.width,
             height: self.height,
+            display_width: self.get_display_width(),
+            display_height: self.get_display_height(),
             u: self.u,
             v: self.v,
             load_kind: self.load_kind,
@@ -591,7 +625,7 @@ impl GraphBuff {
                 Err(e) => {
                     // Fall back to embedded pixels if provided.
                     if let Some(rgba) = &snap.rgba {
-                        self.load_from_buff_ref(rgba, snap.width as u32, snap.height as u32)?;
+                        self.load_from_buff_ref_with_display_size(rgba, snap.width as u32, snap.height as u32, snap.display_width as u32, snap.display_height as u32)?;
                         self.offset_x = snap.offset_x;
                         self.offset_y = snap.offset_y;
                         self.u = snap.u;
@@ -622,7 +656,7 @@ impl GraphBuff {
 
         // No path: require pixels.
         if let Some(rgba) = &snap.rgba {
-            self.load_from_buff_ref(rgba, snap.width as u32, snap.height as u32)?;
+            self.load_from_buff_ref_with_display_size(rgba, snap.width as u32, snap.height as u32, snap.display_width as u32, snap.display_height as u32)?;
             self.offset_x = snap.offset_x;
             self.offset_y = snap.offset_y;
             self.u = snap.u;

@@ -217,6 +217,7 @@ impl RectI32 {
 #[derive(Debug, Clone, Copy)]
 struct RevealQueueItem {
     rect: RectI32,
+    logical_cols: i32,
 }
 
 pub struct FontEnumerator {
@@ -495,6 +496,7 @@ pub struct TextItem {
     y: u16,
     w: u16,
     h: u16,
+    render_scale: f32,
     // IDA: speed is signed and allows -1
     speed: i32,
     loaded: bool,
@@ -562,6 +564,7 @@ impl TextItem {
             y: 0,
             w: 0,
             h: 0,
+            render_scale: 1.0,
             speed: 0,
             loaded: false,
             pixel_buffer: vec![],
@@ -610,6 +613,63 @@ impl TextItem {
 
     pub fn set_h(&mut self, h: u16) {
         self.h = h;
+    }
+
+    fn effective_render_scale(&self) -> f32 {
+        if self.render_scale.is_finite() && self.render_scale > 1.0 {
+            self.render_scale
+        } else {
+            1.0
+        }
+    }
+
+    fn raster_dimensions(&self) -> (u32, u32) {
+        let scale = self.effective_render_scale();
+        let w = ((self.w as f32) * scale).round().max(self.w as f32).max(0.0) as u32;
+        let h = ((self.h as f32) * scale).round().max(self.h as f32).max(0.0) as u32;
+        (w, h)
+    }
+
+    fn scale_len_i32(value: i32, scale: f32) -> i32 {
+        if value <= 0 {
+            0
+        } else {
+            (((value as f32) * scale).round() as i32).max(1)
+        }
+    }
+
+    fn scale_len_u8(value: u8, scale: f32) -> u8 {
+        if value == 0 {
+            0
+        } else {
+            Self::scale_len_i32(value as i32, scale).clamp(0, u8::MAX as i32) as u8
+        }
+    }
+
+    fn scale_pos_i32(value: i32, scale: f32) -> i32 {
+        ((value as f32) * scale).round() as i32
+    }
+
+    fn logical_cols_from_actual(actual_cols: i32, scale: f32) -> i32 {
+        if actual_cols <= 0 {
+            0
+        } else {
+            (((actual_cols as f32) / scale).ceil() as i32).max(1)
+        }
+    }
+
+    pub fn set_render_scale(&mut self, render_scale: f32) {
+        let normalized = if render_scale.is_finite() && render_scale > 1.0 {
+            render_scale
+        } else {
+            1.0
+        };
+        if (self.render_scale - normalized).abs() > f32::EPSILON {
+            self.render_scale = normalized;
+            if self.loaded || self.w != 0 || self.h != 0 {
+                self.mark_layout_dirty();
+            }
+        }
     }
 
     pub fn set_color1(&mut self, color: &ColorItem) {
@@ -723,9 +783,8 @@ impl TextItem {
     }
 
     fn ensure_buffer(&mut self) {
-        let w = self.w as usize;
-        let h = self.h as usize;
-        let expected = w.saturating_mul(h).saturating_mul(4);
+        let (w, h) = self.raster_dimensions();
+        let expected = (w as usize).saturating_mul(h as usize).saturating_mul(4);
         if expected == 0 {
             self.pixel_buffer.clear();
             self.full_buffer.clear();
@@ -1199,6 +1258,74 @@ impl TextItem {
         RectI32 { x: gx, y: gy, w: mw as i32, h: mh as i32 }
     }
 
+    fn gaiji_draw_bounds_scaled(
+        &self,
+        gb: &crate::subsystem::resources::graph_buff::GraphBuff,
+        x: i32,
+        y: i32,
+        scale: f32,
+    ) -> RectI32 {
+        let Some((mw, mh, ox, oy, _mask)) = gb.export_alpha_mask() else {
+            return RectI32::default();
+        };
+        let gx = x + Self::scale_pos_i32(ox as i32, scale);
+        let gy = y + Self::scale_pos_i32(oy as i32, scale);
+        RectI32 {
+            x: gx,
+            y: gy,
+            w: Self::scale_len_i32(mw as i32, scale),
+            h: Self::scale_len_i32(mh as i32, scale),
+        }
+    }
+
+    fn draw_gaiji_unit_scaled(
+        &self,
+        buf: &mut [u8],
+        bw: u32,
+        bh: u32,
+        gb: &crate::subsystem::resources::graph_buff::GraphBuff,
+        x: i32,
+        y: i32,
+        color: &ColorItem,
+        clip_max_x: i32,
+        do_draw: bool,
+        scale: f32,
+    ) -> i32 {
+        let Some((mw, mh, ox, oy, mask)) = gb.export_alpha_mask() else {
+            return Self::scale_len_i32(gb.get_width() as i32, scale);
+        };
+        let gx = x + Self::scale_pos_i32(ox as i32, scale);
+        let gy = y + Self::scale_pos_i32(oy as i32, scale);
+        let adv = Self::scale_len_i32(gb.get_width() as i32, scale);
+        if !do_draw {
+            return adv;
+        }
+        for sy in 0..(mh as i32) {
+            for sx in 0..(mw as i32) {
+                let cov = mask[(sy as usize) * (mw as usize) + (sx as usize)];
+                if cov == 0 {
+                    continue;
+                }
+                let x0 = gx + ((sx as f32) * scale).floor() as i32;
+                let x1 = gx + (((sx + 1) as f32) * scale).ceil() as i32;
+                let y0 = gy + ((sy as f32) * scale).floor() as i32;
+                let y1 = gy + (((sy + 1) as f32) * scale).ceil() as i32;
+                let x1 = x1.max(x0 + 1);
+                let y1 = y1.max(y0 + 1);
+                for py in y0..y1 {
+                    for px in x0..x1 {
+                        if px >= clip_max_x {
+                            continue;
+                        }
+                        let a = ((color.get_a() as u16 * cov as u16) / 255) as u8;
+                        Self::put_pixel_blend(buf, bw, bh, px, py, (color.get_r(), color.get_g(), color.get_b(), a));
+                    }
+                }
+            }
+        }
+        adv
+    }
+
     fn draw_char(
         &self,
         buf: &mut [u8],
@@ -1404,24 +1531,29 @@ impl TextItem {
         }
     }
 
-    fn copy_reveal_columns_range(
+    fn copy_reveal_columns_range_scaled(
         dst: &mut [u8],
         src: &[u8],
         bw: u32,
         bh: u32,
         rect: RectI32,
-        skip_cols: i32,
-        cols: i32,
+        scale: f32,
+        skip_logical_cols: i32,
+        logical_cols: i32,
     ) {
-        if rect.is_empty() || cols <= 0 {
+        if rect.is_empty() || logical_cols <= 0 {
             return;
         }
         let rect = rect.clamp_to_buffer(bw, bh);
         if rect.is_empty() {
             return;
         }
-        let skip_cols = skip_cols.max(0).min(rect.w);
-        let copy_w = cols.min(rect.w - skip_cols).max(0) as usize;
+        let logical_start = skip_logical_cols.max(0);
+        let logical_end = logical_start.saturating_add(logical_cols.max(0));
+        let actual_start = ((logical_start as f32) * scale).floor() as i32;
+        let actual_end = ((logical_end as f32) * scale).ceil() as i32;
+        let skip_cols = actual_start.max(0).min(rect.w);
+        let copy_w = (actual_end - actual_start).max(0).min(rect.w - skip_cols).max(0) as usize;
         if copy_w == 0 {
             return;
         }
@@ -1452,8 +1584,8 @@ impl TextItem {
         if self.pixel_buffer.len() != self.full_buffer.len() {
             return;
         }
-        let bw = self.w as u32;
-        let bh = self.h as u32;
+        let (bw, bh) = self.raster_dimensions();
+        let render_scale = self.effective_render_scale();
         let mut consumed_cols = 0usize;
         let old_visible = self.applied_visible_chars;
         let target_visible = self.visible_chars.min(self.total_chars);
@@ -1462,7 +1594,7 @@ impl TextItem {
             if rect.is_empty() {
                 continue;
             }
-            let item_cols = rect.w.max(0) as usize;
+            let item_cols = item.logical_cols.max(0) as usize;
             let item_start = consumed_cols;
             let item_end = consumed_cols.saturating_add(item_cols);
             if target_visible <= item_start {
@@ -1472,12 +1604,13 @@ impl TextItem {
                 let start_in_item = old_visible.saturating_sub(item_start).min(item_cols) as i32;
                 let end_in_item = target_visible.saturating_sub(item_start).min(item_cols) as i32;
                 if end_in_item > start_in_item {
-                    Self::copy_reveal_columns_range(
+                    Self::copy_reveal_columns_range_scaled(
                         &mut self.pixel_buffer,
                         &self.full_buffer,
                         bw,
                         bh,
                         rect,
+                        render_scale,
                         start_in_item,
                         end_in_item - start_in_item,
                     );
@@ -1504,11 +1637,16 @@ impl TextItem {
         let ruby_font_cell = fonts.get_font(self.text_font_idx2);
         let ruby_font_ref = ruby_font_cell.borrow();
 
-        let bw = self.w as u32;
-        let bh = self.h as u32;
+        let render_scale = self.effective_render_scale();
+        let (bw, bh) = self.raster_dimensions();
 
         let main_size = if self.text_size1 == 0 { 16.0 } else { self.text_size1 as f32 };
         let ruby_size = if self.text_size2 == 0 { (main_size * 0.6).max(8.0) } else { self.text_size2 as f32 };
+        let main_draw_size = main_size * render_scale;
+        let ruby_draw_size = ruby_size * render_scale;
+        let draw_outline1 = Self::scale_len_u8(self.outline_size1, render_scale);
+        let draw_outline2 = Self::scale_len_u8(self.outline_size2, render_scale);
+        let draw_shadow = Self::scale_len_u8(self.shadow_distance, render_scale);
         let main_layout_size = Self::effective_gdi_font_size(main_size, self.outline_size1, self.shadow_distance);
         let ruby_layout_size = Self::effective_gdi_font_size(ruby_size, self.outline_size2, self.shadow_distance);
 
@@ -1562,8 +1700,9 @@ impl TextItem {
             if rect.is_empty() {
                 return;
             }
-            *total_required_units += rect.w as i64;
-            queue.push(RevealQueueItem { rect });
+            let logical_cols = Self::logical_cols_from_actual(rect.w, render_scale);
+            *total_required_units += logical_cols as i64;
+            queue.push(RevealQueueItem { rect, logical_cols });
         };
 
         for item in self.content_items.clone() {
@@ -1592,21 +1731,27 @@ impl TextItem {
 
                     let mut item_bounds = RectI32::default();
                     if let Some(gb) = gaiji.get_texture(&s, main_slot) {
-                        let adv = self.draw_gaiji_unit(
-                            &mut full_buffer, bw, bh, gb, pen_x, pen_y, &self.color1,
-                            self.outline_size1, &self.color2, self.shadow_distance, &self.color3, i32::MAX, true,
+                        let draw_x = Self::scale_pos_i32(pen_x, render_scale);
+                        let draw_y = Self::scale_pos_i32(pen_y, render_scale);
+                        self.draw_gaiji_unit_scaled(
+                            &mut full_buffer, bw, bh, gb, draw_x, draw_y, &self.color1,
+                            i32::MAX, true, render_scale,
                         );
-                        item_bounds = self.gaiji_draw_bounds(gb, pen_x, pen_y, self.outline_size1, self.shadow_distance);
+                        item_bounds = self.gaiji_draw_bounds_scaled(gb, draw_x, draw_y, render_scale);
+                        let adv = self.measure_special_unit_advance(&main_font_ref, main_size, gaiji, main_slot, &s, self.outline_size1, self.shadow_distance);
                         pen_x += adv + self.main_gap_x as i32;
                     } else {
                         let mut unit_x = pen_x;
                         for ch in s.chars() {
-                            let adv = self.draw_char(
-                                &mut full_buffer, bw, bh, &main_font_ref, main_size, gaiji, main_slot, unit_x, pen_y, ch,
-                                &self.color1, self.outline_size1, &self.color2, self.shadow_distance, &self.color3, i32::MAX, true,
+                            let logical_adv = self.measure_char_advance(&main_font_ref, main_size, gaiji, main_slot, ch, self.outline_size1, self.shadow_distance);
+                            let draw_x = Self::scale_pos_i32(unit_x, render_scale);
+                            let draw_y = Self::scale_pos_i32(pen_y, render_scale);
+                            self.draw_char(
+                                &mut full_buffer, bw, bh, &main_font_ref, main_draw_size, gaiji, main_slot, draw_x, draw_y, ch,
+                                &self.color1, draw_outline1, &self.color2, draw_shadow, &self.color3, i32::MAX, true,
                             );
-                            item_bounds = item_bounds.union(self.char_draw_bounds(&main_font_ref, main_size, unit_x, pen_y, ch, self.outline_size1, self.shadow_distance));
-                            unit_x += adv;
+                            item_bounds = item_bounds.union(self.char_draw_bounds(&main_font_ref, main_draw_size, draw_x, draw_y, ch, draw_outline1, draw_shadow));
+                            unit_x += logical_adv;
                         }
                         pen_x = unit_x + self.main_gap_x as i32;
                     }
@@ -1638,12 +1783,15 @@ impl TextItem {
                         pen_y += line_h;
                     }
 
-                    let adv = self.draw_char(
-                        &mut full_buffer, bw, bh, &main_font_ref, main_size, gaiji, main_slot, pen_x, pen_y, ch,
-                        &self.color1, self.outline_size1, &self.color2, self.shadow_distance, &self.color3, i32::MAX, true,
+                    let logical_adv = self.measure_char_advance(&main_font_ref, main_size, gaiji, main_slot, ch, self.outline_size1, self.shadow_distance);
+                    let draw_x = Self::scale_pos_i32(pen_x, render_scale);
+                    let draw_y = Self::scale_pos_i32(pen_y, render_scale);
+                    self.draw_char(
+                        &mut full_buffer, bw, bh, &main_font_ref, main_draw_size, gaiji, main_slot, draw_x, draw_y, ch,
+                        &self.color1, draw_outline1, &self.color2, draw_shadow, &self.color3, i32::MAX, true,
                     );
-                    let bounds = self.char_draw_bounds(&main_font_ref, main_size, pen_x, pen_y, ch, self.outline_size1, self.shadow_distance);
-                    pen_x += adv + self.main_gap_x as i32;
+                    let bounds = self.char_draw_bounds(&main_font_ref, main_draw_size, draw_x, draw_y, ch, draw_outline1, draw_shadow);
+                    pen_x += logical_adv + self.main_gap_x as i32;
                     queue_reveal_rect(&mut reveal_queue, &mut total_required_units, bounds, &full_buffer);
                     line_has_any = true;
                 }
@@ -1675,13 +1823,16 @@ impl TextItem {
                     let mut base_total_adv = 0i32;
 
                     for ch in base.iter() {
-                        let adv = self.draw_char(
-                            &mut full_buffer, bw, bh, &main_font_ref, main_size, gaiji, main_slot, pen_x, pen_y, *ch,
-                            &self.color1, self.outline_size1, &self.color2, self.shadow_distance, &self.color3, i32::MAX, true,
+                        let logical_adv = self.measure_char_advance(&main_font_ref, main_size, gaiji, main_slot, *ch, self.outline_size1, self.shadow_distance);
+                        let draw_x = Self::scale_pos_i32(pen_x, render_scale);
+                        let draw_y = Self::scale_pos_i32(pen_y, render_scale);
+                        self.draw_char(
+                            &mut full_buffer, bw, bh, &main_font_ref, main_draw_size, gaiji, main_slot, draw_x, draw_y, *ch,
+                            &self.color1, draw_outline1, &self.color2, draw_shadow, &self.color3, i32::MAX, true,
                         );
-                        item_bounds = item_bounds.union(self.char_draw_bounds(&main_font_ref, main_size, pen_x, pen_y, *ch, self.outline_size1, self.shadow_distance));
-                        pen_x += adv + self.main_gap_x as i32;
-                        base_total_adv += adv + self.main_gap_x as i32;
+                        item_bounds = item_bounds.union(self.char_draw_bounds(&main_font_ref, main_draw_size, draw_x, draw_y, *ch, draw_outline1, draw_shadow));
+                        pen_x += logical_adv + self.main_gap_x as i32;
+                        base_total_adv += logical_adv + self.main_gap_x as i32;
                     }
 
                     let ruby_y = pen_y - ruby_baseline_up;
@@ -1693,12 +1844,15 @@ impl TextItem {
                     let mut ruby_x = base_start_x + (base_total_adv - ruby_width) / 2;
 
                     for rch in ruby {
-                        let adv = self.draw_char(
-                            &mut full_buffer, bw, bh, &ruby_font_ref, ruby_size, gaiji, ruby_slot, ruby_x, ruby_y, rch,
-                            &self.color1, self.outline_size2, &self.color2, self.shadow_distance, &self.color3, i32::MAX, true,
+                        let logical_adv = self.measure_char_advance(&ruby_font_ref, ruby_size, gaiji, ruby_slot, rch, self.outline_size2, self.shadow_distance);
+                        let draw_x = Self::scale_pos_i32(ruby_x, render_scale);
+                        let draw_y = Self::scale_pos_i32(ruby_y, render_scale);
+                        self.draw_char(
+                            &mut full_buffer, bw, bh, &ruby_font_ref, ruby_draw_size, gaiji, ruby_slot, draw_x, draw_y, rch,
+                            &self.color1, draw_outline2, &self.color2, draw_shadow, &self.color3, i32::MAX, true,
                         );
-                        item_bounds = item_bounds.union(self.char_draw_bounds(&ruby_font_ref, ruby_size, ruby_x, ruby_y, rch, self.outline_size2, self.shadow_distance));
-                        ruby_x += adv + self.ruby_gap_x as i32;
+                        item_bounds = item_bounds.union(self.char_draw_bounds(&ruby_font_ref, ruby_draw_size, draw_x, draw_y, rch, draw_outline2, draw_shadow));
+                        ruby_x += logical_adv + self.ruby_gap_x as i32;
                     }
 
                     queue_reveal_rect(&mut reveal_queue, &mut total_required_units, item_bounds, &full_buffer);
@@ -1735,6 +1889,7 @@ pub struct TextManager {
     pub items: Vec<TextItem>,
     /// Bitmap for script const-string offsets (< 0x800000). Each bit marks whether it has been seen.
     pub readed_text: Vec<u32>,
+    render_scale: f32,
 }
 
 impl Default for TextManager {
@@ -1748,6 +1903,22 @@ impl TextManager {
         Self {
             items: vec![TextItem::new(); 32],
             readed_text: vec![0u32; 0x800000 / 32],
+            render_scale: 1.0,
+        }
+    }
+
+    pub fn set_render_scale(&mut self, render_scale: f32) {
+        let normalized = if render_scale.is_finite() && render_scale > 1.0 {
+            render_scale
+        } else {
+            1.0
+        };
+        if (self.render_scale - normalized).abs() <= f32::EPSILON {
+            return;
+        }
+        self.render_scale = normalized;
+        for item in self.items.iter_mut() {
+            item.set_render_scale(normalized);
         }
     }
 
@@ -1901,6 +2072,7 @@ impl TextManager {
         let text = &mut self.items[id as usize];
         text.set_w(w.max(0) as u16);
         text.set_h(h.max(0) as u16);
+        text.set_render_scale(self.render_scale);
         text.ensure_buffer();
         text.clear_buffer();
         text.loaded = true;
@@ -2094,14 +2266,14 @@ impl TextManager {
         self.items[id as usize].set_horizon_space(space);
     }
 
-    /// Render a slot when needed and return its size. Pixels stay owned by the text item.
+    /// Render a slot when needed and return (backing_w, backing_h, display_w, display_h). Pixels stay owned by the text item.
     pub fn rasterize_slot_if_needed(
         &mut self,
         id: i32,
         fonts: &FontEnumerator,
         gaiji: &GaijiManager,
         force: bool,
-    ) -> Result<Option<(u32, u32)>> {
+    ) -> Result<Option<(u32, u32, u32, u32)>> {
         if !(0..32).contains(&id) {
             return Ok(None);
         }
@@ -2109,8 +2281,9 @@ impl TextManager {
         if !t.loaded {
             return Ok(None);
         }
-        let w = t.w as u32;
-        let h = t.h as u32;
+        let display_w = t.w as u32;
+        let display_h = t.h as u32;
+        let (w, h) = t.raster_dimensions();
         let expected = (w as usize)
             .checked_mul(h as usize)
             .and_then(|v| v.checked_mul(4))
@@ -2127,7 +2300,7 @@ impl TextManager {
             t.rasterize_full(fonts, gaiji)?;
         }
         t.dirty = false;
-        Ok(Some((w, h)))
+        Ok(Some((w, h, display_w, display_h)))
     }
 
     pub fn slot_rgba_bytes(&self, id: i32) -> Option<&[u8]> {
@@ -2282,6 +2455,7 @@ impl TextItem {
         self.w = snap.w;
         self.h = snap.h;
         self.speed = snap.speed;
+        self.render_scale = 1.0;
         self.loaded = snap.loaded;
         self.pixel_buffer.clear();
         self.dirty = snap.dirty;
