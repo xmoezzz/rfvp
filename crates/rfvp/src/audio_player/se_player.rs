@@ -225,7 +225,10 @@ impl SePlayer {
 
     pub fn is_playing(&self, slot: i32) -> bool {
         let slot = slot as usize;
-        self.se_slots[slot].is_some()
+        self.se_slots[slot]
+            .as_ref()
+            .map(|handle| handle.state().is_advancing())
+            .unwrap_or(false)
     }
 
     pub fn set_type(&mut self, slot: i32, kind: i32) {
@@ -242,11 +245,18 @@ impl SePlayer {
     }
     pub fn debug_summary(&self) -> SeDebugSummary {
         let loaded_datas = self.se_datas.iter().filter(|x| x.is_some()).count();
-        let playing_slots = self.se_slots.iter().filter(|x| x.is_some()).count();
+        let playing_slots = self
+            .se_slots
+            .iter()
+            .filter(|x| x.as_ref().map(|handle| handle.state().is_advancing()).unwrap_or(false))
+            .count();
 
         let mut slots = Vec::new();
         for slot in 0..SE_SLOT_COUNT {
-            let playing = self.se_slots[slot].is_some();
+            let playing = self.se_slots[slot]
+                .as_ref()
+                .map(|handle| handle.state().is_advancing())
+                .unwrap_or(false);
             let data_loaded = self.se_datas[slot].is_some();
             let has_name = self.se_names[slot].is_some();
             let has_kind = self.se_kinds[slot].is_some();
@@ -287,7 +297,10 @@ impl SePlayer {
                 sound_type: self.se_kinds[i],
                 volume: self.se_volumes[i] as f32,
                 muted: self.se_muted[i],
-                playing: self.se_slots[i].is_some(),
+                playing: self.se_slots[i]
+                    .as_ref()
+                    .map(|handle| handle.state().is_advancing())
+                    .unwrap_or(false),
                 repeat: self.se_repeat[i],
                 pan: self.se_pan[i] as f32,
             });

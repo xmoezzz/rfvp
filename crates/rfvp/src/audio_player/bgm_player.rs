@@ -187,13 +187,21 @@ impl BgmPlayer {
 
     pub fn is_playing(&self, slot: i32) -> bool {
         let slot = slot as usize;
-        self.bgm_slots[slot].is_some()
+        self.bgm_slots[slot]
+            .as_ref()
+            .map(|handle| handle.state().is_advancing())
+            .unwrap_or(false)
     }
 
     pub fn get_playing_slots(&self) -> Vec<bool> {
         let mut playing = Vec::with_capacity(BGM_SLOT_COUNT);
         for i in 0..BGM_SLOT_COUNT {
-            playing.push(self.bgm_slots[i].is_some());
+            playing.push(
+                self.bgm_slots[i]
+                    .as_ref()
+                    .map(|handle| handle.state().is_advancing())
+                    .unwrap_or(false),
+            );
         }
         playing
     }
@@ -231,11 +239,18 @@ impl BgmPlayer {
     }
     pub fn debug_summary(&self) -> BgmDebugSummary {
         let loaded_datas = self.bgm_datas.iter().filter(|x| x.is_some()).count();
-        let playing_slots = self.bgm_slots.iter().filter(|x| x.is_some()).count();
+        let playing_slots = self
+            .bgm_slots
+            .iter()
+            .filter(|x| x.as_ref().map(|handle| handle.state().is_advancing()).unwrap_or(false))
+            .count();
 
         let mut slots = Vec::new();
         for slot in 0..BGM_SLOT_COUNT {
-            let playing = self.bgm_slots[slot].is_some();
+            let playing = self.bgm_slots[slot]
+                .as_ref()
+                .map(|handle| handle.state().is_advancing())
+                .unwrap_or(false);
             let data_loaded = self.bgm_datas[slot].is_some();
             let has_name = self.bgm_names[slot].is_some();
             let has_kind = self.bgm_kinds[slot].is_some();
@@ -274,7 +289,10 @@ impl BgmPlayer {
                 sound_type: self.bgm_kinds[i],
                 volume: self.bgm_volumes[i] as f32,
                 muted: self.bgm_muted[i],
-                playing: self.bgm_slots[i].is_some(),
+                playing: self.bgm_slots[i]
+                    .as_ref()
+                    .map(|handle| handle.state().is_advancing())
+                    .unwrap_or(false),
                 repeat: self.bgm_repeat[i],
                 pan: self.bgm_pan[i] as f32,
             });
