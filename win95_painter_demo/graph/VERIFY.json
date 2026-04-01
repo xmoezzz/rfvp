@@ -1,0 +1,42 @@
+{
+  "w95_bucket": {
+    "hzc1_signature": "hzc1",
+    "original_length": 1024,
+    "header_length": 32,
+    "nvsg_signature": "NVSG",
+    "type": 1,
+    "width": 16,
+    "height": 16,
+    "zlib_ok": true
+  },
+  "w95_close": {
+    "hzc1_signature": "hzc1",
+    "original_length": 1024,
+    "header_length": 32,
+    "nvsg_signature": "NVSG",
+    "type": 1,
+    "width": 16,
+    "height": 16,
+    "zlib_ok": true
+  },
+  "w95_eraser": {
+    "hzc1_signature": "hzc1",
+    "original_length": 1024,
+    "header_length": 32,
+    "nvsg_signature": "NVSG",
+    "type": 1,
+    "width": 16,
+    "height": 16,
+    "zlib_ok": true
+  },
+  "w95_pencil": {
+    "hzc1_signature": "hzc1",
+    "original_length": 1024,
+    "header_length": 32,
+    "nvsg_signature": "NVSG",
+    "type": 1,
+    "width": 16,
+    "height": 16,
+    "zlib_ok": true
+  }
+}

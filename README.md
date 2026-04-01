@@ -1,4 +1,4 @@
-# rfvp: A Non-Official Rust cross-platform implementation of the FVP engine
+# rfvp: A Non-Official Rust cross-platform implementation of the FVP engine and IDE.
 
 <img src="images/flake.png" width="20%">
 
@@ -17,6 +17,10 @@
 * Android APK: [setsumei/HOW-TO-BUILD.android-apk.md](setsumei/HOW-TO-BUILD.android-apk.md)
 * Windows EXE: [setsumei/HOW-TO-BUILD.windows-msvc.md](setsumei/HOW-TO-BUILD.windows-msvc.md)
 * Linux ELF: [setsumei/HOW-TO-BUILD.host.md](setsumei/HOW-TO-BUILD.host.md)
+
+### Beyond Reimplementation
+* Since we have both decompiler and compiler, we can also write an application based on the engine, such as a simple Windows-95-style painter.
+![win95-painter](./images/win95-painter.png)
 
 ### Installation
 

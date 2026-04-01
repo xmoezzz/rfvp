@@ -1,0 +1,22 @@
+nls: ShiftJIS
+custom_syscall_count: 0
+game_mode: 7
+game_mode_reserved: 0
+game_title: アストラエアの白き永遠 ver1.1
+syscall_count: 5
+syscalls:
+  0:
+    args: 2
+    name: AudioLoad
+  1:
+    args: 2
+    name: AudioPlay
+  2:
+    args: 3
+    name: TextOutSize
+  3:
+    args: 4
+    name: TextColor
+  4:
+    args: 1
+    name: WindowMode

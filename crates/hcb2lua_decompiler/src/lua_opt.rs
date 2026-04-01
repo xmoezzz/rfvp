@@ -231,6 +231,20 @@ impl Expr {
     }
 }
 
+fn global_name(idx: u16, non_volatile_count: u16, volatile_count: u16) -> String {
+    if idx < non_volatile_count {
+        return format!("g{}", idx);
+    }
+
+    let vbase = non_volatile_count;
+    let vlimit = non_volatile_count.saturating_add(volatile_count);
+    if idx >= vbase && idx < vlimit {
+        return format!("vg{}", idx - vbase);
+    }
+
+    format!("G[{}]", idx)
+}
+
 pub struct BlockEmitter<'a> {
     indent: &'a str,
     func_args: u8,
@@ -238,6 +252,8 @@ pub struct BlockEmitter<'a> {
     used_s: &'a mut BTreeSet<usize>,
     out: String,
     stack: Vec<Expr>,
+    non_volatile_global_count: u16,
+    volatile_global_count: u16,
 }
 
 impl<'a> BlockEmitter<'a> {
@@ -246,6 +262,8 @@ impl<'a> BlockEmitter<'a> {
         func_args: u8,
         callee_args: &'a BTreeMap<u32, u8>,
         used_s: &'a mut BTreeSet<usize>,
+        non_volatile_global_count: u16,
+        volatile_global_count: u16,
     ) -> Self {
         BlockEmitter {
             indent,
@@ -254,6 +272,8 @@ impl<'a> BlockEmitter<'a> {
             used_s,
             out: String::new(),
             stack: Vec::new(),
+            non_volatile_global_count,
+            volatile_global_count,
         }
     }
 
@@ -337,13 +357,24 @@ impl<'a> BlockEmitter<'a> {
             Op::PushReturn => self.push(Expr::var("__ret")),
 
             Op::PushGlobal(idx) => {
-                let e = Expr::index(Expr::global_var(), Expr::Int(*idx as i64));
-                self.push(e);
+                self.push(Expr::var(global_name(
+                    *idx,
+                    self.non_volatile_global_count,
+                    self.volatile_global_count,
+                )));
             }
             Op::PopGlobal(idx) => {
                 let v = self.pop();
                 let rhs = v.render(self.used_s, 0);
-                self.emit_line(&format!("G[{}] = {}", idx, rhs));
+                self.emit_line(&format!(
+                    "{} = {}",
+                    global_name(
+                        *idx,
+                        self.non_volatile_global_count,
+                        self.volatile_global_count,
+                    ),
+                    rhs
+                ));
             }
 
             Op::PushStack(idx) => {

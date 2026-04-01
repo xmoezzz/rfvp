@@ -1,5 +1,6 @@
 use anyhow::{anyhow, bail, Context, Result};
 use regex::Regex;
+use std::collections::HashSet;
 use std::path::Path;
 
 #[derive(Clone, Debug)]
@@ -10,6 +11,24 @@ pub struct Function {
     pub body: Vec<Stmt>,
     // Raw lines for scanning/inference
     pub raw: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GlobalKind {
+    NonVolatile,
+    Volatile,
+}
+
+#[derive(Clone, Debug)]
+pub struct GlobalDecl {
+    pub name: String,
+    pub kind: GlobalKind,
+}
+
+#[derive(Clone, Debug)]
+pub struct Program {
+    pub globals: Vec<GlobalDecl>,
+    pub functions: Vec<Function>,
 }
 
 #[derive(Clone, Debug)]
@@ -168,17 +187,12 @@ fn parse_block(lines: &[String], i: &mut usize, stop_on: &[&str]) -> Result<Vec<
             continue;
         }
 
-        // Local declarations emitted by the decompiler are not semantic (locals are inferred).
-        // Examples:
-        //   local S0, S1, S2
-        //   local __ret = nil
-        // We skip pure declarations and keep assignments.
+        // Local declarations are not semantic. Keep assignments.
         if line.starts_with("local ") && !line.contains('=') {
             *i += 1;
             continue;
         }
 
-        // Treat everything else as a simple IR line.
         let simple = strip_local(line).to_string();
         *i += 1;
         out.push(Stmt::Simple(simple));
@@ -187,12 +201,11 @@ fn parse_block(lines: &[String], i: &mut usize, stop_on: &[&str]) -> Result<Vec<
     Ok(out)
 }
 
-fn split_functions(lua_text: &str) -> Result<Vec<Vec<String>>> {
-    let lines: Vec<String> = lua_text.lines().map(|s| s.to_string()).collect();
+fn split_functions(lines: &[String], start_idx: usize) -> Result<Vec<Vec<String>>> {
     let head_re = Regex::new(r"^(?:local\s+)?function\s+").unwrap();
 
     let mut out: Vec<Vec<String>> = Vec::new();
-    let mut i = 0usize;
+    let mut i = start_idx;
     while i < lines.len() {
         if head_re.is_match(lines[i].trim()) {
             let start = i;
@@ -203,10 +216,6 @@ fn split_functions(lua_text: &str) -> Result<Vec<Vec<String>>> {
                 if head_re.is_match(t) {
                     nest += 1;
                 } else if is_if_start(t) {
-                    // IMPORTANT: `elseif` does not introduce a new block that needs its own `end`.
-                    // It is part of the same `if ... then ... elseif ... then ... end` construct.
-                    // Counting it as a new nested block breaks function splitting and can cause
-                    // later function definitions to be swallowed into the current function.
                     nest += 1;
                 } else if is_while_start(t) {
                     nest += 1;
@@ -216,8 +225,10 @@ fn split_functions(lua_text: &str) -> Result<Vec<Vec<String>>> {
                 i += 1;
             }
             out.push(lines[start..i].to_vec());
-        } else {
+        } else if is_comment_or_empty(lines[i].trim()) {
             i += 1;
+        } else {
+            bail!("unsupported top-level statement: {}", lines[i].trim());
         }
     }
 
@@ -228,9 +239,78 @@ fn split_functions(lua_text: &str) -> Result<Vec<Vec<String>>> {
     Ok(out)
 }
 
-pub fn parse_lua(path: &Path) -> Result<Vec<Function>> {
+fn parse_global_line(line: &str, seen: &mut HashSet<String>, out: &mut Vec<GlobalDecl>) -> Result<()> {
+    let t = line.trim();
+    let (kind, rest) = if let Some(rest) = t.strip_prefix("global ") {
+        (GlobalKind::NonVolatile, rest.trim())
+    } else if let Some(rest) = t.strip_prefix("volatile global ") {
+        (GlobalKind::Volatile, rest.trim())
+    } else {
+        bail!("unsupported top-level statement: {t}");
+    };
+
+    if rest.is_empty() {
+        bail!("empty global declaration: {t}");
+    }
+    if rest.contains('=') {
+        bail!("global initializers are not supported: {t}");
+    }
+
+    let re_g = Regex::new(r"^g\d+$").unwrap();
+    let re_vg = Regex::new(r"^vg\d+$").unwrap();
+
+    for raw_name in rest.split(',') {
+        let name = raw_name.trim();
+        if name.is_empty() {
+            bail!("empty global name in declaration: {t}");
+        }
+        match kind {
+            GlobalKind::NonVolatile => {
+                if !re_g.is_match(name) {
+                    bail!("non-volatile globals must be named gN: {name}");
+                }
+            }
+            GlobalKind::Volatile => {
+                if !re_vg.is_match(name) {
+                    bail!("volatile globals must be named vgN: {name}");
+                }
+            }
+        }
+        if !seen.insert(name.to_string()) {
+            bail!("duplicate global declaration: {name}");
+        }
+        out.push(GlobalDecl {
+            name: name.to_string(),
+            kind: kind.clone(),
+        });
+    }
+
+    Ok(())
+}
+
+pub fn parse_lua(path: &Path) -> Result<Program> {
     let txt = std::fs::read_to_string(path).with_context(|| format!("read lua: {}", path.display()))?;
-    let funcs_lines = split_functions(&txt)?;
+    let lines: Vec<String> = txt.lines().map(|s| s.to_string()).collect();
+    let head_re = Regex::new(r"^(?:local\s+)?function\s+").unwrap();
+
+    let mut globals: Vec<GlobalDecl> = Vec::new();
+    let mut seen_globals: HashSet<String> = HashSet::new();
+    let mut first_fn_idx = None;
+
+    for (i, line) in lines.iter().enumerate() {
+        let t = line.trim();
+        if is_comment_or_empty(t) {
+            continue;
+        }
+        if head_re.is_match(t) {
+            first_fn_idx = Some(i);
+            break;
+        }
+        parse_global_line(t, &mut seen_globals, &mut globals)?;
+    }
+
+    let start_idx = first_fn_idx.ok_or_else(|| anyhow!("no functions found in Lua"))?;
+    let funcs_lines = split_functions(&lines, start_idx)?;
 
     let head_re = Regex::new(r"^(?:local\s+)?function\s+([A-Za-z_]\w*)\s*\(([^)]*)\)\s*$").unwrap();
     let re_a = Regex::new(r"\ba(\d+)\b").unwrap();
@@ -253,7 +333,6 @@ pub fn parse_lua(path: &Path) -> Result<Vec<Function>> {
             args_s.split(',').map(|x| x.trim()).filter(|x| !x.is_empty()).collect()
         };
 
-        // args_count: max aN seen in header or body + 1.
         let mut max_a: Option<u32> = None;
         for a in &args {
             if let Some(mm) = re_a.captures(a) {
@@ -270,7 +349,6 @@ pub fn parse_lua(path: &Path) -> Result<Vec<Function>> {
         let args_count = i8::try_from(max_a.map(|x| x + 1).unwrap_or(0))
             .map_err(|_| anyhow!("args_count does not fit i8"))?;
 
-        // locals_count: max lN seen in body + 1.
         let mut max_l: Option<u32> = None;
         for ln in &fl {
             for mm in re_l.captures_iter(ln) {
@@ -281,7 +359,6 @@ pub fn parse_lua(path: &Path) -> Result<Vec<Function>> {
         let locals_count = i8::try_from(max_l.map(|x| x + 1).unwrap_or(0))
             .map_err(|_| anyhow!("locals_count does not fit i8"))?;
 
-        // Body lines: between header and the final end.
         if fl.len() < 2 {
             bail!("function {name}: too short");
         }
@@ -298,5 +375,8 @@ pub fn parse_lua(path: &Path) -> Result<Vec<Function>> {
         });
     }
 
-    Ok(funs)
+    Ok(Program {
+        globals,
+        functions: funs,
+    })
 }

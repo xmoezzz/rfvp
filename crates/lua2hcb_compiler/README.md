@@ -1,123 +1,531 @@
 # lua2hcb_compiler
 
-This tool compiles a Lua **5.3-looking** decompiler output back into **HCB** bytecode.
+`lua2hcb_compiler` compiles the project's constrained Lua-like source format back into HCB bytecode.
 
-It targets the practical subset used by the current rfvp/hcb decompiler pipeline:
+This is **not** full Lua 5.3. It is a fixed compilation language designed for round-tripping with the HCB decompiler and for hand-written scripts that stay inside the supported subset.
 
-- Top-level `function NAME(...) ... end`
-- Structured control flow: `if/elseif/else/end`, `while/do/end`, `break`
-- Function calls and syscalls
-- No closures/upvalues, no vararg, no multi-return
+## Design rules
 
-In addition to structured `if/while`, the compiler also supports the decompiler's
-`__pc`-dispatcher form:
+- The source language is a **compiler contract**, not a general scripting language.
+- The compiler only accepts the supported syntax described below.
+- The only valid entry function is `main`.
+- Global counts are **derived from source declarations**. They are **not** read from YAML.
+- YAML is treated as **project configuration**, not as a place to carry source semantics.
+
+## File structure
+
+A source file consists of:
+
+1. Optional blank lines and comments
+2. Optional top-level global declarations
+3. Top-level function definitions
+
+Only these top-level forms are accepted before the first function:
+
+```lua
+global some_name
+volatile some_other_name
+```
+
+Any other top-level statement is rejected.
+
+## Entry point
+
+The compiler requires:
+
+```lua
+function main()
+    ...
+end
+```
+
+`entry_point` is not accepted.
+
+## Top-level global declarations
+
+Two declaration forms are supported:
+
+```lua
+global flag
+volatile current_voice
+```
+
+Semantics:
+
+- `global name`
+  - declares one **non-volatile** global
+- `volatile name`
+  - declares one **volatile** global
+
+Rules:
+
+- Declarations must appear before the first function.
+- Duplicate names are rejected.
+- Initializers are not supported.
+- Declaration order defines the generated global indices.
+
+That means:
+
+```lua
+global a
+volatile b
+global c
+```
+
+will allocate:
+
+- non-volatile globals: `a`, `c`
+- volatile globals: `b`
+
+and the compiler will derive both counts automatically.
+
+## Identifiers and special names
+
+The compiler recognizes these naming conventions:
+
+- `main`
+  - required entry function
+- `f_xxxxxxxx` or other top-level function names
+  - callable user functions
+- `aN`
+  - argument slots, for example `a0`, `a1`
+- `lN`
+  - local frame slots, for example `l0`, `l1`
+- `S0`, `S1`, ...
+  - stack-machine temporaries used by the decompiler IR style
+- `__ret`
+  - return register marker after a function or syscall call
+- declared global names
+  - names introduced by `global` or `volatile`
+- `GT[idx][Sx]`
+  - global table access form
+- `LT[idx][Sx]`
+  - local table access form
+
+## Comments and blank lines
+
+Supported:
+
+```lua
+-- line comment
+```
+
+Blank lines are ignored.
+
+Do not rely on advanced Lua long-bracket comment edge cases.
+
+## Supported top-level function syntax
+
+Top-level functions use normal Lua-looking syntax:
+
+```lua
+function some_func(a0, a1)
+    ...
+end
+```
+
+Also accepted:
+
+```lua
+local function some_func(a0, a1)
+    ...
+end
+```
+
+Practical restrictions:
+
+- top-level named functions only
+- no closures
+- no nested semantic functions
+- no upvalues
+- no varargs
+- no method definitions
+
+## Supported statements
+
+### 1. Simple call statements
+
+Supported:
+
+```lua
+Foo()
+Foo(a0, a1)
+AudioPlay(a0, a1)
+```
+
+Resolution order:
+
+- syscall name from YAML
+- user function name
+
+### 2. Call into `__ret`
+
+Supported:
+
+```lua
+__ret = Foo()
+__ret = AudioPlay(a0)
+```
+
+This is the canonical way to capture a call result.
+
+### 3. `Sx = ...` assignments
+
+Supported right-hand-side forms are intentionally limited.
+
+#### Literals and direct values
+
+```lua
+S0 = nil
+S0 = true
+S0 = 123
+S0 = 1.25
+S0 = "abc"
+S0 = __ret
+S0 = S1
+S0 = a0
+S0 = l0
+S0 = some_global
+```
+
+Notes:
+
+- `false` is not currently emitted as a dedicated immediate in the compiler contract.
+- string literals use normal double-quoted form
+- `some_global` is rewritten to an internal `G[idx]` reference by the compiler
+
+#### Table reads
+
+```lua
+S0 = GT[3][S1]
+S0 = LT[2][S1]
+```
+
+#### Unary operator
+
+```lua
+S0 = -S1
+```
+
+#### Arithmetic
+
+```lua
+S0 = S1 + S2
+S0 = S1 - S2
+S0 = S1 * S2
+S0 = S1 / S2
+S0 = S1 % S2
+```
+
+#### Comparisons
+
+```lua
+S0 = (S1 == S2)
+S0 = (S1 ~= S2)
+S0 = (S1 > S2)
+S0 = (S1 <= S2)
+S0 = (S1 < S2)
+S0 = (S1 >= S2)
+```
+
+#### Bit-test style form
+
+Supported decompiler-style form:
+
+```lua
+S0 = (S1 & S2) ~= 0
+```
+
+This maps to the VM bit-test opcode. General Lua bitwise expressions are not supported.
+
+#### Restricted boolean composition
+
+Only decompiler-style restricted patterns are supported. This is **not** full Lua short-circuit semantics.
+
+```lua
+S0 = S1 and S2 ~= nil
+S0 = S1 or S2 ~= nil
+```
+
+Use these only when they come from decompiler IR or when you know the exact lowering expected by the compiler.
+
+#### RHS calls
+
+```lua
+S0 = Foo(a0)
+S0 = AudioState(a0)
+```
+
+The compiler lowers the call, then pushes `__ret`.
+
+### 4. Stores out of `Sx` or `__ret`
+
+#### Global stores
+
+```lua
+some_global = S0
+some_global = __ret
+```
+
+#### Frame-slot stores
+
+```lua
+a0 = S0
+l0 = S1
+
+a0 = __ret
+l0 = __ret
+```
+
+#### Table stores
+
+```lua
+GT[3][S0] = S1
+LT[2][S0] = S1
+```
+
+## Supported control flow
+
+### `if / elseif / else`
+
+Supported:
+
+```lua
+if S0 ~= 0 then
+    ...
+elseif S1 == 0 then
+    ...
+else
+    ...
+end
+```
+
+### `while`
+
+Supported:
+
+```lua
+while S0 ~= 0 do
+    ...
+end
+```
+
+### `break`
+
+Supported inside `while`.
+
+### `return`
+
+Supported:
+
+```lua
+return
+return S0
+return nil
+return true
+return 123
+```
+
+Multi-return is not supported.
+
+## Supported condition forms
+
+The compiler is designed for decompiler-style conditions.
+
+The supported and expected forms are:
+
+```lua
+if S0 then
+if S0 ~= 0 then
+if S0 == 0 then
+if true then
+if false then
+if nil then
+
+while S0 do
+while S0 ~= 0 do
+while S0 == 0 do
+while true do
+while false do
+```
+
+Recommended style:
+
+```lua
+if S0 ~= 0 then
+while S0 ~= 0 do
+```
+
+Do not rely on full Lua truthiness rules for arbitrary expressions.
+
+## Local declarations
+
+The compiler accepts decompiler-style local declarations for readability and ignores them when they are pure declarations.
+
+Examples:
+
+```lua
+local S0, S1, S2
+local l0, l1
+```
+
+These are accepted and ignored.
+
+Assignments remain semantic:
+
+```lua
+local S0 = __ret
+```
+
+This is treated as:
+
+```lua
+S0 = __ret
+```
+
+## `__pc` dispatcher form
+
+The compiler also supports the decompiler's explicit state-machine style.
+
+Example:
 
 ```lua
 local __pc = 0
 while true do
-  if __pc == 0 then
-    ...
-    if S0 == 0 then
-      __pc = 2
+    if __pc == 0 then
+        ...
+        if S0 == 0 then
+            __pc = 2
+        else
+            __pc = 1
+        end
+    elseif __pc == 1 then
+        ...
+        __pc = 2
     else
-      __pc = 1
+        return
     end
-  elseif __pc == 1 then
-    ...
-    __pc = 2
-  else
-    return
-  end
 end
 ```
 
-Pure local declarations such as `local S0, S1, S2` are accepted and ignored.
+This form is supported specifically for round-tripping decompiler output.
 
-Important IR convention
+## Unsupported syntax
 
-This compiler assumes the input Lua is *decompiler IR style* (stack-machine reconstruction), e.g.
+The following are outside the supported language:
 
-- `S0 = 123` means “push 123”
-- `S1 = (S1 == S2)` means “compare top two values and push the result”
-- `__ret = Foo(...)` means “call Foo; return value is available via `__ret` / `push_return`”
+- `entry_point`
+- top-level executable statements other than `global` and `volatile`
+- global initializers
+- closures
+- nested functions as a language feature
+- upvalues
+- varargs `...`
+- generic `for`
+- numeric `for`
+- `repeat/until`
+- `goto`
+- labels
+- table constructors
+- method syntax `obj:method(...)`
+- metatables
+- modules
+- coroutines
+- multiple return values
+- general Lua standard library usage as part of the language contract
+- arbitrary bitwise expressions
+- arbitrary boolean expressions with full Lua short-circuit semantics
 
-The `if`/`while` conditions are treated as the same style used previously in the CFG/state-machine form:
+## YAML project configuration
 
-- `if S0 ~= 0 then` / `while S0 ~= 0 do`: `jz` is used to branch on zero
-- `if S0 == 0 then` / `while S0 == 0 do`: layout is inverted (still uses `jz`)
+YAML is project configuration. It does not define source-level globals.
 
-## Strings / encoding
-
-All C-strings in HCB are stored as:
-
-- 1-byte length **including** the trailing NUL
-- bytes of the string followed by `\0`
-
-This applies to:
-
-- `push_string` immediates inside code
-- `game_title` and syscall names inside `sysdesc`
-
-Encoding is controlled by `nls` in YAML (`ShiftJIS`, `UTF-8`, `GB18030`).
-
-## YAML meta format
-
-example:
+### Required / meaningful fields
 
 ```yaml
 nls: ShiftJIS
-sys_desc_offset: 0          # ignored (recomputed)
-entry_point: 0              # ignored (recomputed from function entry_point())
-non_volatile_global_count: 1915
-volatile_global_count: 1990
-custom_syscall_count: 0
 game_mode: 7
+game_mode_reserved: 0
+custom_syscall_count: 0
 game_title: "..."
-syscall_count: 148          # optional; validated if present
 syscalls:
-  0:   { args: 2,  name: AudioLoad }
-  1:   { args: 2,  name: AudioPlay }
-  ...
-  147: { args: 1,  name: WindowMode }
+  0:   { args: 2, name: AudioLoad }
+  1:   { args: 2, name: AudioPlay }
 ```
 
-`syscalls` may also be provided as a YAML list (legacy), but the map form is recommended.
+### Optional field
 
-## The difference from Lua 5.3
+```yaml
+syscall_count: 148
+```
 
-| Area                         | Lua 5.3 (full language)                                                                                | This project’s supported subset                                                                                          | Practical implication / reminder                                                                               |                                                                                    |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Intended scope               | General-purpose scripting language                                                                     | Deterministic “decompiler-friendly” subset for round-tripping to HCB bytecode                                                            | Treat this as a *compilation format*, not a general Lua target                                                 |                                                                                    |
-| Entry point                  | No fixed name; host decides what to call                                                               | `function entry_point()` is required and is used to compute the HCB entry address                                                        | Renaming/omitting `entry_point` breaks linkage                                                                 |                                                                                    |
-| Program structure            | Arbitrary chunk with any order of statements                                                           | Multiple `function f_xxxxxxxx(...) ... end` allowed in any order; forward calls allowed                                                  | Function definitions and uses do not need to be ordered                                                        |                                                                                    |
-| Lexical / comments           | Full Lua comments (`--`, `--[[...]]`), long strings                                                    | Same (as tolerated by the parser)                                                                                                        | Prefer simple line comments; avoid exotic long-bracket nesting                                                 |                                                                                    |
-| Identifiers                  | Any valid Lua identifier                                                                               | Expected conventions: `aN` args, `lN` locals (optional), `S0..` temporaries, `G[i]` globals, `LT[idx][key]` / `GT[idx][key]` tables      | Using arbitrary variable names may become unsupported                                                          |                                                                                    |
-| Types / values               | `nil`, boolean, number (int/float), string, table, function, userdata, thread                          | `nil`, boolean, number, string; tables only via explicit VM-style access; functions only as named top-level functions                    | No general table constructors, userdata, threads                                                               |                                                                                    |
-| Truthiness                   | `false` and `nil` are falsey; everything else truthy (including `0`, `""`)                             | Control flow is primarily compiled from **0/1-style conditions** (e.g., `if S0 == 0 then ...`)                                           | Do not rely on Lua truthiness of non-boolean values; prefer explicit comparisons                               |                                                                                    |
-| Expressions (general)        | Full expression grammar, precedence, short-circuit, metamethods                                        | Limited expression shapes that map to known HCB ops (arithmetic, comparisons, simple boolean composition patterns)                       | Complex expressions may fail to compile; keep expressions simple and explicit                                  |                                                                                    |
-| Arithmetic operators         | `+ - * / // % ^`                                                                                       | `+ - * / %` supported; `//` (integer division) and `^` only if explicitly mapped in the bytecode set you use                             | Avoid `//` unless you confirmed the opcode mapping exists                                                      |                                                                                    |
-| Bitwise operators            | `&                                                                                                     | ~ << >>`and unary`~`                                                                                                                     | Only patterns that map to the VM’s bit ops (commonly `bit_test`-style patterns)                                | Do not write general bitwise arithmetic unless the compiler explicitly supports it |
-| Concatenation                | `..`                                                                                                   | Only if mapped; otherwise unsupported                                                                                                    | Prefer precomputed strings / avoid dynamic concatenation                                                       |                                                                                    |
-| Length operator              | `#`                                                                                                    | Generally unsupported unless mapped                                                                                                      | Avoid `#t` and `#s` unless you confirmed support                                                               |                                                                                    |
-| Relational operators         | `== ~= < <= > >=`                                                                                      | Supported when operands are in supported forms (`Sx`, `aN`, `G[i]`, literals)                                                            | Keep operands “simple” and VM-addressable                                                                      |                                                                                    |
-| Boolean operators            | `and`, `or`, `not` with short-circuit semantics                                                        | `not` may be supported if mapped; `and/or` only in restricted decompiler-style patterns (not general short-circuit truthiness)           | Avoid idiomatic Lua `a and b or c` constructs                                                                  |                                                                                    |
-| Assignment                   | Multiple assignment, destructuring, local init                                                         | Single-target assignments are expected; multi-assign may be partially supported only for `local S0,S1,...` declarations                  | Prefer one assignment per line                                                                                 |                                                                                    |
-| Local declarations           | `local x`, `local x = expr`, `local a,b = ...`                                                         | `local S0, S1, ...` and similar declarations are accepted and ignored (no codegen)                                                       | Declarations exist only to keep Lua syntax valid/readable                                                      |                                                                                    |
-| Control flow                 | `if/elseif/else/end`, `while`, `repeat/until`, numeric `for`, generic `for`, `goto/::label::`, `break` | `if/elseif/else`, `while`, `break` supported; `repeat/until`, `for`, `goto` not supported                                                | Keep loops to `while`; avoid `for` and `repeat`                                                                |                                                                                    |
-| Return statements            | `return`, `return a,b,c` (multi-return), tail-call behaviors                                           | `return` and **single-value** `return S0` supported (as VM `ret/retv`)                                                                   | Do not use multi-return; return at most one value                                                              |                                                                                    |
-| Functions / closures         | `function` statements/expressions, closures, upvalues, recursion, methods (`:`), vararg (`...`)        | **No closures/upvalues**; **no vararg**; named functions only; recursion is okay if VM supports it                                       | Do not define nested functions; do not capture outer locals                                                    |                                                                                    |
-| Multiple return values       | Full multiple return semantics (`return a,b`, assignment from multi-return calls)                      | Not supported                                                                                                                            | Every call is treated as producing at most one usable return value                                             |                                                                                    |
-| Method call syntax           | `obj:method(a)` sugar for `obj.method(obj,a)`                                                          | Not supported unless emitted in a VM-specific lowered form                                                                               | Use explicit function names / VM syscall patterns instead                                                      |                                                                                    |
-| Table constructors           | `{}`, `{a=1}`, `{[k]=v}`, array parts, mixed                                                           | Not supported                                                                                                                            | Tables are manipulated only via explicit VM table ops (e.g., `LT[idx][key] = v`)                               |                                                                                    |
-| Metatables / metamethods     | `setmetatable`, operator overloading, `__index`, etc.                                                  | Not supported                                                                                                                            | Operator behavior is VM-defined, not Lua metamethod-driven                                                     |                                                                                    |
-| Modules                      | `require`, package loaders, environments                                                               | Not supported                                                                                                                            | No module system; single compilation unit                                                                      |                                                                                    |
-| Error handling               | `error`, `assert`, `pcall`, `xpcall`                                                                   | Not supported unless present as explicit syscalls                                                                                        | Do not rely on Lua exception mechanisms                                                                        |                                                                                    |
-| Coroutines                   | `coroutine.*`, yielding, resumptions                                                                   | Not supported                                                                                                                            | Even if the engine uses “threads,” they are VM/syscall-level, not Lua coroutines                               |                                                                                    |
-| Standard library             | Full Lua 5.3 base/string/table/math/io/os/debug/utf8                                                   | Not supported as Lua-level libraries; functionality expected via syscalls and VM globals                                                 | Use syscalls listed in YAML; do not call `string.*` / `table.*` etc.                                           |                                                                                    |
-| Special decompiler artifacts | Not part of Lua spec                                                                                   | `__ret` (return register marker), optional `__pc` dispatcher form, `S0..` temporaries, `G[i]` globals                                    | These are *compiler contract* elements, not standard Lua                                                       |                                                                                    |
-| Strings encoding             | Lua source is bytes; conventionally UTF-8, but not required                                            | Encoding controlled by YAML `nls` (e.g., ShiftJIS); all emitted C-strings are NUL-terminated and length-prefixed with `u8` including NUL | Keep string literals compatible with the chosen encoding; avoid characters not representable in that code page |                                                                                    |
-| Determinism                  | Lua execution depends on runtime semantics, metamethods, libs                                          | Compilation must be deterministic and match the VM opcode model                                                                          | Avoid any construct whose meaning depends on Lua runtime facilities                                            |                                                                                    |
+If present, it is used for validation.
 
+### Fields that should not be used anymore
+
+These are not part of the source contract and should not be authored for new projects:
+
+- `sys_desc_offset`
+- `entry_point`
+- `non_volatile_global_count`
+- `volatile_global_count`
+
+The compiler computes what it needs.
+
+### Accepted `syscalls` forms
+
+Preferred form, keyed by syscall id:
+
+```yaml
+syscalls:
+  0: { args: 2, name: AudioLoad }
+  1: { args: 1, name: AudioState }
+```
+
+Legacy sequence form is also accepted if your current code still uses it, but the id-keyed mapping is the recommended format.
+
+## Strings and encoding
+
+String encoding is controlled by `nls`:
+
+- `UTF-8`
+- `ShiftJIS`
+- `GB18030`
+
+HCB C-strings are emitted as:
+
+- 1-byte length including trailing NUL
+- bytes
+- trailing `\0`
+
+This applies to:
+
+- string immediates in code
+- `game_title`
+- syscall names in `sysdesc`
+
+## Minimal example
+
+```lua
+global chapter
+volatile current_voice
+
+function main()
+    S0 = 1
+    chapter = S0
+
+    __ret = AudioState(a0)
+    S1 = __ret
+
+    if S1 ~= 0 then
+        return
+    else
+        __ret = ShowMessage(a0)
+        current_voice = __ret
+        return
+    end
+end
+```
 
 ## Build
 
@@ -131,4 +539,16 @@ cargo build --release
 ./target/release/lua2hcb --meta meta.yml --lua script.lua -o script.hcb
 ```
 
-The tool always uses `function entry_point()` as the entry.
+## Practical recommendation
+
+Write source in the decompiler IR style.
+
+That means:
+
+- keep expressions simple
+- use `Sx` temporaries explicitly
+- use explicit comparisons in conditions
+- use top-level `global` / `volatile` declarations
+- keep control flow structured unless you intentionally use `__pc` dispatcher form
+
+If a construct does not obviously map to a specific VM opcode sequence, do not assume it is supported.

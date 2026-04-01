@@ -1,0 +1,152 @@
+{
+  "name": "luax-vscode",
+  "displayName": "Luax",
+  "description": "VS Code support for Luax projects powered by luax-lsp and lua2hcb_compiler.",
+  "version": "0.2.0",
+  "publisher": "local",
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.86.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:luax",
+    "workspaceContains:**/*.luax",
+    "workspaceContains:**/*.yaml",
+    "workspaceContains:**/*.yml",
+    "onCommand:luax.restartServer",
+    "onCommand:luax.openProjectYaml",
+    "onCommand:luax.validateCurrentProject",
+    "onCommand:luax.compileCurrentProject"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "luax",
+        "aliases": [
+          "Luax",
+          "luax"
+        ],
+        "extensions": [
+          ".luax"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "luax",
+        "scopeName": "source.luax",
+        "path": "./syntaxes/luax.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "luax",
+        "path": "./snippets/luax.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "luax.restartServer",
+        "title": "Luax: Restart Language Server"
+      },
+      {
+        "command": "luax.openProjectYaml",
+        "title": "Luax: Open Project YAML"
+      },
+      {
+        "command": "luax.validateCurrentProject",
+        "title": "Luax: Validate Current Project"
+      },
+      {
+        "command": "luax.compileCurrentProject",
+        "title": "Luax: Compile Current Project to HCB"
+      }
+    ],
+    "configuration": {
+      "title": "Luax",
+      "properties": {
+        "luax.server.path": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Absolute path to the `luax-lsp` executable. When empty, the extension tries a bundled binary, then `LUAX_LSP_BIN`, then `cargo run -p luax-lsp --` inside a matching Rust workspace."
+        },
+        "luax.server.args": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "markdownDescription": "Extra command line arguments passed to `luax-lsp`."
+        },
+        "luax.compiler.path": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Absolute path to the `lua2hcb` or `lua2hcb_compiler` executable. When empty, the extension tries `LUAX_COMPILER_BIN`, then `cargo run -p lua2hcb_compiler --` inside a matching Rust workspace."
+        },
+        "luax.compiler.args": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "markdownDescription": "Extra arguments appended after the compiler executable and before `--meta/--lua/-o`."
+        },
+        "luax.compiler.defaultOutputDir": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Optional absolute or workspace-relative output directory used as the default location in the save dialog when compiling."
+        },
+        "luax.trace.server": {
+          "type": "string",
+          "default": "off",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "markdownDescription": "LSP protocol trace level."
+        }
+      }
+    },
+    "menus": {
+      "editor/title": [
+        {
+          "command": "luax.openProjectYaml",
+          "when": "resourceExtname == .luax",
+          "group": "navigation"
+        },
+        {
+          "command": "luax.validateCurrentProject",
+          "when": "resourceExtname == .luax",
+          "group": "navigation@1"
+        },
+        {
+          "command": "luax.compileCurrentProject",
+          "when": "resourceExtname == .luax",
+          "group": "navigation@2"
+        },
+        {
+          "command": "luax.restartServer",
+          "when": "resourceExtname == .luax",
+          "group": "navigation@3"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "luax.compileCurrentProject",
+          "when": "resourceExtname == .luax",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0",
+    "vscode-languageclient": "^9.0.1"
+  }
+}

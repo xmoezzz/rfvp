@@ -1,0 +1,451 @@
+nls: ShiftJIS
+custom_syscall_count: 0
+game_mode: 7
+game_mode_reserved: 0
+game_title: Win95-Painter
+syscall_count: 148
+syscalls:
+  0:
+    args: 2
+    name: AudioLoad
+  1:
+    args: 2
+    name: AudioPlay
+  2:
+    args: 1
+    name: AudioSilentOn
+  3:
+    args: 1
+    name: AudioState
+  4:
+    args: 2
+    name: AudioStop
+  5:
+    args: 2
+    name: AudioType
+  6:
+    args: 3
+    name: AudioVol
+  7:
+    args: 5
+    name: ColorSet
+  8:
+    args: 1
+    name: ControlMask
+  9:
+    args: 0
+    name: ControlPulse
+  10:
+    args: 1
+    name: CursorChange
+  11:
+    args: 3
+    name: CursorMove
+  12:
+    args: 1
+    name: CursorShow
+  13:
+    args: 2
+    name: Debmess
+  14:
+    args: 7
+    name: Dissolve
+  15:
+    args: 1
+    name: DissolveWait
+  16:
+    args: 0
+    name: ExitDialog
+  17:
+    args: 1
+    name: ExitMode
+  18:
+    args: 1
+    name: FlagGet
+  19:
+    args: 2
+    name: FlagSet
+  20:
+    args: 1
+    name: FloatToInt
+  21:
+    args: 3
+    name: GaijiLoad
+  22:
+    args: 2
+    name: GraphLoad
+  23:
+    args: 4
+    name: GraphRGB
+  24:
+    args: 2
+    name: IntToText
+  25:
+    args: 2
+    name: HistoryGet
+  26:
+    args: 2
+    name: HistorySet
+  27:
+    args: 0
+    name: InputFlash
+  28:
+    args: 0
+    name: InputGetCursIn
+  29:
+    args: 0
+    name: InputGetCursX
+  30:
+    args: 0
+    name: InputGetCursY
+  31:
+    args: 0
+    name: InputGetDown
+  32:
+    args: 0
+    name: InputGetEvent
+  33:
+    args: 0
+    name: InputGetRepeat
+  34:
+    args: 0
+    name: InputGetState
+  35:
+    args: 0
+    name: InputGetUp
+  36:
+    args: 0
+    name: InputGetWheel
+  37:
+    args: 0
+    name: InputSetClick
+  38:
+    args: 8
+    name: LipAnim
+  39:
+    args: 2
+    name: LipSync
+  40:
+    args: 1
+    name: Load
+  41:
+    args: 1
+    name: MenuMessSkip
+  42:
+    args: 6
+    name: MotionAlpha
+  43:
+    args: 1
+    name: MotionAlphaStop
+  44:
+    args: 1
+    name: MotionAlphaTest
+  45:
+    args: 4
+    name: MotionAnim
+  46:
+    args: 1
+    name: MotionAnimStop
+  47:
+    args: 1
+    name: MotionAnimTest
+  48:
+    args: 8
+    name: MotionMove
+  49:
+    args: 1
+    name: MotionMoveStop
+  50:
+    args: 1
+    name: MotionMoveTest
+  51:
+    args: 6
+    name: MotionMoveR
+  52:
+    args: 1
+    name: MotionMoveRStop
+  53:
+    args: 1
+    name: MotionMoveRTest
+  54:
+    args: 8
+    name: MotionMoveS2
+  55:
+    args: 1
+    name: MotionMoveS2Stop
+  56:
+    args: 1
+    name: MotionMoveS2Test
+  57:
+    args: 6
+    name: MotionMoveZ
+  58:
+    args: 1
+    name: MotionMoveZStop
+  59:
+    args: 1
+    name: MotionMoveZTest
+  60:
+    args: 2
+    name: MotionPause
+  61:
+    args: 2
+    name: Movie
+  62:
+    args: 1
+    name: MovieState
+  63:
+    args: 0
+    name: MovieStop
+  64:
+    args: 2
+    name: PartsAssign
+  65:
+    args: 2
+    name: PartsLoad
+  66:
+    args: 3
+    name: PartsMotion
+  67:
+    args: 2
+    name: PartsMotionPause
+  68:
+    args: 1
+    name: PartsMotionStop
+  69:
+    args: 1
+    name: PartsMotionTest
+  70:
+    args: 4
+    name: PartsRGB
+  71:
+    args: 2
+    name: PartsSelect
+  72:
+    args: 1
+    name: PrimExitGroup
+  73:
+    args: 2
+    name: PrimGroupIn
+  74:
+    args: 2
+    name: PrimGroupMove
+  75:
+    args: 1
+    name: PrimGroupOut
+  76:
+    args: 2
+    name: PrimHit
+  77:
+    args: 2
+    name: PrimSetAlpha
+  78:
+    args: 2
+    name: PrimSetBlend
+  79:
+    args: 2
+    name: PrimSetDraw
+  80:
+    args: 1
+    name: PrimSetNull
+  81:
+    args: 3
+    name: PrimSetOP
+  82:
+    args: 3
+    name: PrimSetRS
+  83:
+    args: 4
+    name: PrimSetRS2
+  84:
+    args: 4
+    name: PrimSetSnow
+  85:
+    args: 4
+    name: PrimSetSprt
+  86:
+    args: 4
+    name: PrimSetText
+  87:
+    args: 6
+    name: PrimSetTile
+  88:
+    args: 3
+    name: PrimSetUV
+  89:
+    args: 3
+    name: PrimSetWH
+  90:
+    args: 3
+    name: PrimSetXY
+  91:
+    args: 2
+    name: PrimSetZ
+  92:
+    args: 0
+    name: Rand
+  93:
+    args: 2
+    name: SaveCreate
+  94:
+    args: 2
+    name: SaveThumbSize
+  95:
+    args: 3
+    name: SaveData
+  96:
+    args: 1
+    name: SaveWrite
+  97:
+    args: 18
+    name: Snow
+  98:
+    args: 2
+    name: SnowStart
+  99:
+    args: 2
+    name: SnowStop
+  100:
+    args: 2
+    name: SoundLoad
+  101:
+    args: 1
+    name: SoundMasterVol
+  102:
+    args: 3
+    name: SoundPlay
+  103:
+    args: 1
+    name: SoundSilentOn
+  104:
+    args: 2
+    name: SoundStop
+  105:
+    args: 2
+    name: SoundType
+  106:
+    args: 2
+    name: SoundTypeVol
+  107:
+    args: 3
+    name: SoundVol
+  108:
+    args: 2
+    name: SysAtSkipName
+  109:
+    args: 1
+    name: SysProjFolder
+  110:
+    args: 3
+    name: TextBuff
+  111:
+    args: 1
+    name: TextClear
+  112:
+    args: 4
+    name: TextColor
+  113:
+    args: 3
+    name: TextFont
+  114:
+    args: 0
+    name: TextFontCount
+  115:
+    args: 0
+    name: TextFontGet
+  116:
+    args: 1
+    name: TextFontName
+  117:
+    args: 1
+    name: TextFontSet
+  118:
+    args: 7
+    name: TextFormat
+  119:
+    args: 4
+    name: TextFunction
+  120:
+    args: 3
+    name: TextOutSize
+  121:
+    args: 2
+    name: TextPause
+  122:
+    args: 3
+    name: TextPos
+  123:
+    args: 2
+    name: TextPrint
+  124:
+    args: 0
+    name: TextRepaint
+  125:
+    args: 2
+    name: TextShadowDist
+  126:
+    args: 3
+    name: TextSize
+  127:
+    args: 2
+    name: TextSkip
+  128:
+    args: 3
+    name: TextSpace
+  129:
+    args: 2
+    name: TextSpeed
+  130:
+    args: 2
+    name: TextSuspendChr
+  131:
+    args: 1
+    name: TextTest
+  132:
+    args: 1
+    name: ThreadExit
+  133:
+    args: 0
+    name: ThreadNext
+  134:
+    args: 1
+    name: ThreadRaise
+  135:
+    args: 1
+    name: ThreadSleep
+  136:
+    args: 2
+    name: ThreadStart
+  137:
+    args: 1
+    name: ThreadWait
+  138:
+    args: 2
+    name: TimerGet
+  139:
+    args: 2
+    name: TimerSet
+  140:
+    args: 1
+    name: TimerSuspend
+  141:
+    args: 1
+    name: TitleMenu
+  142:
+    args: 6
+    name: V3DMotion
+  143:
+    args: 1
+    name: V3DMotionPause
+  144:
+    args: 0
+    name: V3DMotionStop
+  145:
+    args: 0
+    name: V3DMotionTest
+  146:
+    args: 3
+    name: V3DSet
+  147:
+    args: 1
+    name: WindowMode

@@ -29,21 +29,25 @@ fn main() -> Result<()> {
     let meta = meta::load_meta(&cli.meta)
         .with_context(|| format!("loading meta: {}", cli.meta.display()))?;
 
-    let funs = lua::parse_lua(&cli.lua).with_context(|| "parsing lua functions")?;
-    if funs.is_empty() {
+    let program = lua::parse_lua(&cli.lua).with_context(|| "parsing lua source")?;
+    if program.functions.is_empty() {
         return Err(anyhow!("no functions found in lua input"));
     }
 
-    let items = compile::compile_program(&meta, &funs).with_context(|| "compiling")?;
-    let (code, labels) = asm::assemble(&meta, &items).with_context(|| "assembling")?;
+    let (items, layout) = compile::compile_program(&meta, &program).with_context(|| "compiling")?;
 
-    let entry_lbl = "fn:entry_point".to_string();
+    let mut emit_meta = meta.clone();
+    emit_meta.non_volatile_global_count = layout.non_volatile_count;
+    emit_meta.volatile_global_count = layout.volatile_count;
+
+    let (code, labels) = asm::assemble(&emit_meta, &items).with_context(|| "assembling")?;
+
     let entry_point = labels
-        .get(&entry_lbl)
+        .get("fn:main")
         .copied()
-        .ok_or_else(|| anyhow!("missing entry function: entry_point"))?;
+        .ok_or_else(|| anyhow!("missing entry function: main"))?;
 
-    let sysdesc = asm::build_sysdesc(&meta, entry_point).with_context(|| "building sysdesc")?;
+    let sysdesc = asm::build_sysdesc(&emit_meta, entry_point).with_context(|| "building sysdesc")?;
 
     let sys_desc_offset: u32 =
         4 + u32::try_from(code.len()).map_err(|_| anyhow!("code too large"))?;

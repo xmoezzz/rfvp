@@ -1,9 +1,9 @@
 use crate::ir::{Item, Label, OpKind};
-use crate::lua::{Function, Stmt};
+use crate::lua::{Function, GlobalDecl, GlobalKind, Program, Stmt};
 use crate::meta::Meta;
 use anyhow::{anyhow, bail, Result};
 use regex::Regex;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CondKind {
@@ -11,6 +11,7 @@ enum CondKind {
     Zero,
     AlwaysTrue,
     AlwaysFalse,
+    Generic,
 }
 
 fn parse_cond(cond: &str) -> CondKind {
@@ -22,16 +23,11 @@ fn parse_cond(cond: &str) -> CondKind {
         return CondKind::AlwaysFalse;
     }
 
-    // Accept optional parentheses.
     let c = c.trim_start_matches('(').trim_end_matches(')').trim();
 
-    // Typical IR conditions.
-    // - Sx ~= 0  => NonZero
-    // - Sx == 0  => Zero
-    // - Sx       => NonZero
-    let re_ne0 = Regex::new(r"^S\d+\s*~=\s*0$" ).unwrap();
-    let re_eq0 = Regex::new(r"^S\d+\s*==\s*0$" ).unwrap();
-    let re_s = Regex::new(r"^S\d+$" ).unwrap();
+    let re_ne0 = Regex::new(r"^S\d+\s*~=\s*0$").unwrap();
+    let re_eq0 = Regex::new(r"^S\d+\s*==\s*0$").unwrap();
+    let re_s = Regex::new(r"^S\d+$").unwrap();
 
     if re_ne0.is_match(c) {
         return CondKind::NonZero;
@@ -43,9 +39,73 @@ fn parse_cond(cond: &str) -> CondKind {
         return CondKind::NonZero;
     }
 
-    // Fallback: treat as non-zero; this keeps the compiler permissive
-    // for decompiler-emitted conditions like "(S0 ~= 0)".
-    CondKind::NonZero
+    CondKind::Generic
+}
+
+#[derive(Clone, Debug)]
+pub struct GlobalLayout {
+    pub non_volatile_count: u16,
+    pub volatile_count: u16,
+    name_to_idx: HashMap<String, u16>,
+    declared: HashSet<String>,
+}
+
+impl GlobalLayout {
+    fn from_globals(globals: &[GlobalDecl]) -> Result<Self> {
+        let mut max_g: Option<u16> = None;
+        let mut max_vg: Option<u16> = None;
+        let re_g = Regex::new(r"^g(\d+)$").unwrap();
+        let re_vg = Regex::new(r"^vg(\d+)$").unwrap();
+        let mut declared = HashSet::new();
+
+        for g in globals {
+            if !declared.insert(g.name.clone()) {
+                bail!("duplicate global declaration: {}", g.name);
+            }
+            match g.kind {
+                GlobalKind::NonVolatile => {
+                    let caps = re_g
+                        .captures(&g.name)
+                        .ok_or_else(|| anyhow!("invalid non-volatile global name: {}", g.name))?;
+                    let idx: u16 = caps.get(1).unwrap().as_str().parse()?;
+                    max_g = Some(max_g.map(|x| x.max(idx)).unwrap_or(idx));
+                }
+                GlobalKind::Volatile => {
+                    let caps = re_vg
+                        .captures(&g.name)
+                        .ok_or_else(|| anyhow!("invalid volatile global name: {}", g.name))?;
+                    let idx: u16 = caps.get(1).unwrap().as_str().parse()?;
+                    max_vg = Some(max_vg.map(|x| x.max(idx)).unwrap_or(idx));
+                }
+            }
+        }
+
+        let non_volatile_count = max_g.map(|x| x + 1).unwrap_or(0);
+        let volatile_count = max_vg.map(|x| x + 1).unwrap_or(0);
+        let mut name_to_idx = HashMap::new();
+        for g in globals {
+            let idx = match g.kind {
+                GlobalKind::NonVolatile => g.name[1..].parse::<u16>()?,
+                GlobalKind::Volatile => non_volatile_count + g.name[2..].parse::<u16>()?,
+            };
+            name_to_idx.insert(g.name.clone(), idx);
+        }
+
+        Ok(Self {
+            non_volatile_count,
+            volatile_count,
+            name_to_idx,
+            declared,
+        })
+    }
+
+    fn global_idx(&self, name: &str) -> Option<u16> {
+        self.name_to_idx.get(name).copied()
+    }
+
+    fn is_declared(&self, name: &str) -> bool {
+        self.declared.contains(name)
+    }
 }
 
 fn slot_to_stack_idx(var: &str, args_count: i8) -> Result<i8> {
@@ -78,7 +138,6 @@ fn push_int(v: i64) -> Result<OpKind> {
 }
 
 fn lua_unescape_string(lit: &str) -> String {
-    // Limited support: \\ and \" and \n \r \t.
     let mut out = String::new();
     let mut chars = lit.chars();
     while let Some(ch) = chars.next() {
@@ -99,332 +158,715 @@ fn lua_unescape_string(lit: &str) -> String {
     out
 }
 
+#[derive(Clone, Debug, PartialEq)]
+enum Tok {
+    Ident(String),
+    Int(i64),
+    Float(f32),
+    Str(String),
+    Nil,
+    True,
+    False,
+    LParen,
+    RParen,
+    LBracket,
+    RBracket,
+    Comma,
+    Plus,
+    Minus,
+    Star,
+    Slash,
+    Percent,
+    Amp,
+    EqEq,
+    NotEq,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    And,
+    Or,
+}
+
+fn tokenize_expr(s: &str) -> Result<Vec<Tok>> {
+    let mut toks = Vec::new();
+    let b = s.as_bytes();
+    let mut i = 0usize;
+    while i < b.len() {
+        let ch = b[i] as char;
+        if ch.is_ascii_whitespace() {
+            i += 1;
+            continue;
+        }
+        match ch {
+            '(' => {
+                toks.push(Tok::LParen);
+                i += 1;
+            }
+            ')' => {
+                toks.push(Tok::RParen);
+                i += 1;
+            }
+            '[' => {
+                toks.push(Tok::LBracket);
+                i += 1;
+            }
+            ']' => {
+                toks.push(Tok::RBracket);
+                i += 1;
+            }
+            ',' => {
+                toks.push(Tok::Comma);
+                i += 1;
+            }
+            '+' => {
+                toks.push(Tok::Plus);
+                i += 1;
+            }
+            '-' => {
+                if i + 1 < b.len() && (b[i + 1] as char).is_ascii_digit() {
+                    let start = i;
+                    i += 1;
+                    while i < b.len() && (b[i] as char).is_ascii_digit() {
+                        i += 1;
+                    }
+                    let mut is_float = false;
+                    if i < b.len() && b[i] as char == '.' {
+                        is_float = true;
+                        i += 1;
+                        while i < b.len() && (b[i] as char).is_ascii_digit() {
+                            i += 1;
+                        }
+                    }
+                    let lit = &s[start..i];
+                    if is_float {
+                        toks.push(Tok::Float(lit.parse()?));
+                    } else {
+                        toks.push(Tok::Int(lit.parse()?));
+                    }
+                } else {
+                    toks.push(Tok::Minus);
+                    i += 1;
+                }
+            }
+            '*' => {
+                toks.push(Tok::Star);
+                i += 1;
+            }
+            '/' => {
+                toks.push(Tok::Slash);
+                i += 1;
+            }
+            '%' => {
+                toks.push(Tok::Percent);
+                i += 1;
+            }
+            '&' => {
+                toks.push(Tok::Amp);
+                i += 1;
+            }
+            '=' => {
+                if i + 1 < b.len() && b[i + 1] as char == '=' {
+                    toks.push(Tok::EqEq);
+                    i += 2;
+                } else {
+                    bail!("unexpected '=' inside expression: {s}");
+                }
+            }
+            '~' => {
+                if i + 1 < b.len() && b[i + 1] as char == '=' {
+                    toks.push(Tok::NotEq);
+                    i += 2;
+                } else {
+                    bail!("unexpected '~' inside expression: {s}");
+                }
+            }
+            '<' => {
+                if i + 1 < b.len() && b[i + 1] as char == '=' {
+                    toks.push(Tok::Le);
+                    i += 2;
+                } else {
+                    toks.push(Tok::Lt);
+                    i += 1;
+                }
+            }
+            '>' => {
+                if i + 1 < b.len() && b[i + 1] as char == '=' {
+                    toks.push(Tok::Ge);
+                    i += 2;
+                } else {
+                    toks.push(Tok::Gt);
+                    i += 1;
+                }
+            }
+            '"' => {
+                i += 1;
+                let start = i;
+                let mut out = String::new();
+                while i < b.len() {
+                    let c = b[i] as char;
+                    if c == '\\' {
+                        if i + 1 >= b.len() {
+                            bail!("unterminated string literal");
+                        }
+                        let esc = b[i + 1] as char;
+                        match esc {
+                            'n' => out.push('\n'),
+                            'r' => out.push('\r'),
+                            't' => out.push('\t'),
+                            '\\' => out.push('\\'),
+                            '"' => out.push('"'),
+                            other => out.push(other),
+                        }
+                        i += 2;
+                        continue;
+                    }
+                    if c == '"' {
+                        break;
+                    }
+                    out.push(c);
+                    i += 1;
+                }
+                if i >= b.len() || b[i] as char != '"' {
+                    bail!("unterminated string literal starting at: {}", &s[start - 1..]);
+                }
+                i += 1;
+                toks.push(Tok::Str(out));
+            }
+            c if c.is_ascii_digit() => {
+                let start = i;
+                i += 1;
+                while i < b.len() && (b[i] as char).is_ascii_digit() {
+                    i += 1;
+                }
+                let mut is_float = false;
+                if i < b.len() && b[i] as char == '.' {
+                    is_float = true;
+                    i += 1;
+                    while i < b.len() && (b[i] as char).is_ascii_digit() {
+                        i += 1;
+                    }
+                }
+                let lit = &s[start..i];
+                if is_float {
+                    toks.push(Tok::Float(lit.parse()?));
+                } else {
+                    toks.push(Tok::Int(lit.parse()?));
+                }
+            }
+            c if c.is_ascii_alphabetic() || c == '_' => {
+                let start = i;
+                i += 1;
+                while i < b.len() {
+                    let c = b[i] as char;
+                    if c.is_ascii_alphanumeric() || c == '_' {
+                        i += 1;
+                    } else {
+                        break;
+                    }
+                }
+                let ident = &s[start..i];
+                match ident {
+                    "nil" => toks.push(Tok::Nil),
+                    "true" => toks.push(Tok::True),
+                    "false" => toks.push(Tok::False),
+                    "and" => toks.push(Tok::And),
+                    "or" => toks.push(Tok::Or),
+                    _ => toks.push(Tok::Ident(ident.to_string())),
+                }
+            }
+            _ => bail!("unsupported character in expression: {ch}"),
+        }
+    }
+    Ok(toks)
+}
+
+#[derive(Clone, Debug)]
+enum UnaryOp {
+    Neg,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum BinaryOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Mod,
+    BitAnd,
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    And,
+    Or,
+}
+
+#[derive(Clone, Debug)]
+enum Expr {
+    Nil,
+    True,
+    False,
+    Int(i64),
+    Float(f32),
+    Str(String),
+    Var(String),
+    Call { name: String, args: Vec<Expr> },
+    GlobalTable { idx: u16, key: Box<Expr> },
+    LocalTable { idx: i8, key: Box<Expr> },
+    Unary { op: UnaryOp, expr: Box<Expr> },
+    Binary { op: BinaryOp, left: Box<Expr>, right: Box<Expr> },
+}
+
+struct ExprParser {
+    toks: Vec<Tok>,
+    pos: usize,
+}
+
+impl ExprParser {
+    fn new(toks: Vec<Tok>) -> Self {
+        Self { toks, pos: 0 }
+    }
+
+    fn peek(&self) -> Option<&Tok> {
+        self.toks.get(self.pos)
+    }
+
+    fn bump(&mut self) -> Option<Tok> {
+        let t = self.toks.get(self.pos).cloned();
+        if t.is_some() {
+            self.pos += 1;
+        }
+        t
+    }
+
+    fn eat(&mut self, tok: &Tok) -> bool {
+        if self.peek() == Some(tok) {
+            self.pos += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn parse(mut self) -> Result<Expr> {
+        let expr = self.parse_or()?;
+        if self.pos != self.toks.len() {
+            bail!("unexpected trailing tokens in expression");
+        }
+        Ok(expr)
+    }
+
+    fn parse_or(&mut self) -> Result<Expr> {
+        let mut expr = self.parse_and()?;
+        while self.eat(&Tok::Or) {
+            let rhs = self.parse_and()?;
+            expr = Expr::Binary { op: BinaryOp::Or, left: Box::new(expr), right: Box::new(rhs) };
+        }
+        Ok(expr)
+    }
+
+    fn parse_and(&mut self) -> Result<Expr> {
+        let mut expr = self.parse_cmp()?;
+        while self.eat(&Tok::And) {
+            let rhs = self.parse_cmp()?;
+            expr = Expr::Binary { op: BinaryOp::And, left: Box::new(expr), right: Box::new(rhs) };
+        }
+        Ok(expr)
+    }
+
+    fn parse_cmp(&mut self) -> Result<Expr> {
+        let mut expr = self.parse_add()?;
+        loop {
+            let op = match self.peek() {
+                Some(Tok::EqEq) => BinaryOp::Eq,
+                Some(Tok::NotEq) => BinaryOp::Ne,
+                Some(Tok::Lt) => BinaryOp::Lt,
+                Some(Tok::Le) => BinaryOp::Le,
+                Some(Tok::Gt) => BinaryOp::Gt,
+                Some(Tok::Ge) => BinaryOp::Ge,
+                _ => break,
+            };
+            self.bump();
+            let rhs = self.parse_add()?;
+            expr = Expr::Binary { op, left: Box::new(expr), right: Box::new(rhs) };
+        }
+        Ok(expr)
+    }
+
+    fn parse_add(&mut self) -> Result<Expr> {
+        let mut expr = self.parse_mul()?;
+        loop {
+            let op = match self.peek() {
+                Some(Tok::Plus) => BinaryOp::Add,
+                Some(Tok::Minus) => BinaryOp::Sub,
+                _ => break,
+            };
+            self.bump();
+            let rhs = self.parse_mul()?;
+            expr = Expr::Binary { op, left: Box::new(expr), right: Box::new(rhs) };
+        }
+        Ok(expr)
+    }
+
+    fn parse_mul(&mut self) -> Result<Expr> {
+        let mut expr = self.parse_bitand()?;
+        loop {
+            let op = match self.peek() {
+                Some(Tok::Star) => BinaryOp::Mul,
+                Some(Tok::Slash) => BinaryOp::Div,
+                Some(Tok::Percent) => BinaryOp::Mod,
+                _ => break,
+            };
+            self.bump();
+            let rhs = self.parse_bitand()?;
+            expr = Expr::Binary { op, left: Box::new(expr), right: Box::new(rhs) };
+        }
+        Ok(expr)
+    }
+
+    fn parse_bitand(&mut self) -> Result<Expr> {
+        let mut expr = self.parse_unary()?;
+        while self.eat(&Tok::Amp) {
+            let rhs = self.parse_unary()?;
+            expr = Expr::Binary { op: BinaryOp::BitAnd, left: Box::new(expr), right: Box::new(rhs) };
+        }
+        Ok(expr)
+    }
+
+    fn parse_unary(&mut self) -> Result<Expr> {
+        if self.eat(&Tok::Minus) {
+            let expr = self.parse_unary()?;
+            return Ok(Expr::Unary { op: UnaryOp::Neg, expr: Box::new(expr) });
+        }
+        self.parse_primary()
+    }
+
+    fn parse_primary(&mut self) -> Result<Expr> {
+        match self.bump().ok_or_else(|| anyhow!("unexpected end of expression"))? {
+            Tok::Nil => Ok(Expr::Nil),
+            Tok::True => Ok(Expr::True),
+            Tok::False => Ok(Expr::False),
+            Tok::Int(v) => Ok(Expr::Int(v)),
+            Tok::Float(v) => Ok(Expr::Float(v)),
+            Tok::Str(s) => Ok(Expr::Str(s)),
+            Tok::LParen => {
+                let e = self.parse_or()?;
+                if !self.eat(&Tok::RParen) {
+                    bail!("missing ')' in expression");
+                }
+                Ok(e)
+            }
+            Tok::Ident(name) => {
+                if self.eat(&Tok::LParen) {
+                    let mut args = Vec::new();
+                    if !self.eat(&Tok::RParen) {
+                        loop {
+                            args.push(self.parse_or()?);
+                            if self.eat(&Tok::Comma) {
+                                continue;
+                            }
+                            if !self.eat(&Tok::RParen) {
+                                bail!("missing ')' after call arguments");
+                            }
+                            break;
+                        }
+                    }
+                    return Ok(Expr::Call { name, args });
+                }
+
+                if (name == "GT" || name == "LT") && self.eat(&Tok::LBracket) {
+                    let idx = match self.bump() {
+                        Some(Tok::Int(v)) => v,
+                        Some(Tok::Minus) => match self.bump() {
+                            Some(Tok::Int(v)) => -v,
+                            _ => bail!("table index must be integer"),
+                        },
+                        _ => bail!("table index must be integer"),
+                    };
+                    if !self.eat(&Tok::RBracket) || !self.eat(&Tok::LBracket) {
+                        bail!("table access must be GT[idx][key] or LT[idx][key]");
+                    }
+                    let key = self.parse_or()?;
+                    if !self.eat(&Tok::RBracket) {
+                        bail!("table access missing closing ']'");
+                    }
+                    if name == "GT" {
+                        if idx < 0 || idx > i64::from(u16::MAX) {
+                            bail!("GT index out of range: {idx}");
+                        }
+                        return Ok(Expr::GlobalTable { idx: idx as u16, key: Box::new(key) });
+                    }
+                    if idx < i64::from(i8::MIN) || idx > i64::from(i8::MAX) {
+                        bail!("LT index out of range: {idx}");
+                    }
+                    return Ok(Expr::LocalTable { idx: idx as i8, key: Box::new(key) });
+                }
+
+                Ok(Expr::Var(name))
+            }
+            other => bail!("unexpected token in expression: {:?}", other),
+        }
+    }
+}
+
+fn parse_expr(expr: &str) -> Result<Expr> {
+    let toks = tokenize_expr(expr)?;
+    ExprParser::new(toks).parse()
+}
+
+fn emit_call(name: &str, args: &[Expr], meta: &Meta, user_fns: &HashSet<String>, layout: &GlobalLayout, args_count: i8, out: &mut Vec<Item>) -> Result<()> {
+    for arg in args {
+        compile_expr(arg, args_count, meta, user_fns, layout, out)?;
+    }
+
+    if let Some(sid) = meta.syscall_id_by_name(name) {
+        if let Some(expect) = meta.syscall_args_by_id(sid) {
+            if usize::from(expect) != args.len() {
+                bail!("syscall {name} expects {expect} args, got {}", args.len());
+            }
+        }
+        out.push(Item::Op(OpKind::Syscall { id: sid }));
+        return Ok(());
+    }
+
+    if name.starts_with("f_") || user_fns.contains(name) {
+        out.push(Item::Op(OpKind::CallFn { name: name.to_string() }));
+        return Ok(());
+    }
+
+    bail!("unknown callee: {name}")
+}
+
+fn compile_expr(expr: &Expr, args_count: i8, meta: &Meta, user_fns: &HashSet<String>, layout: &GlobalLayout, out: &mut Vec<Item>) -> Result<()> {
+    match expr {
+        Expr::Nil => out.push(Item::Op(OpKind::PushNil)),
+        Expr::True => out.push(Item::Op(OpKind::PushTrue)),
+        Expr::False => bail!("false is not supported as a runtime value in this compiler"),
+        Expr::Int(v) => out.push(Item::Op(push_int(*v)?)),
+        Expr::Float(v) => out.push(Item::Op(OpKind::PushF32(*v))),
+        Expr::Str(s) => out.push(Item::Op(OpKind::PushString(s.clone()))),
+        Expr::Var(name) => {
+            let re_s = Regex::new(r"^S\d+$").unwrap();
+            let re_slot = Regex::new(r"^(a\d+|l\d+)$").unwrap();
+            if name == "__ret" {
+                out.push(Item::Op(OpKind::PushReturn));
+            } else if let Some(idx) = layout.global_idx(name) {
+                out.push(Item::Op(OpKind::PushGlobal(idx)));
+            } else if re_slot.is_match(name) {
+                let idx = slot_to_stack_idx(name, args_count)?;
+                out.push(Item::Op(OpKind::PushStack(idx)));
+            } else if re_s.is_match(name) {
+                out.push(Item::Op(OpKind::PushTop));
+            } else {
+                bail!("unsupported variable reference: {name}");
+            }
+        }
+        Expr::Call { name, args } => {
+            emit_call(name, args, meta, user_fns, layout, args_count, out)?;
+            out.push(Item::Op(OpKind::PushReturn));
+        }
+        Expr::GlobalTable { idx, key } => {
+            compile_expr(key, args_count, meta, user_fns, layout, out)?;
+            out.push(Item::Op(OpKind::PushGlobalTable(*idx)));
+        }
+        Expr::LocalTable { idx, key } => {
+            compile_expr(key, args_count, meta, user_fns, layout, out)?;
+            out.push(Item::Op(OpKind::PushLocalTable(*idx)));
+        }
+        Expr::Unary { op: UnaryOp::Neg, expr } => {
+            compile_expr(expr, args_count, meta, user_fns, layout, out)?;
+            out.push(Item::Op(OpKind::Neg));
+        }
+        Expr::Binary { op, left, right } => {
+            if *op == BinaryOp::Ne {
+                if let Expr::Binary { op: BinaryOp::BitAnd, left: bleft, right: bright } = &**left {
+                    if matches!(&**right, Expr::Int(0)) {
+                        compile_expr(bleft, args_count, meta, user_fns, layout, out)?;
+                        compile_expr(bright, args_count, meta, user_fns, layout, out)?;
+                        out.push(Item::Op(OpKind::BitTest));
+                        return Ok(());
+                    }
+                }
+            }
+            if *op == BinaryOp::And || *op == BinaryOp::Or {
+                compile_expr(left, args_count, meta, user_fns, layout, out)?;
+                compile_expr(right, args_count, meta, user_fns, layout, out)?;
+                out.push(Item::Op(match op {
+                    BinaryOp::And => OpKind::And,
+                    BinaryOp::Or => OpKind::Or,
+                    _ => unreachable!(),
+                }));
+                return Ok(());
+            }
+            if *op == BinaryOp::BitAnd {
+                bail!("plain bitwise '&' values are not supported, use '(x & y) ~= 0'");
+            }
+            compile_expr(left, args_count, meta, user_fns, layout, out)?;
+            compile_expr(right, args_count, meta, user_fns, layout, out)?;
+            let inst = match op {
+                BinaryOp::Add => OpKind::Add,
+                BinaryOp::Sub => OpKind::Sub,
+                BinaryOp::Mul => OpKind::Mul,
+                BinaryOp::Div => OpKind::Div,
+                BinaryOp::Mod => OpKind::Mod,
+                BinaryOp::Eq => OpKind::SetE,
+                BinaryOp::Ne => OpKind::SetNe,
+                BinaryOp::Lt => OpKind::SetL,
+                BinaryOp::Le => OpKind::SetLe,
+                BinaryOp::Gt => OpKind::SetG,
+                BinaryOp::Ge => OpKind::SetGe,
+                BinaryOp::BitAnd | BinaryOp::And | BinaryOp::Or => unreachable!(),
+            };
+            out.push(Item::Op(inst));
+        }
+    }
+    Ok(())
+}
+
+fn split_assignment(stmt: &str) -> Option<(String, String)> {
+    let b = stmt.as_bytes();
+    let mut depth_paren = 0i32;
+    let mut depth_brack = 0i32;
+    let mut in_string = false;
+    let mut i = 0usize;
+    while i < b.len() {
+        let c = b[i] as char;
+        if in_string {
+            if c == '\\' {
+                i += 2;
+                continue;
+            }
+            if c == '"' {
+                in_string = false;
+            }
+            i += 1;
+            continue;
+        }
+        match c {
+            '"' => in_string = true,
+            '(' => depth_paren += 1,
+            ')' => depth_paren -= 1,
+            '[' => depth_brack += 1,
+            ']' => depth_brack -= 1,
+            '=' if depth_paren == 0 && depth_brack == 0 => {
+                let prev = if i > 0 { Some(b[i - 1] as char) } else { None };
+                let next = if i + 1 < b.len() { Some(b[i + 1] as char) } else { None };
+                if prev != Some('=') && prev != Some('~') && next != Some('=') {
+                    let lhs = stmt[..i].trim().to_string();
+                    let rhs = stmt[i + 1..].trim().to_string();
+                    return Some((lhs, rhs));
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+enum AssignTarget {
+    Stack(i8),
+    Global(u16),
+    StackTemp,
+    GlobalTable(u16, Expr),
+    LocalTable(i8, Expr),
+}
+
+fn parse_assign_target(lhs: &str, args_count: i8, layout: &GlobalLayout) -> Result<AssignTarget> {
+    let re_slot = Regex::new(r"^(a\d+|l\d+)$").unwrap();
+    let re_s = Regex::new(r"^S\d+$").unwrap();
+    if re_slot.is_match(lhs) {
+        return Ok(AssignTarget::Stack(slot_to_stack_idx(lhs, args_count)?));
+    }
+    if re_s.is_match(lhs) {
+        return Ok(AssignTarget::StackTemp);
+    }
+    if let Some(idx) = layout.global_idx(lhs) {
+        return Ok(AssignTarget::Global(idx));
+    }
+
+    let re_gt = Regex::new(r"^GT\[(\d+)\]\[(.+)\]$").unwrap();
+    if let Some(c) = re_gt.captures(lhs) {
+        let idx: u16 = c.get(1).unwrap().as_str().parse()?;
+        let key = parse_expr(c.get(2).unwrap().as_str().trim())?;
+        return Ok(AssignTarget::GlobalTable(idx, key));
+    }
+    let re_lt = Regex::new(r"^LT\[(-?\d+)\]\[(.+)\]$").unwrap();
+    if let Some(c) = re_lt.captures(lhs) {
+        let idx: i8 = c.get(1).unwrap().as_str().parse()?;
+        let key = parse_expr(c.get(2).unwrap().as_str().trim())?;
+        return Ok(AssignTarget::LocalTable(idx, key));
+    }
+
+    bail!("unsupported assignment target: {lhs}")
+}
+
 fn compile_simple_stmt(
     stmt: &str,
     args_count: i8,
     meta: &Meta,
     user_fns: &HashSet<String>,
+    layout: &GlobalLayout,
     out: &mut Vec<Item>,
 ) -> Result<()> {
     let s = stmt.trim();
-
     if s.is_empty() {
         return Ok(());
     }
 
-    // Some decompiler variants include explicit literal writes to __ret (e.g. `__ret = nil`).
-    // The HCB VM's return register is implicitly produced by call/syscall, so these statements
-    // are non-semantic and should be ignored.
-    {let re = Regex::new(r#"^__ret\s*=\s*(nil|true|false|-?\d+(?:\.\d+)?|"(?:\\.|[^"])*")\s*$"#).unwrap();
-        
-        if re.is_match(s) {
-            return Ok(());
-        }
+    let ignore_re = Regex::new(r#"^__ret\s*=\s*(nil|true|false|-?\d+(?:\.\d+)?|\"(?:\\.|[^\"])*\")\s*$"#).unwrap();
+    if ignore_re.is_match(s) {
+        return Ok(());
     }
 
-    // __ret = foo(...)
-    {
-        let re = Regex::new(r"^__ret\s*=\s*(\w+)\s*\((.*)\)\s*$").unwrap();
-        if let Some(c) = re.captures(s) {
-            let name = c.get(1).unwrap().as_str();
-            let args_s = c.get(2).unwrap().as_str().trim();
-            let argc = if args_s.is_empty() {
-                0usize
-            } else {
-                args_s.split(',').map(|x| x.trim()).filter(|x| !x.is_empty()).count()
-            };
-
-            if let Some(sid) = meta.syscall_id_by_name(name) {
-                out.push(Item::Op(OpKind::Syscall { id: sid }));
-                let _ = argc; // argc is for human readability; opcode has only id.
+    if let Some((lhs, rhs)) = split_assignment(s) {
+        if lhs == "__ret" {
+            let expr = parse_expr(&rhs)?;
+            if let Expr::Call { name, args } = expr {
+                emit_call(&name, &args, meta, user_fns, layout, args_count, out)?;
                 return Ok(());
             }
-
-            if name.starts_with("f_0x") || user_fns.contains(name) {
-                out.push(Item::Op(OpKind::CallFn {
-                    name: name.to_string(),
-                }));
-                let _ = argc;
-                return Ok(());
-            }
-
-            bail!("unknown callee: {name}");
+            bail!("__ret assignment requires a call: {s}");
         }
-    }
 
-    // foo(...) as statement
-    {
-        let re = Regex::new(r"^(\w+)\s*\((.*)\)\s*$").unwrap();
-        if let Some(c) = re.captures(s) {
-            let name = c.get(1).unwrap().as_str();
-            let args_s = c.get(2).unwrap().as_str().trim();
-            let _argc = if args_s.is_empty() {
-                0usize
-            } else {
-                args_s.split(',').map(|x| x.trim()).filter(|x| !x.is_empty()).count()
-            };
-
-            if let Some(sid) = meta.syscall_id_by_name(name) {
-                out.push(Item::Op(OpKind::Syscall { id: sid }));
-                return Ok(());
+        let target = parse_assign_target(&lhs, args_count, layout)?;
+        let expr = parse_expr(&rhs)?;
+        match target {
+            AssignTarget::Stack(idx) => {
+                compile_expr(&expr, args_count, meta, user_fns, layout, out)?;
+                out.push(Item::Op(OpKind::PopStack(idx)));
             }
-            if name.starts_with("f_0x") || user_fns.contains(name) {
-                out.push(Item::Op(OpKind::CallFn {
-                    name: name.to_string(),
-                }));
-                return Ok(());
+            AssignTarget::Global(idx) => {
+                compile_expr(&expr, args_count, meta, user_fns, layout, out)?;
+                out.push(Item::Op(OpKind::PopGlobal(idx)));
+            }
+            AssignTarget::StackTemp => {
+                compile_expr(&expr, args_count, meta, user_fns, layout, out)?;
+            }
+            AssignTarget::GlobalTable(idx, key) => {
+                compile_expr(&key, args_count, meta, user_fns, layout, out)?;
+                compile_expr(&expr, args_count, meta, user_fns, layout, out)?;
+                out.push(Item::Op(OpKind::PopGlobalTable(idx)));
+            }
+            AssignTarget::LocalTable(idx, key) => {
+                compile_expr(&key, args_count, meta, user_fns, layout, out)?;
+                compile_expr(&expr, args_count, meta, user_fns, layout, out)?;
+                out.push(Item::Op(OpKind::PopLocalTable(idx)));
             }
         }
+        return Ok(());
     }
 
-    // Sx = ...
-    {
-        let re = Regex::new(r"^S\d+\s*=\s*(.+)$").unwrap();
-        if let Some(c) = re.captures(s) {
-            let rhs = c.get(1).unwrap().as_str().trim();
-
-            // Literals
-            if rhs == "nil" {
-                out.push(Item::Op(OpKind::PushNil));
-                return Ok(());
-            }
-            if rhs == "true" {
-                out.push(Item::Op(OpKind::PushTrue));
-                return Ok(());
-            }
-            if rhs == "__ret" {
-                out.push(Item::Op(OpKind::PushReturn));
-                return Ok(());
-            }
-
-            if let Ok(v) = rhs.parse::<i64>() {
-                out.push(Item::Op(push_int(v)?));
-                return Ok(());
-            }
-
-            if let Ok(v) = rhs.parse::<f32>() {
-                // Distinguish integer vs float by presence of '.' or exponent.
-                if rhs.contains('.') || rhs.contains('e') || rhs.contains('E') {
-                    out.push(Item::Op(OpKind::PushF32(v)));
-                    return Ok(());
-                }
-            }
-
-            {
-                let re = Regex::new(r#"^"(.*)"$"# ).unwrap();
-                if let Some(mm) = re.captures(rhs) {
-                    let lit = mm.get(1).unwrap().as_str();
-                    out.push(Item::Op(OpKind::PushString(lua_unescape_string(lit))));
-                    return Ok(());
-                }
-            }
-
-            // push_top pattern: Sx = Sy
-            {
-                let re = Regex::new(r"^S\d+$").unwrap();
-                if re.is_match(rhs) {
-                    out.push(Item::Op(OpKind::PushTop));
-                    return Ok(());
-                }
-            }
-
-            // push_global
-            {
-                let re = Regex::new(r"^G\[(\d+)\]$" ).unwrap();
-                if let Some(mm) = re.captures(rhs) {
-                    let idx: u16 = mm.get(1).unwrap().as_str().parse()?;
-                    out.push(Item::Op(OpKind::PushGlobal(idx)));
-                    return Ok(());
-                }
-            }
-
-            // push_stack (frame slots)
-            {
-                let re = Regex::new(r"^(a\d+|l\d+)$").unwrap();
-                if re.is_match(rhs) {
-                    let idx = slot_to_stack_idx(rhs, args_count)?;
-                    out.push(Item::Op(OpKind::PushStack(idx)));
-                    return Ok(());
-                }
-            }
-
-            // table reads
-            {
-                let re = Regex::new(r"^GT\[(\d+)\]\[S\d+\]$" ).unwrap();
-                if let Some(mm) = re.captures(rhs) {
-                    let idx: u16 = mm.get(1).unwrap().as_str().parse()?;
-                    out.push(Item::Op(OpKind::PushGlobalTable(idx)));
-                    return Ok(());
-                }
-            }
-            {
-                let re = Regex::new(r"^LT\[(-?\d+)\]\[S\d+\]$" ).unwrap();
-                if let Some(mm) = re.captures(rhs) {
-                    let idx: i8 = mm.get(1).unwrap().as_str().parse()?;
-                    out.push(Item::Op(OpKind::PushLocalTable(idx)));
-                    return Ok(());
-                }
-            }
-
-            // unary neg: -Sx
-            {
-                let re = Regex::new(r"^-S\d+$").unwrap();
-                if re.is_match(rhs) {
-                    out.push(Item::Op(OpKind::Neg));
-                    return Ok(());
-                }
-            }
-
-            // arithmetic: Sx = Sa + Sb
-            {
-                let re = Regex::new(r"^S\d+\s*([+\-*/%])\s*S\d+$" ).unwrap();
-                if let Some(mm) = re.captures(rhs) {
-                    let op = mm.get(1).unwrap().as_str();
-                    let k = match op {
-                        "+" => OpKind::Add,
-                        "-" => OpKind::Sub,
-                        "*" => OpKind::Mul,
-                        "/" => OpKind::Div,
-                        "%" => OpKind::Mod,
-                        _ => bail!("unknown arithmetic op: {op}"),
-                    };
-                    out.push(Item::Op(k));
-                    return Ok(());
-                }
-            }
-
-            // bit_test: (Sa & Sb) ~= 0
-            if rhs.contains('&') && rhs.contains("~= 0") {
-                out.push(Item::Op(OpKind::BitTest));
-                return Ok(());
-            }
-
-            // and/or (decompiler shape)
-            if rhs.contains(" and ") && rhs.contains("~= nil") {
-                out.push(Item::Op(OpKind::And));
-                return Ok(());
-            }
-            if rhs.contains(" or ") && rhs.contains("~= nil") {
-                out.push(Item::Op(OpKind::Or));
-                return Ok(());
-            }
-
-            // comparisons
-            {
-                let re = Regex::new(r"^\(S\d+\s*(==|~=|>|<=|<|>=)\s*S\d+\)$" ).unwrap();
-                if let Some(mm) = re.captures(rhs) {
-                    let cop = mm.get(1).unwrap().as_str();
-                    let k = match cop {
-                        "==" => OpKind::SetE,
-                        "~=" => OpKind::SetNe,
-                        ">" => OpKind::SetG,
-                        "<=" => OpKind::SetLe,
-                        "<" => OpKind::SetL,
-                        ">=" => OpKind::SetGe,
-                        _ => bail!("unknown compare op: {cop}"),
-                    };
-                    out.push(Item::Op(k));
-                    return Ok(());
-                }
-            }
-
-            // RHS call: Sx = foo(...)
-            {
-                let re = Regex::new(r"^(\w+)\s*\((.*)\)\s*$" ).unwrap();
-                if let Some(mm) = re.captures(rhs) {
-                    let name = mm.get(1).unwrap().as_str();
-                    let args_s = mm.get(2).unwrap().as_str().trim();
-                    let _argc = if args_s.is_empty() {
-                        0usize
-                    } else {
-                        args_s.split(',').map(|x| x.trim()).filter(|x| !x.is_empty()).count()
-                    };
-
-                    if let Some(sid) = meta.syscall_id_by_name(name) {
-                        out.push(Item::Op(OpKind::Syscall { id: sid }));
-                        out.push(Item::Op(OpKind::PushReturn));
-                        return Ok(());
-                    }
-                    if name.starts_with("f_0x") || user_fns.contains(name) {
-                        out.push(Item::Op(OpKind::CallFn {
-                            name: name.to_string(),
-                        }));
-                        out.push(Item::Op(OpKind::PushReturn));
-                        return Ok(());
-                    }
-                    bail!("unknown callee: {name}");
-                }
-            }
-
-            bail!("unsupported S assignment: {s}");
-        }
+    let expr = parse_expr(s)?;
+    if let Expr::Call { name, args } = expr {
+        emit_call(&name, &args, meta, user_fns, layout, args_count, out)?;
+        return Ok(());
     }
 
-    // G[idx] = Sx
-    {
-        let re = Regex::new(r"^G\[(\d+)\]\s*=\s*S\d+\s*$" ).unwrap();
-        if let Some(c) = re.captures(s) {
-            let idx: u16 = c.get(1).unwrap().as_str().parse()?;
-            out.push(Item::Op(OpKind::PopGlobal(idx)));
-            return Ok(());
-        }
-    }
-
-    // G[idx] = __ret
-    {
-        let re = Regex::new(r"^G\[(\d+)\]\s*=\s*__ret\s*$" ).unwrap();
-        if let Some(c) = re.captures(s) {
-            let idx: u16 = c.get(1).unwrap().as_str().parse()?;
-            out.push(Item::Op(OpKind::PushReturn));
-            out.push(Item::Op(OpKind::PopGlobal(idx)));
-            return Ok(());
-        }
-    }
-
-    // aN/lN = Sx
-    {
-        let re = Regex::new(r"^(a\d+|l\d+)\s*=\s*S\d+\s*$" ).unwrap();
-        if let Some(c) = re.captures(s) {
-            let var = c.get(1).unwrap().as_str();
-            let idx = slot_to_stack_idx(var, args_count)?;
-            out.push(Item::Op(OpKind::PopStack(idx)));
-            return Ok(());
-        }
-    }
-
-    // aN/lN = __ret
-    {
-        let re = Regex::new(r"^(a\d+|l\d+)\s*=\s*__ret\s*$" ).unwrap();
-        if let Some(c) = re.captures(s) {
-            let var = c.get(1).unwrap().as_str();
-            let idx = slot_to_stack_idx(var, args_count)?;
-            out.push(Item::Op(OpKind::PushReturn));
-            out.push(Item::Op(OpKind::PopStack(idx)));
-            return Ok(());
-        }
-    }
-
-    // table store: GT[i][Skey] = Sval
-    {
-        let re = Regex::new(r"^GT\[(\d+)\]\[S\d+\]\s*=\s*S\d+\s*$" ).unwrap();
-        if let Some(c) = re.captures(s) {
-            let idx: u16 = c.get(1).unwrap().as_str().parse()?;
-            out.push(Item::Op(OpKind::PopGlobalTable(idx)));
-            return Ok(());
-        }
-    }
-
-    // table store: LT[i][Skey] = Sval
-    {
-        let re = Regex::new(r"^LT\[(-?\d+)\]\[S\d+\]\s*=\s*S\d+\s*$" ).unwrap();
-        if let Some(c) = re.captures(s) {
-            let idx: i8 = c.get(1).unwrap().as_str().parse()?;
-            out.push(Item::Op(OpKind::PopLocalTable(idx)));
-            return Ok(());
-        }
-    }
-
-    bail!("unsupported statement: {s}");
+    bail!("unsupported statement: {s}")
 }
 
 struct LabelGen {
@@ -447,37 +889,36 @@ impl LabelGen {
     }
 }
 
+fn compile_cond_generic(
+    cond: &str,
+    args_count: i8,
+    meta: &Meta,
+    user_fns: &HashSet<String>,
+    layout: &GlobalLayout,
+    out: &mut Vec<Item>,
+) -> Result<()> {
+    let expr = parse_expr(cond)?;
+    compile_expr(&expr, args_count, meta, user_fns, layout, out)
+}
+
 fn compile_stmts(
     stmts: &[Stmt],
     args_count: i8,
     meta: &Meta,
     user_fns: &HashSet<String>,
+    layout: &GlobalLayout,
     out: &mut Vec<Item>,
     lg: &mut LabelGen,
     break_stack: &mut Vec<String>,
 ) -> Result<()> {
     for st in stmts {
         match st {
-            Stmt::Simple(s) => compile_simple_stmt(s, args_count, meta, user_fns, out)?,
+            Stmt::Simple(s) => compile_simple_stmt(s, args_count, meta, user_fns, layout, out)?,
             Stmt::Return(None) => out.push(Item::Op(OpKind::Ret)),
             Stmt::Return(Some(expr)) => {
-                // Return value is expected to already be on stack (as Sx), following the IR convention.
-                // We support limited literals here for convenience.
-                let e = expr.trim();
-                if Regex::new(r"^S\d+$").unwrap().is_match(e) {
-                    out.push(Item::Op(OpKind::Retv));
-                } else if e == "nil" {
-                    out.push(Item::Op(OpKind::PushNil));
-                    out.push(Item::Op(OpKind::Retv));
-                } else if e == "true" {
-                    out.push(Item::Op(OpKind::PushTrue));
-                    out.push(Item::Op(OpKind::Retv));
-                } else if let Ok(v) = e.parse::<i64>() {
-                    out.push(Item::Op(push_int(v)?));
-                    out.push(Item::Op(OpKind::Retv));
-                } else {
-                    bail!("unsupported return expr: {e}");
-                }
+                let e = parse_expr(expr)?;
+                compile_expr(&e, args_count, meta, user_fns, layout, out)?;
+                out.push(Item::Op(OpKind::Retv));
             }
             Stmt::Break => {
                 let tgt = break_stack
@@ -488,58 +929,44 @@ fn compile_stmts(
             }
             Stmt::If { arms, else_arm } => {
                 let end_lbl = lg.fresh("if_end");
-                let mut next_lbl = lg.fresh("if_next");
-
                 for (idx, (cond, body)) in arms.iter().enumerate() {
-                    let ck = parse_cond(cond);
-                    let body_lbl = lg.fresh(&format!("if_body_{idx}"));
-                    let after_lbl = if idx + 1 == arms.len() {
-                        // Fallthrough to else or end.
-                        next_lbl.clone()
-                    } else {
-                        lg.fresh(&format!("if_next_{idx}"))
-                    };
-
-                    match ck {
+                    let after_lbl = lg.fresh(&format!("if_next_{idx}"));
+                    match parse_cond(cond) {
                         CondKind::AlwaysTrue => {
-                            // Compile body and jump to end; ignore remaining arms.
-                            compile_stmts(body, args_count, meta, user_fns, out, lg, break_stack)?;
+                            compile_stmts(body, args_count, meta, user_fns, layout, out, lg, break_stack)?;
                             out.push(Item::Op(OpKind::JmpLabel { label: end_lbl.clone() }));
-                            next_lbl = after_lbl;
                             break;
                         }
                         CondKind::AlwaysFalse => {
-                            // Skip to after_lbl.
-                            out.push(Item::Op(OpKind::JmpLabel { label: after_lbl.clone() }));
+                            out.push(Item::Label(Label::new(after_lbl.clone())));
                         }
                         CondKind::NonZero => {
-                            out.push(Item::Op(OpKind::JzLabel {
-                                label: after_lbl.clone(),
-                            }));
-                            compile_stmts(body, args_count, meta, user_fns, out, lg, break_stack)?;
+                            out.push(Item::Op(OpKind::JzLabel { label: after_lbl.clone() }));
+                            compile_stmts(body, args_count, meta, user_fns, layout, out, lg, break_stack)?;
                             out.push(Item::Op(OpKind::JmpLabel { label: end_lbl.clone() }));
+                            out.push(Item::Label(Label::new(after_lbl)));
                         }
                         CondKind::Zero => {
-                            out.push(Item::Op(OpKind::JzLabel {
-                                label: body_lbl.clone(),
-                            }));
-                            out.push(Item::Op(OpKind::JmpLabel {
-                                label: after_lbl.clone(),
-                            }));
+                            let body_lbl = lg.fresh(&format!("if_body_{idx}"));
+                            out.push(Item::Op(OpKind::JzLabel { label: body_lbl.clone() }));
+                            out.push(Item::Op(OpKind::JmpLabel { label: after_lbl.clone() }));
                             out.push(Item::Label(Label::new(body_lbl)));
-                            compile_stmts(body, args_count, meta, user_fns, out, lg, break_stack)?;
+                            compile_stmts(body, args_count, meta, user_fns, layout, out, lg, break_stack)?;
                             out.push(Item::Op(OpKind::JmpLabel { label: end_lbl.clone() }));
+                            out.push(Item::Label(Label::new(after_lbl)));
+                        }
+                        CondKind::Generic => {
+                            compile_cond_generic(cond, args_count, meta, user_fns, layout, out)?;
+                            out.push(Item::Op(OpKind::JzLabel { label: after_lbl.clone() }));
+                            compile_stmts(body, args_count, meta, user_fns, layout, out, lg, break_stack)?;
+                            out.push(Item::Op(OpKind::JmpLabel { label: end_lbl.clone() }));
+                            out.push(Item::Label(Label::new(after_lbl)));
                         }
                     }
-
-                    out.push(Item::Label(Label::new(after_lbl.clone())));
-                    next_lbl = after_lbl;
                 }
-
                 if let Some(eb) = else_arm {
-                    compile_stmts(eb, args_count, meta, user_fns, out, lg, break_stack)?;
+                    compile_stmts(eb, args_count, meta, user_fns, layout, out, lg, break_stack)?;
                 }
-
                 out.push(Item::Label(Label::new(end_lbl)));
             }
             Stmt::While { cond, body } => {
@@ -548,13 +975,11 @@ fn compile_stmts(
                 let body_lbl = lg.fresh("while_body");
 
                 out.push(Item::Label(Label::new(head.clone())));
-
                 break_stack.push(end.clone());
 
                 match parse_cond(cond) {
                     CondKind::AlwaysTrue => {
-                        // No condition check.
-                        compile_stmts(body, args_count, meta, user_fns, out, lg, break_stack)?;
+                        compile_stmts(body, args_count, meta, user_fns, layout, out, lg, break_stack)?;
                         out.push(Item::Op(OpKind::JmpLabel { label: head }));
                     }
                     CondKind::AlwaysFalse => {
@@ -562,20 +987,25 @@ fn compile_stmts(
                     }
                     CondKind::NonZero => {
                         out.push(Item::Op(OpKind::JzLabel { label: end.clone() }));
-                        compile_stmts(body, args_count, meta, user_fns, out, lg, break_stack)?;
+                        compile_stmts(body, args_count, meta, user_fns, layout, out, lg, break_stack)?;
                         out.push(Item::Op(OpKind::JmpLabel { label: head }));
                     }
                     CondKind::Zero => {
                         out.push(Item::Op(OpKind::JzLabel { label: body_lbl.clone() }));
                         out.push(Item::Op(OpKind::JmpLabel { label: end.clone() }));
                         out.push(Item::Label(Label::new(body_lbl)));
-                        compile_stmts(body, args_count, meta, user_fns, out, lg, break_stack)?;
+                        compile_stmts(body, args_count, meta, user_fns, layout, out, lg, break_stack)?;
+                        out.push(Item::Op(OpKind::JmpLabel { label: head }));
+                    }
+                    CondKind::Generic => {
+                        compile_cond_generic(cond, args_count, meta, user_fns, layout, out)?;
+                        out.push(Item::Op(OpKind::JzLabel { label: end.clone() }));
+                        compile_stmts(body, args_count, meta, user_fns, layout, out, lg, break_stack)?;
                         out.push(Item::Op(OpKind::JmpLabel { label: head }));
                     }
                 }
 
                 break_stack.pop();
-
                 out.push(Item::Label(Label::new(end)));
             }
         }
@@ -588,17 +1018,6 @@ fn compile_stmts(
 // ----------------------------
 
 fn looks_like_pc_dispatcher(raw: &[String]) -> bool {
-    // Typical decompiler pattern:
-    //   local __pc = 0
-    //   while true do
-    //     if __pc == 0 then
-    //       ...
-    //     elseif __pc == 1 then
-    //       ...
-    //     else
-    //       return
-    //     end
-    //   end
     let mut saw_pc = false;
     let mut saw_case = false;
     let mut saw_while_true = false;
@@ -704,6 +1123,7 @@ fn compile_pc_case(
     args_count: i8,
     meta: &Meta,
     user_fns: &HashSet<String>,
+    layout: &GlobalLayout,
     out: &mut Vec<Item>,
 ) -> Result<()> {
     out.push(Item::Label(Label::new(bb_label(fn_name, pc))));
@@ -719,7 +1139,6 @@ fn compile_pc_case(
             continue;
         }
 
-        // Drop pure local declarations in a case.
         if t.starts_with("local ") && !t.contains('=') {
             i += 1;
             continue;
@@ -728,58 +1147,18 @@ fn compile_pc_case(
             t = rest.trim().to_string();
         }
 
-        // return / return <expr>
         if t == "return" {
             out.push(Item::Op(OpKind::Ret));
             return Ok(());
         }
 
-        // Some decompiler variants emit `return Sx` for single-value returns.
-        // In this IR, `Sx` is expected to be the current top-of-stack, so we can
-        // directly emit `retv` (pop one value and return it).
         if let Some(rest) = t.strip_prefix("return ") {
-            let e = rest.trim();
-
-            if Regex::new(r"^S\d+$").unwrap().is_match(e) {
-                out.push(Item::Op(OpKind::Retv));
-                return Ok(());
-            }
-
-            // Literal returns (convenience)
-            if e == "nil" || e == "false" {
-                out.push(Item::Op(OpKind::PushNil));
-                out.push(Item::Op(OpKind::Retv));
-                return Ok(());
-            }
-            if e == "true" {
-                out.push(Item::Op(OpKind::PushTrue));
-                out.push(Item::Op(OpKind::Retv));
-                return Ok(());
-            }
-            if let Ok(v) = e.parse::<i64>() {
-                out.push(Item::Op(push_int(v)?));
-                out.push(Item::Op(OpKind::Retv));
-                return Ok(());
-            }
-            if let Ok(vf) = e.parse::<f32>() {
-                // Distinguish integer vs float by presence of '.' or exponent.
-                if e.contains('.') || e.contains('e') || e.contains('E') {
-                    out.push(Item::Op(OpKind::PushF32(vf)));
-                    out.push(Item::Op(OpKind::Retv));
-                    return Ok(());
-                }
-            }
-            if let Some(mm) = Regex::new(r#"^\"(.*)\"$"#).unwrap().captures(e) {
-                let lit = mm.get(1).unwrap().as_str();
-                out.push(Item::Op(OpKind::PushString(lua_unescape_string(lit))));
-                out.push(Item::Op(OpKind::Retv));
-                return Ok(());
-            }
-
-            bail!("unsupported return expr in pc bb {pc}: {e}");
+            let e = parse_expr(rest.trim())?;
+            compile_expr(&e, args_count, meta, user_fns, layout, out)?;
+            out.push(Item::Op(OpKind::Retv));
+            return Ok(());
         }
 
-        // Unconditional jump via __pc = N
         if let Some(c) = re_pc_set.captures(&t) {
             let target: u32 = c.get(1).unwrap().as_str().parse()?;
             out.push(Item::Op(OpKind::JmpLabel {
@@ -788,10 +1167,8 @@ fn compile_pc_case(
             return Ok(());
         }
 
-        // Terminator: if Sx (==|~=) 0 then __pc=A else __pc=B end
         if let Some(c) = re_term_if.captures(&t) {
-            let op = c.get(1).unwrap().as_str(); // == or ~=
-            // then: __pc = A
+            let op = c.get(1).unwrap().as_str();
             let mut j = i + 1;
             while j < lines.len() && is_comment_or_empty_line(lines[j].trim()) {
                 j += 1;
@@ -840,9 +1217,6 @@ fn compile_pc_case(
                 bail!("pc-if missing end in bb {pc}");
             }
 
-            // Encode with the VM's "jz" (jump on zero).
-            // if Sx == 0: jz then_pc else jmp else_pc
-            // if Sx ~= 0: jz else_pc else jmp then_pc
             let (zero_target, nonzero_target) = if op == "==" {
                 (then_pc, else_pc)
             } else {
@@ -857,12 +1231,10 @@ fn compile_pc_case(
             return Ok(());
         }
 
-        // Normal statement inside bb.
-        compile_simple_stmt(&t, args_count, meta, user_fns, out)?;
+        compile_simple_stmt(&t, args_count, meta, user_fns, layout, out)?;
         i += 1;
     }
 
-    // Conservative fallback.
     out.push(Item::Op(OpKind::Ret));
     Ok(())
 }
@@ -871,6 +1243,7 @@ fn compile_pc_dispatcher_function(
     f: &Function,
     meta: &Meta,
     user_fns: &HashSet<String>,
+    layout: &GlobalLayout,
     out: &mut Vec<Item>,
 ) -> Result<()> {
     if f.raw.len() < 2 {
@@ -882,7 +1255,6 @@ fn compile_pc_dispatcher_function(
 
     let re_case = Regex::new(r"^(if|elseif)\s+__pc\s*==\s*(\d+)\s+then\s*$").unwrap();
 
-    // Find the first dispatcher case.
     let mut i = 0usize;
     while i < body.len() {
         if re_case.is_match(body[i].trim()) {
@@ -915,7 +1287,6 @@ fn compile_pc_dispatcher_function(
         bail!("function {}: no pc-dispatcher cases found", f.name);
     }
 
-    // Emit cases with the entry case first (avoid an extra jmp at function start).
     if let Some(pos) = cases.iter().position(|(pc, _)| *pc == entry_pc) {
         if pos != 0 {
             let entry = cases.remove(pos);
@@ -924,18 +1295,18 @@ fn compile_pc_dispatcher_function(
     }
 
     for (pc, lines) in cases {
-        compile_pc_case(pc, &lines, &f.name, f.args_count, meta, user_fns, out)?;
+        compile_pc_case(pc, &lines, &f.name, f.args_count, meta, user_fns, layout, out)?;
     }
 
     Ok(())
 }
 
-pub fn compile_program(meta: &Meta, funs: &[Function]) -> Result<Vec<Item>> {
+pub fn compile_program(meta: &Meta, program: &Program) -> Result<(Vec<Item>, GlobalLayout)> {
     let mut items: Vec<Item> = Vec::new();
+    let layout = GlobalLayout::from_globals(&program.globals)?;
+    let user_fns: HashSet<String> = program.functions.iter().map(|f| f.name.clone()).collect();
 
-    let user_fns: HashSet<String> = funs.iter().map(|f| f.name.clone()).collect();
-
-    for f in funs {
+    for f in &program.functions {
         items.push(Item::Label(Label::new(format!("fn:{}", f.name))));
         items.push(Item::Op(OpKind::InitStack {
             args: f.args_count,
@@ -943,7 +1314,7 @@ pub fn compile_program(meta: &Meta, funs: &[Function]) -> Result<Vec<Item>> {
         }));
 
         if looks_like_pc_dispatcher(&f.raw) {
-            compile_pc_dispatcher_function(f, meta, &user_fns, &mut items)?;
+            compile_pc_dispatcher_function(f, meta, &user_fns, &layout, &mut items)?;
         } else {
             let mut lg = LabelGen::new(format!("fn:{}", f.name));
             let mut break_stack: Vec<String> = Vec::new();
@@ -952,17 +1323,17 @@ pub fn compile_program(meta: &Meta, funs: &[Function]) -> Result<Vec<Item>> {
                 f.args_count,
                 meta,
                 &user_fns,
+                &layout,
                 &mut items,
                 &mut lg,
                 &mut break_stack,
             )?;
         }
 
-        // Ensure function ends with a ret. If the source omitted explicit return, add Ret.
         if !matches!(items.last(), Some(Item::Op(OpKind::Ret | OpKind::Retv))) {
             items.push(Item::Op(OpKind::Ret));
         }
     }
 
-    Ok(items)
+    Ok((items, layout))
 }

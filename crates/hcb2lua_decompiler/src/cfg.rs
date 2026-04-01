@@ -30,6 +30,7 @@ pub struct FunctionCfg {
     pub blocks: Vec<BasicBlock>,
     pub addr_to_block: BTreeMap<u32, usize>,
     pub max_depth: usize,
+    pub stack_consistent: bool,
 }
 
 fn inst_stack_delta(inst: &Instruction, callee_args: &BTreeMap<u32, u8>) -> i32 {
@@ -215,6 +216,7 @@ pub fn build_cfg(func: &Function, callee_args: &BTreeMap<u32, u8>) -> FunctionCf
         q.push_back(0);
     }
     let mut max_depth = 0usize;
+    let mut stack_consistent = true;
 
     while let Some(bid) = q.pop_front() {
         let mut d = in_depth[bid].unwrap_or(0) as i32;
@@ -240,6 +242,7 @@ pub fn build_cfg(func: &Function, callee_args: &BTreeMap<u32, u8>) -> FunctionCf
                     // If mismatched, keep the max to avoid panics; we will still emit
                     // readable code, but the stack-model is approximate.
                     if existing != out {
+                        stack_consistent = false;
                         let newd = existing.max(out);
                         if newd != existing {
                             in_depth[sid] = Some(newd);
@@ -284,5 +287,6 @@ pub fn build_cfg(func: &Function, callee_args: &BTreeMap<u32, u8>) -> FunctionCf
         blocks,
         addr_to_block,
         max_depth,
+        stack_consistent,
     }
 }

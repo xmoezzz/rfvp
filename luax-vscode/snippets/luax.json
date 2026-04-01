@@ -1,0 +1,43 @@
+{
+  "function": {
+    "prefix": "function",
+    "body": [
+      "function ${1:name}(${2:a0, a1, a2})",
+      "  ${0}",
+      "end"
+    ],
+    "description": "Luax function skeleton"
+  },
+  "if": {
+    "prefix": "if",
+    "body": [
+      "if ${1:condition} then",
+      "  ${0}",
+      "end"
+    ],
+    "description": "Luax if block"
+  },
+  "while": {
+    "prefix": "while",
+    "body": [
+      "while ${1:true} do",
+      "  ${0}",
+      "end"
+    ],
+    "description": "Luax while block"
+  },
+  "global": {
+    "prefix": "global",
+    "body": [
+      "global ${0:g0}"
+    ],
+    "description": "Luax global declaration"
+  },
+  "volatile global": {
+    "prefix": "volatile global",
+    "body": [
+      "volatile global ${0:vg0}"
+    ],
+    "description": "Luax volatile global declaration"
+  }
+}

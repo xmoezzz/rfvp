@@ -1,0 +1,134 @@
+{
+  "scopeName": "source.luax",
+  "name": "Luax",
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#declarations"
+    },
+    {
+      "include": "#functions"
+    },
+    {
+      "include": "#variables"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#operators"
+    }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-dash.luax",
+          "match": "--.*$"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.luax",
+          "match": "\\b(global|volatile|function|local|if|then|elseif|else|while|do|end|return|and|or|not)\\b"
+        },
+        {
+          "name": "constant.language.luax",
+          "match": "\\b(nil|true|false)\\b"
+        }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "name": "meta.declaration.global.luax",
+          "match": "^(\\s*)(global)(\\s+)(.*)$"
+        },
+        {
+          "name": "meta.declaration.volatile-global.luax",
+          "match": "^(\\s*)(volatile)(\\s+)(global)(\\s+)(.*)$"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "entity.name.function.luax",
+          "match": "(?<=\\bfunction\\s)([A-Za-z_][A-Za-z0-9_]*)"
+        },
+        {
+          "name": "variable.parameter.luax",
+          "match": "(?<=\\()\\s*[A-Za-z_][A-Za-z0-9_]*(?=\\s*(,|\\)))|(?<=,\\s*)[A-Za-z_][A-Za-z0-9_]*(?=\\s*(,|\\)))"
+        }
+      ]
+    },
+    "variables": {
+      "patterns": [
+        {
+          "name": "variable.other.global.luax",
+          "match": "\\bg\\d+\\b"
+        },
+        {
+          "name": "variable.other.volatile-global.luax",
+          "match": "\\bvg\\d+\\b"
+        },
+        {
+          "name": "variable.parameter.synthetic.luax",
+          "match": "\\ba\\d+\\b"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.luax",
+          "match": "\\b-?(0x[0-9A-Fa-f]+|\\d+)(\\.\\d+)?\\b"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.luax",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.luax",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.luax",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.luax",
+              "match": "\\\\."
+            }
+          ]
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.luax",
+          "match": "~=|==|<=|>=|<|>|=|\\+|-|\\*|/|%"
+        }
+      ]
+    }
+  }
+}

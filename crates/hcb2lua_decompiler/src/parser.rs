@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::Read;
 use std::mem::size_of;
@@ -37,6 +37,23 @@ pub struct Syscall {
     pub args: u8,
     /// Name of the syscall.
     pub name: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct YamlSyscall {
+    pub args: u8,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct YamlExport {
+    pub nls: Nls,
+    pub custom_syscall_count: u16,
+    pub game_mode: u8,
+    pub game_mode_reserved: u8,
+    pub game_title: String,
+    pub syscall_count: u16,
+    pub syscalls: BTreeMap<usize, YamlSyscall>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -240,7 +257,22 @@ impl Parser {
     }
 
     pub fn export_yaml(&self, path: impl AsRef<Path>) -> Result<()> {
-        let s = serde_yml::to_string(self)?;
+        let mut syscalls = BTreeMap::new();
+        for (id, sc) in &self.syscalls {
+            syscalls.insert(*id, YamlSyscall { args: sc.args, name: sc.name.clone() });
+        }
+
+        let export = YamlExport {
+            nls: self.nls.clone(),
+            custom_syscall_count: self.custom_syscall_count,
+            game_mode: self.game_mode,
+            game_mode_reserved: self.game_mode_reserved,
+            game_title: self.game_title.clone(),
+            syscall_count: self.syscall_count,
+            syscalls,
+        };
+
+        let s = serde_yml::to_string(&export)?;
         std::fs::write(path, s)?;
         Ok(())
     }

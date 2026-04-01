@@ -34,22 +34,22 @@ fn opcode(k: &OpKind) -> u8 {
         OpKind::InitStack { .. } => 0x01,
         OpKind::CallFn { .. } => 0x02,
         OpKind::Syscall { .. } => 0x03,
-        OpKind::JmpAbs { .. } | OpKind::JmpLabel { .. } => 0x04,
-        OpKind::JzAbs { .. } | OpKind::JzLabel { .. } => 0x05,
-        OpKind::Ret => 0x06,
-        OpKind::Retv => 0x07,
+        OpKind::Ret => 0x04,
+        OpKind::Retv => 0x05,
+        OpKind::JmpAbs { .. } | OpKind::JmpLabel { .. } => 0x06,
+        OpKind::JzAbs { .. } | OpKind::JzLabel { .. } => 0x07,
         OpKind::PushNil => 0x08,
         OpKind::PushTrue => 0x09,
-        OpKind::PushI8(..) => 0x0A,
+        OpKind::PushI32(..) => 0x0A,
         OpKind::PushI16(..) => 0x0B,
-        OpKind::PushI32(..) => 0x0C,
+        OpKind::PushI8(..) => 0x0C,
         OpKind::PushF32(..) => 0x0D,
         OpKind::PushString(..) => 0x0E,
         OpKind::PushGlobal(..) => 0x0F,
         OpKind::PushStack(..) => 0x10,
-        OpKind::PushTop => 0x11,
-        OpKind::PushGlobalTable(..) => 0x12,
-        OpKind::PushLocalTable(..) => 0x13,
+        OpKind::PushGlobalTable(..) => 0x11,
+        OpKind::PushLocalTable(..) => 0x12,
+        OpKind::PushTop => 0x13,
         OpKind::PushReturn => 0x14,
         OpKind::PopGlobal(..) => 0x15,
         OpKind::PopStack(..) => 0x16,
@@ -254,7 +254,8 @@ pub fn build_sysdesc(meta: &Meta, entry_point: u32) -> Result<Vec<u8>> {
     buf.extend_from_slice(&entry_point.to_le_bytes());
     buf.extend_from_slice(&meta.non_volatile_global_count.to_le_bytes());
     buf.extend_from_slice(&meta.volatile_global_count.to_le_bytes());
-    buf.extend_from_slice(&meta.game_mode.to_le_bytes());
+    buf.push(meta.game_mode);
+    buf.push(meta.game_mode_reserved);
 
     let title_b = enc_cstr(meta, &meta.game_title)?;
     buf.push(title_b.len() as u8);

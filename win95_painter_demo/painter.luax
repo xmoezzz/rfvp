@@ -1,0 +1,486 @@
+global g0, g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11
+
+global g12, g13, g14, g15, g16
+
+function refresh_status()
+  TextClear(1)
+  if g1 == 0 then
+    if g0 == 20 then
+      TextPrint(1, "Pencil   Color: Black   Right mouse: Erase")
+    elseif g0 == 21 then
+      TextPrint(1, "Pencil   Color: Maroon   Right mouse: Erase")
+    elseif g0 == 22 then
+      TextPrint(1, "Pencil   Color: Blue   Right mouse: Erase")
+    elseif g0 == 23 then
+      TextPrint(1, "Pencil   Color: Green   Right mouse: Erase")
+    elseif g0 == 24 then
+      TextPrint(1, "Pencil   Color: Red   Right mouse: Erase")
+    elseif g0 == 25 then
+      TextPrint(1, "Pencil   Color: Purple   Right mouse: Erase")
+    elseif g0 == 26 then
+      TextPrint(1, "Pencil   Color: Yellow   Right mouse: Erase")
+    else
+      TextPrint(1, "Pencil   Color: White   Right mouse: Erase")
+    end
+  elseif g1 == 1 then
+    TextPrint(1, "Eraser   Drag to erase on the canvas")
+  else
+    TextPrint(1, "Fill   Click the canvas to fill it with the selected color")
+  end
+  return
+end
+
+function update_tool_highlight()
+  if g1 == 0 then
+    PrimSetXY(70, 16, 68)
+  elseif g1 == 1 then
+    PrimSetXY(70, 16, 116)
+  else
+    PrimSetXY(70, 16, 164)
+  end
+  return
+end
+
+function update_palette_highlight()
+  if g0 == 20 then
+    PrimSetXY(71, 94, 46)
+  elseif g0 == 21 then
+    PrimSetXY(71, 122, 46)
+  elseif g0 == 22 then
+    PrimSetXY(71, 150, 46)
+  elseif g0 == 23 then
+    PrimSetXY(71, 178, 46)
+  elseif g0 == 24 then
+    PrimSetXY(71, 206, 46)
+  elseif g0 == 25 then
+    PrimSetXY(71, 234, 46)
+  elseif g0 == 26 then
+    PrimSetXY(71, 262, 46)
+  else
+    PrimSetXY(71, 290, 46)
+  end
+  return
+end
+
+function set_cell(a0, a1, a2)
+  local l0
+  local l1
+  local l2
+  l0 = 200 + a1 * 80 + a0
+  l1 = 88 + a0 * 11
+  l2 = 96 + a1 * 11
+  PrimSetTile(l0, a2, l1, l2, 11, 11)
+  return
+end
+
+function clear_canvas(a0)
+  local l0
+  local l1
+  l0 = 0
+  while l0 < 40 do
+    l1 = 0
+    while l1 < 80 do
+      set_cell(l1, l0, a0)
+      l1 = l1 + 1
+    end
+    l0 = l0 + 1
+  end
+  return
+end
+
+function apply_tool(a0, a1, a2)
+  if a2 == 0 then
+    set_cell(a0, a1, g0)
+  elseif a2 == 1 then
+    set_cell(a0, a1, 27)
+  else
+    clear_canvas(g0)
+  end
+  return
+end
+
+function draw_path(a0, a1, a2, a3, a4)
+  local l0
+  local l1
+  l0 = a0
+  l1 = a1
+  apply_tool(l0, l1, a4)
+  while l0 ~= a2 or l1 ~= a3 do
+    if l0 < a2 then
+      l0 = l0 + 1
+    elseif l0 > a2 then
+      l0 = l0 - 1
+    end
+    if l1 < a3 then
+      l1 = l1 + 1
+    elseif l1 > a3 then
+      l1 = l1 - 1
+    end
+    apply_tool(l0, l1, a4)
+  end
+  return
+end
+
+function begin_canvas_action(a0)
+  local l0
+  local l1
+  l0 = InputGetCursX()
+  l1 = InputGetCursY()
+
+  if l0 < 88 then
+    g5 = 0
+    g11 = 0
+    return
+  elseif l0 >= 968 then
+    g5 = 0
+    g11 = 0
+    return
+  elseif l1 < 96 then
+    g5 = 0
+    g11 = 0
+    return
+  elseif l1 >= 536 then
+    g5 = 0
+    g11 = 0
+    return
+  end
+
+  g11 = 1
+  g9 = 0
+  l0 = l0 - 88
+  while l0 >= 11 do
+    l0 = l0 - 11
+    g9 = g9 + 1
+  end
+
+  g10 = 0
+  l1 = l1 - 96
+  while l1 >= 11 do
+    l1 = l1 - 11
+    g10 = g10 + 1
+  end
+
+  if a0 == 2 then
+    clear_canvas(g0)
+    g5 = 0
+    return
+  end
+
+  apply_tool(g9, g10, a0)
+  g3 = g9
+  g4 = g10
+  g5 = 1
+  g6 = a0
+  return
+end
+
+function drag_canvas_action()
+  local l0
+  local l1
+  if g5 == 0 then
+    return
+  end
+
+  l0 = InputGetCursX()
+  l1 = InputGetCursY()
+
+  if l0 < 88 then
+    return
+  elseif l0 >= 968 then
+    return
+  elseif l1 < 96 then
+    return
+  elseif l1 >= 536 then
+    return
+  end
+
+  g9 = 0
+  l0 = l0 - 88
+  while l0 >= 11 do
+    l0 = l0 - 11
+    g9 = g9 + 1
+  end
+
+  g10 = 0
+  l1 = l1 - 96
+  while l1 >= 11 do
+    l1 = l1 - 11
+    g10 = g10 + 1
+  end
+
+  if g9 ~= g3 or g10 ~= g4 then
+    draw_path(g3, g4, g9, g10, g6)
+    g3 = g9
+    g4 = g10
+  end
+  return
+end
+
+function handle_toolbar_click()
+  g7 = 0
+  if PrimHit(20, true) ~= nil then
+    g1 = 0
+    update_tool_highlight()
+    refresh_status()
+    g7 = 1
+  elseif PrimHit(21, true) ~= nil then
+    g1 = 1
+    update_tool_highlight()
+    refresh_status()
+    g7 = 1
+  elseif PrimHit(22, true) ~= nil then
+    g1 = 2
+    update_tool_highlight()
+    refresh_status()
+    g7 = 1
+  elseif PrimHit(23, true) ~= nil then
+    g2 = 0
+    g7 = 1
+  end
+  return
+end
+
+function handle_palette_click()
+  g8 = 0
+  if PrimHit(40, true) ~= nil then
+    g0 = 20
+    g8 = 1
+  elseif PrimHit(41, true) ~= nil then
+    g0 = 21
+    g8 = 1
+  elseif PrimHit(42, true) ~= nil then
+    g0 = 22
+    g8 = 1
+  elseif PrimHit(43, true) ~= nil then
+    g0 = 23
+    g8 = 1
+  elseif PrimHit(44, true) ~= nil then
+    g0 = 24
+    g8 = 1
+  elseif PrimHit(45, true) ~= nil then
+    g0 = 25
+    g8 = 1
+  elseif PrimHit(46, true) ~= nil then
+    g0 = 26
+    g8 = 1
+  elseif PrimHit(47, true) ~= nil then
+    g0 = 27
+    g8 = 1
+  end
+
+  if g8 ~= 0 then
+    update_palette_highlight()
+    refresh_status()
+  end
+  return
+end
+
+function setup_colors()
+  ColorSet(10, 192, 192, 192, 255)
+  ColorSet(11, 128, 128, 128, 255)
+  ColorSet(12, 223, 223, 223, 255)
+  ColorSet(13, 0, 0, 128, 255)
+  ColorSet(14, 255, 255, 255, 255)
+  ColorSet(15, 64, 64, 64, 255)
+  ColorSet(16, 0, 120, 215, 96)
+  ColorSet(17, 0, 120, 215, 255)
+  ColorSet(18, 245, 245, 245, 255)
+  ColorSet(19, 160, 160, 160, 255)
+  ColorSet(20, 0, 0, 0, 255)
+  ColorSet(21, 128, 0, 0, 255)
+  ColorSet(22, 0, 0, 255, 255)
+  ColorSet(23, 0, 128, 0, 255)
+  ColorSet(24, 255, 0, 0, 255)
+  ColorSet(25, 128, 0, 128, 255)
+  ColorSet(26, 255, 255, 0, 255)
+  ColorSet(27, 255, 255, 255, 255)
+  return
+end
+
+function setup_text()
+  TextBuff(0, 180, 24)
+  TextFont(0, -1, nil)
+  TextColor(0, 14, nil, nil)
+  TextSize(0, 16, nil)
+  TextPos(0, 2, 2)
+  TextSpeed(0, 0)
+  PrimSetText(30, 0, 34, 8)
+  PrimGroupIn(30, 0)
+  TextPrint(0, "Luax Painter")
+
+  TextBuff(1, 760, 24)
+  TextFont(1, -1, nil)
+  TextColor(1, 15, nil, nil)
+  TextSize(1, 14, nil)
+  TextPos(1, 2, 2)
+  TextSpeed(1, 0)
+  PrimSetText(31, 1, 14, 600)
+  PrimGroupIn(31, 0)
+  refresh_status()
+  return
+end
+
+function setup_graphics()
+  local l0
+  local l1
+  local l2
+
+    PrimSetTile(1, 10, 0, 0, 1024, 640)
+  PrimGroupIn(1, 0)
+
+  PrimSetTile(2, 13, 2, 2, 1020, 24)
+  PrimGroupIn(2, 0)
+  PrimSetTile(3, 12, 2, 26, 1020, 2)
+  PrimGroupIn(3, 0)
+
+  PrimSetTile(4, 12, 8, 40, 64, 544)
+  PrimGroupIn(4, 0)
+  PrimSetTile(5, 14, 10, 42, 60, 540)
+  PrimGroupIn(5, 0)
+
+  PrimSetTile(6, 12, 88, 40, 230, 36)
+  PrimGroupIn(6, 0)
+  PrimSetTile(7, 14, 90, 42, 226, 32)
+  PrimGroupIn(7, 0)
+
+  PrimSetTile(8, 11, 84, 92, 884, 444)
+  PrimGroupIn(8, 0)
+  PrimSetTile(9, 14, 86, 94, 880, 440)
+  PrimGroupIn(9, 0)
+
+  PrimSetTile(10, 12, 8, 596, 1008, 28)
+  PrimGroupIn(10, 0)
+  PrimSetTile(11, 14, 10, 598, 1004, 24)
+  PrimGroupIn(11, 0)
+
+  PrimSetTile(70, 16, 16, 68, 32, 32)
+  PrimGroupIn(70, 0)
+  PrimSetTile(71, 16, 94, 46, 28, 28)
+  PrimGroupIn(71, 0)
+
+  GraphLoad(0, "graph/w95_pencil")
+  GraphLoad(1, "graph/w95_eraser")
+  GraphLoad(2, "graph/w95_bucket")
+  GraphLoad(3, "graph/w95_close")
+
+  PrimSetSprt(20, 0, 24, 76)
+  PrimGroupIn(20, 0)
+  PrimSetSprt(21, 1, 24, 124)
+  PrimGroupIn(21, 0)
+  PrimSetSprt(22, 2, 24, 172)
+  PrimGroupIn(22, 0)
+  PrimSetSprt(23, 3, 998, 6)
+  PrimGroupIn(23, 0)
+
+  PrimSetTile(40, 20, 96, 48, 24, 24)
+  PrimGroupIn(40, 0)
+  PrimSetTile(41, 21, 124, 48, 24, 24)
+  PrimGroupIn(41, 0)
+  PrimSetTile(42, 22, 152, 48, 24, 24)
+  PrimGroupIn(42, 0)
+  PrimSetTile(43, 23, 180, 48, 24, 24)
+  PrimGroupIn(43, 0)
+  PrimSetTile(44, 24, 208, 48, 24, 24)
+  PrimGroupIn(44, 0)
+  PrimSetTile(45, 25, 236, 48, 24, 24)
+  PrimGroupIn(45, 0)
+  PrimSetTile(46, 26, 264, 48, 24, 24)
+  PrimGroupIn(46, 0)
+  PrimSetTile(47, 27, 292, 48, 24, 24)
+  PrimGroupIn(47, 0)
+
+  l0 = 0
+  while l0 < 40 do
+    l1 = 0
+    while l1 < 80 do
+      l2 = 200 + l0 * 80 + l1
+      PrimSetTile(l2, 27, 88 + l1 * 11, 96 + l0 * 11, 11, 11)
+      PrimGroupIn(l2, 0)
+      l1 = l1 + 1
+    end
+    l0 = l0 + 1
+  end
+
+  update_tool_highlight()
+  update_palette_highlight()
+  setup_text()
+  return
+end
+
+function main()
+  local l0
+  local l1
+
+  g0 = 20
+  g1 = 0
+  g2 = 1
+  g3 = 0
+  g4 = 0
+  g5 = 0
+  g6 = 0
+  g7 = 0
+  g8 = 0
+  g9 = 0
+  g10 = 0
+  g11 = 0
+  g12 = 0
+  g13 = 0
+  g14 = 0
+  g15 = 0
+  g16 = 0
+
+  CursorShow(1)
+  setup_colors()
+  setup_graphics()
+
+  while g2 ~= 0 do
+    l0 = InputGetDown()
+    l1 = InputGetState()
+
+    if l0 & 4 ~= 0 then
+      handle_toolbar_click()
+      if g7 == 0 then
+        handle_palette_click()
+        if g8 == 0 then
+          begin_canvas_action(g1)
+        else
+          g5 = 0
+        end
+      else
+        g5 = 0
+      end
+    elseif l0 & 8 ~= 0 then
+      handle_toolbar_click()
+      if g7 == 0 then
+        handle_palette_click()
+        if g8 == 0 then
+          begin_canvas_action(1)
+        else
+          g5 = 0
+        end
+      else
+        g5 = 0
+      end
+    else
+      if l1 & 4 ~= 0 then
+        drag_canvas_action()
+      elseif l1 & 8 ~= 0 then
+        if g5 == 0 then
+          begin_canvas_action(1)
+        else
+          drag_canvas_action()
+        end
+      else
+        g5 = 0
+      end
+    end
+
+    ThreadNext()
+  end
+
+  GraphLoad(0, nil)
+  GraphLoad(1, nil)
+  GraphLoad(2, nil)
+  GraphLoad(3, nil)
+  return
+end

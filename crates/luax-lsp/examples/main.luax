@@ -1,0 +1,16 @@
+global g0, g1, g2
+volatile global vg0, vg1
+
+function main(a0, a1, a2)
+  local __ret = nil
+  local __pc = 0
+
+  while true do
+    if __pc == 0 then
+      __ret = WindowMode(1)
+      __ret = TextOutSize(0, 4, nil)
+      __ret = TextColor(0, 10, 11, 100)
+      return
+    end
+  end
+end
