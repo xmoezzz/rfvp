@@ -1,5 +1,6 @@
 
 use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::thread;
 
@@ -48,6 +49,7 @@ pub enum EngineEvent {
 ///   while the event loop is idle and does not block rendering.
 pub struct VmWorker {
     tx: Sender<EngineEvent>,
+    input_signal_pending: Arc<AtomicBool>,
 }
 
 impl VmWorker {
@@ -57,6 +59,8 @@ impl VmWorker {
         script_engine: ThreadManager,
     ) -> Self {
         let (tx, rx) = mpsc::channel::<EngineEvent>();
+        let input_signal_pending = Arc::new(AtomicBool::new(false));
+        let worker_input_signal_pending = Arc::clone(&input_signal_pending);
 
         thread::Builder::new()
             .name("rfvp-vm".to_string())
@@ -125,6 +129,7 @@ impl VmWorker {
                             let _ = done.send(());
                         }
                         EngineEvent::InputSignal => {
+                            worker_input_signal_pending.store(false, Ordering::Release);
                             let mut gd = match game_data.write() {
                                 Ok(g) => g,
                                 Err(poisoned) => poisoned.into_inner(),
@@ -143,7 +148,10 @@ impl VmWorker {
             })
             .expect("failed to spawn VM thread");
 
-        Self { tx }
+        Self {
+            tx,
+            input_signal_pending,
+        }
     }
 
     #[inline]
@@ -159,7 +167,12 @@ impl VmWorker {
 
     #[inline]
     pub fn send_input_signal(&self) {
-        let _ = self.tx.send(EngineEvent::InputSignal);
+        if self.input_signal_pending.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        if self.tx.send(EngineEvent::InputSignal).is_err() {
+            self.input_signal_pending.store(false, Ordering::Release);
+        }
     }
 
     #[inline]
