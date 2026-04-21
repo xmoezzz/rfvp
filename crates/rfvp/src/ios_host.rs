@@ -57,6 +57,8 @@ fn build_app(view: NonNull<c_void>, surface_w: u32, surface_h: u32, native_scale
 
 /// Create an iOS host-mode instance bound to a UIKit view.
 ///
+/// `surface_width` and `surface_height` are physical drawable pixels, not UIKit points.
+///
 /// # Safety
 /// - `ui_view` must be a valid pointer to a UIKit `UIView` (or a subclass) that is backed by a
 ///   `CAMetalLayer`.
@@ -130,6 +132,8 @@ pub unsafe extern "C" fn rfvp_ios_step(handle: *mut c_void, dt_ms: u32) -> i32 {
 }
 
 /// Resize the presentation surface.
+///
+/// `surface_width` and `surface_height` are physical drawable pixels, not UIKit points.
 #[no_mangle]
 pub unsafe extern "C" fn rfvp_ios_resize(handle: *mut c_void, surface_width: u32, surface_height: u32) {
     if handle.is_null() {

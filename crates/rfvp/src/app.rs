@@ -1384,11 +1384,10 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
 
     /// Resize the presentation surface in host-driven mode.
     pub fn host_resize(&mut self, surface_width: u32, surface_height: u32) {
-        // The host typically reports view sizes in logical points. Convert to physical pixels
-        // using the scale factor captured at creation time.
-        let scale = self.native_scale_factor.max(0.5);
-        let w = (((surface_width as f64) * scale).round() as u32).max(1);
-        let h = (((surface_height as f64) * scale).round() as u32).max(1);
+        // Host-driven surfaces are configured in physical pixels.
+        // iOS touch input still arrives in UIKit points and is converted separately in host_touch().
+        let w = surface_width.max(1);
+        let h = surface_height.max(1);
 
         self.surface_config.width = w;
         self.surface_config.height = h;
@@ -1502,8 +1501,11 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
             }
         }
 
-        // Wake the VM immediately so scripts can react without waiting for the next frame.
-        self.vm_worker.send_input_signal();
+        // Wake the VM for touch edges only. Move events are coalesced by the per-frame path;
+        // waking the VM for every move floods Android/iOS during drags.
+        if matches!(phase, 0 | 2 | 3) {
+            self.vm_worker.send_input_signal();
+        }
     }
 
     /// Inject a single-finger touch event from an Android host.
@@ -1587,7 +1589,9 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
             }
         }
 
-        self.vm_worker.send_input_signal();
+        if matches!(phase, 0 | 2 | 3) {
+            self.vm_worker.send_input_signal();
+        }
     }
 
     /// Recreate the presentation surface from a new `ANativeWindow*`.
@@ -2391,10 +2395,7 @@ impl AppBuilder {
         } else {
             1.0
         };
-        let surface_size_px = (
-            ((surface_size.0 as f64) * scale).round().max(1.0) as u32,
-            ((surface_size.1 as f64) * scale).round().max(1.0) as u32,
-        );
+        let surface_size_px = (surface_size.0.max(1), surface_size.1.max(1));
 
         let (instance, adapter, resources, render_target, surface, surface_config) =
             futures::executor::block_on(AppBuilder::init_render_ios(ui_view, surface_size_px, self.size));
