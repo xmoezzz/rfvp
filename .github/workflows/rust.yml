@@ -295,7 +295,7 @@ jobs:
           if-no-files-found: error
 
   android:
-    name: android (app-debug.apk)
+    name: android
     runs-on: ubuntu-22.04
 
     steps:
@@ -342,7 +342,7 @@ jobs:
           ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
           ANDROID_NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
-          VARIANT: debug
+          VARIANT: release
           ABIS: "arm64-v8a x86_64"
           ANDROID_PLATFORM: "28"
         run: |
@@ -366,23 +366,21 @@ jobs:
 
           APK_PATH="$(
             {
-              find platform/android -type f -name 'app-debug.apk'
-              find platform/android -type f -path "*/build/outputs/apk/debug/*.apk"
-              find platform/android -type f -path "*/build/outputs/apk/*/*.apk"
-              find platform/android -type f -path "*/build/outputs/apk/*.apk"
-              find platform/android/app -type f -name "*.apk" -path "*/build/outputs/apk/*"
+              find platform/android -type f -name 'app-release.apk'
+              find platform/android -type f -path "*/build/outputs/apk/release/*.apk"
+              find platform/android/app -type f -name 'app-release.apk' -path "*/build/outputs/apk/release/*"
             } | awk '!seen[$0]++' | head -n 1
           )"
 
           test -n "$APK_PATH"
-          cp -v "$APK_PATH" dist/android_ci/app-debug.apk
-          test -f dist/android_ci/app-debug.apk
+          cp -v "$APK_PATH" dist/android_ci/app-release.apk
+          test -f dist/android_ci/app-release.apk
 
       - name: Upload artifact (APK only)
         uses: actions/upload-artifact@v4
         with:
           name: rfvp-android
-          path: dist/android_ci/app-debug.apk
+          path: dist/android_ci/app-release.apk
           if-no-files-found: error
 
   prerelease:
@@ -411,16 +409,13 @@ jobs:
         run: |
           echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
-      - name: Delete old pre-release assets
+      - name: Delete existing pre-release and tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           if gh release view pre-release >/dev/null 2>&1; then
-            gh release view pre-release --json assets -q '.assets[].name' | while IFS= read -r name; do
-              [ -n "$name" ] || continue
-              gh release delete-asset pre-release "$name" -y
-            done
+            gh release delete pre-release --cleanup-tag -y
           fi
 
       - name: Publish rolling pre-release
