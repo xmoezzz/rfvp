@@ -2,8 +2,8 @@ name: Build Artifacts
 
 on:
   push:
-    branches: ["main"]
-    tags: ["v*"]
+    tags:
+      - "v*"
   pull_request:
     branches: ["main"]
 
@@ -13,6 +13,29 @@ env:
   RFVP_CARGO_PKG: rfvp
 
 jobs:
+  meta:
+    name: Read rfvp version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read version from crates/rfvp/Cargo.toml
+        id: ver
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import tomllib
+          from pathlib import Path
+
+          data = tomllib.loads(
+              Path("crates/rfvp/Cargo.toml").read_text(encoding="utf-8")
+          )
+          print(f"version={data['package']['version']}")
+          PY
+
   linux:
     name: linux-x86_64 (ubuntu-22.04)
     runs-on: ubuntu-22.04
@@ -137,7 +160,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # avoid .DS_Store in zips
           export COPYFILE_DISABLE=1
 
           ./platform/scripts/build_ios_xcframework.sh
@@ -155,13 +177,9 @@ jobs:
           set -euo pipefail
           mkdir -p dist/ios_ci
 
-          # IPA
           find dist -maxdepth 4 -type f -name "*.ipa" -print -exec cp -v "{}" dist/ios_ci/ \; || true
 
-          # xcframework (optional but useful)
           find platform -maxdepth 6 -type d -name "*.xcframework" -print | head -n 50 || true
-          # If you want to upload xcframework too, copy it into dist/ios_ci (can be large).
-          # Example (only if exists):
           if [[ -d platform/ios/RFVPLauncher/Vendor/RFVP.xcframework ]]; then
             ditto platform/ios/RFVPLauncher/Vendor/RFVP.xcframework dist/ios_ci/RFVP.xcframework
           fi
@@ -169,7 +187,6 @@ jobs:
           echo "=== dist/ios_ci ==="
           find dist/ios_ci -maxdepth 3 -print
 
-          # Require IPA at least
           test "$(find dist/ios_ci -maxdepth 1 -name '*.ipa' | wc -l)" -ge 1
 
       - name: Upload artifact (iOS)
@@ -203,7 +220,6 @@ jobs:
         shell: cmd
         run: |
           call platform\scripts\build_windows_msvc.cmd x86_64
-          rem do not trust exit code; continue
           exit /b 0
 
       - name: Verify x64 output
@@ -215,7 +231,6 @@ jobs:
         shell: cmd
         run: |
           call platform\scripts\build_windows_msvc.cmd arm64
-          rem do not trust exit code; continue
           exit /b 0
 
       - name: Verify arm64 output
@@ -261,13 +276,11 @@ jobs:
           set -euo pipefail
           sdkmanager --version
 
-          # Keep your scripts happy
           echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}" >> "$GITHUB_ENV"
           echo "ANDROID_HOME=${ANDROID_SDK_ROOT}" >> "$GITHUB_ENV"
 
           sdkmanager --licenses < /dev/null || true
 
-          # Platform + build-tools + NDK (choose a known-good recent NDK)
           sdkmanager \
             "platform-tools" \
             "platforms;android-28" \
@@ -288,7 +301,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Prefer your existing scripts; fail if none found.
           if [[ -f scripts/android/build_android_apk.sh ]]; then
             chmod +x scripts/android/build_android_apk.sh
             ./scripts/android/build_android_apk.sh
@@ -305,11 +317,8 @@ jobs:
           set -euo pipefail
           mkdir -p dist/android_ci
 
-          # Most common output location
           find platform/android -type f -path "*/build/outputs/apk/*/*.apk" -print -exec cp -v "{}" dist/android_ci/ \; || true
           find platform/android -type f -path "*/build/outputs/apk/*.apk" -print -exec cp -v "{}" dist/android_ci/ \; || true
-
-          # Some setups output under platform/android/app/build/outputs/apk/...
           find platform/android/app -type f -name "*.apk" -path "*/build/outputs/apk/*" -print -exec cp -v "{}" dist/android_ci/ \; || true
 
           echo "=== dist/android_ci ==="
@@ -324,10 +333,54 @@ jobs:
           path: dist/android_ci/*.apk
           if-no-files-found: error
 
+  prerelease:
+    name: Publish GitHub Pre-release (non-tag pushes only)
+    if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
+    needs: [meta, linux, macos, ios, windows, android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: rfvp-prerelease
+      cancel-in-progress: true
+
+    steps:
+      - name: Download all workflow artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: _artifacts
+
+      - name: List artifacts
+        run: |
+          find _artifacts -maxdepth 6 -type f -print
+
+      - name: Compute short SHA
+        id: vars
+        run: |
+          echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish rolling pre-release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: pre-release
+          name: "rfvp v${{ needs.meta.outputs.version }} pre-release (${{ steps.vars.outputs.short_sha }})"
+          prerelease: true
+          target_commitish: ${{ github.sha }}
+          body: |
+            Rolling pre-release from non-tag push
+
+            Version: v${{ needs.meta.outputs.version }}
+            Commit: ${{ github.sha }}
+            Short SHA: ${{ steps.vars.outputs.short_sha }}
+          files: |
+            _artifacts/**/*
+          fail_on_unmatched_files: true
+          overwrite_files: true
+
   release:
     name: Publish GitHub Release (tags only)
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [linux, macos, ios, windows, android]
+    needs: [meta, linux, macos, ios, windows, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -345,6 +398,7 @@ jobs:
       - name: Create Release and upload assets
         uses: softprops/action-gh-release@v2
         with:
+          name: "rfvp v${{ needs.meta.outputs.version }}"
           files: |
             _artifacts/**/*
           fail_on_unmatched_files: true
