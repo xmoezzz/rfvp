@@ -411,6 +411,18 @@ jobs:
         run: |
           echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
+      - name: Delete old pre-release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if gh release view pre-release >/dev/null 2>&1; then
+            gh release view pre-release --json assets -q '.assets[].name' | while IFS= read -r name; do
+              [ -n "$name" ] || continue
+              gh release delete-asset pre-release "$name" -y
+            done
+          fi
+
       - name: Publish rolling pre-release
         uses: softprops/action-gh-release@v2
         with:
