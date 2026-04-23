@@ -400,41 +400,31 @@ jobs:
         with:
           path: _artifacts
 
-      - name: List artifacts
-        run: |
-          find _artifacts -maxdepth 6 -type f -print
-
       - name: Compute short SHA
         id: vars
         run: |
           echo "short_sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
 
-      - name: Delete existing pre-release and tag
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          if gh release view pre-release >/dev/null 2>&1; then
-            gh release delete pre-release --cleanup-tag -y
-          fi
-
       - name: Publish rolling pre-release
-        uses: softprops/action-gh-release@v2
+        uses: ncipollo/release-action@v1
         with:
-          tag_name: pre-release
-          name: "rfvp v${{ needs.meta.outputs.version }} pre-release (${{ steps.vars.outputs.short_sha }})"
+          tag: pre-release
+          name: rfvp v${{ needs.meta.outputs.version }} pre-release (${{ steps.vars.outputs.short_sha }})
           prerelease: true
-          target_commitish: ${{ github.sha }}
-          body: |
-            Rolling pre-release from non-tag push
-
-            Version: v${{ needs.meta.outputs.version }}
-            Commit: ${{ github.sha }}
-            Short SHA: ${{ steps.vars.outputs.short_sha }}
-          files: |
-            _artifacts/**/*
-          fail_on_unmatched_files: true
-          overwrite_files: true
+          allowUpdates: true
+          updateOnlyUnreleased: true
+          removeArtifacts: true
+          replacesArtifacts: true
+          makeLatest: false
+          artifacts: |
+            _artifacts/rfvp-linux-x86_64/rfvp-linux-x86_64.tar.gz,
+            _artifacts/rfvp-linux-aarch64/rfvp-linux-aarch64.tar.gz,
+            _artifacts/rfvp-macos/RFVP.dmg,
+            _artifacts/rfvp-ios/RFVPLauncher.ipa,
+            _artifacts/rfvp-windows/rfvp.exe,
+            _artifacts/rfvp-windows/rfvp_arm64.exe,
+            _artifacts/rfvp-android/app-release.apk
+          token: ${{ secrets.GITHUB_TOKEN }}
 
   release:
     name: Publish GitHub Release (tags only)
