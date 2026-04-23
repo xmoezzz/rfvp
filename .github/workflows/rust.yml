@@ -38,7 +38,7 @@ jobs:
           print(f"version={data['package']['version']}")
           PY
 
-  linux:
+  linux_x86_64:
     name: linux-x86_64 (ubuntu-22.04)
     runs-on: ubuntu-22.04
 
@@ -85,11 +85,61 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: rfvp-linux-x86_64
-          path: dist/linux/*.tar.gz
+          path: dist/linux/rfvp-linux-x86_64.tar.gz
+          if-no-files-found: error
+
+  linux_aarch64:
+    name: linux-aarch64 (ubuntu-22.04-arm)
+    runs-on: ubuntu-22.04-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install system deps (GStreamer, audio)
+        run: |
+          sudo apt-get update
+          sudo apt-get remove -y libunwind-14-dev libc++-14-dev libc++-dev || true
+          sudo apt-get install -y libunwind-dev
+          sudo apt-get install -y \
+            pkg-config \
+            libasound2-dev \
+            libgstreamer1.0-dev \
+            libgstreamer-plugins-base1.0-dev \
+            gstreamer1.0-plugins-base \
+            gstreamer1.0-plugins-good \
+            gstreamer1.0-plugins-bad \
+            gstreamer1.0-plugins-ugly \
+            gstreamer1.0-libav \
+            libgstrtspserver-1.0-dev \
+            libges-1.0-dev
+
+      - name: Build (release)
+        run: |
+          cargo build --release -p "${RFVP_CARGO_PKG}" --verbose
+
+      - name: Package artifact (tar.gz)
+        run: |
+          mkdir -p dist/linux
+          BIN="target/release/${RFVP_CARGO_PKG}"
+          test -f "$BIN"
+          tar -C "target/release" -czf "dist/linux/${RFVP_CARGO_PKG}-linux-aarch64.tar.gz" "${RFVP_CARGO_PKG}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rfvp-linux-aarch64
+          path: dist/linux/rfvp-linux-aarch64.tar.gz
           if-no-files-found: error
 
   macos:
-    name: macos (app + dmg)
+    name: macos (dmg only)
     runs-on: macos-15
 
     steps:
@@ -121,22 +171,19 @@ jobs:
           chmod +x platform/scripts/package_macos_dmg.sh
           ./platform/scripts/package_macos_dmg.sh || true
 
-      - name: Verify outputs
+      - name: Verify DMG output
         run: |
-          test -d dist/macos/RFVP.app
-          test "$(ls -1 dist/macos/*.dmg 2>/dev/null | wc -l)" -ge 1
+          test -f dist/macos/RFVP.dmg
 
-      - name: Upload artifact (DMG + app)
+      - name: Upload artifact (DMG only)
         uses: actions/upload-artifact@v4
         with:
           name: rfvp-macos
-          path: |
-            dist/macos/*.dmg
-            dist/macos/RFVP.app
+          path: dist/macos/RFVP.dmg
           if-no-files-found: error
 
   ios:
-    name: ios (xcframework + unsigned ipa)
+    name: ios (ipa only)
     runs-on: macos-15
 
     steps:
@@ -161,7 +208,6 @@ jobs:
       - name: Build iOS artifacts (script)
         run: |
           set -euo pipefail
-
           export COPYFILE_DISABLE=1
 
           ./platform/scripts/build_ios_xcframework.sh
@@ -174,32 +220,24 @@ jobs:
             exit 1
           fi
 
-      - name: Collect outputs
+      - name: Collect IPA only
         run: |
           set -euo pipefail
           mkdir -p dist/ios_ci
 
-          find dist -maxdepth 4 -type f -name "*.ipa" -print -exec cp -v "{}" dist/ios_ci/ \; || true
+          IPA_PATH="$(find dist -maxdepth 4 -type f -name 'RFVPLauncher.ipa' | head -n 1)"
+          test -n "$IPA_PATH"
+          cp -v "$IPA_PATH" dist/ios_ci/RFVPLauncher.ipa
 
-          find platform -maxdepth 6 -type d -name "*.xcframework" -print | head -n 50 || true
-          if [[ -d platform/ios/RFVPLauncher/Vendor/RFVP.xcframework ]]; then
-            ditto platform/ios/RFVPLauncher/Vendor/RFVP.xcframework dist/ios_ci/RFVP.xcframework
-          fi
-
-          echo "=== dist/ios_ci ==="
-          find dist/ios_ci -maxdepth 3 -print
-
-          test "$(find dist/ios_ci -maxdepth 1 -name '*.ipa' | wc -l)" -ge 1
-
-      - name: Upload artifact (iOS)
+      - name: Upload artifact (IPA only)
         uses: actions/upload-artifact@v4
         with:
           name: rfvp-ios
-          path: dist/ios_ci/**
+          path: dist/ios_ci/RFVPLauncher.ipa
           if-no-files-found: error
 
   windows:
-    name: windows (msvc x64 + arm64)
+    name: windows (x64 + arm64)
     runs-on: windows-2022
 
     steps:
@@ -240,17 +278,24 @@ jobs:
         run: |
           if not exist target\aarch64-pc-windows-msvc\release\%RFVP_CARGO_PKG%.exe exit /b 1
 
-      - name: Upload artifacts
+      - name: Collect Windows outputs
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/windows | Out-Null
+          Copy-Item "target\x86_64-pc-windows-msvc\release\${env:RFVP_CARGO_PKG}.exe" "dist/windows/rfvp.exe"
+          Copy-Item "target\aarch64-pc-windows-msvc\release\${env:RFVP_CARGO_PKG}.exe" "dist/windows/rfvp_arm64.exe"
+
+      - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: rfvp-windows
           path: |
-            target\x86_64-pc-windows-msvc\release\${{ env.RFVP_CARGO_PKG }}.exe
-            target\aarch64-pc-windows-msvc\release\${{ env.RFVP_CARGO_PKG }}.exe
+            dist/windows/rfvp.exe
+            dist/windows/rfvp_arm64.exe
           if-no-files-found: error
 
   android:
-    name: android (apk)
+    name: android (app-debug.apk)
     runs-on: ubuntu-22.04
 
     steps:
@@ -314,31 +359,36 @@ jobs:
             exit 1
           fi
 
-      - name: Collect outputs
+      - name: Collect APK only
         run: |
           set -euo pipefail
           mkdir -p dist/android_ci
 
-          find platform/android -type f -path "*/build/outputs/apk/*/*.apk" -print -exec cp -v "{}" dist/android_ci/ \; || true
-          find platform/android -type f -path "*/build/outputs/apk/*.apk" -print -exec cp -v "{}" dist/android_ci/ \; || true
-          find platform/android/app -type f -name "*.apk" -path "*/build/outputs/apk/*" -print -exec cp -v "{}" dist/android_ci/ \; || true
+          APK_PATH="$(
+            {
+              find platform/android -type f -name 'app-debug.apk'
+              find platform/android -type f -path "*/build/outputs/apk/debug/*.apk"
+              find platform/android -type f -path "*/build/outputs/apk/*/*.apk"
+              find platform/android -type f -path "*/build/outputs/apk/*.apk"
+              find platform/android/app -type f -name "*.apk" -path "*/build/outputs/apk/*"
+            } | awk '!seen[$0]++' | head -n 1
+          )"
 
-          echo "=== dist/android_ci ==="
-          find dist/android_ci -maxdepth 2 -print
+          test -n "$APK_PATH"
+          cp -v "$APK_PATH" dist/android_ci/app-debug.apk
+          test -f dist/android_ci/app-debug.apk
 
-          test "$(find dist/android_ci -maxdepth 1 -name '*.apk' | wc -l)" -ge 1
-
-      - name: Upload artifact (Android)
+      - name: Upload artifact (APK only)
         uses: actions/upload-artifact@v4
         with:
           name: rfvp-android
-          path: dist/android_ci/*.apk
+          path: dist/android_ci/app-debug.apk
           if-no-files-found: error
 
   prerelease:
     name: Publish GitHub Pre-release (non-tag pushes only)
     if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
-    needs: [meta, linux, macos, ios, windows, android]
+    needs: [meta, linux_x86_64, linux_aarch64, macos, ios, windows, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -382,7 +432,7 @@ jobs:
   release:
     name: Publish GitHub Release (tags only)
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [meta, linux, macos, ios, windows, android]
+    needs: [meta, linux_x86_64, linux_aarch64, macos, ios, windows, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
