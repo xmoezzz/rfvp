@@ -408,6 +408,7 @@ jobs:
       - name: Recreate pre-release from scratch
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
 
@@ -415,15 +416,20 @@ jobs:
             gh release delete pre-release --cleanup-tag -y
           fi
 
+          NOTES="$(cat <<EOF
+          Rolling pre-release from non-tag push
+
+          Version: v${{ needs.meta.outputs.version }}
+          Commit: ${{ github.sha }}
+          Short SHA: ${{ steps.vars.outputs.short_sha }}
+          EOF
+          )"
+
           gh release create pre-release \
             --prerelease \
             --target "${{ github.sha }}" \
             --title "rfvp v${{ needs.meta.outputs.version }} pre-release (${{ steps.vars.outputs.short_sha }})" \
-            --notes "Rolling pre-release from non-tag push
-
-          Version: v${{ needs.meta.outputs.version }}
-          Commit: ${{ github.sha }}
-          Short SHA: ${{ steps.vars.outputs.short_sha }}"
+            --notes "$NOTES"
 
           gh release upload pre-release \
             _artifacts/rfvp-linux-x86_64/rfvp-linux-x86_64.tar.gz \
