@@ -376,6 +376,49 @@ jobs:
           cp -v "$APK_PATH" dist/android_ci/app-release.apk
           test -f dist/android_ci/app-release.apk
 
+      - name: Sign Android APK
+        shell: bash
+        env:
+          ANDROID_KEY_BASE64: ${{ secrets.ANDROID_KEY_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          test -n "${ANDROID_KEY_BASE64}"
+          test -n "${ANDROID_KEY_ALIAS}"
+          test -n "${ANDROID_KEY_PASSWORD}"
+          test -n "${ANDROID_KEYSTORE_PASSWORD}"
+
+          KEYSTORE="$RUNNER_TEMP/upload-keystore.jks"
+          UNSIGNED_APK="dist/android_ci/app-release.apk"
+          ALIGNED_APK="$RUNNER_TEMP/app-release-aligned.apk"
+          SIGNED_APK="$RUNNER_TEMP/app-release-signed.apk"
+
+          printf '%s' "${ANDROID_KEY_BASE64}" | base64 -d > "${KEYSTORE}"
+
+          test -f "${UNSIGNED_APK}"
+
+          "${ANDROID_HOME}/build-tools/34.0.0/zipalign" -f -p 4 \
+            "${UNSIGNED_APK}" \
+            "${ALIGNED_APK}"
+
+          "${ANDROID_HOME}/build-tools/34.0.0/apksigner" sign \
+            --ks "${KEYSTORE}" \
+            --ks-key-alias "${ANDROID_KEY_ALIAS}" \
+            --ks-pass "pass:${ANDROID_KEYSTORE_PASSWORD}" \
+            --key-pass "pass:${ANDROID_KEY_PASSWORD}" \
+            --out "${SIGNED_APK}" \
+            "${ALIGNED_APK}"
+
+          "${ANDROID_HOME}/build-tools/34.0.0/apksigner" verify \
+            --verbose \
+            --print-certs \
+            "${SIGNED_APK}"
+
+          mv -f "${SIGNED_APK}" "${UNSIGNED_APK}"
+
       - name: Upload artifact (APK only)
         uses: actions/upload-artifact@v4
         with:
