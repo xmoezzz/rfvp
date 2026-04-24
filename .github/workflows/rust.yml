@@ -177,6 +177,7 @@ jobs:
               ninja \
               gmake \
               llvm19 \
+              alsa-lib \
               gstreamer1 \
               gstreamer1-plugins \
               gstreamer1-plugins-good \
@@ -201,9 +202,11 @@ jobs:
             cc --version
             clang --version || true
             pkgconf --version
+            pkgconf --exists alsa
+            pkgconf --modversion alsa
             pkg info rust
             pkg info llvm19 || true
-
+            pkg info alsa-lib || true
 
             cargo build --release -p "${RFVP_CARGO_PKG}" --verbose
 
