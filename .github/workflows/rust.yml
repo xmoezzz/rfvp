@@ -141,15 +141,17 @@ jobs:
 
   freebsd:
     name: freebsd-${{ matrix.artifact_arch }}
-    runs-on: ubuntu-22.04
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - arch: x86_64
             artifact_arch: x86_64
+            runner: ubuntu-22.04
           - arch: aarch64
             artifact_arch: aarch64
+            runner: ubuntu-22.04-arm
 
     steps:
       - name: Checkout
