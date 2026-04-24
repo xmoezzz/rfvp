@@ -172,13 +172,11 @@ jobs:
               git \
               curl \
               rust \
-              cargo \
               pkgconf \
               cmake \
               ninja \
               gmake \
-              llvm \
-              clang \
+              llvm19 \
               gstreamer1 \
               gstreamer1-plugins \
               gstreamer1-plugins-good \
@@ -200,6 +198,12 @@ jobs:
             uname -a
             rustc -Vv
             cargo -V
+            cc --version
+            clang --version || true
+            pkgconf --version
+            pkg info rust
+            pkg info llvm19 || true
+
 
             cargo build --release -p "${RFVP_CARGO_PKG}" --verbose
 
