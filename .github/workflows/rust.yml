@@ -149,9 +149,6 @@ jobs:
           - arch: x86_64
             artifact_arch: x86_64
             runner: ubuntu-22.04
-          - arch: aarch64
-            artifact_arch: aarch64
-            runner: ubuntu-22.04-arm
 
     steps:
       - name: Checkout
@@ -564,7 +561,6 @@ jobs:
             _artifacts/rfvp-linux-x86_64/rfvp-linux-x86_64.tar.gz \
             _artifacts/rfvp-linux-aarch64/rfvp-linux-aarch64.tar.gz \
             _artifacts/rfvp-freebsd-x86_64/rfvp-freebsd-x86_64.tar.gz \
-            _artifacts/rfvp-freebsd-aarch64/rfvp-freebsd-aarch64.tar.gz \
             _artifacts/rfvp-macos/RFVP.dmg \
             _artifacts/rfvp-ios/RFVPLauncher.ipa \
             _artifacts/rfvp-windows/rfvp.exe \
