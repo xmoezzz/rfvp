@@ -11,6 +11,9 @@
 ### rfvp debug HUD
 * Enable it with F2 hotkey (Fn + F2 on MacOS)
 
+### Pre-built Binaries
+Pre-built binaries for supported platforms are available in the [Pre-built Binaries](https://github.com/xmoezzz/rfvp/releases/tag/pre-release)
+
 ### HOW TO BUILD
 * macOS Bundle: [setsumei/HOW-TO-BUILD.macos-bundle.md](setsumei/HOW-TO-BUILD.macos-bundle.md)
 * iOS IPA: [setsumei/HOW-TO-BUILD.ios.md](setsumei/HOW-TO-BUILD.ios.md)
@@ -46,10 +49,9 @@ The Rust API documentation for this project is available here:
 | iOS      | Unsigned IPA (`.ipa`, AltStore) |      Yes |                    No | arm64   |
 | Android  | APK (`.apk`)                                               |      Yes |                    No | arm64-v8a, x86_64                   |
 | Windows  | Standalone EXE                                             |       No |                   Yes | x86_64, arm64                       |
-| Linux    | Standalone (planned)                                       |       No |                   Yes | x86_64, aarch64 (planned) |
+| Linux    | Standalone (planned)                                       |       No |                   Yes | x86_64, aarch64 |
 
 * Since this is a Rust project, it should be possible to build for many other platforms as well. 
-* I personally using macOS for development, currently no Windows script is provided. Pull requests are welcome.
 
 ### Compatibility
 This project aims to be compatible with all versions of the original FVP engine. 

@@ -138,6 +138,83 @@ jobs:
           path: dist/linux/rfvp-linux-aarch64.tar.gz
           if-no-files-found: error
 
+
+  freebsd:
+    name: freebsd-${{ matrix.artifact_arch }}
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            artifact_arch: x86_64
+          - arch: aarch64
+            artifact_arch: aarch64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build FreeBSD artifact
+        uses: vmactions/freebsd-vm@v1
+        with:
+          release: "14.4"
+          arch: ${{ matrix.arch }}
+          usesh: true
+          sync: rsync
+          copyback: true
+          envs: 'CARGO_TERM_COLOR RUSTFLAGS RFVP_CARGO_PKG'
+          prepare: |
+            set -e
+            pkg update
+            pkg install -y \
+              bash \
+              git \
+              curl \
+              rust \
+              cargo \
+              pkgconf \
+              cmake \
+              ninja \
+              gmake \
+              llvm \
+              clang \
+              gstreamer1 \
+              gstreamer1-plugins \
+              gstreamer1-plugins-good \
+              gstreamer1-plugins-bad \
+              gstreamer1-plugins-ugly \
+              gstreamer1-libav \
+              libX11 \
+              libXcursor \
+              libXi \
+              libXrandr \
+              libXinerama \
+              libxcb \
+              wayland \
+              libxkbcommon \
+              vulkan-loader
+          run: |
+            set -e
+            freebsd-version
+            uname -a
+            rustc -Vv
+            cargo -V
+
+            cargo build --release -p "${RFVP_CARGO_PKG}" --verbose
+
+            mkdir -p dist/freebsd
+            BIN="target/release/${RFVP_CARGO_PKG}"
+            test -f "${BIN}"
+            tar -C "target/release" -czf "dist/freebsd/${RFVP_CARGO_PKG}-freebsd-${{ matrix.artifact_arch }}.tar.gz" "${RFVP_CARGO_PKG}"
+
+      - name: Upload FreeBSD artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rfvp-freebsd-${{ matrix.artifact_arch }}
+          path: dist/freebsd/rfvp-freebsd-${{ matrix.artifact_arch }}.tar.gz
+          if-no-files-found: error
+
   macos:
     name: macos (dmg only)
     runs-on: macos-15
@@ -429,7 +506,7 @@ jobs:
   prerelease:
     name: Publish GitHub Pre-release (non-tag pushes only)
     if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
-    needs: [meta, linux_x86_64, linux_aarch64, macos, ios, windows, android]
+    needs: [meta, linux_x86_64, linux_aarch64, freebsd, macos, ios, windows, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -477,6 +554,8 @@ jobs:
           gh release upload pre-release \
             _artifacts/rfvp-linux-x86_64/rfvp-linux-x86_64.tar.gz \
             _artifacts/rfvp-linux-aarch64/rfvp-linux-aarch64.tar.gz \
+            _artifacts/rfvp-freebsd-x86_64/rfvp-freebsd-x86_64.tar.gz \
+            _artifacts/rfvp-freebsd-aarch64/rfvp-freebsd-aarch64.tar.gz \
             _artifacts/rfvp-macos/RFVP.dmg \
             _artifacts/rfvp-ios/RFVPLauncher.ipa \
             _artifacts/rfvp-windows/rfvp.exe \
@@ -486,7 +565,7 @@ jobs:
   release:
     name: Publish GitHub Release (tags only)
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [meta, linux_x86_64, linux_aarch64, macos, ios, windows, android]
+    needs: [meta, linux_x86_64, linux_aarch64, freebsd, macos, ios, windows, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
