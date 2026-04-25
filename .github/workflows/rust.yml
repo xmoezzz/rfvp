@@ -238,21 +238,28 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Read wasm-bindgen version
+        shell: bash
         run: |
-          python3 - <<'PY' >> "$GITHUB_ENV"
-          import tomllib
-          from pathlib import Path
+          set -euo pipefail
 
-          lock = tomllib.loads(Path("Cargo.lock").read_text(encoding="utf-8"))
-          versions = [
-              package["version"]
-              for package in lock["package"]
-              if package["name"] == "wasm-bindgen"
-          ]
-          if not versions:
+          WASM_BINDGEN_VERSION="$(python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          lock = Path("Cargo.lock").read_text(encoding="utf-8")
+          for block in lock.split("[[package]]"):
+              if re.search(r'(?m)^name = "wasm-bindgen"$', block):
+                  match = re.search(r'(?m)^version = "([^"]+)"$', block)
+                  if match is None:
+                      raise SystemExit("wasm-bindgen package has no version in Cargo.lock")
+                  print(match.group(1))
+                  break
+          else:
               raise SystemExit("wasm-bindgen is not present in Cargo.lock")
-          print(f"WASM_BINDGEN_VERSION={versions[0]}")
           PY
+          )"
+
+          echo "WASM_BINDGEN_VERSION=${WASM_BINDGEN_VERSION}" >> "$GITHUB_ENV"
 
       - name: Install wasm-bindgen-cli
         run: |
