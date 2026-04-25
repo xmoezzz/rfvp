@@ -8,7 +8,7 @@ pub enum Error {
 }
 
 mod time {
-    use std::time::{Duration, Instant};
+    use crate::platform_time::{Duration, Instant};
 
     /// ['Time'] is a resource dedicated to compute the time durations between frames and keep a track of
     /// frame numbers
@@ -62,7 +62,9 @@ mod time {
 }
 
 mod timer {
-    use std::{collections::HashMap, time::Duration};
+    use std::collections::HashMap;
+
+    use crate::platform_time::Duration;
 
     use crate::subsystem::resources::time::Error;
 

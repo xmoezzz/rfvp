@@ -1,7 +1,9 @@
 use anyhow::{Context, Result};
 use std::{
-    collections::HashMap, fs::File, path::{Path, PathBuf}, slice::Windows, sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard}, time::{Duration, Instant}
+    collections::HashMap, fs::File, path::{Path, PathBuf}, slice::Windows, sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard}
 };
+
+use crate::platform_time::{Duration, Instant};
 use glam::{mat4, vec3, vec4, Mat4};
 use image::{imageops::FilterType, RgbaImage};
 use wgpu::util::DeviceExt;
@@ -1351,7 +1353,7 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
             {
                 let mut gd = gd_write(&self.game_data);
                 gd.time_mut_ref()
-                    .set_external_delta(std::time::Duration::from_millis(dt_ms as u64));
+                    .set_external_delta(Duration::from_millis(dt_ms as u64));
             }
         }
 
@@ -1804,7 +1806,12 @@ impl AppBuilder {
         Option<(wgpu::Surface<'static>, wgpu::SurfaceConfiguration)>,
     ) {
         let size = window.inner_size();
+        #[cfg(target_arch = "wasm32")]
+        let backends = wgpu::Backends::GL;
+
+        #[cfg(not(target_arch = "wasm32"))]
         let backends = wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::all());
+
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends,
             ..Default::default()
@@ -1837,17 +1844,20 @@ impl AppBuilder {
                     required_features: wgpu::Features::PUSH_CONSTANTS,
                     #[cfg(target_arch = "wasm32")]
                     required_features: wgpu::Features::empty(),
+                    #[cfg(not(target_arch = "wasm32"))]
                     required_limits: {
                         let mut limits = wgpu::Limits::downlevel_webgl2_defaults()
                             .using_resolution(adapter.limits());
-                        #[cfg(not(target_arch = "wasm32"))]
-                        {
-                            // The renderer uses <= 80 bytes of push constants today.
-                            // Requesting 256 will fail on some Android/Vulkan drivers (including some emulators).
-                            limits.max_push_constant_size = 80;
-                        }
+
+                        // The renderer uses <= 80 bytes of push constants today.
+                        // Requesting 256 will fail on some Android/Vulkan drivers (including some emulators).
+                        limits.max_push_constant_size = 80;
+
                         limits
                     },
+
+                    #[cfg(target_arch = "wasm32")]
+                    required_limits: adapter.limits(),
                 },
                 None,
             )

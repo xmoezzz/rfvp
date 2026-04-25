@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use crate::platform_time::{Duration, Instant};
 
 /// A clock that tracks how much it has advanced (and how much real time has elapsed) since
 /// its previous update and since its creation.

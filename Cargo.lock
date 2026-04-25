@@ -3688,6 +3688,7 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "web-time 1.1.0",
  "wgpu",
  "winit 0.30.13",
  "wmv-decoder",

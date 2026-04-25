@@ -7,7 +7,7 @@ use std::mem::size_of;
 use std::path::{Path, PathBuf};
 
 #[cfg(target_arch = "wasm32")]
-use std::sync::Arc;
+use crate::wasm_app_path::{normalize_key as normalize_wasm_key, wasm_read_range, WasmAppPath, WasmFileRef, WasmRangeStream};
 
 use crate::script::parser::Nls;
 use crate::utils::file::app_base_path;
@@ -62,9 +62,7 @@ impl Read for SubFile {
         }
         let remain = (self.len - self.pos) as usize;
         let to_read = buf.len().min(remain);
-        // Keep the underlying FD aligned with our logical position.
-        self.file
-            .seek(SeekFrom::Start(self.start + self.pos))?;
+        self.file.seek(SeekFrom::Start(self.start + self.pos))?;
         let n = self.file.read(&mut buf[..to_read])?;
         self.pos += n as u64;
         Ok(n)
@@ -79,76 +77,7 @@ impl Seek for SubFile {
             SeekFrom::Current(delta) => self.clamp_pos(self.pos as i128 + delta as i128),
         };
         self.pos = next;
-        self.file
-            .seek(SeekFrom::Start(self.start + self.pos))?;
-        Ok(self.pos)
-    }
-}
-
-
-#[cfg(target_arch = "wasm32")]
-#[derive(Debug, Clone)]
-pub struct MemorySubFile {
-    data: Arc<Vec<u8>>,
-    start: u64,
-    len: u64,
-    pos: u64,
-}
-
-#[cfg(target_arch = "wasm32")]
-impl MemorySubFile {
-    pub fn new(data: Arc<Vec<u8>>, start: u64, len: u64) -> Result<Self> {
-        let end = start
-            .checked_add(len)
-            .ok_or_else(|| anyhow::anyhow!("memory slice range overflow"))?;
-        if end > data.len() as u64 {
-            anyhow::bail!(
-                "memory slice out of bounds: start={} len={} data_len={}",
-                start,
-                len,
-                data.len()
-            );
-        }
-        Ok(Self { data, start, len, pos: 0 })
-    }
-
-    fn clamp_pos(&self, p: i128) -> u64 {
-        if p <= 0 {
-            return 0;
-        }
-        let p = p as u128;
-        if p >= self.len as u128 {
-            return self.len;
-        }
-        p as u64
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-impl Read for MemorySubFile {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        if self.pos >= self.len {
-            return Ok(0);
-        }
-        let remain = (self.len - self.pos) as usize;
-        let to_read = buf.len().min(remain);
-        let begin = (self.start + self.pos) as usize;
-        let end = begin + to_read;
-        buf[..to_read].copy_from_slice(&self.data[begin..end]);
-        self.pos += to_read as u64;
-        Ok(to_read)
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-impl Seek for MemorySubFile {
-    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
-        let next = match pos {
-            SeekFrom::Start(off) => self.clamp_pos(off as i128),
-            SeekFrom::End(delta) => self.clamp_pos(self.len as i128 + delta as i128),
-            SeekFrom::Current(delta) => self.clamp_pos(self.pos as i128 + delta as i128),
-        };
-        self.pos = next;
+        self.file.seek(SeekFrom::Start(self.start + self.pos))?;
         Ok(self.pos)
     }
 }
@@ -168,7 +97,7 @@ pub struct VfsFile {
     pub entries: HashMap<String, VfsEntry>,
     pub nls: Nls,
     #[cfg(target_arch = "wasm32")]
-    memory_pack: Option<Arc<Vec<u8>>>,
+    wasm_pack: Option<WasmFileRef>,
 }
 
 impl VfsFile {
@@ -184,28 +113,51 @@ impl VfsFile {
             entries,
             nls: nls.clone(),
             #[cfg(target_arch = "wasm32")]
-            memory_pack: None,
+            wasm_pack: None,
         })
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub fn new_memory_pack(
+    pub fn new_wasm_pack(
         folder_name: String,
-        data: Arc<Vec<u8>>,
+        path: String,
+        file_ref: WasmFileRef,
         nls: Nls,
     ) -> anyhow::Result<Self> {
-        let mut cursor = Cursor::new(data.as_slice());
+        let header = wasm_read_range(file_ref.id, 0, 8)
+            .with_context(|| format!("read wasm pack header {path}"))?;
+        let file_count = u32::from_le_bytes([header[0], header[1], header[2], header[3]]) as u64;
+        let filename_table_size = u32::from_le_bytes([header[4], header[5], header[6], header[7]]) as u64;
+        let metadata_len = 8u64
+            .checked_add(file_count.checked_mul(12).ok_or_else(|| anyhow::anyhow!("pack entry table size overflow"))?)
+            .and_then(|n| n.checked_add(filename_table_size))
+            .ok_or_else(|| anyhow::anyhow!("pack metadata size overflow"))?;
+
+        if metadata_len > file_ref.size {
+            anyhow::bail!(
+                "wasm pack metadata exceeds file size: path={} metadata_len={} file_size={}",
+                path,
+                metadata_len,
+                file_ref.size
+            );
+        }
+
+        let metadata_len_usize = usize::try_from(metadata_len)
+            .map_err(|_| anyhow::anyhow!("wasm pack metadata too large: {metadata_len}"))?;
+        let metadata = wasm_read_range(file_ref.id, 0, metadata_len_usize)
+            .with_context(|| format!("read wasm pack metadata {path}"))?;
+        let mut cursor = Cursor::new(metadata.as_slice());
         let (file_count, filename_table_size, entries) = VfsFile::parse_reader(&mut cursor, nls)
-            .with_context(|| format!("parse in-memory pack {}.bin", folder_name))?;
+            .with_context(|| format!("parse wasm pack metadata {path}"))?;
 
         Ok(VfsFile {
-            path: PathBuf::from(format!("{folder_name}.bin")),
+            path: PathBuf::from(path),
             folder_name,
             file_count,
             filename_table_size,
             entries,
             nls: nls.clone(),
-            memory_pack: Some(data),
+            wasm_pack: Some(file_ref),
         })
     }
 
@@ -256,10 +208,7 @@ impl VfsFile {
     /// - u32 filename_table_size
     /// - file_count entries, each 12 bytes: {u32 name_off, u32 data_off, u32 data_size}
     /// - filename table (NUL-terminated strings)
-    pub fn parse(
-        path: impl AsRef<Path>,
-        nls: Nls,
-    ) -> Result<(u64, u64, HashMap<String, VfsEntry>)> {
+    pub fn parse(path: impl AsRef<Path>, nls: Nls) -> Result<(u64, u64, HashMap<String, VfsEntry>)> {
         let path = path.as_ref();
         if !path.exists() {
             bail!("pack does not exist: {}", path.display());
@@ -280,14 +229,12 @@ impl VfsFile {
         let filename_table_size = Self::read_u32le(reader, offset)? as u64;
         offset += size_of::<u32>() as u64;
 
-        // entries begin at offset=8
         let entries_offset = offset;
         let filename_table_offset = entries_offset + file_count * 12;
 
         let filename_table =
             Self::read_filename_table(reader, filename_table_offset, filename_table_size, nls)?;
 
-        // entry table
         reader.seek(SeekFrom::Start(entries_offset))?;
         let mut entries = HashMap::new();
         let mut cur = entries_offset;
@@ -314,10 +261,6 @@ impl VfsFile {
     }
 
     /// Open an entry as a seekable stream.
-    ///
-    /// Resolution order:
-    /// 1) Prefer loose file override at `<game_root>/<folder_name>/<name>` if it exists.
-    /// 2) Fallback to reading from `<game_root>/<folder_name>.bin` pack.
     pub fn open_stream(&self, name: &str) -> Result<VfsStream> {
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -333,18 +276,25 @@ impl VfsFile {
             .entries
             .get(name)
             .ok_or_else(|| anyhow::anyhow!("file not found in pack {}: {}", self.path.display(), name))?;
+
         #[cfg(target_arch = "wasm32")]
-        if let Some(data) = self.memory_pack.as_ref() {
-            let sub = MemorySubFile::new(data.clone(), ent.offset, ent.size)
-                .with_context(|| format!("create MemorySubFile slice for {}", name))?;
+        {
+            let Some(file_ref) = self.wasm_pack.as_ref() else {
+                anyhow::bail!("wasm pack source is missing for {}", self.path.display());
+            };
+            let sub = WasmRangeStream::new(file_ref, ent.offset, ent.size)
+                .with_context(|| format!("create wasm pack slice for {}", name))?;
             return Ok(Box::new(sub));
         }
 
-        let f = File::open(&self.path)
-            .with_context(|| format!("open pack file {}", self.path.display()))?;
-        let sub = SubFile::new(f, ent.offset, ent.size)
-            .with_context(|| format!("create SubFile slice for {}", name))?;
-        Ok(Box::new(sub))
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let f = File::open(&self.path)
+                .with_context(|| format!("open pack file {}", self.path.display()))?;
+            let sub = SubFile::new(f, ent.offset, ent.size)
+                .with_context(|| format!("create SubFile slice for {}", name))?;
+            Ok(Box::new(sub))
+        }
     }
 
     /// Legacy convenience: read an entry fully into memory.
@@ -357,11 +307,20 @@ impl VfsFile {
     }
 
     pub fn save(&self, name: &str, content: Vec<u8>) -> Result<()> {
-        let mut file = File::create(app_base_path().join(&self.folder_name).join(name).get_path())
-            .with_context(|| format!("create override file for {}", name))?;
-        file.write_all(&content)
-            .with_context(|| format!("write override file for {}", name))?;
-        Ok(())
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = (name, content);
+            anyhow::bail!("saving VFS override files is not supported in wasm");
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut file = File::create(app_base_path().join(&self.folder_name).join(name).get_path())
+                .with_context(|| format!("create override file for {}", name))?;
+            file.write_all(&content)
+                .with_context(|| format!("write override file for {}", name))?;
+            Ok(())
+        }
     }
 }
 
@@ -370,7 +329,7 @@ pub struct Vfs {
     pub files: HashMap<String, VfsFile>,
     pub nls: Nls,
     #[cfg(target_arch = "wasm32")]
-    loose_files: HashMap<String, Arc<Vec<u8>>>,
+    wasm_app_path: Option<WasmAppPath>,
 }
 
 impl Default for Vfs {
@@ -380,7 +339,7 @@ impl Default for Vfs {
             return Vfs {
                 files: HashMap::new(),
                 nls: Nls::ShiftJIS,
-                loose_files: HashMap::new(),
+                wasm_app_path: None,
             };
         }
 
@@ -412,39 +371,27 @@ impl Vfs {
             files,
             nls: nls.clone(),
             #[cfg(target_arch = "wasm32")]
-            loose_files: HashMap::new(),
+            wasm_app_path: None,
         })
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub fn from_memory_files(nls: Nls, files_in: HashMap<String, Vec<u8>>) -> Result<Vfs> {
-        let mut loose_files: HashMap<String, Arc<Vec<u8>>> = HashMap::new();
-
-        for (path, bytes) in files_in {
-            let key = normalize_vfs_key(&path);
-            if key.is_empty() {
+    pub fn from_wasm_app_path(nls: Nls, app_path: WasmAppPath) -> Result<Vfs> {
+        let mut files = HashMap::new();
+        for (path, file_ref) in app_path.root_bin_files() {
+            let folder_name = path
+                .strip_suffix(".bin")
+                .unwrap_or(&path)
+                .to_ascii_lowercase();
+            if folder_name.is_empty() {
                 continue;
             }
-            loose_files.insert(key, Arc::new(bytes));
-        }
-
-        let mut files = HashMap::new();
-        for (path, data) in &loose_files {
-            if !path.contains('/') && path.to_ascii_lowercase().ends_with(".bin") {
-                let folder_name = path
-                    .strip_suffix(".bin")
-                    .unwrap_or(path)
-                    .to_ascii_lowercase();
-                if folder_name.is_empty() {
-                    continue;
+            match VfsFile::new_wasm_pack(folder_name.clone(), path.clone(), file_ref, nls) {
+                Ok(vf) => {
+                    files.insert(folder_name, vf);
                 }
-                match VfsFile::new_memory_pack(folder_name.clone(), data.clone(), nls) {
-                    Ok(vf) => {
-                        files.insert(folder_name, vf);
-                    }
-                    Err(e) => {
-                        log::warn!("failed to parse in-memory pack {}: {:#}", path, e);
-                    }
+                Err(e) => {
+                    log::warn!("failed to parse wasm pack {}: {:#}", path, e);
                 }
             }
         }
@@ -452,47 +399,32 @@ impl Vfs {
         Ok(Vfs {
             files,
             nls: nls.clone(),
-            loose_files,
+            wasm_app_path: Some(app_path),
         })
     }
 
     #[cfg(target_arch = "wasm32")]
     pub fn first_hcb_bytes(&self) -> Result<Vec<u8>> {
-        let mut candidates: Vec<_> = self
-            .loose_files
-            .iter()
-            .filter(|(path, _)| path.to_ascii_lowercase().ends_with(".hcb"))
-            .collect();
-
-        candidates.sort_by(|(a, _), (b, _)| {
-            let arank = if a.contains('/') { 1 } else { 0 };
-            let brank = if b.contains('/') { 1 } else { 0 };
-            arank.cmp(&brank).then_with(|| a.cmp(b))
-        });
-
-        let Some((path, bytes)) = candidates.into_iter().next() else {
-            anyhow::bail!("No hcb file found in selected browser directory");
+        let Some(app_path) = self.wasm_app_path.as_ref() else {
+            anyhow::bail!("wasm app path is not initialized");
         };
-
-        log::info!("using in-memory hcb: {}", path);
-        Ok((**bytes).clone())
+        app_path.first_root_hcb_bytes()
     }
 
     /// Open a path as a seekable stream.
-    ///
-    /// Resolution order (as requested):
-    /// 1) Try direct filesystem open at `<game_root>/<path>`.
-    /// 2) If it fails and `path` is `folder/name...`, look for `<folder>.bin` and open the entry.
     pub fn open_stream(&self, path: &str) -> Result<VfsStream> {
         #[cfg(target_arch = "wasm32")]
         {
             let key = normalize_vfs_key(path);
-            if let Some(bytes) = self.loose_files.get(&key) {
-                return Ok(Box::new(Cursor::new((**bytes).clone())));
+            if let Some(app_path) = self.wasm_app_path.as_ref() {
+                if let Some(file_ref) = app_path.lookup(&key) {
+                    let stream = WasmRangeStream::new(file_ref, 0, file_ref.size)
+                        .with_context(|| format!("open wasm loose file {}", key))?;
+                    return Ok(Box::new(stream));
+                }
             }
         }
 
-        // 1) direct file override
         #[cfg(not(target_arch = "wasm32"))]
         {
             let fs_path = app_base_path().join(path);
@@ -503,7 +435,6 @@ impl Vfs {
             }
         }
 
-        // 2) packed: folder/name...
         let (folder, inner) = path
             .split_once('/')
             .ok_or_else(|| anyhow::anyhow!("file not found: {}", path))?;
@@ -511,13 +442,24 @@ impl Vfs {
         let vf = self
             .files
             .get(&folder.to_ascii_lowercase())
-            .ok_or_else(|| anyhow::anyhow!("pack not found for folder '{}' (missing {}.bin)", folder, folder))?;
+            .ok_or_else(|| {
+                #[cfg(target_arch = "wasm32")]
+                {
+                    if let Some(app_path) = self.wasm_app_path.as_ref() {
+                        return anyhow::anyhow!(
+                            "pack not found for folder '{}' (missing {}.bin); wasm root sample: {:?}",
+                            folder,
+                            folder,
+                            app_path.known_root_files_sample()
+                        );
+                    }
+                }
+                anyhow::anyhow!("pack not found for folder '{}' (missing {}.bin)", folder, folder)
+            })?;
         vf.open_stream(inner)
     }
 
     /// Legacy convenience: read a path fully into memory.
-    ///
-    /// This retains the old signature but now follows the same resolution order as `open_stream`.
     pub fn read_file(&self, path: &str) -> Result<Vec<u8>> {
         let mut r = self.open_stream(path)?;
         let mut buf = Vec::new();
@@ -538,10 +480,6 @@ impl Vfs {
     }
 
     /// Find loose `cursor*.ani` files next to the game executable/root.
-    ///
-    /// Reverse-engineered behavior: the original engine loads `cursor1.ani`,
-    /// `cursor2.ani`, `cursor3.ani` by bare filename, not from `graph/`.
-    /// This intentionally only scans the app base path and does not look inside packs.
     pub fn find_ani(&self) -> Result<Vec<PathBuf>> {
         #[cfg(target_arch = "wasm32")]
         {
@@ -560,10 +498,7 @@ impl Vfs {
 
 #[cfg(target_arch = "wasm32")]
 fn normalize_vfs_key(path: &str) -> String {
-    path.replace('\\', "/")
-        .trim_start_matches("./")
-        .trim_start_matches('/')
-        .to_ascii_lowercase()
+    normalize_wasm_key(path)
 }
 
 #[cfg(test)]
@@ -572,9 +507,7 @@ mod tests {
 
     #[test]
     fn test_vfs_parse_pack_smoke() {
-        // This test is intentionally lenient: it only checks that parsing doesn't panic.
-        // Provide a real pack under `testcase/` if you want stronger assertions.
         let p = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/testcase"));
-        let _ = p; // placeholder
+        let _ = p;
     }
 }

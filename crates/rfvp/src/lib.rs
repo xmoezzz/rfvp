@@ -17,9 +17,13 @@ pub mod trace;
 pub mod boot;
 pub mod legacy_save_load_ui;
 pub mod exit_confirm_ui;
+pub(crate) mod platform_time;
 
 #[cfg(all(target_arch = "wasm32", feature = "mp4"))]
 compile_error!("rfvp wasm build must use --no-default-features --features wasm");
+
+#[cfg(target_arch = "wasm32")]
+pub mod wasm_app_path;
 
 #[cfg(target_arch = "wasm32")]
 pub mod wasm_entry;
@@ -33,7 +37,7 @@ mod android_host;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::ptr::null_mut;
-use std::time::Duration;
+use crate::platform_time::Duration;
 
 use anyhow::Result;
 use log::LevelFilter;

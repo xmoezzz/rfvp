@@ -7,7 +7,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use std::time::Instant;
+use crate::platform_time::Instant;
 
 use anyhow::{anyhow, Context, Result};
 

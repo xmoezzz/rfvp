@@ -25,6 +25,50 @@ let selectedFileList = null;
 let selectedRootName = "";
 let games = [];
 let running = false;
+let nextFileId = 1;
+const fileRegistry = new Map();
+
+globalThis.rfvpReadFileRange = function rfvpReadFileRange(fileId, offset, len) {
+  const file = fileRegistry.get(Number(fileId));
+  if (!file) {
+    throw new Error(`RFVP wasm file id not found: ${fileId}`);
+  }
+
+  const start = Number(offset);
+  const size = Number(len);
+  if (!Number.isFinite(start) || !Number.isFinite(size) || start < 0 || size < 0) {
+    throw new Error(`Invalid RFVP wasm file range: id=${fileId} offset=${offset} len=${len}`);
+  }
+  if (size === 0) {
+    return new Uint8Array(0);
+  }
+
+  const blob = file.slice(start, start + size);
+  const url = URL.createObjectURL(blob);
+  try {
+    const xhr = new XMLHttpRequest();
+    xhr.open("GET", url, false);
+    xhr.overrideMimeType("text/plain; charset=x-user-defined");
+    xhr.send(null);
+
+    if (xhr.status !== 200 && xhr.status !== 0) {
+      throw new Error(`RFVP wasm range read failed: HTTP ${xhr.status}`);
+    }
+
+    const text = xhr.responseText || "";
+    if (text.length !== size) {
+      throw new Error(`RFVP wasm range length mismatch: requested=${size} actual=${text.length}`);
+    }
+
+    const out = new Uint8Array(text.length);
+    for (let i = 0; i < text.length; i += 1) {
+      out[i] = text.charCodeAt(i) & 0xff;
+    }
+    return out;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+};
 
 function setStatus(text) {
   statusLine.textContent = text;
@@ -136,23 +180,17 @@ function relativeInsideSelectedRoot(file) {
 function looksLikeGameRoot(entries) {
   let hasRootBin = false;
   let hasRootHcb = false;
-  let hasData = false;
-  let hasSeSys = false;
-  let hasDataSeSys = false;
 
   for (const entry of entries) {
     const p = normalizePath(entry.gamePath).toLowerCase();
     const parts = splitPath(p);
-    if (parts.length === 0) continue;
+    if (parts.length !== 1) continue;
 
-    if (parts.length === 1 && parts[0] === "se_sys.bin") hasSeSys = true;
-    if (parts.length === 2 && parts[0] === "data" && parts[1] === "se_sys.bin") hasDataSeSys = true;
-    if (parts.length === 1 && parts[0].endsWith(".bin")) hasRootBin = true;
-    if (parts.length === 1 && parts[0].endsWith(".hcb")) hasRootHcb = true;
-    if (parts[0] === "data" || parts[0] === "savedata") hasData = true;
+    if (parts[0].endsWith(".bin")) hasRootBin = true;
+    if (parts[0].endsWith(".hcb")) hasRootHcb = true;
   }
 
-  return hasSeSys || hasDataSeSys || hasRootHcb || hasRootBin || hasData;
+  return hasRootHcb || hasRootBin;
 }
 
 function rootHcbEntry(entries) {
@@ -398,22 +436,22 @@ async function scanCurrentSelection() {
   }
 }
 
-async function readGameEntries(game) {
+function registerGameEntries(game) {
+  fileRegistry.clear();
+
   const files = [];
-  const total = game.entries.length;
-
-  for (let i = 0; i < total; i += 1) {
-    const entry = game.entries[i];
-
-    if (i % 20 === 0 || i + 1 === total) {
-      showLaunching(`Reading files ${i + 1}/${total}`);
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    }
-
-    const data = new Uint8Array(await entry.file.arrayBuffer());
-    files.push({ path: normalizePath(entry.gamePath), data });
+  for (const entry of game.entries) {
+    const id = nextFileId++;
+    fileRegistry.set(id, entry.file);
+    files.push({
+      path: normalizePath(entry.gamePath),
+      id,
+      size: entry.file.size,
+    });
   }
 
+  console.log("RFVP wasm registered files:", files.length);
+  console.log("RFVP wasm file sample:", files.slice(0, 50).map((f) => `${f.path} (${f.size})`));
   return files;
 }
 
@@ -430,10 +468,10 @@ async function launchGame(game) {
   try {
     clearError();
     running = true;
-    showLaunching("Launching…");
+    showLaunching("Registering files…");
 
     await ensureWasmInitialized();
-    const files = await readGameEntries(game);
+    const files = registerGameEntries(game);
 
     rememberLastPlayed(game.id);
     game.lastPlayed = Date.now();
@@ -448,7 +486,7 @@ async function launchGame(game) {
     await start_rfvp_from_directory(
       "rfvp-canvas",
       game.nls,
-      files,
+      JSON.stringify(files),
     );
 
     setStatus("Running.");

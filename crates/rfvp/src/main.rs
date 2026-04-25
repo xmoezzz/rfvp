@@ -16,6 +16,8 @@ mod boot;
 mod legacy_save_load_ui;
 mod exit_confirm_ui;
 
+pub(crate) mod platform_time;
+
 use script::parser::{Nls, Parser};
 use subsystem::{anzu_scene::AnzuScene, resources::thread_manager::ThreadManager};
 

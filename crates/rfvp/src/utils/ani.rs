@@ -1,13 +1,14 @@
 use std::{
     fmt,
-    io::{Error as IoError, Read, Seek}, time::Instant,
+    io::{Error as IoError, Read, Seek},
 };
+
+use crate::platform_time::{Duration, Instant};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 use ico::IconDir;
 use riff::{Chunk, ChunkId, LIST_ID};
 use bitflags::bitflags;
-use std::time::Duration;
 
 use winit::window::{CustomCursor, CustomCursorSource};
 

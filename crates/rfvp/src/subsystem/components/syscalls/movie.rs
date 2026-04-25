@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::fs;
 use std::io;
 use std::path::Component;
-use std::time::{SystemTime, UNIX_EPOCH};
+use crate::platform_time::{SystemTime, UNIX_EPOCH};
 
 use directories::ProjectDirs;
 
