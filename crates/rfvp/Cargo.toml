@@ -89,7 +89,7 @@ zip = "7.2.0"
 default = ["mp4", "native-video"]
 
 # WebAssembly build entry. Use this with `--no-default-features --features wasm`.
-wasm = []
+wasm = ["native-video"]
 
 # Native WMV/MPEG movie backends. This is disabled for wasm builds.
 native-video = ["dep:wmv-decoder", "dep:na_mpeg2_decoder"]
