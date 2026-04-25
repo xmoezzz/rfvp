@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>RFVP Web</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --page-bg: #f5f5f7;
+      --card-bg: #ffffff;
+      --tile-bg: #f0f0f4;
+      --text: #111114;
+      --muted: #6e6e73;
+      --line: rgba(0, 0, 0, 0.12);
+      --button: #007aff;
+      --button-text: #ffffff;
+      --danger: #ff3b30;
+      --scrim: rgba(0, 0, 0, 0.35);
+      --shadow: 0 14px 36px rgba(0, 0, 0, 0.10);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --page-bg: #000000;
+        --card-bg: #1c1c1e;
+        --tile-bg: #2c2c2e;
+        --text: #f5f5f7;
+        --muted: #a1a1a6;
+        --line: rgba(255, 255, 255, 0.14);
+        --shadow: 0 14px 36px rgba(0, 0, 0, 0.45);
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    html,
+    body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      background: var(--page-bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      overflow: hidden;
+    }
+
+    button,
+    select,
+    label.file-button {
+      font: inherit;
+    }
+
+    button,
+    label.file-button {
+      appearance: none;
+      border: 0;
+      border-radius: 10px;
+      padding: 8px 12px;
+      background: var(--button);
+      color: var(--button-text);
+      cursor: pointer;
+      font-weight: 600;
+      line-height: 1.2;
+      user-select: none;
+    }
+
+    button.secondary,
+    label.file-button.secondary {
+      background: transparent;
+      color: var(--button);
+      padding-inline: 6px;
+    }
+
+    button.danger {
+      background: transparent;
+      color: var(--danger);
+      padding-inline: 6px;
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    select {
+      border: 1px solid var(--line);
+      color: var(--text);
+      background: var(--card-bg);
+      border-radius: 9px;
+      padding: 6px 8px;
+    }
+
+    #app {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      min-height: 0;
+    }
+
+    #library-screen {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--page-bg);
+    }
+
+    #header {
+      min-height: 52px;
+      padding: calc(8px + env(safe-area-inset-top)) 12px 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid var(--line);
+      background: color-mix(in srgb, var(--page-bg) 92%, transparent);
+      backdrop-filter: blur(18px);
+      z-index: 2;
+    }
+
+    #brand {
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+
+    #header-spacer { flex: 1; }
+
+    #game-dir {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    #hint {
+      padding: 10px 12px;
+      font-size: 13px;
+      line-height: 1.45;
+      color: var(--muted);
+      text-align: center;
+      border-bottom: 1px solid var(--line);
+    }
+
+    #status-line {
+      padding: 8px 12px 0;
+      font-size: 12px;
+      color: var(--muted);
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    #game-scroll {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      padding: 12px;
+    }
+
+    #game-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    @media (max-width: 900px) {
+      #game-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 560px) {
+      #game-grid { grid-template-columns: 1fr; }
+      #header { flex-wrap: wrap; }
+      #header-spacer { flex-basis: 100%; height: 0; }
+    }
+
+    .empty-card {
+      max-width: 560px;
+      margin: 48px auto;
+      padding: 22px;
+      text-align: center;
+      color: var(--muted);
+      background: var(--card-bg);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+    }
+
+    .empty-card h1 {
+      margin: 0 0 8px;
+      font-size: 22px;
+      color: var(--text);
+    }
+
+    .game-tile {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--card-bg);
+      box-shadow: var(--shadow);
+      min-width: 0;
+    }
+
+    .poster {
+      position: relative;
+      height: 130px;
+      border-radius: 12px;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 18% 18%, rgba(0, 122, 255, 0.28), transparent 28%),
+        radial-gradient(circle at 82% 18%, rgba(255, 45, 85, 0.22), transparent 30%),
+        linear-gradient(135deg, var(--tile-bg), color-mix(in srgb, var(--tile-bg) 75%, black));
+    }
+
+    .poster-title {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: start center;
+      text-align: center;
+      padding: 10px 44px 10px 10px;
+      font-size: 16px;
+      font-weight: 700;
+      overflow: hidden;
+    }
+
+    .nls-badge {
+      position: absolute;
+      right: 8px;
+      top: 8px;
+      padding: 4px 8px;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.10);
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .game-title {
+      font-size: 15px;
+      font-weight: 600;
+      line-height: 1.25;
+      min-height: 2.5em;
+      overflow-wrap: anywhere;
+    }
+
+    .game-path {
+      font-size: 11px;
+      color: var(--muted);
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    .tile-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .tile-actions select {
+      max-width: 92px;
+    }
+
+    .tile-actions .grow {
+      flex: 1;
+    }
+
+    #player-screen {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: #000;
+      z-index: 10;
+    }
+
+    #rfvp-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      background: #000;
+      outline: none;
+      touch-action: none;
+    }
+
+    #player-bar {
+      position: absolute;
+      top: calc(10px + env(safe-area-inset-top));
+      left: calc(10px + env(safe-area-inset-left));
+      right: calc(10px + env(safe-area-inset-right));
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      z-index: 11;
+      pointer-events: none;
+    }
+
+    #player-title {
+      flex: 1;
+      color: rgba(255, 255, 255, 0.76);
+      font-size: 13px;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+    }
+
+    #exit-button {
+      pointer-events: auto;
+      background: rgba(28, 28, 30, 0.70);
+      color: white;
+      backdrop-filter: blur(14px);
+    }
+
+    #launch-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      background: var(--scrim);
+      place-items: center;
+    }
+
+    #launch-card {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 12px;
+      padding: 18px;
+      border-radius: 14px;
+      background: rgba(0, 0, 0, 0.66);
+      color: #fff;
+      min-width: 160px;
+      box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+    }
+
+    .spinner {
+      width: 28px;
+      height: 28px;
+      border: 3px solid rgba(255, 255, 255, 0.30);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.85s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #error-box {
+      display: none;
+      margin: 12px;
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid color-mix(in srgb, var(--danger) 48%, transparent);
+      background: color-mix(in srgb, var(--danger) 12%, var(--card-bg));
+      color: var(--danger);
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <section id="library-screen">
+      <header id="header">
+        <div id="brand">rfvp</div>
+        <div id="header-spacer"></div>
+        <label class="file-button secondary" for="game-dir">Choose Folder</label>
+        <input id="game-dir" type="file" webkitdirectory multiple />
+        <button id="rescan-button" class="secondary" disabled>Rescan</button>
+      </header>
+
+      <div id="hint">
+        Choose a game root, or choose a parent folder that contains multiple game folders.
+      </div>
+
+      <div id="status-line">No folder selected.</div>
+      <div id="error-box"></div>
+
+      <main id="game-scroll">
+        <div id="game-grid"></div>
+        <div id="empty-card" class="empty-card">
+          <h1>RFVP Web</h1>
+          <p>Select a folder to build the game library.</p>
+          <p>The browser can only read files that you explicitly choose.</p>
+        </div>
+      </main>
+    </section>
+
+    <section id="player-screen">
+      <canvas id="rfvp-canvas" tabindex="0"></canvas>
+      <div id="player-bar">
+        <div id="player-title"></div>
+        <button id="exit-button">Exit</button>
+      </div>
+    </section>
+
+    <div id="launch-overlay">
+      <div id="launch-card">
+        <div class="spinner"></div>
+        <div id="launch-text">Launching…</div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

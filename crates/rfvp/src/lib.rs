@@ -1,3 +1,5 @@
+#![cfg_attr(target_arch = "wasm32", allow(dead_code))]
+
 pub mod script;
 pub mod subsystem;
 pub mod app;
@@ -15,6 +17,12 @@ pub mod trace;
 pub mod boot;
 pub mod legacy_save_load_ui;
 pub mod exit_confirm_ui;
+
+#[cfg(all(target_arch = "wasm32", feature = "mp4"))]
+compile_error!("rfvp wasm build must use --no-default-features --features wasm");
+
+#[cfg(target_arch = "wasm32")]
+pub mod wasm_entry;
 
 #[cfg(target_os = "ios")]
 mod ios_host;

@@ -26,6 +26,9 @@ use winit::{
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 use winit::platform::pump_events::{EventLoopExtPumpEvents, PumpStatus};
 
+#[cfg(target_arch = "wasm32")]
+use winit::platform::web::WindowAttributesExtWebSys;
+
 use crate::rendering::render_tree::RenderTree;
 use crate::vm_worker::VmWorker;
 
@@ -1685,7 +1688,7 @@ impl Drop for App {
     }
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 impl Drop for App {
     fn drop(&mut self) {
         let gd = gd_read(&self.game_data);
@@ -1763,6 +1766,12 @@ impl AppBuilder {
         Ok(self)
     }
 
+    #[cfg(target_arch = "wasm32")]
+    pub fn with_wasm_vfs(mut self, vfs: crate::subsystem::resources::vfs::Vfs) -> Self {
+        self.world.vfs = vfs;
+        self
+    }
+
     pub fn with_window_title(mut self, title: &str) -> Self {
         self.title = title.to_owned();
         self
@@ -1824,13 +1833,20 @@ impl AppBuilder {
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
+                    #[cfg(not(target_arch = "wasm32"))]
                     required_features: wgpu::Features::PUSH_CONSTANTS,
-                    required_limits: wgpu::Limits {
-                        max_push_constant_size: 80,
-                       // The renderer uses <= 80 bytes of push constants today.
-                       // Requesting 256 will fail on some Android/Vulkan drivers (including some emulators).
-                        ..wgpu::Limits::downlevel_webgl2_defaults()
-                            .using_resolution(adapter.limits())
+                    #[cfg(target_arch = "wasm32")]
+                    required_features: wgpu::Features::empty(),
+                    required_limits: {
+                        let mut limits = wgpu::Limits::downlevel_webgl2_defaults()
+                            .using_resolution(adapter.limits());
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
+                            // The renderer uses <= 80 bytes of push constants today.
+                            // Requesting 256 will fail on some Android/Vulkan drivers (including some emulators).
+                            limits.max_push_constant_size = 80;
+                        }
+                        limits
                     },
                 },
                 None,
@@ -1879,8 +1895,13 @@ impl AppBuilder {
             None
         };
 
+        let queue = Arc::new(queue);
+
+
         let bind_group_layouts = BindGroupLayouts::new(&device);
-        let pipelines = Pipelines::new(&device, &bind_group_layouts, swapchain_format);
+
+
+        let pipelines = Pipelines::new(&device, &queue, &bind_group_layouts, swapchain_format);
 
         let resources = Arc::new(GpuCommonResources {
             device,
@@ -1985,8 +2006,13 @@ impl AppBuilder {
         };
         surface.configure(&device, &config);
 
+        let queue = Arc::new(queue);
+
+
         let bind_group_layouts = BindGroupLayouts::new(&device);
-        let pipelines = Pipelines::new(&device, &bind_group_layouts, swapchain_format);
+
+
+        let pipelines = Pipelines::new(&device, &queue, &bind_group_layouts, swapchain_format);
 
         let resources = Arc::new(GpuCommonResources {
             device,
@@ -2081,8 +2107,13 @@ impl AppBuilder {
         };
         surface.configure(&device, &config);
 
+        let queue = Arc::new(queue);
+
+
         let bind_group_layouts = BindGroupLayouts::new(&device);
-        let pipelines = Pipelines::new(&device, &bind_group_layouts, swapchain_format);
+
+
+        let pipelines = Pipelines::new(&device, &queue, &bind_group_layouts, swapchain_format);
 
         let resources = Arc::new(GpuCommonResources {
             device,
@@ -2364,6 +2395,174 @@ impl AppBuilder {
         }
 
         Ok(Box::new(BuiltApp { event_loop, app }))
+    }
+
+
+    #[cfg(target_arch = "wasm32")]
+    pub async fn build_web(mut self, canvas_id: &str) -> anyhow::Result<Box<BuiltApp>> {
+        use wasm_bindgen::JsCast;
+
+        let event_loop = EventLoop::new().context("Event loop could not be created")?;
+        event_loop.set_control_flow(ControlFlow::Poll);
+
+        let wc = self
+            .config
+            .window_config
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("The window configuration has not been found"))?;
+
+        let document = web_sys::window()
+            .and_then(|w| w.document())
+            .ok_or_else(|| anyhow::anyhow!("browser document is unavailable"))?;
+        let canvas = document
+            .get_element_by_id(canvas_id)
+            .ok_or_else(|| anyhow::anyhow!("canvas element not found: {}", canvas_id))?
+            .dyn_into::<web_sys::HtmlCanvasElement>()
+            .map_err(|_| anyhow::anyhow!("element is not a canvas: {}", canvas_id))?;
+
+        let window_builder: WindowAttributes = {
+            let attrs: WindowAttributes = wc.into(&self.config);
+            attrs.with_canvas(Some(canvas))
+        };
+        let window = event_loop
+            .create_window(window_builder)
+            .context("An error occured while building the web game window")?;
+
+        let window = Arc::new(window);
+        self.world.set_can_fullscreen(false);
+
+        self.add_late_internal_systems_to_schedule();
+
+        let (resources, render_target, surface, surface_config, _hud_bundle) =
+            AppBuilder::init_render(window.clone(), None, self.size).await;
+
+        let entry_point = self.parser.get_entry_point();
+        let non_volatile_global_count = self.parser.get_non_volatile_global_count();
+        let volatile_global_count = self.parser.get_volatile_global_count();
+        GLOBAL
+            .lock()
+            .unwrap()
+            .init_with(non_volatile_global_count, volatile_global_count);
+
+        if let Err(e) = self.world.fontface_manager.init_fontface() {
+            log::error!("Failed to scan font directory: {:#}", e);
+        }
+
+        self.script_engine.start_main(entry_point);
+        self.world.nls = self.parser.nls.clone();
+        self.world.set_cursor_table(HashMap::new());
+
+        let (dissolve_vertex_buffer, dissolve_index_buffer, dissolve_num_indices) = {
+            let w = self.size.0.max(1) as f32;
+            let h = self.size.1.max(1) as f32;
+            let vertices: [PosVertex; 4] = [
+                PosVertex { position: vec3(0.0, 0.0, 0.0) },
+                PosVertex { position: vec3(w, 0.0, 0.0) },
+                PosVertex { position: vec3(w, h, 0.0) },
+                PosVertex { position: vec3(0.0, h, 0.0) },
+            ];
+            let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
+
+            let vb = resources.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("rfvp dissolve quad VB"),
+                contents: bytemuck::cast_slice(&vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+            let ib = resources.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("rfvp dissolve quad IB"),
+                contents: bytemuck::cast_slice(&indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+            (vb, ib, indices.len() as u32)
+        };
+
+        let builtin_exit_ui_enabled = self.parser.get_all_syscalls().values().any(|syscall| syscall.name == "ConfigEtc");
+        let game_data = Arc::new(RwLock::new(self.world));
+        let debug_ring = log_ring::get().unwrap_or_else(|| log_ring::init(4096));
+        let vm_worker = VmWorker::spawn(game_data.clone(), self.parser, self.script_engine);
+
+        let prim_renderer = GpuPrimRenderer::new(resources.clone(), self.size);
+        let legacy_save_load_ui = LegacySaveLoadUi::new(&resources, self.size);
+        let exit_confirm_ui = ExitConfirmUi::new(&resources, self.size);
+        let layer_machine = SceneMachine {
+            current_scene: self.scene,
+        };
+        let render_tree = RenderTree::new();
+
+        let mut app: Box<App> = {
+            use std::mem::MaybeUninit;
+            use std::ptr;
+
+            let mut boxed = Box::<MaybeUninit<App>>::new_uninit();
+            unsafe {
+                let p: *mut App = boxed.as_mut_ptr().cast();
+
+                ptr::addr_of_mut!((*p).config).write(self.config);
+                ptr::addr_of_mut!((*p).game_data).write(game_data);
+                ptr::addr_of_mut!((*p).title).write(self.title);
+                ptr::addr_of_mut!((*p).scheduler).write(self.scheduler);
+                ptr::addr_of_mut!((*p).layer_machine).write(layer_machine);
+                ptr::addr_of_mut!((*p).window).write(Some(window.clone()));
+                ptr::addr_of_mut!((*p).native_scale_factor).write(window.scale_factor());
+                ptr::addr_of_mut!((*p).pump_mode).write(false);
+                ptr::addr_of_mut!((*p).windowed_restore).write(None);
+                ptr::addr_of_mut!((*p).last_fullscreen_flag).write(1);
+
+                ptr::addr_of_mut!((*p).vm_worker).write(vm_worker);
+                ptr::addr_of_mut!((*p).pending_vm_frame_ms).write(0);
+                ptr::addr_of_mut!((*p).pending_vm_frame_ms_valid).write(false);
+
+                ptr::addr_of_mut!((*p).render_target).write(render_target);
+                ptr::addr_of_mut!((*p).resources).write(resources.clone());
+                ptr::addr_of_mut!((*p).surface).write(surface);
+                ptr::addr_of_mut!((*p).surface_config).write(surface_config);
+
+                ptr::addr_of_mut!((*p).prim_renderer).write(prim_renderer);
+                ptr::addr_of_mut!((*p).virtual_size).write(self.size);
+                ptr::addr_of_mut!((*p).render_tree).write(render_tree);
+
+                ptr::addr_of_mut!((*p).dissolve_vertex_buffer).write(dissolve_vertex_buffer);
+                ptr::addr_of_mut!((*p).dissolve_index_buffer).write(dissolve_index_buffer);
+                ptr::addr_of_mut!((*p).dissolve_num_indices).write(dissolve_num_indices);
+                ptr::addr_of_mut!((*p).last_dissolve_type).write(DissolveType::None);
+                ptr::addr_of_mut!((*p).last_dissolve2_transitioning).write(false);
+                ptr::addr_of_mut!((*p).legacy_save_load_ui).write(legacy_save_load_ui);
+                ptr::addr_of_mut!((*p).exit_confirm_ui).write(exit_confirm_ui);
+                ptr::addr_of_mut!((*p).builtin_exit_ui_enabled).write(builtin_exit_ui_enabled);
+                ptr::addr_of_mut!((*p).pending_app_exit).write(false);
+
+                ptr::addr_of_mut!((*p).debug_hud).write(None);
+                ptr::addr_of_mut!((*p).hud_window).write(None);
+                ptr::addr_of_mut!((*p).hud_surface).write(None);
+                ptr::addr_of_mut!((*p).hud_surface_config).write(None);
+                ptr::addr_of_mut!((*p).hud_visible).write(false);
+
+                ptr::addr_of_mut!((*p).debug_ring).write(debug_ring.clone());
+                ptr::addr_of_mut!((*p).debug_frame_no).write(0);
+                ptr::addr_of_mut!((*p).last_dt_ms).write(0.0);
+                ptr::addr_of_mut!((*p).hud_cursor_pos).write(None);
+                ptr::addr_of_mut!((*p).hud_pointer_down).write(false);
+                ptr::addr_of_mut!((*p).hud_scroll_delta_y).write(0.0);
+
+                let raw: *mut App = Box::into_raw(boxed).cast();
+                Box::from_raw(raw)
+            }
+        };
+
+        app.setup();
+
+        if let Some(w) = app.window.as_ref() {
+            w.request_redraw();
+        }
+
+        Ok(Box::new(BuiltApp { event_loop, app }))
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub async fn run_web(self, canvas_id: &str) -> anyhow::Result<()> {
+        let built = self.build_web(canvas_id).await?;
+        built.run();
+        Ok(())
     }
 
     /// Classic blocking run (winit owns the main loop).

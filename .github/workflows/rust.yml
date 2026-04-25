@@ -221,6 +221,59 @@ jobs:
           path: dist/freebsd/rfvp-freebsd-${{ matrix.artifact_arch }}.tar.gz
           if-no-files-found: error
 
+  wasm:
+    name: wasm
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Read wasm-bindgen version
+        run: |
+          python3 - <<'PY' >> "$GITHUB_ENV"
+          import tomllib
+          from pathlib import Path
+
+          lock = tomllib.loads(Path("Cargo.lock").read_text(encoding="utf-8"))
+          versions = [
+              package["version"]
+              for package in lock["package"]
+              if package["name"] == "wasm-bindgen"
+          ]
+          if not versions:
+              raise SystemExit("wasm-bindgen is not present in Cargo.lock")
+          print(f"WASM_BINDGEN_VERSION={versions[0]}")
+          PY
+
+      - name: Install wasm-bindgen-cli
+        run: |
+          cargo install wasm-bindgen-cli --version "${WASM_BINDGEN_VERSION}" --locked
+
+      - name: Build wasm package
+        run: |
+          chmod +x platform/scripts/build_wasm.sh
+          ./platform/scripts/build_wasm.sh
+
+      - name: Verify wasm output
+        run: |
+          test -f dist/wasm/rfvp-wasm.zip
+
+      - name: Upload wasm artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rfvp-wasm
+          path: dist/wasm/rfvp-wasm.zip
+          if-no-files-found: error
+
   macos:
     name: macos (dmg only)
     runs-on: macos-15
@@ -512,7 +565,7 @@ jobs:
   prerelease:
     name: Publish GitHub Pre-release (non-tag pushes only)
     if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
-    needs: [meta, linux_x86_64, linux_aarch64, freebsd, macos, ios, windows, android]
+    needs: [meta, linux_x86_64, linux_aarch64, freebsd, wasm, macos, ios, windows, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -561,6 +614,7 @@ jobs:
             _artifacts/rfvp-linux-x86_64/rfvp-linux-x86_64.tar.gz \
             _artifacts/rfvp-linux-aarch64/rfvp-linux-aarch64.tar.gz \
             _artifacts/rfvp-freebsd-x86_64/rfvp-freebsd-x86_64.tar.gz \
+            _artifacts/rfvp-wasm/rfvp-wasm.zip \
             _artifacts/rfvp-macos/RFVP.dmg \
             _artifacts/rfvp-ios/RFVPLauncher.ipa \
             _artifacts/rfvp-windows/rfvp.exe \
@@ -570,7 +624,7 @@ jobs:
   release:
     name: Publish GitHub Release (tags only)
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [meta, linux_x86_64, linux_aarch64, freebsd, macos, ios, windows, android]
+    needs: [meta, linux_x86_64, linux_aarch64, freebsd, wasm, macos, ios, windows, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write

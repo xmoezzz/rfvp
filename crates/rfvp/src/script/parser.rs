@@ -62,9 +62,12 @@ impl Parser {
         let mut rdr = File::open(path)?;
         let mut buffer = Vec::new();
         rdr.read_to_end(&mut buffer)?;
-        
+        Self::from_bytes(buffer, nls)
+    }
+
+    pub fn from_bytes(buffer: impl Into<Vec<u8>>, nls: Nls) -> Result<Self> {
         let mut parser = Parser {
-            buffer: Arc::new(buffer),
+            buffer: Arc::new(buffer.into()),
             nls,
             sys_desc_offset: 0,
             entry_point: 0,

@@ -40,7 +40,6 @@ image = "0.24.9"
 bytes = "1.6.0"
 bytemuck = { version = "1.14.3", features = ["derive"] }
 ultraviolet = "0.9.2"
-rodio = "0.17.3"
 futures = "0.3.30"
 fern = { version = "0.6.2", features = ["colored"] }
 chrono = "0.4.35"
@@ -68,8 +67,10 @@ petitset = "0.2.1"
 tracing = "0.1.37"
 kira = "0.10.8"
 
-wmv-decoder = { path = "../na_wmv_player" }
-na_mpeg2_decoder = { path = "../na_mpeg2_decoder" }
+uuid = { version = "1.19.0", features = ["js"] }
+
+wmv-decoder = { path = "../na_wmv_player", optional = true }
+na_mpeg2_decoder = { path = "../na_mpeg2_decoder", optional = true }
 crossbeam-channel = "0.5"
 
 symphonia = { version = "0.5", default-features = false, features = ["aac", "isomp4"], optional = true }
@@ -81,16 +82,45 @@ pollster = "0.4.0"
 
 bitflags = "2.9.4"
 regex = "1.11.2"
-directories = "6.0.0"
 zip = "7.2.0"
-uuid = "1.19.0"
 
 [features]
-# Keep MP4 support enabled by default for backward compatibility.
-default = ["mp4"]
+# Keep native movie support enabled by default for backward compatibility.
+default = ["mp4", "native-video"]
+
+# WebAssembly build entry. Use this with `--no-default-features --features wasm`.
+wasm = []
+
+# Native WMV/MPEG movie backends. This is disabled for wasm builds.
+native-video = ["dep:wmv-decoder", "dep:na_mpeg2_decoder"]
 
 # MP4 movie playback backend (video-sys + symphonia for AAC audio).
 mp4 = ["dep:video-sys", "dep:symphonia"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+rodio = "0.17.3"
+directories = "6.0.0"
+uuid = "1.19.0"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.95"
+wasm-bindgen-futures = "0.4.45"
+js-sys = "0.3.72"
+console_error_panic_hook = "0.1.7"
+getrandom = { version = "0.2", features = ["js"] }
+cpal = { version = "0.15.3", features = ["wasm-bindgen"] }
+web-sys = { version = "0.3.72", features = [
+    "Window",
+    "Document",
+    "Element",
+    "HtmlCanvasElement",
+    "HtmlInputElement",
+    "File",
+    "FileList",
+    "Blob",
+    "console",
+] }
+wgpu = { version = "0.19.1", features = ["webgl"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = { version = "0.6", features = ["game-activity"] }

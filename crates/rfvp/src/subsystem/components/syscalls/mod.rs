@@ -12,6 +12,10 @@ pub mod color;
 pub mod text;
 pub mod input;
 pub mod timer;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod movie;
+#[cfg(target_arch = "wasm32")]
+#[path = "movie_wasm.rs"]
 pub mod movie;
 pub mod parts;
 pub mod other_anm;
