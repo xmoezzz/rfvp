@@ -49,7 +49,8 @@ The Rust API documentation for this project is available here:
 | iOS      | Unsigned IPA (`.ipa`, AltStore) |      Yes |                    No | arm64   |
 | Android  | APK (`.apk`)                                               |      Yes |                    No | arm64-v8a, x86_64                   |
 | Windows  | Standalone EXE                                             |       No |                   Yes | x86_64, arm64                       |
-| Linux    | Standalone (planned)                                       |       No |                   Yes | x86_64, aarch64 |
+| Linux    | Standalone                                                 |       No |                   Yes | x86_64, aarch64 |
+| WASM     | Bundle                                            |      Yes |                    No | **Any architecture** (via WASI)          |
 
 * Since this is a Rust project, it should be possible to build for many other platforms as well. 
 
