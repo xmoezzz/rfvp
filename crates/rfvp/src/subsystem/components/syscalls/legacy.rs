@@ -5,6 +5,7 @@ use anyhow::Result;
 
 use crate::script::Variant;
 use crate::subsystem::world::GameData;
+use crate::rfvp_audio::Tween;
 
 use super::movie::movie_play;
 use super::saveload::{load, save_write};
@@ -324,10 +325,10 @@ pub fn config_set(game_data: &mut GameData) -> Result<Variant> {
         let vol = vol_i as f32 / 100.0;
         game_data
             .bgm_player_mut()
-            .set_type_volume(kind as i32, vol, kira::Tween::default());
+            .set_type_volume(kind as i32, vol, Tween::default());
         game_data
             .se_player_mut()
-            .set_type_volume(kind as i32, vol, kira::Tween::default());
+            .set_type_volume(kind as i32, vol, Tween::default());
     }
 
     Ok(Variant::Nil)
@@ -478,7 +479,7 @@ pub fn sound_pan(game_data: &mut GameData, channel: &Variant, pan: &Variant) -> 
         return Ok(Variant::Nil);
     }
     let normalized = (pan as f64 + 100.0) / 200.0;
-    game_data.se_player_mut().set_panning(channel, normalized, kira::Tween::default());
+    game_data.se_player_mut().set_panning(channel, normalized, Tween::default());
     Ok(Variant::Nil)
 }
 

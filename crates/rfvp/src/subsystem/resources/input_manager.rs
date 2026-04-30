@@ -1,4 +1,5 @@
 use std::{sync::Mutex, vec};
+#[cfg(not(rfvp_switch))]
 use winit::keyboard::NamedKey;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -265,6 +266,7 @@ impl InputManager {
         self.cursor_in = in_screen;
     }
 
+    #[cfg(not(rfvp_switch))]
     pub fn keymap(&self, key: winit::keyboard::Key) -> Option<KeyCode> {
         match key {
             winit::keyboard::Key::Named(NamedKey::Shift) => Some(KeyCode::Shift),
@@ -367,6 +369,57 @@ impl InputManager {
     }
 
     // see https://wiki.winehq.org/List_Of_Windows_Messages
+    pub fn notify_keycode_down(&mut self, keycode: KeyCode, repeat: bool) {
+        let mut enqueue = false;
+        let mut prev_bits = 0u32;
+        {
+            let _g = self.cs.enter();
+
+            if self.control_is_masked && matches!(keycode, KeyCode::Shift | KeyCode::Ctrl) {
+                return;
+            }
+
+            prev_bits = self.new_input_state;
+            let mask = Self::bit_for(keycode.clone());
+
+            if (self.new_input_state & mask) == 0 {
+                self.new_input_state |= mask;
+                self.input_down_pending |= mask;
+            }
+
+            self.input_repeat_pending |= mask;
+            enqueue = !repeat && (keycode.clone() as u8) >= 2;
+        }
+
+        self.latch_virtual_click_edges(prev_bits, self.new_input_state);
+
+        if enqueue {
+            self.record_keydown_or_up(keycode, 0, 0);
+        }
+    }
+
+    pub fn notify_keycode_up(&mut self, keycode: KeyCode) {
+        let prev_bits;
+        {
+            let _g = self.cs.enter();
+
+            if self.control_is_masked && matches!(keycode, KeyCode::Shift | KeyCode::Ctrl) {
+                return;
+            }
+
+            prev_bits = self.new_input_state;
+            let mask = Self::bit_for(keycode);
+
+            if (self.new_input_state & mask) != 0 {
+                self.new_input_state &= !mask;
+                self.input_up_pending |= mask;
+            }
+        }
+
+        self.latch_virtual_click_edges(prev_bits, self.new_input_state);
+    }
+
+    #[cfg(not(rfvp_switch))]
     pub fn notify_keydown(&mut self, key: winit::keyboard::Key, repeat: bool) {
         if let Some(keycode) = self.keymap(key) {
             let mut enqueue = false;
@@ -405,6 +458,7 @@ impl InputManager {
     }
 
 
+    #[cfg(not(rfvp_switch))]
     pub fn notify_keyup(&mut self, key: winit::keyboard::Key) {
         if let Some(keycode) = self.keymap(key) {
             let prev_bits;

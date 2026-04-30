@@ -1,0 +1,20 @@
+[package]
+name = "rfvp_switch_host"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "rfvp_switch_host"
+path = "src/lib.rs"
+crate-type = ["rlib", "staticlib"]
+
+[dependencies]
+rfvp_switch_core_abi = { path = "../rfvp_switch_core_abi" }
+rfvp_switch_render = { path = "../rfvp_switch_render" }
+rfvp_switch_audio = { path = "../rfvp_switch_audio" }
+
+[features]
+default = []
+ffi = ["rfvp_switch_render/ffi", "rfvp_switch_audio/ffi"]
+rfvp-core-link = []

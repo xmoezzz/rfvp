@@ -1,0 +1,14 @@
+[package]
+name = "rfvp_switch_audio"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "rfvp_switch_audio"
+path = "src/lib.rs"
+crate-type = ["rlib", "staticlib"]
+
+[features]
+default = []
+ffi = []

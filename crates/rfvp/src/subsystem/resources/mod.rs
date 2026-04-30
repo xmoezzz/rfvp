@@ -12,9 +12,12 @@ pub mod input_manager;
 pub mod graph_buff;
 pub mod timer_manager;
 pub mod parts_manager;
-#[cfg(all(not(target_arch = "wasm32"), feature = "native-video"))]
+#[cfg(rfvp_switch)]
+#[path = "videoplayer_switch.rs"]
 pub mod videoplayer;
-#[cfg(any(target_arch = "wasm32", not(feature = "native-video")))]
+#[cfg(all(not(rfvp_switch), not(target_arch = "wasm32"), feature = "native-video"))]
+pub mod videoplayer;
+#[cfg(all(not(rfvp_switch), any(target_arch = "wasm32", not(feature = "native-video"))))]
 #[path = "videoplayer_wasm.rs"]
 pub mod videoplayer;
 pub mod gaiji_manager;

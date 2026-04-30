@@ -1,4 +1,11 @@
+#[cfg(not(rfvp_switch))]
 use winit::window::CursorIcon;
+#[cfg(rfvp_switch)]
+#[derive(Default, Debug, Copy, Clone)]
+pub enum CursorIcon {
+    #[default]
+    Default,
+}
 
 #[derive(Default, Debug, Copy, Clone)]
 struct FutureSettings{

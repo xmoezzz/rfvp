@@ -1,0 +1,28 @@
+[package]
+name = "rfvp_switch_core_staticlib"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "rfvp_switch_core_staticlib"
+path = "src/lib.rs"
+crate-type = ["staticlib"]
+
+[dependencies]
+rfvp = { path = "../../..", default-features = false, features = ["switch-core"] }
+
+# Switch-only dependency graph pin. This wrapper crate is built only by the
+# Switch build script, so the normal rfvp desktop/iOS/Android/wasm graph is not
+# affected. The exact pin is intended to avoid serde_core 1.0.228 on
+# freestanding Switch builds.
+serde = { version = "=1.0.217", default-features = false, features = ["alloc", "derive"] }
+
+[workspace]
+resolver = "2"
+
+[profile.release]
+panic = "abort"
+lto = true
+codegen-units = 1
+opt-level = "z"

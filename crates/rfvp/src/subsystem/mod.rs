@@ -1,5 +1,7 @@
 pub mod components;
+#[cfg(not(rfvp_switch))]
 pub(crate) mod event_handler;
+#[cfg(not(rfvp_switch))]
 pub mod package;
 pub mod resources;
 pub mod scene;

@@ -85,7 +85,10 @@ use hecs::{
     QueryOne, QueryOneError,
 };
 use crate::rfvp_audio::AudioManager;
+#[cfg(not(rfvp_switch))]
 use winit::window::CustomCursor;
+#[cfg(rfvp_switch)]
+type CustomCursor = ();
 
 
 use super::resources::flag_manager::FlagManager;

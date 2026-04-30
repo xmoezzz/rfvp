@@ -1,5 +1,7 @@
-/target
-/video_player/testcase/image
-/testcase
 *.log
+/dist
+/platform/switch/build
+/target
+/testcase
+/video_player/testcase/image
 1.log

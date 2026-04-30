@@ -1,0 +1,13 @@
+[package]
+name = "rfvp_switch_core_abi"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "rfvp_switch_core_abi"
+path = "src/lib.rs"
+crate-type = ["rlib"]
+
+[features]
+default = []

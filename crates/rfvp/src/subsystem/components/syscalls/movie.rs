@@ -6,6 +6,7 @@ use std::io;
 use std::path::Component;
 use crate::platform_time::{SystemTime, UNIX_EPOCH};
 
+#[cfg(not(rfvp_switch))]
 use directories::ProjectDirs;
 
 use crate::script::Variant;
@@ -188,11 +189,14 @@ fn video_cache_root_dir() -> PathBuf {
         return preferred;
     }
 
+    #[cfg(not(rfvp_switch))]
     let fallback = ProjectDirs::from("com", "xmoezzz", "rfvp")
         .map(|d| d.cache_dir().join("video"))
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
             .join(".rfvp_cache")
             .join("video"));
+    #[cfg(rfvp_switch)]
+    let fallback = app_base_path().join(".rfvp_cache").join("video").get_path().clone();
     let _ = fs::create_dir_all(&fallback);
     fallback
 }

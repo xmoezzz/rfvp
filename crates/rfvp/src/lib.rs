@@ -1,23 +1,34 @@
+#![allow(unexpected_cfgs)]
 #![cfg_attr(target_arch = "wasm32", allow(dead_code))]
 
 pub mod script;
 pub mod subsystem;
-pub mod app;
 pub mod utils;
 pub mod vm_runner;
-pub mod rendering;
-pub mod config;
 pub mod audio_player;
-pub mod window;
-pub mod rfvp_render;
 pub mod rfvp_audio;
-pub mod vm_worker;
 pub mod debug_ui;
 pub mod trace;
-pub mod boot;
-pub mod legacy_save_load_ui;
-pub mod exit_confirm_ui;
 pub(crate) mod platform_time;
+
+#[cfg(not(rfvp_switch))]
+pub mod app;
+#[cfg(not(rfvp_switch))]
+pub mod rendering;
+#[cfg(not(rfvp_switch))]
+pub mod config;
+#[cfg(not(rfvp_switch))]
+pub mod window;
+#[cfg(not(rfvp_switch))]
+pub mod rfvp_render;
+#[cfg(not(rfvp_switch))]
+pub mod vm_worker;
+#[cfg(not(rfvp_switch))]
+pub mod boot;
+#[cfg(not(rfvp_switch))]
+pub mod legacy_save_load_ui;
+#[cfg(not(rfvp_switch))]
+pub mod exit_confirm_ui;
 
 #[cfg(all(target_arch = "wasm32", feature = "mp4"))]
 compile_error!("rfvp wasm build must use --no-default-features --features wasm");
@@ -34,23 +45,39 @@ mod ios_host;
 #[cfg(target_os = "android")]
 mod android_host;
 
-use std::ffi::{CStr, CString};
-use std::os::raw::c_char;
+#[cfg(all(rfvp_switch, feature = "switch-core"))]
+pub mod switch_core;
+#[cfg(all(rfvp_switch, feature = "switch-core"))]
+mod switch_render_bridge;
+
+#[cfg(not(rfvp_switch))]
+use std::ffi::CStr;
+#[cfg(all(not(rfvp_switch), any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 use std::ptr::null_mut;
+#[cfg(not(rfvp_switch))]
+use std::os::raw::c_char;
+#[cfg(all(not(rfvp_switch), any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 use crate::platform_time::Duration;
 
+#[cfg(not(rfvp_switch))]
 use anyhow::Result;
-use log::LevelFilter;
+#[cfg(not(rfvp_switch))]
 use boot::{app_config, load_script};
+#[cfg(not(rfvp_switch))]
 use crate::app::App;
+#[cfg(not(rfvp_switch))]
 use crate::subsystem::resources::thread_manager::ThreadManager;
+#[cfg(not(rfvp_switch))]
 use crate::utils::file::set_base_path;
+#[cfg(not(rfvp_switch))]
 use crate::script::parser::Nls;
+#[cfg(not(rfvp_switch))]
 use crate::subsystem::anzu_scene::AnzuScene;
 
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(all(not(rfvp_switch), any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 use winit::platform::pump_events::PumpStatus;
 
+#[cfg(not(rfvp_switch))]
 fn run_rfvp(game_root: &str, nls: Nls) -> Result<()> {
     set_base_path(game_root);
     let parser = load_script(nls)?;
@@ -71,13 +98,13 @@ fn run_rfvp(game_root: &str, nls: Nls) -> Result<()> {
 }
 
 /// Opaque pump handle for GUI hosts (e.g. SwiftUI launcher) that already own the platform main loop.
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(all(not(rfvp_switch), any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 pub struct RfvpPumpHandle {
     inst: crate::app::PumpInstance,
 }
 
 /// Create a pump-driven instance. Returns NULL on error.
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(all(not(rfvp_switch), any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 #[no_mangle]
 pub unsafe extern "C" fn rfvp_pump_create(game_root_utf8: *const c_char, nls_utf8: *const c_char) -> *mut RfvpPumpHandle {
     if game_root_utf8.is_null() || nls_utf8.is_null() {
@@ -147,7 +174,7 @@ pub unsafe extern "C" fn rfvp_pump_create(game_root_utf8: *const c_char, nls_utf
 /// - 0: continue running
 /// - 1: app requested exit
 /// - 2: invalid handle
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(all(not(rfvp_switch), any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 #[no_mangle]
 pub unsafe extern "C" fn rfvp_pump_step(handle: *mut RfvpPumpHandle, timeout_ms: u32) -> i32 {
     if handle.is_null() {
@@ -161,7 +188,7 @@ pub unsafe extern "C" fn rfvp_pump_step(handle: *mut RfvpPumpHandle, timeout_ms:
 }
 
 /// Destroy a pump-driven instance created by `rfvp_pump_create`.
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(all(not(rfvp_switch), any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 #[no_mangle]
 pub unsafe extern "C" fn rfvp_pump_destroy(handle: *mut RfvpPumpHandle) {
     if handle.is_null() {
@@ -170,6 +197,7 @@ pub unsafe extern "C" fn rfvp_pump_destroy(handle: *mut RfvpPumpHandle) {
     drop(Box::from_raw(handle));
 }
 
+#[cfg(not(rfvp_switch))]
 #[no_mangle]
 pub unsafe extern "C" fn rfvp_run_entry(game_root_utf8: *const c_char, nls_utf8: *const c_char) -> i32 {
     if game_root_utf8.is_null() || nls_utf8.is_null() {
@@ -207,4 +235,3 @@ pub unsafe extern "C" fn rfvp_run_entry(game_root_utf8: *const c_char, nls_utf8:
         }
     }
 }
-

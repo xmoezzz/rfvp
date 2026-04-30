@@ -81,6 +81,7 @@ mod tests {
     use std::{thread::sleep, time::Duration};
     use super::*;
     use crate::subsystem::world::GameData;
+    use crate::rfvp_audio::Tween;
 
     #[test]
     fn test_audio_system() {
@@ -92,7 +93,7 @@ mod tests {
         assert!(&buff[0..4] == [0x4fu8, 0x67u8, 0x67u8, 0x53u8].as_slice(), "BGM file is not OGG format");
         crate::trace::vm(format_args!("BGM data size: {}", buff.len()));
         world.bgm_player_mut().load(0, buff).unwrap();
-        let mut fade_in = kira::Tween {
+        let mut fade_in = Tween {
             duration: Duration::from_secs(0),
             ..Default::default()
         };
@@ -113,7 +114,7 @@ mod tests {
         assert!(&buff2[0..4] == [0x4fu8, 0x67u8, 0x67u8, 0x53u8].as_slice(), "BGM file is not OGG format");
         crate::trace::vm(format_args!("BGM data size: {}", buff.len()));
         world.bgm_player_mut().load(0, buff).unwrap();
-        let mut fade_in = kira::Tween {
+        let mut fade_in = Tween {
             duration: Duration::from_secs(0),
             ..Default::default()
         };

@@ -1,0 +1,14 @@
+[workspace]
+members = [
+    "rfvp_switch_core_abi",
+    "rfvp_switch_render",
+    "rfvp_switch_audio",
+    "rfvp_switch_host",
+]
+resolver = "2"
+
+[profile.release]
+panic = "abort"
+lto = true
+codegen-units = 1
+opt-level = "z"
