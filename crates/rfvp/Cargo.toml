@@ -110,7 +110,7 @@ wasm-bindgen = "0.2.95"
 wasm-bindgen-futures = "0.4.45"
 js-sys = "0.3.72"
 console_error_panic_hook = "0.1.7"
-getrandom = { version = "0.2", features = ["js"] }
+getrandom = { version = "0.3", features = ["wasm_js"] }
 cpal = { version = "0.15.3", features = ["wasm-bindgen"] }
 web-sys = { version = "0.3.72", features = [
     "Window",
