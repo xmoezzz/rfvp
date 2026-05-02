@@ -2,8 +2,13 @@ use std::io::Cursor;
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
+#[cfg(target_arch = "wasm32")]
+use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings};
+#[cfg(not(target_arch = "wasm32"))]
 use kira::sound::streaming::{StreamingSoundData, StreamingSoundHandle};
-use kira::sound::{FromFileError, Region};
+#[cfg(not(target_arch = "wasm32"))]
+use kira::sound::FromFileError;
+use kira::sound::Region;
 use kira::track::{TrackBuilder, TrackHandle};
 use kira::{Panning, Tween};
 use serde::{Deserialize, Serialize};
@@ -34,6 +39,7 @@ pub struct BgmPlayerSnapshotV1 {
     pub slots: Vec<BgmSlotSnapshotV1>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 enum BgmSource {
     VfsPath(String),
     Memory(Arc<[u8]>),
@@ -42,8 +48,14 @@ enum BgmSource {
 pub struct BgmPlayer {
     audio_manager: Arc<AudioManager>,
     bgm_tracks: [TrackHandle; BGM_SLOT_COUNT],
+    #[cfg(not(target_arch = "wasm32"))]
     bgm_slots: [Option<StreamingSoundHandle<FromFileError>>; BGM_SLOT_COUNT],
+    #[cfg(target_arch = "wasm32")]
+    bgm_slots: [Option<StaticSoundHandle>; BGM_SLOT_COUNT],
+    #[cfg(not(target_arch = "wasm32"))]
     bgm_sources: [Option<BgmSource>; BGM_SLOT_COUNT],
+    #[cfg(target_arch = "wasm32")]
+    bgm_datas: [Option<StaticSoundData>; BGM_SLOT_COUNT],
     bgm_kinds: [Option<i32>; BGM_SLOT_COUNT],
     bgm_names: [Option<String>; BGM_SLOT_COUNT],
     bgm_type_volumes: [f32; SOUND_TYPE_COUNT],
@@ -73,7 +85,10 @@ impl BgmPlayer {
             audio_manager,
             bgm_tracks,
             bgm_slots: [(); BGM_SLOT_COUNT].map(|_| None),
+            #[cfg(not(target_arch = "wasm32"))]
             bgm_sources: [(); BGM_SLOT_COUNT].map(|_| None),
+            #[cfg(target_arch = "wasm32")]
+            bgm_datas: [(); BGM_SLOT_COUNT].map(|_| None),
             bgm_kinds: [(); BGM_SLOT_COUNT].map(|_| None),
             bgm_names: [(); BGM_SLOT_COUNT].map(|_| None),
             bgm_type_volumes: [1.0; SOUND_TYPE_COUNT],
@@ -84,6 +99,7 @@ impl BgmPlayer {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn load(&mut self, slot: i32, bgm: Vec<u8>) -> Result<()> {
         let slot = slot as usize;
         let data: Arc<[u8]> = Arc::from(bgm.into_boxed_slice());
@@ -94,6 +110,17 @@ impl BgmPlayer {
         Ok(())
     }
 
+    #[cfg(target_arch = "wasm32")]
+    pub fn load(&mut self, slot: i32, bgm: Vec<u8>) -> Result<()> {
+        let slot = slot as usize;
+        let cursor = Cursor::new(bgm);
+        let sound = StaticSoundData::from_cursor(cursor)?;
+        self.bgm_datas[slot] = Some(sound);
+        self.bgm_names[slot] = None;
+        Ok(())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn load_named(&mut self, slot: i32, name: impl Into<String>, vfs: &Vfs) -> Result<()> {
         let slot = slot as usize;
         let name = name.into();
@@ -104,6 +131,21 @@ impl BgmPlayer {
             .with_context(|| format!("decode BGM header from vfs stream: {}", name))?;
         self.bgm_names[slot] = Some(name.clone());
         self.bgm_sources[slot] = Some(BgmSource::VfsPath(name));
+        Ok(())
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn load_named(&mut self, slot: i32, name: impl Into<String>, vfs: &Vfs) -> Result<()> {
+        let slot_usize = slot as usize;
+        let name = name.into();
+        let data = vfs
+            .read_file(&name)
+            .with_context(|| format!("read BGM from vfs: {}", name))?;
+        let cursor = Cursor::new(data);
+        let sound = StaticSoundData::from_cursor(cursor)
+            .with_context(|| format!("decode BGM from vfs bytes: {}", name))?;
+        self.bgm_names[slot_usize] = Some(name);
+        self.bgm_datas[slot_usize] = Some(sound);
         Ok(())
     }
 
@@ -120,6 +162,7 @@ impl BgmPlayer {
         self.bgm_volumes[slot] * self.type_volume_for_slot(slot)
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     fn streaming_data_for_source(
         source: &BgmSource,
         vfs: &Vfs,
@@ -159,32 +202,65 @@ impl BgmPlayer {
             self.effective_volume_for_slot(slot)
         };
 
-        let source = match &self.bgm_sources[slot] {
-            Some(source) => source,
-            None => {
-                log::error!("Tried to play BGM slot {}, but no BGM was loaded", slot);
-                return Ok(());
-            }
-        };
-
         log::info!("Playing BGM slot {}", slot);
 
-        let pan = Panning::from(pan as f32);
-        let mut bgm = Self::streaming_data_for_source(source, vfs)?
-            .panning(pan)
-            .volume(actual_volume)
-            .fade_in_tween(fade_in);
-        if repeat {
-            bgm = bgm.loop_region(Region::default());
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let source = match &self.bgm_sources[slot] {
+                Some(source) => source,
+                None => {
+                    log::error!("Tried to play BGM slot {}, but no BGM was loaded", slot);
+                    return Ok(());
+                }
+            };
+
+            let pan = Panning::from(pan as f32);
+            let mut bgm = Self::streaming_data_for_source(source, vfs)?
+                .panning(pan)
+                .volume(actual_volume)
+                .fade_in_tween(fade_in);
+            if repeat {
+                bgm = bgm.loop_region(Region::default());
+            }
+
+            let handle = self.audio_manager.play_streaming(bgm);
+
+            if let Some(mut old_handle) = self.bgm_slots[slot].take() {
+                old_handle.stop(fade_in);
+            }
+
+            self.bgm_slots[slot] = Some(handle);
         }
 
-        let handle = self.audio_manager.play_streaming(bgm);
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _ = vfs;
+            let bgm = match &self.bgm_datas[slot] {
+                Some(data) => data.clone(),
+                None => {
+                    log::error!("Tried to play BGM slot {}, but no BGM was loaded", slot);
+                    return Ok(());
+                }
+            };
 
-        if let Some(mut old_handle) = self.bgm_slots[slot].take() {
-            old_handle.stop(fade_in);
+            let loop_region = repeat.then_some(Region::default());
+            let pan = Panning::from(pan as f32);
+            let settings = StaticSoundSettings::new()
+                .panning(pan)
+                .volume(actual_volume)
+                .fade_in_tween(fade_in)
+                .loop_region(loop_region)
+                .playback_rate(1.0);
+
+            let handle = self.audio_manager.play(bgm.with_settings(settings));
+
+            if let Some(mut old_handle) = self.bgm_slots[slot].take() {
+                old_handle.stop(fade_in);
+            }
+
+            self.bgm_slots[slot] = Some(handle);
         }
 
-        self.bgm_slots[slot] = Some(handle);
         Ok(())
     }
 
@@ -281,7 +357,11 @@ impl BgmPlayer {
     }
 
     pub fn debug_summary(&self) -> BgmDebugSummary {
+        #[cfg(not(target_arch = "wasm32"))]
         let loaded_datas = self.bgm_sources.iter().filter(|x| x.is_some()).count();
+        #[cfg(target_arch = "wasm32")]
+        let loaded_datas = self.bgm_datas.iter().filter(|x| x.is_some()).count();
+
         let playing_slots = self
             .bgm_slots
             .iter()
@@ -298,7 +378,10 @@ impl BgmPlayer {
                 .as_ref()
                 .map(|handle| handle.state().is_advancing())
                 .unwrap_or(false);
+            #[cfg(not(target_arch = "wasm32"))]
             let data_loaded = self.bgm_sources[slot].is_some();
+            #[cfg(target_arch = "wasm32")]
+            let data_loaded = self.bgm_datas[slot].is_some();
             let has_name = self.bgm_names[slot].is_some();
             let has_kind = self.bgm_kinds[slot].is_some();
             if playing || data_loaded || has_name || has_kind {
@@ -325,9 +408,11 @@ impl BgmPlayer {
     pub fn capture_snapshot_v1(&self) -> BgmPlayerSnapshotV1 {
         let mut slots: Vec<BgmSlotSnapshotV1> = Vec::new();
         for i in 0..BGM_SLOT_COUNT {
-            let has_any = self.bgm_sources[i].is_some()
-                || self.bgm_slots[i].is_some()
-                || self.bgm_names[i].is_some();
+            #[cfg(not(target_arch = "wasm32"))]
+            let data_loaded = self.bgm_sources[i].is_some();
+            #[cfg(target_arch = "wasm32")]
+            let data_loaded = self.bgm_datas[i].is_some();
+            let has_any = data_loaded || self.bgm_slots[i].is_some() || self.bgm_names[i].is_some();
             if !has_any {
                 continue;
             }
@@ -360,7 +445,14 @@ impl BgmPlayer {
 
         for i in 0..BGM_SLOT_COUNT {
             self.stop(i as i32, Tween::default());
-            self.bgm_sources[i] = None;
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                self.bgm_sources[i] = None;
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                self.bgm_datas[i] = None;
+            }
             self.bgm_kinds[i] = None;
             self.bgm_names[i] = None;
             self.bgm_muted[i] = false;
@@ -385,7 +477,12 @@ impl BgmPlayer {
                 self.load_named(slot as i32, path, vfs)?;
             }
 
-            if s.playing && self.bgm_sources[slot].is_some() {
+            #[cfg(not(target_arch = "wasm32"))]
+            let data_loaded = self.bgm_sources[slot].is_some();
+            #[cfg(target_arch = "wasm32")]
+            let data_loaded = self.bgm_datas[slot].is_some();
+
+            if s.playing && data_loaded {
                 self.play(
                     slot as i32,
                     self.bgm_repeat[slot],

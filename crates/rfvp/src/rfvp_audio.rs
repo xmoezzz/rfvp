@@ -3,7 +3,9 @@ use std::sync::Mutex;
 
 use kira::{AudioManager as KiraAudioManager, AudioManagerSettings, Tween};
 use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle};
+#[cfg(not(target_arch = "wasm32"))]
 use kira::sound::streaming::{StreamingSoundData, StreamingSoundHandle};
+#[cfg(not(target_arch = "wasm32"))]
 use kira::sound::FromFileError;
 
 pub struct AudioManager {
@@ -41,6 +43,7 @@ impl AudioManager {
         mgr.play(data).expect("failed to play sound")
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn play_streaming(
         &self,
         data: StreamingSoundData<FromFileError>,
