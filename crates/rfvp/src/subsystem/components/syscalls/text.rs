@@ -209,13 +209,8 @@ pub fn text_font(
         return Ok(Variant::Nil);
     }
 
-    // In our FontfaceManager, user-loaded fonts are 1..=count; built-ins are negative ids.
-    // IDA computes a max index for the current font enumeration; we approximate it as the
-    // maximum positive id we can address (== count).
-    let max_font_idx = game_data.fontface_manager.get_font_count();
-
     if let Variant::Int(fid) = font_id {
-        if *fid >= -5 && *fid <= max_font_idx {
+        if game_data.fontface_manager.is_valid_fontface_id(*fid) {
             game_data
                 .motion_manager
                 .text_manager
@@ -224,7 +219,7 @@ pub fn text_font(
     }
 
     if let Variant::Int(fid2) = font_id2 {
-        if *fid2 >= -5 && *fid2 <= max_font_idx {
+        if game_data.fontface_manager.is_valid_fontface_id(*fid2) {
             game_data
                 .motion_manager
                 .text_manager
@@ -270,7 +265,7 @@ pub fn text_font_set(game_data: &mut GameData, id: &Variant) -> Result<Variant> 
         },
     };
 
-    if id >= -5 && id <= game_data.fontface_manager.get_font_count() {
+    if game_data.fontface_manager.is_valid_fontface_id(id) {
         if let Some(font_name) = game_data.fontface_manager.get_font_name(id) {
             game_data.fontface_manager.set_system_fontface_id(id);
             game_data.fontface_manager.set_current_font_name(&font_name);

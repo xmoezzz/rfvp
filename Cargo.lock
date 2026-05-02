@@ -3503,6 +3503,7 @@ dependencies = [
  "serde",
  "serde_json",
  "symphonia",
+ "symphonia-core",
  "tracing",
  "twofloat",
  "ultraviolet",

@@ -18,7 +18,42 @@ impl<T: Read + Seek> ReadSeek for T {}
 
 /// A VFS-backed stream. This is intentionally a boxed trait object so callers can
 /// treat on-disk files and pack-slices uniformly.
-pub type VfsStream = Box<dyn ReadSeek + Send>;
+pub type VfsStream = Box<dyn ReadSeek + Send + Sync>;
+
+
+/// A VFS stream that can be passed directly to Symphonia/Kira streaming audio.
+pub struct VfsMediaSource {
+    stream: VfsStream,
+    byte_len: Option<u64>,
+}
+
+impl VfsMediaSource {
+    pub fn new(stream: VfsStream, byte_len: Option<u64>) -> Self {
+        Self { stream, byte_len }
+    }
+}
+
+impl Read for VfsMediaSource {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.stream.read(buf)
+    }
+}
+
+impl Seek for VfsMediaSource {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        self.stream.seek(pos)
+    }
+}
+
+impl symphonia_core::io::MediaSource for VfsMediaSource {
+    fn is_seekable(&self) -> bool {
+        true
+    }
+
+    fn byte_len(&self) -> Option<u64> {
+        self.byte_len
+    }
+}
 
 /// A seekable view over a contiguous byte range inside a file.
 ///
@@ -260,15 +295,16 @@ impl VfsFile {
         Ok((file_count, filename_table_size, entries))
     }
 
-    /// Open an entry as a seekable stream.
-    pub fn open_stream(&self, name: &str) -> Result<VfsStream> {
+    /// Open an entry as a seekable stream and return its byte length when known.
+    pub fn open_stream_with_len(&self, name: &str) -> Result<(VfsStream, Option<u64>)> {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let override_path = app_base_path().join(&self.folder_name).join(name);
             if override_path.get_path().exists() {
                 let f = File::open(override_path.get_path())
                     .with_context(|| format!("open override file {}", override_path.get_path().display()))?;
-                return Ok(Box::new(f));
+                let len = f.metadata().ok().map(|m| m.len());
+                return Ok((Box::new(f), len));
             }
         }
 
@@ -284,7 +320,7 @@ impl VfsFile {
             };
             let sub = WasmRangeStream::new(file_ref, ent.offset, ent.size)
                 .with_context(|| format!("create wasm pack slice for {}", name))?;
-            return Ok(Box::new(sub));
+            return Ok((Box::new(sub), Some(ent.size)));
         }
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -293,8 +329,13 @@ impl VfsFile {
                 .with_context(|| format!("open pack file {}", self.path.display()))?;
             let sub = SubFile::new(f, ent.offset, ent.size)
                 .with_context(|| format!("create SubFile slice for {}", name))?;
-            Ok(Box::new(sub))
+            Ok((Box::new(sub), Some(ent.size)))
         }
+    }
+
+    /// Open an entry as a seekable stream.
+    pub fn open_stream(&self, name: &str) -> Result<VfsStream> {
+        self.open_stream_with_len(name).map(|(stream, _)| stream)
     }
 
     /// Legacy convenience: read an entry fully into memory.
@@ -411,8 +452,8 @@ impl Vfs {
         app_path.first_root_hcb_bytes()
     }
 
-    /// Open a path as a seekable stream.
-    pub fn open_stream(&self, path: &str) -> Result<VfsStream> {
+    /// Open a path as a seekable stream and return its byte length when known.
+    pub fn open_stream_with_len(&self, path: &str) -> Result<(VfsStream, Option<u64>)> {
         #[cfg(target_arch = "wasm32")]
         {
             let key = normalize_vfs_key(path);
@@ -420,7 +461,7 @@ impl Vfs {
                 if let Some(file_ref) = app_path.lookup(&key) {
                     let stream = WasmRangeStream::new(file_ref, 0, file_ref.size)
                         .with_context(|| format!("open wasm loose file {}", key))?;
-                    return Ok(Box::new(stream));
+                    return Ok((Box::new(stream), Some(file_ref.size)));
                 }
             }
         }
@@ -431,7 +472,8 @@ impl Vfs {
             if fs_path.get_path().exists() {
                 let f = File::open(fs_path.get_path())
                     .with_context(|| format!("open file {}", fs_path.get_path().display()))?;
-                return Ok(Box::new(f));
+                let len = f.metadata().ok().map(|m| m.len());
+                return Ok((Box::new(f), len));
             }
         }
 
@@ -456,13 +498,28 @@ impl Vfs {
                 }
                 anyhow::anyhow!("pack not found for folder '{}' (missing {}.bin)", folder, folder)
             })?;
-        vf.open_stream(inner)
+        vf.open_stream_with_len(inner)
+    }
+
+    /// Open a path as a seekable stream.
+    pub fn open_stream(&self, path: &str) -> Result<VfsStream> {
+        self.open_stream_with_len(path).map(|(stream, _)| stream)
+    }
+
+    /// Open a path as a Symphonia-compatible media source for streaming audio.
+    pub fn open_media_source(&self, path: &str) -> Result<VfsMediaSource> {
+        let (stream, byte_len) = self.open_stream_with_len(path)?;
+        Ok(VfsMediaSource::new(stream, byte_len))
     }
 
     /// Legacy convenience: read a path fully into memory.
     pub fn read_file(&self, path: &str) -> Result<Vec<u8>> {
-        let mut r = self.open_stream(path)?;
-        let mut buf = Vec::new();
+        let (mut r, byte_len) = self.open_stream_with_len(path)?;
+        let mut buf = Vec::with_capacity(
+            byte_len
+                .and_then(|n| usize::try_from(n).ok())
+                .unwrap_or(0),
+        );
         r.read_to_end(&mut buf)
             .with_context(|| format!("read all bytes for {}", path))?;
         Ok(buf)

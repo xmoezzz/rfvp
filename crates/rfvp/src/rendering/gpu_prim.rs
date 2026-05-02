@@ -141,6 +141,17 @@ impl GpuPrimRenderer {
         Some((e.generation, e.texture.raw_view(), e.texture.size()))
     }
 
+    pub fn remove_graph_cache(&mut self, graph_id: u16) {
+        self.graph_cache.remove(&graph_id);
+    }
+
+    fn prune_unloaded_graph_cache(&mut self, graphs: &[GraphBuff]) {
+        self.graph_cache.retain(|graph_id, _| match graphs.get(*graph_id as usize) {
+            Some(graph) => graph.get_texture_ready() && graph.get_texture().is_some(),
+            None => false,
+        });
+    }
+
     fn reload_debug_tile_cfg(&mut self) {
         let enabled = std::env::var("FVP_TEST").as_deref() == Ok("1");
 
@@ -855,6 +866,8 @@ impl GpuPrimRenderer {
         let prim_manager = motion.prim_manager();
         let graphs = motion.graphs();
         let snow_motions = motion.snow_motions();
+
+        self.prune_unloaded_graph_cache(graphs);
 
         // 1) draw root tree (slot 0) always
         {

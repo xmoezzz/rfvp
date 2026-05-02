@@ -24,8 +24,8 @@ pub fn audio_load(game_data: &mut GameData, channel: &Variant, path: &Variant) -
     match path {
         Variant::String(path) | Variant::ConstString(path, _) => {
             let path = path.clone();
-            let data = game_data.vfs_load_file(&path)?;
-            if let Err(e) = game_data.bgm_player_mut().load_named(channel, path.clone(), data) {
+            let (vfs, bgm_player) = (&game_data.vfs, &mut game_data.bgm_player);
+            if let Err(e) = bgm_player.load_named(channel, path.clone(), vfs) {
                 log::error!("audio_load: {:?}", e);
             }
             return Ok(Variant::Nil);
@@ -63,12 +63,14 @@ pub fn audio_play(
 
     let looped = looped.canbe_true();
 
-    if let Err(e) = game_data.bgm_player_mut().play(
+    let (vfs, bgm_player) = (&game_data.vfs, &mut game_data.bgm_player);
+    if let Err(e) = bgm_player.play(
         channel,
         looped,
         1.0 as f32,
         0.5,
         kira::Tween::default(),
+        vfs,
     ) {
         log::error!("audio_play: {:?}", e);
     }

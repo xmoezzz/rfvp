@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, path::Path};
 
 use crate::{
     font::Font,
@@ -220,8 +220,163 @@ struct RevealQueueItem {
     logical_cols: i32,
 }
 
+
+#[derive(Clone)]
+struct LoadedFont {
+    // Primary face name exposed to TextFontName/TextFontSet, matching how the original
+    // engine enumerates installed/private fonts by face name rather than by file name.
+    name: String,
+    file_name: String,
+    font: Font,
+}
+
+impl LoadedFont {
+    fn matches_name(&self, requested: &str) -> bool {
+        self.name.eq_ignore_ascii_case(requested)
+            || self.file_name.eq_ignore_ascii_case(requested)
+            || Path::new(&self.file_name)
+                .file_stem()
+                .and_then(|x| x.to_str())
+                .map(|stem| stem.eq_ignore_ascii_case(requested))
+                .unwrap_or(false)
+    }
+}
+
+fn read_be_u16(bytes: &[u8], off: usize) -> Option<u16> {
+    let end = off.checked_add(2)?;
+    let b = bytes.get(off..end)?;
+    Some(u16::from_be_bytes([b[0], b[1]]))
+}
+
+fn read_be_u32(bytes: &[u8], off: usize) -> Option<u32> {
+    let end = off.checked_add(4)?;
+    let b = bytes.get(off..end)?;
+    Some(u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
+}
+
+fn decode_utf16be(bytes: &[u8]) -> Option<String> {
+    if bytes.len() % 2 != 0 {
+        return None;
+    }
+    let mut units = Vec::with_capacity(bytes.len() / 2);
+    let mut i = 0;
+    while i < bytes.len() {
+        units.push(u16::from_be_bytes([bytes[i], bytes[i + 1]]));
+        i += 2;
+    }
+    String::from_utf16(&units).ok().map(|s| s.trim_matches('\0').trim().to_string()).filter(|s| !s.is_empty())
+}
+
+fn decode_mac_roman_ascii_subset(bytes: &[u8]) -> Option<String> {
+    let s: String = bytes
+        .iter()
+        .map(|&b| if b < 0x80 { b as char } else { '?' })
+        .collect();
+    let s = s.trim_matches('\0').trim().to_string();
+    if s.is_empty() { None } else { Some(s) }
+}
+
+fn font_face_table_offset(bytes: &[u8]) -> Option<usize> {
+    if bytes.len() < 12 {
+        return None;
+    }
+    if bytes.get(0..4)? == b"ttcf".as_slice() {
+        let num_faces = read_be_u32(bytes, 8)?;
+        if num_faces == 0 {
+            return None;
+        }
+        return usize::try_from(read_be_u32(bytes, 12)?).ok();
+    }
+    Some(0)
+}
+
+fn find_sfnt_table(bytes: &[u8], face_off: usize, tag: &[u8; 4]) -> Option<(usize, usize)> {
+    let num_tables = read_be_u16(bytes, face_off.checked_add(4)?)? as usize;
+    let records_off = face_off.checked_add(12)?;
+    for i in 0..num_tables {
+        let rec = records_off.checked_add(i.checked_mul(16)?)?;
+        if bytes.get(rec..rec.checked_add(4)?)? == &tag[..] {
+            let off = usize::try_from(read_be_u32(bytes, rec.checked_add(8)?)?).ok()?;
+            let len = usize::try_from(read_be_u32(bytes, rec.checked_add(12)?)?).ok()?;
+            if off.checked_add(len)? <= bytes.len() {
+                return Some((off, len));
+            }
+            return None;
+        }
+    }
+    None
+}
+
+fn font_name_record_score(name_id: u16, platform_id: u16, encoding_id: u16, language_id: u16) -> i32 {
+    let mut score = match name_id {
+        16 => 300, // typographic family
+        1 => 200,  // family
+        4 => 100,  // full name fallback
+        _ => return -1,
+    };
+    match platform_id {
+        3 => {
+            score += 50;
+            if encoding_id == 10 || encoding_id == 1 {
+                score += 10;
+            }
+            if language_id == 0x0411 {
+                score += 10;
+            } else if language_id == 0x0409 {
+                score += 9;
+            }
+        }
+        0 => score += 40,
+        1 => score += 10,
+        _ => {}
+    }
+    score
+}
+
+fn extract_font_face_name(bytes: &[u8]) -> Option<String> {
+    let face_off = font_face_table_offset(bytes)?;
+    let (name_off, name_len) = find_sfnt_table(bytes, face_off, b"name")?;
+    let name_end = name_off.checked_add(name_len)?;
+    let count = read_be_u16(bytes, name_off.checked_add(2)?)? as usize;
+    let string_base = name_off.checked_add(read_be_u16(bytes, name_off.checked_add(4)?)? as usize)?;
+
+    let mut best_score = -1;
+    let mut best_name: Option<String> = None;
+
+    for i in 0..count {
+        let rec = name_off.checked_add(6)?.checked_add(i.checked_mul(12)?)?;
+        let platform_id = read_be_u16(bytes, rec)?;
+        let encoding_id = read_be_u16(bytes, rec.checked_add(2)?)?;
+        let language_id = read_be_u16(bytes, rec.checked_add(4)?)?;
+        let name_id = read_be_u16(bytes, rec.checked_add(6)?)?;
+        let len = read_be_u16(bytes, rec.checked_add(8)?)? as usize;
+        let off = read_be_u16(bytes, rec.checked_add(10)?)? as usize;
+        let score = font_name_record_score(name_id, platform_id, encoding_id, language_id);
+        if score < best_score {
+            continue;
+        }
+        let start = string_base.checked_add(off)?;
+        let end = start.checked_add(len)?;
+        if start < name_off || end > name_end || end > bytes.len() {
+            continue;
+        }
+        let raw = &bytes[start..end];
+        let decoded = match platform_id {
+            0 | 3 => decode_utf16be(raw),
+            1 => decode_mac_roman_ascii_subset(raw),
+            _ => None,
+        };
+        if let Some(name) = decoded {
+            best_score = score;
+            best_name = Some(name);
+        }
+    }
+
+    best_name
+}
+
 pub struct FontEnumerator {
-    // Default fallback font used when id == 0 or when a requested font is missing.
+    // Default fallback font used when a requested font is missing.
     default_font: Font,
 
     // Built-in/system fontfaces indexed by negative ids (-4..-1).
@@ -230,8 +385,8 @@ pub struct FontEnumerator {
     sys_ms_pgothic: Font,
     sys_ms_pmincho: Font,
 
-    // User-loaded fonts list, 1-based id: 1..=fonts.len()
-    fonts: Vec<(String, Font)>,
+    // User-loaded fonts list, 0-based id: 0..fonts.len().
+    fonts: Vec<LoadedFont>,
 
     system_fontface_id: i32,
     current_font_name: String,
@@ -315,6 +470,14 @@ impl FontEnumerator {
             }
 
             let buf = fs::read(&p)?;
+            let file_name = p
+                .file_name()
+                .and_then(|x| x.to_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| p.to_string_lossy().to_string());
+            let name = extract_font_face_name(&buf)
+                .or_else(|| p.file_stem().and_then(|x| x.to_str()).map(|s| s.to_string()))
+                .unwrap_or_else(|| file_name.clone());
             let font = match Font::from_vec(buf) {
                 Ok(f) => f,
                 Err(e) => {
@@ -322,12 +485,13 @@ impl FontEnumerator {
                     continue;
                 }
             };
-            let name = p
-                .file_name()
-                .and_then(|x| x.to_str())
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| p.to_string_lossy().to_string());
-            self.fonts.push((name, font));
+
+            log::info!(
+                "Loaded custom font face '{}' from {}",
+                name,
+                p.display()
+            );
+            self.fonts.push(LoadedFont { name, file_name, font });
             loaded_count += 1;
         }
 
@@ -367,17 +531,17 @@ impl FontEnumerator {
         if cur.eq_ignore_ascii_case("MS PMincho") || cur.eq_ignore_ascii_case("ＭＳ Ｐ明朝") {
             return self.sys_ms_pmincho.clone();
         }
-        for (name, font) in &self.fonts {
-            if name == cur {
-                return Font::clone(font);
+        for loaded in &self.fonts {
+            if loaded.matches_name(cur) {
+                return loaded.font.clone();
             }
             // Backward compatibility: old builds persisted absolute font paths.
             if let Some(legacy_file_name) = std::path::Path::new(cur)
                 .file_name()
                 .and_then(|x| x.to_str())
             {
-                if name == legacy_file_name {
-                    return Font::clone(font);
+                if loaded.matches_name(legacy_file_name) {
+                    return loaded.font.clone();
                 }
             }
         }
@@ -391,9 +555,8 @@ impl FontEnumerator {
     }
 
     /// Font id semantics:
-    /// - id < 0: built-in/system fontfaces (special ids, NOT a bug)
-    /// - id == 0: default fallback font
-    /// - id > 0: user-loaded fonts (1-based)
+    /// - id < 0: original engine fixed fontface ids. These constants must not move.
+    /// - id >= 0: enumerated user/private fonts, 0-based, matching TextFontCount/TextFontName loops.
     pub fn get_font(&self, id: i32) -> Font {
         match id {
             FONTFACE_CURRENT => self.resolve_current_font(),
@@ -401,13 +564,12 @@ impl FontEnumerator {
             FONTFACE_MS_MINCHO => self.sys_ms_mincho.clone(),
             FONTFACE_MS_PGOTHIC => self.sys_ms_pgothic.clone(),
             FONTFACE_MS_PMINCHO => self.sys_ms_pmincho.clone(),
-            0 => self.default_font.clone(),
-            _ if id > 0 => {
-                let idx = (id - 1) as usize;
+            _ if id >= 0 => {
+                let idx = id as usize;
                 if idx >= self.fonts.len() {
                     self.default_font.clone()
                 } else {
-                    Font::clone(&self.fonts[idx].1)
+                    self.fonts[idx].font.clone()
                 }
             }
             _ => self.default_font.clone(),
@@ -423,13 +585,12 @@ impl FontEnumerator {
             FONTFACE_MS_MINCHO => Some("MS Mincho".to_string()),
             FONTFACE_MS_PGOTHIC => Some("MS PGothic".to_string()),
             FONTFACE_MS_PMINCHO => Some("MS PMincho".to_string()),
-            0 => None,
-            _ if id > 0 => {
-                let idx = (id - 1) as usize;
+            _ if id >= 0 => {
+                let idx = id as usize;
                 if idx >= self.fonts.len() {
                     None
                 } else {
-                    Some(self.fonts[idx].0.clone())
+                    Some(self.fonts[idx].name.clone())
                 }
             }
             _ => None,
@@ -438,6 +599,18 @@ impl FontEnumerator {
 
     pub fn get_font_count(&self) -> i32 {
         self.fonts.len() as i32
+    }
+
+    pub fn is_valid_fontface_id(&self, id: i32) -> bool {
+        match id {
+            FONTFACE_CURRENT
+            | FONTFACE_MS_GOTHIC
+            | FONTFACE_MS_MINCHO
+            | FONTFACE_MS_PGOTHIC
+            | FONTFACE_MS_PMINCHO => true,
+            _ if id >= 0 => (id as usize) < self.fonts.len(),
+            _ => false,
+        }
     }
 
     pub fn get_system_fontface_id(&self) -> i32 {

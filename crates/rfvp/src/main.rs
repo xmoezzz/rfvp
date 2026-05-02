@@ -26,6 +26,30 @@ use anyhow::Result;
 use log::LevelFilter;
 use boot::{app_config, load_script};
 use crate::app::App;
+use crate::utils::file::set_base_path;
+
+
+/// Parse `--project-dir <path>` or `--project-dir=<path>` from argv.
+fn parse_project_dir_arg() -> Option<String> {
+    let args: Vec<String> = std::env::args().collect();
+    let mut i = 1;
+    while i < args.len() {
+        let a = &args[i];
+        if let Some(val) = a.strip_prefix("--project-dir=") {
+            if !val.is_empty() {
+                return Some(val.to_string());
+            }
+        } else if a == "--project-dir" {
+            if let Some(val) = args.get(i + 1) {
+                if !val.is_empty() {
+                    return Some(val.to_string());
+                }
+            }
+        }
+        i += 1;
+    }
+    None
+}
 
 /// Parse `--nls <value>` or `--nls=<value>` from argv, default to ShiftJIS.
 fn parse_nls_arg() -> Nls {
@@ -62,6 +86,9 @@ fn parse_nls_arg() -> Nls {
 fn main() -> Result<()> {
     // let _profiler = dhat::Profiler::new_heap();
     // env_logger::init();
+    if let Some(project_dir) = parse_project_dir_arg() {
+        set_base_path(&project_dir);
+    }
     let nls = parse_nls_arg();
     let parser = load_script(nls)?;
     let title  = parser.get_title();
@@ -104,7 +131,7 @@ mod tests {
             ..Default::default()
         };
         fade_in.duration = Duration::from_secs(0);
-        world.bgm_player_mut().play(0, true, 1.0, 0.5, fade_in).unwrap();
+        world.bgm_player_mut().play(0, true, 1.0, 0.5, fade_in, &vfs).unwrap();
         sleep(Duration::from_secs(20));
     }
 
@@ -126,8 +153,8 @@ mod tests {
         };
         world.bgm_player_mut().load(1, buff2).unwrap();
         fade_in.duration = Duration::from_secs(0);
-        world.bgm_player_mut().play(0, true, 1.0, 0.5, fade_in).unwrap();
-        world.bgm_player_mut().play(1, true, 1.0, 0.5, fade_in).unwrap();
+        world.bgm_player_mut().play(0, true, 1.0, 0.5, fade_in, &vfs).unwrap();
+        world.bgm_player_mut().play(1, true, 1.0, 0.5, fade_in, &vfs).unwrap();
         sleep(Duration::from_secs(20));
     }
 }

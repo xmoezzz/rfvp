@@ -67,6 +67,7 @@ itertools = "0.12.1"
 petitset = "0.2.1"
 tracing = "0.1.37"
 kira = "0.10.8"
+symphonia-core = "0.5.5"
 
 uuid = { version = "1.19.0", features = ["js"] }
 

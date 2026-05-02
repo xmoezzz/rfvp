@@ -63,6 +63,7 @@ pub struct MotionManager {
     pub(crate) parts_manager: AtomicRefCell<PartsManager>,
     pub(crate) gaiji_manager: GaijiManager,
     textures: Vec<GraphBuff>,
+    pending_gpu_graph_unloads: Vec<u16>,
     pub(crate) text_manager: TextManager,
     mask_prim: Prim,
     dissolve_type: DissolveType,
@@ -92,6 +93,10 @@ pub fn graphs(&self) -> &[GraphBuff] {
     &self.textures
 }
 
+pub fn take_pending_gpu_graph_unloads(&mut self) -> Vec<u16> {
+    std::mem::take(&mut self.pending_gpu_graph_unloads)
+}
+
 /// Read-only access for snow renderer.
 pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
     self.snow_motion_container.motions()
@@ -114,6 +119,7 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
             color_manager: ColorManager::new(),
             parts_manager,
             textures: vec![GraphBuff::new(); 4096],
+            pending_gpu_graph_unloads: Vec::new(),
             gaiji_manager: GaijiManager::new(),
             text_manager: TextManager::new(),
             mask_prim: Prim::new(),
@@ -738,6 +744,7 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
     pub fn unload_graph(&mut self, id: u16) {
         let graph = &mut self.textures[id as usize];
         graph.unload();
+        self.pending_gpu_graph_unloads.push(id);
     }
 
     pub fn graph_color_tone(&mut self, id: u16, r: i32, g: i32, b: i32) {

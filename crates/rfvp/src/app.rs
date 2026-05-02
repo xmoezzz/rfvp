@@ -813,6 +813,9 @@ impl App {
 
         {
             let mut gd = gd_write(&self.game_data);
+            for graph_id in gd.motion_manager.take_pending_gpu_graph_unloads() {
+                self.prim_renderer.remove_graph_cache(graph_id);
+            }
             let surface_size = (self.surface_config.width, self.surface_config.height);
             self.legacy_save_load_ui
                 .update(&self.resources, &mut **gd, self.virtual_size, surface_size);

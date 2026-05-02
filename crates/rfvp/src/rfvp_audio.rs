@@ -3,6 +3,8 @@ use std::sync::Mutex;
 
 use kira::{AudioManager as KiraAudioManager, AudioManagerSettings, Tween};
 use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle};
+use kira::sound::streaming::{StreamingSoundData, StreamingSoundHandle};
+use kira::sound::FromFileError;
 
 pub struct AudioManager {
     manager: Mutex<KiraAudioManager>,
@@ -37,6 +39,14 @@ impl AudioManager {
     pub fn play(&self, data: StaticSoundData) -> StaticSoundHandle {
         let mut mgr = self.manager.lock().unwrap();
         mgr.play(data).expect("failed to play sound")
+    }
+
+    pub fn play_streaming(
+        &self,
+        data: StreamingSoundData<FromFileError>,
+    ) -> StreamingSoundHandle<FromFileError> {
+        let mut mgr = self.manager.lock().unwrap();
+        mgr.play(data).expect("failed to play streaming sound")
     }
 
     pub fn master_vol(&self, vol: f32) {
