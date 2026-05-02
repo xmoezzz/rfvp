@@ -12,6 +12,7 @@ mod rfvp_render;
 mod rfvp_audio;
 mod vm_runner;
 mod trace;
+mod font;
 mod boot;
 mod legacy_save_load_ui;
 mod exit_confirm_ui;
@@ -53,7 +54,13 @@ fn parse_nls_arg() -> Nls {
     Nls::ShiftJIS
 }
 
+// use dhat;
+
+// #[global_allocator]
+// static ALLOC: dhat::Alloc = dhat::Alloc;
+
 fn main() -> Result<()> {
+    // let _profiler = dhat::Profiler::new_heap();
     // env_logger::init();
     let nls = parse_nls_arg();
     let parser = load_script(nls)?;

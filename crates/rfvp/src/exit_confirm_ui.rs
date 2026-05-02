@@ -1,4 +1,4 @@
-use fontdue::{Font, LineMetrics};
+use crate::font::{Font, LineMetrics};
 use glam::{Mat4, Vec2, Vec3, Vec4};
 use image::{DynamicImage, Rgba, RgbaImage};
 use wgpu::util::DeviceExt;
@@ -40,7 +40,7 @@ pub struct ExitConfirmUi {
 }
 
 impl ExitConfirmUi {
-    pub fn new(resources: &GpuCommonResources, _virtual_size: (u32, u32)) -> Self {
+    pub fn new(resources: &GpuCommonResources, _virtual_size: (u32, u32), font: Font) -> Self {
         let img = DynamicImage::ImageRgba8(RgbaImage::from_pixel(1, 1, Rgba([0, 0, 0, 0])));
         let texture = GpuTexture::new(resources, &img, Some("exit_confirm_ui"));
 
@@ -61,12 +61,6 @@ impl ExitConfirmUi {
             contents: bytemuck::cast_slice(&indices),
             usage: wgpu::BufferUsages::INDEX,
         });
-
-        let font = Font::from_bytes(
-            include_bytes!("subsystem/resources/fonts/MSGOTHIC.TTF") as &[u8],
-            fontdue::FontSettings::default(),
-        )
-        .expect("embedded MSGOTHIC.TTF must be valid");
 
         Self {
             active: false,

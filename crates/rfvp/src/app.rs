@@ -2315,8 +2315,13 @@ impl AppBuilder {
         // NOTE: iOS main-thread stack is small. Avoid constructing large `App` values on the stack.
         // Initialize `App` directly on the heap, then run `setup()`.
         let prim_renderer = GpuPrimRenderer::new(resources.clone(), self.size);
-        let legacy_save_load_ui = LegacySaveLoadUi::new(&resources, self.size);
-        let exit_confirm_ui = ExitConfirmUi::new(&resources, self.size);
+        // Share a single MS Gothic font instance with both UIs to avoid
+        // re-parsing the embedded TTF (Font::clone is a refcount bump).
+        let ui_font = gd_read(&game_data)
+            .fontface_manager
+            .get_font(crate::subsystem::resources::text_manager::FONTFACE_MS_GOTHIC);
+        let legacy_save_load_ui = LegacySaveLoadUi::new(&resources, self.size, ui_font.clone());
+        let exit_confirm_ui = ExitConfirmUi::new(&resources, self.size, ui_font);
         let layer_machine = SceneMachine {
             current_scene: self.scene,
         };
@@ -2492,8 +2497,13 @@ impl AppBuilder {
         let vm_worker = VmWorker::spawn(game_data.clone(), self.parser, self.script_engine);
 
         let prim_renderer = GpuPrimRenderer::new(resources.clone(), self.size);
-        let legacy_save_load_ui = LegacySaveLoadUi::new(&resources, self.size);
-        let exit_confirm_ui = ExitConfirmUi::new(&resources, self.size);
+        // Share a single MS Gothic font instance with both UIs to avoid
+        // re-parsing the embedded TTF (Font::clone is a refcount bump).
+        let ui_font = gd_read(&game_data)
+            .fontface_manager
+            .get_font(crate::subsystem::resources::text_manager::FONTFACE_MS_GOTHIC);
+        let legacy_save_load_ui = LegacySaveLoadUi::new(&resources, self.size, ui_font.clone());
+        let exit_confirm_ui = ExitConfirmUi::new(&resources, self.size, ui_font);
         let layer_machine = SceneMachine {
             current_scene: self.scene,
         };
@@ -2657,8 +2667,13 @@ impl AppBuilder {
         let vm_worker = VmWorker::spawn(game_data.clone(), self.parser, self.script_engine);
 
         let prim_renderer = GpuPrimRenderer::new(resources.clone(), self.size);
-        let legacy_save_load_ui = LegacySaveLoadUi::new(&resources, self.size);
-        let exit_confirm_ui = ExitConfirmUi::new(&resources, self.size);
+        // Share a single MS Gothic font instance with both UIs to avoid
+        // re-parsing the embedded TTF (Font::clone is a refcount bump).
+        let ui_font = gd_read(&game_data)
+            .fontface_manager
+            .get_font(crate::subsystem::resources::text_manager::FONTFACE_MS_GOTHIC);
+        let legacy_save_load_ui = LegacySaveLoadUi::new(&resources, self.size, ui_font.clone());
+        let exit_confirm_ui = ExitConfirmUi::new(&resources, self.size, ui_font);
         let layer_machine = SceneMachine {
             current_scene: self.scene,
         };
@@ -2819,8 +2834,13 @@ impl AppBuilder {
         let vm_worker = VmWorker::spawn(game_data.clone(), self.parser, self.script_engine);
 
         let prim_renderer = GpuPrimRenderer::new(resources.clone(), self.size);
-        let legacy_save_load_ui = LegacySaveLoadUi::new(&resources, self.size);
-        let exit_confirm_ui = ExitConfirmUi::new(&resources, self.size);
+        // Share a single MS Gothic font instance with both UIs to avoid
+        // re-parsing the embedded TTF (Font::clone is a refcount bump).
+        let ui_font = gd_read(&game_data)
+            .fontface_manager
+            .get_font(crate::subsystem::resources::text_manager::FONTFACE_MS_GOTHIC);
+        let legacy_save_load_ui = LegacySaveLoadUi::new(&resources, self.size, ui_font.clone());
+        let exit_confirm_ui = ExitConfirmUi::new(&resources, self.size, ui_font);
         let layer_machine = SceneMachine {
             current_scene: self.scene,
         };

@@ -15,6 +15,7 @@ pub mod vm_worker;
 pub mod debug_ui;
 pub mod trace;
 pub mod boot;
+pub mod font;
 pub mod legacy_save_load_ui;
 pub mod exit_confirm_ui;
 pub(crate) mod platform_time;

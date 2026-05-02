@@ -1,11 +1,11 @@
 use std::fs;
 
 use crate::{
+    font::Font,
     subsystem::resources::color_manager::ColorItem,
     utils::file::app_base_path,
 };
 use anyhow::{anyhow, bail, Result};
-use atomic_refcell::AtomicRefCell;
 use serde::{Deserialize, Serialize};
 use super::gaiji_manager::GaijiManager;
 
@@ -222,16 +222,16 @@ struct RevealQueueItem {
 
 pub struct FontEnumerator {
     // Default fallback font used when id == 0 or when a requested font is missing.
-    default_font: AtomicRefCell<fontdue::Font>,
+    default_font: Font,
 
     // Built-in/system fontfaces indexed by negative ids (-4..-1).
-    sys_ms_gothic: AtomicRefCell<fontdue::Font>,
-    sys_ms_mincho: AtomicRefCell<fontdue::Font>,
-    sys_ms_pgothic: AtomicRefCell<fontdue::Font>,
-    sys_ms_pmincho: AtomicRefCell<fontdue::Font>,
+    sys_ms_gothic: Font,
+    sys_ms_mincho: Font,
+    sys_ms_pgothic: Font,
+    sys_ms_pmincho: Font,
 
     // User-loaded fonts list, 1-based id: 1..=fonts.len()
-    fonts: Vec<(String, AtomicRefCell<fontdue::Font>)>,
+    fonts: Vec<(String, Font)>,
 
     system_fontface_id: i32,
     current_font_name: String,
@@ -247,26 +247,27 @@ impl FontEnumerator {
     pub fn new() -> Self {
         // System fontfaces (special negative ids).
         // These font files are shipped with the project under ./fonts/.
+        // ab_glyph parses the font header lazily and only outlines glyphs on
+        // demand, so this is cheap (~MB of resident bytes vs ~80 MB of
+        // pre-outlined geometry under fontdue).
         let msgothic_b = include_bytes!("./fonts/MSGOTHIC.TTF") as &[u8];
         let msmincho_b = include_bytes!("./fonts/MSMINCHO.TTF") as &[u8];
         let mspgothic_b = include_bytes!("./fonts/MS-PGothic.ttf") as &[u8];
         let mspmincho_b = include_bytes!("./fonts/MS-PMincho-2.ttf") as &[u8];
 
-        let msgothic = fontdue::Font::from_bytes(msgothic_b, fontdue::FontSettings::default())
+        let msgothic = Font::from_static(msgothic_b)
             .expect("MSGOTHIC.TTF must be valid");
-        let msmincho = fontdue::Font::from_bytes(msmincho_b, fontdue::FontSettings::default())
-            .unwrap_or_else(|_| msgothic.clone());
-        let mspgothic = fontdue::Font::from_bytes(mspgothic_b, fontdue::FontSettings::default())
-            .unwrap_or_else(|_| msgothic.clone());
-        let mspmincho = fontdue::Font::from_bytes(mspmincho_b, fontdue::FontSettings::default())
-            .unwrap_or_else(|_| msgothic.clone());
+        // Cloning a `Font` is a refcount bump, not a deep copy.
+        let msmincho = Font::from_static(msmincho_b).unwrap_or_else(|_| msgothic.clone());
+        let mspgothic = Font::from_static(mspgothic_b).unwrap_or_else(|_| msgothic.clone());
+        let mspmincho = Font::from_static(mspmincho_b).unwrap_or_else(|_| msgothic.clone());
 
         Self {
-            default_font: AtomicRefCell::new(msgothic.clone()),
-            sys_ms_gothic: AtomicRefCell::new(msgothic),
-            sys_ms_mincho: AtomicRefCell::new(msmincho),
-            sys_ms_pgothic: AtomicRefCell::new(mspgothic),
-            sys_ms_pmincho: AtomicRefCell::new(mspmincho),
+            default_font: msgothic.clone(),
+            sys_ms_gothic: msgothic,
+            sys_ms_mincho: msmincho,
+            sys_ms_pgothic: mspgothic,
+            sys_ms_pmincho: mspmincho,
             fonts: vec![],
             system_fontface_id: FONTFACE_MS_GOTHIC,
             current_font_name: "MS Gothic".to_string(),
@@ -314,7 +315,7 @@ impl FontEnumerator {
             }
 
             let buf = fs::read(&p)?;
-            let font = match fontdue::Font::from_bytes(buf, fontdue::FontSettings::default()) {
+            let font = match Font::from_vec(buf) {
                 Ok(f) => f,
                 Err(e) => {
                     log::error!("Warning: failed to load font {:?}: {}", p, e);
@@ -326,7 +327,7 @@ impl FontEnumerator {
                 .and_then(|x| x.to_str())
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| p.to_string_lossy().to_string());
-            self.fonts.push((name, AtomicRefCell::new(font)));
+            self.fonts.push((name, font));
             loaded_count += 1;
         }
 
@@ -352,7 +353,7 @@ impl FontEnumerator {
         &self.current_font_name
     }
 
-    fn resolve_current_font(&self) -> AtomicRefCell<fontdue::Font> {
+    fn resolve_current_font(&self) -> Font {
         let cur = self.current_font_name.as_str();
         if cur.eq_ignore_ascii_case("MS Gothic") || cur.eq_ignore_ascii_case("ＭＳ ゴシック") {
             return self.sys_ms_gothic.clone();
@@ -368,7 +369,7 @@ impl FontEnumerator {
         }
         for (name, font) in &self.fonts {
             if name == cur {
-                return font.clone();
+                return Font::clone(font);
             }
             // Backward compatibility: old builds persisted absolute font paths.
             if let Some(legacy_file_name) = std::path::Path::new(cur)
@@ -376,7 +377,7 @@ impl FontEnumerator {
                 .and_then(|x| x.to_str())
             {
                 if name == legacy_file_name {
-                    return font.clone();
+                    return Font::clone(font);
                 }
             }
         }
@@ -393,7 +394,7 @@ impl FontEnumerator {
     /// - id < 0: built-in/system fontfaces (special ids, NOT a bug)
     /// - id == 0: default fallback font
     /// - id > 0: user-loaded fonts (1-based)
-    pub fn get_font(&self, id: i32) -> AtomicRefCell<fontdue::Font> {
+    pub fn get_font(&self, id: i32) -> Font {
         match id {
             FONTFACE_CURRENT => self.resolve_current_font(),
             FONTFACE_MS_GOTHIC => self.sys_ms_gothic.clone(),
@@ -406,7 +407,7 @@ impl FontEnumerator {
                 if idx >= self.fonts.len() {
                     self.default_font.clone()
                 } else {
-                    self.fonts[idx].1.clone()
+                    Font::clone(&self.fonts[idx].1)
                 }
             }
             _ => self.default_font.clone(),
@@ -847,7 +848,7 @@ impl TextItem {
 
     fn measure_char_advance(
         &self,
-        font: &fontdue::Font,
+        font: &Font,
         size: f32,
         _gaiji: &GaijiManager,
         _size_slot: u8,
@@ -863,7 +864,7 @@ impl TextItem {
 
     fn measure_string_unit_advance(
         &self,
-        font: &fontdue::Font,
+        font: &Font,
         size: f32,
         gaiji: &GaijiManager,
         size_slot: u8,
@@ -880,7 +881,7 @@ impl TextItem {
 
     fn measure_special_unit_advance(
         &self,
-        font: &fontdue::Font,
+        font: &Font,
         size: f32,
         gaiji: &GaijiManager,
         size_slot: u8,
@@ -896,8 +897,8 @@ impl TextItem {
 
     fn measure_item_advance(
         &self,
-        main_font: &fontdue::Font,
-        ruby_font: &fontdue::Font,
+        main_font: &Font,
+        ruby_font: &Font,
         main_size: f32,
         ruby_size: f32,
         gaiji: &GaijiManager,
@@ -1227,7 +1228,7 @@ impl TextItem {
 
     fn char_draw_bounds(
         &self,
-        font: &fontdue::Font,
+        font: &Font,
         size: f32,
         x: i32,
         y: i32,
@@ -1331,7 +1332,7 @@ impl TextItem {
         buf: &mut [u8],
         bw: u32,
         bh: u32,
-        font: &fontdue::Font,
+        font: &Font,
         size: f32,
         _gaiji: &GaijiManager,
         _size_slot: u8,
@@ -1449,7 +1450,7 @@ impl TextItem {
         buf: &mut [u8],
         bw: u32,
         bh: u32,
-        font: &fontdue::Font,
+        font: &Font,
         size: f32,
         gaiji: &GaijiManager,
         size_slot: u8,
@@ -1632,10 +1633,8 @@ impl TextItem {
             return Ok(());
         }
 
-        let main_font_cell = fonts.get_font(self.text_font_idx1);
-        let main_font_ref = main_font_cell.borrow();
-        let ruby_font_cell = fonts.get_font(self.text_font_idx2);
-        let ruby_font_ref = ruby_font_cell.borrow();
+        let main_font = fonts.get_font(self.text_font_idx1);
+        let ruby_font = fonts.get_font(self.text_font_idx2);
 
         let render_scale = self.effective_render_scale();
         let (bw, bh) = self.raster_dimensions();
@@ -1653,7 +1652,7 @@ impl TextItem {
         let main_slot: u8 = if self.text_size1 == 0 { 16 } else { self.text_size1 };
         let ruby_slot: u8 = if self.text_size2 == 0 { (main_slot as f32 * 0.6).round().clamp(8.0, 64.0) as u8 } else { self.text_size2 };
 
-        let lm = main_font_ref.horizontal_line_metrics(main_layout_size);
+        let lm = main_font.horizontal_line_metrics(main_layout_size);
         let ascent_f = lm.map(|m| m.ascent).unwrap_or(main_layout_size);
         let descent_f = lm.map(|m| m.descent).unwrap_or(-main_layout_size * 0.25);
         let line_gap_f = lm.map(|m| m.line_gap).unwrap_or(0.0);
@@ -1670,7 +1669,7 @@ impl TextItem {
             0
         };
         let (line_top_reserve, line_bottom_reserve) = if self.ruby_text_mode == 2 {
-            let rlm = ruby_font_ref.horizontal_line_metrics(ruby_layout_size);
+            let rlm = ruby_font.horizontal_line_metrics(ruby_layout_size);
             let ruby_ascent_f = rlm.map(|m| m.ascent).unwrap_or(ruby_layout_size);
             let ruby_descent_f = rlm.map(|m| m.descent).unwrap_or(-ruby_layout_size * 0.25);
             let ruby_top_reserve = ruby_ascent_f.ceil() as i32 + self.outline_size2 as i32;
@@ -1714,8 +1713,8 @@ impl TextItem {
                 FontItem::SpecialUnit(s) => {
                     let item_for_measure = FontItem::SpecialUnit(s.clone());
                     let item_adv = self.measure_item_advance(
-                        &main_font_ref,
-                        &ruby_font_ref,
+                        &main_font,
+                        &ruby_font,
                         main_size,
                         ruby_size,
                         gaiji,
@@ -1738,19 +1737,19 @@ impl TextItem {
                             i32::MAX, true, render_scale,
                         );
                         item_bounds = self.gaiji_draw_bounds_scaled(gb, draw_x, draw_y, render_scale);
-                        let adv = self.measure_special_unit_advance(&main_font_ref, main_size, gaiji, main_slot, &s, self.outline_size1, self.shadow_distance);
+                        let adv = self.measure_special_unit_advance(&main_font, main_size, gaiji, main_slot, &s, self.outline_size1, self.shadow_distance);
                         pen_x += adv + self.main_gap_x as i32;
                     } else {
                         let mut unit_x = pen_x;
                         for ch in s.chars() {
-                            let logical_adv = self.measure_char_advance(&main_font_ref, main_size, gaiji, main_slot, ch, self.outline_size1, self.shadow_distance);
+                            let logical_adv = self.measure_char_advance(&main_font, main_size, gaiji, main_slot, ch, self.outline_size1, self.shadow_distance);
                             let draw_x = Self::scale_pos_i32(unit_x, render_scale);
                             let draw_y = Self::scale_pos_i32(pen_y, render_scale);
                             self.draw_char(
-                                &mut full_buffer, bw, bh, &main_font_ref, main_draw_size, gaiji, main_slot, draw_x, draw_y, ch,
+                                &mut full_buffer, bw, bh, &main_font, main_draw_size, gaiji, main_slot, draw_x, draw_y, ch,
                                 &self.color1, draw_outline1, &self.color2, draw_shadow, &self.color3, i32::MAX, true,
                             );
-                            item_bounds = item_bounds.union(self.char_draw_bounds(&main_font_ref, main_draw_size, draw_x, draw_y, ch, draw_outline1, draw_shadow));
+                            item_bounds = item_bounds.union(self.char_draw_bounds(&main_font, main_draw_size, draw_x, draw_y, ch, draw_outline1, draw_shadow));
                             unit_x += logical_adv;
                         }
                         pen_x = unit_x + self.main_gap_x as i32;
@@ -1768,8 +1767,8 @@ impl TextItem {
 
                     let item_for_measure = FontItem::Font(ch);
                     let item_adv = self.measure_item_advance(
-                        &main_font_ref,
-                        &ruby_font_ref,
+                        &main_font,
+                        &ruby_font,
                         main_size,
                         ruby_size,
                         gaiji,
@@ -1783,14 +1782,14 @@ impl TextItem {
                         pen_y += line_h;
                     }
 
-                    let logical_adv = self.measure_char_advance(&main_font_ref, main_size, gaiji, main_slot, ch, self.outline_size1, self.shadow_distance);
+                    let logical_adv = self.measure_char_advance(&main_font, main_size, gaiji, main_slot, ch, self.outline_size1, self.shadow_distance);
                     let draw_x = Self::scale_pos_i32(pen_x, render_scale);
                     let draw_y = Self::scale_pos_i32(pen_y, render_scale);
                     self.draw_char(
-                        &mut full_buffer, bw, bh, &main_font_ref, main_draw_size, gaiji, main_slot, draw_x, draw_y, ch,
+                        &mut full_buffer, bw, bh, &main_font, main_draw_size, gaiji, main_slot, draw_x, draw_y, ch,
                         &self.color1, draw_outline1, &self.color2, draw_shadow, &self.color3, i32::MAX, true,
                     );
-                    let bounds = self.char_draw_bounds(&main_font_ref, main_draw_size, draw_x, draw_y, ch, draw_outline1, draw_shadow);
+                    let bounds = self.char_draw_bounds(&main_font, main_draw_size, draw_x, draw_y, ch, draw_outline1, draw_shadow);
                     pen_x += logical_adv + self.main_gap_x as i32;
                     queue_reveal_rect(&mut reveal_queue, &mut total_required_units, bounds, &full_buffer);
                     line_has_any = true;
@@ -1798,8 +1797,8 @@ impl TextItem {
                 FontItem::RubyFont(ruby, base) => {
                     let item_for_measure = FontItem::RubyFont(ruby.clone(), base.clone());
                     let item_adv = self.measure_item_advance(
-                        &main_font_ref,
-                        &ruby_font_ref,
+                        &main_font,
+                        &ruby_font,
                         main_size,
                         ruby_size,
                         gaiji,
@@ -1823,14 +1822,14 @@ impl TextItem {
                     let mut base_total_adv = 0i32;
 
                     for ch in base.iter() {
-                        let logical_adv = self.measure_char_advance(&main_font_ref, main_size, gaiji, main_slot, *ch, self.outline_size1, self.shadow_distance);
+                        let logical_adv = self.measure_char_advance(&main_font, main_size, gaiji, main_slot, *ch, self.outline_size1, self.shadow_distance);
                         let draw_x = Self::scale_pos_i32(pen_x, render_scale);
                         let draw_y = Self::scale_pos_i32(pen_y, render_scale);
                         self.draw_char(
-                            &mut full_buffer, bw, bh, &main_font_ref, main_draw_size, gaiji, main_slot, draw_x, draw_y, *ch,
+                            &mut full_buffer, bw, bh, &main_font, main_draw_size, gaiji, main_slot, draw_x, draw_y, *ch,
                             &self.color1, draw_outline1, &self.color2, draw_shadow, &self.color3, i32::MAX, true,
                         );
-                        item_bounds = item_bounds.union(self.char_draw_bounds(&main_font_ref, main_draw_size, draw_x, draw_y, *ch, draw_outline1, draw_shadow));
+                        item_bounds = item_bounds.union(self.char_draw_bounds(&main_font, main_draw_size, draw_x, draw_y, *ch, draw_outline1, draw_shadow));
                         pen_x += logical_adv + self.main_gap_x as i32;
                         base_total_adv += logical_adv + self.main_gap_x as i32;
                     }
@@ -1838,20 +1837,20 @@ impl TextItem {
                     let ruby_y = pen_y - ruby_baseline_up;
                     let mut ruby_width = 0i32;
                     for rch in ruby.iter() {
-                        ruby_width += self.measure_char_advance(&ruby_font_ref, ruby_size, gaiji, ruby_slot, *rch, self.outline_size2, self.shadow_distance)
+                        ruby_width += self.measure_char_advance(&ruby_font, ruby_size, gaiji, ruby_slot, *rch, self.outline_size2, self.shadow_distance)
                             + self.ruby_gap_x as i32;
                     }
                     let mut ruby_x = base_start_x + (base_total_adv - ruby_width) / 2;
 
                     for rch in ruby {
-                        let logical_adv = self.measure_char_advance(&ruby_font_ref, ruby_size, gaiji, ruby_slot, rch, self.outline_size2, self.shadow_distance);
+                        let logical_adv = self.measure_char_advance(&ruby_font, ruby_size, gaiji, ruby_slot, rch, self.outline_size2, self.shadow_distance);
                         let draw_x = Self::scale_pos_i32(ruby_x, render_scale);
                         let draw_y = Self::scale_pos_i32(ruby_y, render_scale);
                         self.draw_char(
-                            &mut full_buffer, bw, bh, &ruby_font_ref, ruby_draw_size, gaiji, ruby_slot, draw_x, draw_y, rch,
+                            &mut full_buffer, bw, bh, &ruby_font, ruby_draw_size, gaiji, ruby_slot, draw_x, draw_y, rch,
                             &self.color1, draw_outline2, &self.color2, draw_shadow, &self.color3, i32::MAX, true,
                         );
-                        item_bounds = item_bounds.union(self.char_draw_bounds(&ruby_font_ref, ruby_draw_size, draw_x, draw_y, rch, draw_outline2, draw_shadow));
+                        item_bounds = item_bounds.union(self.char_draw_bounds(&ruby_font, ruby_draw_size, draw_x, draw_y, rch, draw_outline2, draw_shadow));
                         ruby_x += logical_adv + self.ruby_gap_x as i32;
                     }
 
