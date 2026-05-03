@@ -98,6 +98,11 @@ impl Font {
         })
     }
 
+    /// Return whether the font has a real cmap entry for this character.
+    pub fn has_glyph(&self, ch: char) -> bool {
+        self.inner.glyph_id(ch).0 != 0
+    }
+
     /// Glyph metrics without rasterizing.
     pub fn metrics(&self, ch: char, size: f32) -> Metrics {
         self.glyph_metrics_internal(ch, size, false).0
