@@ -244,12 +244,13 @@ impl LoadedFont {
 
 struct FontFallbackSet {
     primary: Font,
+    preferred_cjk: Vec<Font>,
     fallbacks: Vec<Font>,
 }
 
 impl FontFallbackSet {
-    fn new(primary: Font, fallbacks: Vec<Font>) -> Self {
-        Self { primary, fallbacks }
+    fn new(primary: Font, preferred_cjk: Vec<Font>, fallbacks: Vec<Font>) -> Self {
+        Self { primary, preferred_cjk, fallbacks }
     }
 
     fn primary(&self) -> &Font {
@@ -257,6 +258,11 @@ impl FontFallbackSet {
     }
 
     fn for_char(&self, ch: char) -> &Font {
+        if is_cjk_text_char(ch) {
+            if let Some(font) = self.preferred_cjk.iter().find(|font| font.has_glyph(ch)) {
+                return font;
+            }
+        }
         if self.primary.has_glyph(ch) {
             return &self.primary;
         }
@@ -265,6 +271,28 @@ impl FontFallbackSet {
             .find(|font| font.has_glyph(ch))
             .unwrap_or(&self.primary)
     }
+}
+
+fn is_cjk_text_char(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0x2E80..=0x2EFF
+            | 0x3000..=0x303F
+            | 0x31C0..=0x31EF
+            | 0x3200..=0x32FF
+            | 0x3300..=0x33FF
+            | 0x3400..=0x4DBF
+            | 0x4E00..=0x9FFF
+            | 0xF900..=0xFAFF
+            | 0xFE10..=0xFE1F
+            | 0xFE30..=0xFE4F
+            | 0x20000..=0x2A6DF
+            | 0x2A700..=0x2B73F
+            | 0x2B740..=0x2B81F
+            | 0x2B820..=0x2CEAF
+            | 0x2CEB0..=0x2EBEF
+            | 0x30000..=0x3134F
+    )
 }
 
 fn is_font_file(path: &Path) -> bool {
@@ -684,6 +712,18 @@ impl FontEnumerator {
         &self.current_font_name
     }
 
+    fn current_font_is_user_loaded(&self) -> bool {
+        let cur = self.current_font_name.as_str();
+        self.fonts.iter().any(|loaded| {
+            loaded.matches_name(cur)
+                || std::path::Path::new(cur)
+                    .file_name()
+                    .and_then(|x| x.to_str())
+                    .map(|legacy_file_name| loaded.matches_name(legacy_file_name))
+                    .unwrap_or(false)
+        })
+    }
+
     fn resolve_current_font(&self) -> Font {
         let cur = self.current_font_name.as_str();
         if cur.eq_ignore_ascii_case("MS Gothic") || cur.eq_ignore_ascii_case("ＭＳ ゴシック") {
@@ -745,15 +785,32 @@ impl FontEnumerator {
 
     fn get_font_fallback_set(&self, id: i32) -> FontFallbackSet {
         let primary = self.get_font(id);
+        let prefer_game_cjk = match id {
+            FONTFACE_MS_GOTHIC | FONTFACE_MS_MINCHO | FONTFACE_MS_PGOTHIC | FONTFACE_MS_PMINCHO => true,
+            FONTFACE_CURRENT => !self.current_font_is_user_loaded(),
+            _ => false,
+        };
+        let mut preferred_cjk = if prefer_game_cjk {
+            Vec::with_capacity(self.fonts.len() + self.system_fallback_fonts.len())
+        } else {
+            Vec::new()
+        };
         let mut fallbacks = Vec::with_capacity(self.fonts.len() + self.system_fallback_fonts.len() + 4);
 
-        // Prefer game-provided/private fonts for fallback. Chinese localizations
-        // often ship a CJK font but still request one of the original MS Gothic
-        // faces in script, so missing glyphs should be satisfied from these first.
+        // Chinese localizations often ship a CJK font but still request one of
+        // the original MS Gothic faces in script. For built-in/default faces,
+        // let those packaged fonts own CJK glyphs even when MS Gothic has a
+        // Japanese glyph for the same codepoint.
         for loaded in &self.fonts {
+            if prefer_game_cjk {
+                preferred_cjk.push(loaded.font.clone());
+            }
             fallbacks.push(loaded.font.clone());
         }
         for loaded in &self.system_fallback_fonts {
+            if prefer_game_cjk {
+                preferred_cjk.push(loaded.font.clone());
+            }
             fallbacks.push(loaded.font.clone());
         }
 
@@ -761,7 +818,7 @@ impl FontEnumerator {
         fallbacks.push(self.sys_ms_mincho.clone());
         fallbacks.push(self.sys_ms_pgothic.clone());
         fallbacks.push(self.sys_ms_pmincho.clone());
-        FontFallbackSet::new(primary, fallbacks)
+        FontFallbackSet::new(primary, preferred_cjk, fallbacks)
     }
 
     pub fn get_font_name(&self, id: i32) -> Option<String> {
