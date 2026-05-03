@@ -1,4 +1,4 @@
-use std::{fs, path::Path};
+use std::{fs, path::{Path, PathBuf}};
 
 use crate::{
     font::Font,
@@ -242,6 +242,174 @@ impl LoadedFont {
     }
 }
 
+struct FontFallbackSet {
+    primary: Font,
+    preferred_cjk: Vec<Font>,
+    fallbacks: Vec<Font>,
+}
+
+impl FontFallbackSet {
+    fn new(primary: Font, preferred_cjk: Vec<Font>, fallbacks: Vec<Font>) -> Self {
+        Self { primary, preferred_cjk, fallbacks }
+    }
+
+    fn primary(&self) -> &Font {
+        &self.primary
+    }
+
+    fn for_char(&self, ch: char) -> &Font {
+        if is_cjk_text_char(ch) {
+            if let Some(font) = self.preferred_cjk.iter().find(|font| font.has_glyph(ch)) {
+                return font;
+            }
+        }
+        if self.primary.has_glyph(ch) {
+            return &self.primary;
+        }
+        self.fallbacks
+            .iter()
+            .find(|font| font.has_glyph(ch))
+            .unwrap_or(&self.primary)
+    }
+}
+
+fn is_cjk_text_char(ch: char) -> bool {
+    matches!(
+        ch as u32,
+        0x2E80..=0x2EFF
+            | 0x3000..=0x303F
+            | 0x31C0..=0x31EF
+            | 0x3200..=0x32FF
+            | 0x3300..=0x33FF
+            | 0x3400..=0x4DBF
+            | 0x4E00..=0x9FFF
+            | 0xF900..=0xFAFF
+            | 0xFE10..=0xFE1F
+            | 0xFE30..=0xFE4F
+            | 0x20000..=0x2A6DF
+            | 0x2A700..=0x2B73F
+            | 0x2B740..=0x2B81F
+            | 0x2B820..=0x2CEAF
+            | 0x2CEB0..=0x2EBEF
+            | 0x30000..=0x3134F
+    )
+}
+
+fn is_font_file(path: &Path) -> bool {
+    let ext = path.extension().and_then(|x| x.to_str()).unwrap_or("").to_ascii_lowercase();
+    ext == "ttf" || ext == "otf" || ext == "ttc"
+}
+
+fn load_font_file(path: &Path) -> Result<Option<LoadedFont>> {
+    let md = match path.metadata() {
+        Ok(md) => md,
+        Err(e) => {
+            log::warn!("Font metadata skipped for {}: {}", path.display(), e);
+            return Ok(None);
+        }
+    };
+    if !md.is_file() || md.len() == 0 || !is_font_file(path) {
+        return Ok(None);
+    }
+
+    let buf = fs::read(path)?;
+    let file_name = path
+        .file_name()
+        .and_then(|x| x.to_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| path.to_string_lossy().to_string());
+    let name = extract_font_face_name(&buf)
+        .or_else(|| path.file_stem().and_then(|x| x.to_str()).map(|s| s.to_string()))
+        .unwrap_or_else(|| file_name.clone());
+    let font = match Font::from_vec(buf) {
+        Ok(f) => f,
+        Err(e) => {
+            log::error!("Warning: failed to load font {:?}: {}", path, e);
+            return Ok(None);
+        }
+    };
+
+    Ok(Some(LoadedFont { name, file_name, font }))
+}
+
+fn normalized_font_file_name(path: &Path) -> String {
+    path.file_name()
+        .and_then(|x| x.to_str())
+        .unwrap_or("")
+        .chars()
+        .filter(|ch| !ch.is_ascii_whitespace() && *ch != '-' && *ch != '_')
+        .flat_map(|ch| ch.to_lowercase())
+        .collect()
+}
+
+fn is_cjk_fallback_font_candidate(path: &Path) -> bool {
+    if !is_font_file(path) {
+        return false;
+    }
+    let name = normalized_font_file_name(path);
+    [
+        "simsun",
+        "simhei",
+        "msyh",
+        "microsoftyahei",
+        "deng",
+        "mingliu",
+        "msjh",
+        "pingfang",
+        "songti",
+        "heiti",
+        "hiraginosansgb",
+        "notosanscjk",
+        "notoserifcjk",
+        "notosanssc",
+        "notoserifsc",
+        "sourcehansans",
+        "sourcehanserif",
+        "droidsansfallback",
+    ]
+    .iter()
+    .any(|needle| name.contains(needle))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn system_font_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    #[cfg(target_os = "windows")]
+    {
+        if let Some(windir) = std::env::var_os("WINDIR") {
+            dirs.push(PathBuf::from(windir).join("Fonts"));
+        }
+        dirs.push(PathBuf::from(r"C:\Windows\Fonts"));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        dirs.push(PathBuf::from("/System/Library/Fonts"));
+        dirs.push(PathBuf::from("/Library/Fonts"));
+        if let Some(home) = std::env::var_os("HOME") {
+            dirs.push(PathBuf::from(home).join("Library/Fonts"));
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        dirs.push(PathBuf::from("/usr/share/fonts"));
+        dirs.push(PathBuf::from("/usr/local/share/fonts"));
+        if let Some(home) = std::env::var_os("HOME") {
+            dirs.push(PathBuf::from(&home).join(".local/share/fonts"));
+            dirs.push(PathBuf::from(home).join(".fonts"));
+        }
+    }
+    #[cfg(target_os = "android")]
+    {
+        dirs.push(PathBuf::from("/system/fonts"));
+    }
+    dirs
+}
+
+#[cfg(target_arch = "wasm32")]
+fn system_font_dirs() -> Vec<PathBuf> {
+    Vec::new()
+}
+
 fn read_be_u16(bytes: &[u8], off: usize) -> Option<u16> {
     let end = off.checked_add(2)?;
     let b = bytes.get(off..end)?;
@@ -387,6 +555,10 @@ pub struct FontEnumerator {
 
     // User-loaded fonts list, 0-based id: 0..fonts.len().
     fonts: Vec<LoadedFont>,
+    // Hidden OS CJK fallbacks used only when the requested/game font lacks a glyph.
+    system_fallback_fonts: Vec<LoadedFont>,
+    system_fallback_scan_done: bool,
+    system_fallback_enabled: bool,
 
     system_fontface_id: i32,
     current_font_name: String,
@@ -424,82 +596,60 @@ impl FontEnumerator {
             sys_ms_pgothic: mspgothic,
             sys_ms_pmincho: mspmincho,
             fonts: vec![],
+            system_fallback_fonts: vec![],
+            system_fallback_scan_done: false,
+            system_fallback_enabled: false,
             system_fontface_id: FONTFACE_MS_GOTHIC,
             current_font_name: "MS Gothic".to_string(),
         }
     }
 
+    pub fn set_system_font_fallback_enabled(&mut self, enabled: bool) {
+        self.system_fallback_enabled = enabled;
+    }
+
     pub fn init_fontface(&mut self) -> Result<()> {
-        // Avoid duplicate entries when init is called multiple times.
-        if !self.fonts.is_empty() {
-            return Ok(());
-        }
-
-        let mut path = app_base_path().join("font");
-        if !path.exists() {
-            // Android/Linux file systems are case-sensitive; many games ship `FONT`/`Font`.
-            let alt_font = app_base_path().join("Font");
-            let alt_upper = app_base_path().join("FONT");
-            if alt_font.exists() {
-                path = alt_font;
-            } else if alt_upper.exists() {
-                path = alt_upper;
-            }
-        }
-        if !path.exists() {
-            log::info!("Font scan skipped: no font dir under {}", app_base_path().get_path().display());
-            return Ok(());
-        }
-
-        let mut loaded_count: usize = 0;
-        for entry in fs::read_dir(path.get_path())? {
-            let entry = entry?;
-            let md = entry.metadata()?;
-            if !md.is_file() {
-                continue;
-            }
-            // ignore 0-byte files
-            if md.len() == 0 {
-                continue;
-            }
-
-            let p = entry.path();
-            let ext = p.extension().and_then(|x| x.to_str()).unwrap_or("").to_ascii_lowercase();
-            if ext != "ttf" && ext != "otf" && ext != "ttc" {
-                continue;
-            }
-
-            let buf = fs::read(&p)?;
-            let file_name = p
-                .file_name()
-                .and_then(|x| x.to_str())
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| p.to_string_lossy().to_string());
-            let name = extract_font_face_name(&buf)
-                .or_else(|| p.file_stem().and_then(|x| x.to_str()).map(|s| s.to_string()))
-                .unwrap_or_else(|| file_name.clone());
-            let font = match Font::from_vec(buf) {
-                Ok(f) => f,
-                Err(e) => {
-                    log::error!("Warning: failed to load font {:?}: {}", p, e);
-                    continue;
+        if self.fonts.is_empty() {
+            let mut path = app_base_path().join("font");
+            if !path.exists() {
+                // Android/Linux file systems are case-sensitive; many games ship `FONT`/`Font`.
+                let alt_font = app_base_path().join("Font");
+                let alt_upper = app_base_path().join("FONT");
+                if alt_font.exists() {
+                    path = alt_font;
+                } else if alt_upper.exists() {
+                    path = alt_upper;
                 }
-            };
+            }
+            if path.exists() {
+                let mut loaded_count: usize = 0;
+                for entry in fs::read_dir(path.get_path())? {
+                    let entry = entry?;
+                    let p = entry.path();
+                    if let Some(loaded) = load_font_file(&p)? {
+                        log::info!(
+                            "Loaded custom font face '{}' from {}",
+                            loaded.name,
+                            p.display()
+                        );
+                        self.fonts.push(loaded);
+                        loaded_count += 1;
+                    }
+                }
 
-            log::info!(
-                "Loaded custom font face '{}' from {}",
-                name,
-                p.display()
-            );
-            self.fonts.push(LoadedFont { name, file_name, font });
-            loaded_count += 1;
+                log::info!(
+                    "Font scan done: loaded {} custom font(s) from {}",
+                    loaded_count,
+                    path.get_path().display()
+                );
+            } else {
+                log::info!("Font scan skipped: no font dir under {}", app_base_path().get_path().display());
+            }
         }
 
-        log::info!(
-            "Font scan done: loaded {} custom font(s) from {}",
-            loaded_count,
-            path.get_path().display()
-        );
+        if self.system_fallback_enabled {
+            self.init_system_fallback_fonts();
+        }
 
         // default: MSGOTHIC
         self.system_fontface_id = FONTFACE_MS_GOTHIC;
@@ -509,12 +659,77 @@ impl FontEnumerator {
         Ok(())
     }
 
+    fn init_system_fallback_fonts(&mut self) {
+        if self.system_fallback_scan_done {
+            return;
+        }
+        self.system_fallback_scan_done = true;
+
+        const MAX_SYSTEM_FALLBACK_FONTS: usize = 12;
+        let mut stack = system_font_dirs();
+        let mut loaded_count = 0usize;
+
+        while let Some(dir) = stack.pop() {
+            if loaded_count >= MAX_SYSTEM_FALLBACK_FONTS || !dir.exists() {
+                continue;
+            }
+            let Ok(entries) = fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                if loaded_count >= MAX_SYSTEM_FALLBACK_FONTS {
+                    break;
+                }
+                let p = entry.path();
+                if p.is_dir() {
+                    stack.push(p);
+                    continue;
+                }
+                if !is_cjk_fallback_font_candidate(&p) {
+                    continue;
+                }
+                match load_font_file(&p) {
+                    Ok(Some(loaded)) => {
+                        log::info!(
+                            "Loaded hidden system CJK fallback font '{}' from {}",
+                            loaded.name,
+                            p.display()
+                        );
+                        self.system_fallback_fonts.push(loaded);
+                        loaded_count += 1;
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        log::warn!("System font fallback skipped for {}: {}", p.display(), e);
+                    }
+                }
+            }
+        }
+
+        log::info!(
+            "System CJK fallback font scan done: loaded {} font(s)",
+            loaded_count
+        );
+    }
+
     pub fn set_current_font_name(&mut self, name: &str) {
         self.current_font_name = name.into();
     }
 
     pub fn get_current_font_name(&self) -> &str {
         &self.current_font_name
+    }
+
+    fn current_font_is_user_loaded(&self) -> bool {
+        let cur = self.current_font_name.as_str();
+        self.fonts.iter().any(|loaded| {
+            loaded.matches_name(cur)
+                || std::path::Path::new(cur)
+                    .file_name()
+                    .and_then(|x| x.to_str())
+                    .map(|legacy_file_name| loaded.matches_name(legacy_file_name))
+                    .unwrap_or(false)
+        })
     }
 
     fn resolve_current_font(&self) -> Font {
@@ -574,6 +789,44 @@ impl FontEnumerator {
             }
             _ => self.default_font.clone(),
         }
+    }
+
+    fn get_font_fallback_set(&self, id: i32) -> FontFallbackSet {
+        let primary = self.get_font(id);
+        let prefer_game_cjk = match id {
+            FONTFACE_MS_GOTHIC | FONTFACE_MS_MINCHO | FONTFACE_MS_PGOTHIC | FONTFACE_MS_PMINCHO => true,
+            FONTFACE_CURRENT => !self.current_font_is_user_loaded(),
+            _ => false,
+        };
+        let mut preferred_cjk = if prefer_game_cjk {
+            Vec::with_capacity(self.fonts.len() + self.system_fallback_fonts.len())
+        } else {
+            Vec::new()
+        };
+        let mut fallbacks = Vec::with_capacity(self.fonts.len() + self.system_fallback_fonts.len() + 4);
+
+        // Chinese localizations often ship a CJK font but still request one of
+        // the original MS Gothic faces in script. For built-in/default faces,
+        // let those packaged fonts own CJK glyphs even when MS Gothic has a
+        // Japanese glyph for the same codepoint.
+        for loaded in &self.fonts {
+            if prefer_game_cjk {
+                preferred_cjk.push(loaded.font.clone());
+            }
+            fallbacks.push(loaded.font.clone());
+        }
+        for loaded in &self.system_fallback_fonts {
+            if prefer_game_cjk {
+                preferred_cjk.push(loaded.font.clone());
+            }
+            fallbacks.push(loaded.font.clone());
+        }
+
+        fallbacks.push(self.sys_ms_gothic.clone());
+        fallbacks.push(self.sys_ms_mincho.clone());
+        fallbacks.push(self.sys_ms_pgothic.clone());
+        fallbacks.push(self.sys_ms_pmincho.clone());
+        FontFallbackSet::new(primary, preferred_cjk, fallbacks)
     }
 
     pub fn get_font_name(&self, id: i32) -> Option<String> {
@@ -1021,7 +1274,7 @@ impl TextItem {
 
     fn measure_char_advance(
         &self,
-        font: &Font,
+        fonts: &FontFallbackSet,
         size: f32,
         _gaiji: &GaijiManager,
         _size_slot: u8,
@@ -1031,13 +1284,14 @@ impl TextItem {
     ) -> i32 {
         let extra = Self::layout_extra_advance_px(outline, distance);
         let eff_size = Self::effective_gdi_font_size(size, outline, distance);
+        let font = fonts.for_char(ch);
         let (metrics, _) = font.rasterize(ch, eff_size);
         metrics.advance_width.ceil() as i32 + extra
     }
 
     fn measure_string_unit_advance(
         &self,
-        font: &Font,
+        fonts: &FontFallbackSet,
         size: f32,
         gaiji: &GaijiManager,
         size_slot: u8,
@@ -1047,14 +1301,14 @@ impl TextItem {
     ) -> i32 {
         let mut adv = 0i32;
         for ch in s.chars() {
-            adv += self.measure_char_advance(font, size, gaiji, size_slot, ch, outline, distance);
+            adv += self.measure_char_advance(fonts, size, gaiji, size_slot, ch, outline, distance);
         }
         adv
     }
 
     fn measure_special_unit_advance(
         &self,
-        font: &Font,
+        fonts: &FontFallbackSet,
         size: f32,
         gaiji: &GaijiManager,
         size_slot: u8,
@@ -1065,13 +1319,13 @@ impl TextItem {
         if let Some(gb) = gaiji.get_texture(s, size_slot) {
             return gb.get_width() as i32;
         }
-        self.measure_string_unit_advance(font, size, gaiji, size_slot, s, outline, distance)
+        self.measure_string_unit_advance(fonts, size, gaiji, size_slot, s, outline, distance)
     }
 
     fn measure_item_advance(
         &self,
-        main_font: &Font,
-        ruby_font: &Font,
+        main_fonts: &FontFallbackSet,
+        ruby_fonts: &FontFallbackSet,
         main_size: f32,
         ruby_size: f32,
         gaiji: &GaijiManager,
@@ -1081,7 +1335,7 @@ impl TextItem {
     ) -> i32 {
         match item {
             FontItem::Font(ch) => self.measure_char_advance(
-                main_font,
+                main_fonts,
                 main_size,
                 gaiji,
                 main_slot,
@@ -1093,7 +1347,7 @@ impl TextItem {
                 let mut base_adv = 0i32;
                 for ch in base {
                     base_adv += self.measure_char_advance(
-                        main_font,
+                        main_fonts,
                         main_size,
                         gaiji,
                         main_slot,
@@ -1106,7 +1360,7 @@ impl TextItem {
                     let mut ruby_adv = 0i32;
                     for ch in ruby {
                         ruby_adv += self.measure_char_advance(
-                            ruby_font,
+                            ruby_fonts,
                             ruby_size,
                             gaiji,
                             ruby_slot,
@@ -1122,7 +1376,7 @@ impl TextItem {
             }
             FontItem::SpecialUnit(s) => {
                 self.measure_special_unit_advance(
-                    main_font,
+                    main_fonts,
                     main_size,
                     gaiji,
                     main_slot,
@@ -1401,7 +1655,7 @@ impl TextItem {
 
     fn char_draw_bounds(
         &self,
-        font: &Font,
+        fonts: &FontFallbackSet,
         size: f32,
         x: i32,
         y: i32,
@@ -1410,6 +1664,7 @@ impl TextItem {
         shadow_dist: u8,
     ) -> RectI32 {
         let eff_size = Self::effective_gdi_font_size(size, outline, shadow_dist);
+        let font = fonts.for_char(ch);
         let (metrics, _) = font.rasterize(ch, eff_size);
         let gx = x + metrics.xmin;
         let gy = y - (metrics.ymin + metrics.height as i32);
@@ -1505,7 +1760,7 @@ impl TextItem {
         buf: &mut [u8],
         bw: u32,
         bh: u32,
-        font: &Font,
+        fonts: &FontFallbackSet,
         size: f32,
         _gaiji: &GaijiManager,
         _size_slot: u8,
@@ -1521,6 +1776,7 @@ impl TextItem {
         do_draw: bool,
     ) -> i32 {
         let eff_size = Self::effective_gdi_font_size(size, outline, shadow_dist);
+        let font = fonts.for_char(ch);
         let (metrics, bitmap) = font.rasterize(ch, eff_size);
         let gx = x + metrics.xmin;
         let gy = y - (metrics.ymin + metrics.height as i32);
@@ -1623,7 +1879,7 @@ impl TextItem {
         buf: &mut [u8],
         bw: u32,
         bh: u32,
-        font: &Font,
+        fonts: &FontFallbackSet,
         size: f32,
         gaiji: &GaijiManager,
         size_slot: u8,
@@ -1641,7 +1897,7 @@ impl TextItem {
         let mut pen_x = x;
         for ch in s.chars() {
             let adv = self.draw_char(
-                buf, bw, bh, font, size, gaiji, size_slot, pen_x, y, ch,
+                buf, bw, bh, fonts, size, gaiji, size_slot, pen_x, y, ch,
                 color, outline, outline_color, shadow_dist, shadow_color, clip_max_x, do_draw,
             );
             pen_x += adv;
@@ -1806,8 +2062,8 @@ impl TextItem {
             return Ok(());
         }
 
-        let main_font = fonts.get_font(self.text_font_idx1);
-        let ruby_font = fonts.get_font(self.text_font_idx2);
+        let main_fonts = fonts.get_font_fallback_set(self.text_font_idx1);
+        let ruby_fonts = fonts.get_font_fallback_set(self.text_font_idx2);
 
         let render_scale = self.effective_render_scale();
         let (bw, bh) = self.raster_dimensions();
@@ -1825,7 +2081,7 @@ impl TextItem {
         let main_slot: u8 = if self.text_size1 == 0 { 16 } else { self.text_size1 };
         let ruby_slot: u8 = if self.text_size2 == 0 { (main_slot as f32 * 0.6).round().clamp(8.0, 64.0) as u8 } else { self.text_size2 };
 
-        let lm = main_font.horizontal_line_metrics(main_layout_size);
+        let lm = main_fonts.primary().horizontal_line_metrics(main_layout_size);
         let ascent_f = lm.map(|m| m.ascent).unwrap_or(main_layout_size);
         let descent_f = lm.map(|m| m.descent).unwrap_or(-main_layout_size * 0.25);
         let line_gap_f = lm.map(|m| m.line_gap).unwrap_or(0.0);
@@ -1842,7 +2098,7 @@ impl TextItem {
             0
         };
         let (line_top_reserve, line_bottom_reserve) = if self.ruby_text_mode == 2 {
-            let rlm = ruby_font.horizontal_line_metrics(ruby_layout_size);
+            let rlm = ruby_fonts.primary().horizontal_line_metrics(ruby_layout_size);
             let ruby_ascent_f = rlm.map(|m| m.ascent).unwrap_or(ruby_layout_size);
             let ruby_descent_f = rlm.map(|m| m.descent).unwrap_or(-ruby_layout_size * 0.25);
             let ruby_top_reserve = ruby_ascent_f.ceil() as i32 + self.outline_size2 as i32;
@@ -1886,8 +2142,8 @@ impl TextItem {
                 FontItem::SpecialUnit(s) => {
                     let item_for_measure = FontItem::SpecialUnit(s.clone());
                     let item_adv = self.measure_item_advance(
-                        &main_font,
-                        &ruby_font,
+                        &main_fonts,
+                        &ruby_fonts,
                         main_size,
                         ruby_size,
                         gaiji,
@@ -1910,19 +2166,19 @@ impl TextItem {
                             i32::MAX, true, render_scale,
                         );
                         item_bounds = self.gaiji_draw_bounds_scaled(gb, draw_x, draw_y, render_scale);
-                        let adv = self.measure_special_unit_advance(&main_font, main_size, gaiji, main_slot, &s, self.outline_size1, self.shadow_distance);
+                        let adv = self.measure_special_unit_advance(&main_fonts, main_size, gaiji, main_slot, &s, self.outline_size1, self.shadow_distance);
                         pen_x += adv + self.main_gap_x as i32;
                     } else {
                         let mut unit_x = pen_x;
                         for ch in s.chars() {
-                            let logical_adv = self.measure_char_advance(&main_font, main_size, gaiji, main_slot, ch, self.outline_size1, self.shadow_distance);
+                            let logical_adv = self.measure_char_advance(&main_fonts, main_size, gaiji, main_slot, ch, self.outline_size1, self.shadow_distance);
                             let draw_x = Self::scale_pos_i32(unit_x, render_scale);
                             let draw_y = Self::scale_pos_i32(pen_y, render_scale);
                             self.draw_char(
-                                &mut full_buffer, bw, bh, &main_font, main_draw_size, gaiji, main_slot, draw_x, draw_y, ch,
+                                &mut full_buffer, bw, bh, &main_fonts, main_draw_size, gaiji, main_slot, draw_x, draw_y, ch,
                                 &self.color1, draw_outline1, &self.color2, draw_shadow, &self.color3, i32::MAX, true,
                             );
-                            item_bounds = item_bounds.union(self.char_draw_bounds(&main_font, main_draw_size, draw_x, draw_y, ch, draw_outline1, draw_shadow));
+                            item_bounds = item_bounds.union(self.char_draw_bounds(&main_fonts, main_draw_size, draw_x, draw_y, ch, draw_outline1, draw_shadow));
                             unit_x += logical_adv;
                         }
                         pen_x = unit_x + self.main_gap_x as i32;
@@ -1940,8 +2196,8 @@ impl TextItem {
 
                     let item_for_measure = FontItem::Font(ch);
                     let item_adv = self.measure_item_advance(
-                        &main_font,
-                        &ruby_font,
+                        &main_fonts,
+                        &ruby_fonts,
                         main_size,
                         ruby_size,
                         gaiji,
@@ -1955,14 +2211,14 @@ impl TextItem {
                         pen_y += line_h;
                     }
 
-                    let logical_adv = self.measure_char_advance(&main_font, main_size, gaiji, main_slot, ch, self.outline_size1, self.shadow_distance);
+                    let logical_adv = self.measure_char_advance(&main_fonts, main_size, gaiji, main_slot, ch, self.outline_size1, self.shadow_distance);
                     let draw_x = Self::scale_pos_i32(pen_x, render_scale);
                     let draw_y = Self::scale_pos_i32(pen_y, render_scale);
                     self.draw_char(
-                        &mut full_buffer, bw, bh, &main_font, main_draw_size, gaiji, main_slot, draw_x, draw_y, ch,
+                        &mut full_buffer, bw, bh, &main_fonts, main_draw_size, gaiji, main_slot, draw_x, draw_y, ch,
                         &self.color1, draw_outline1, &self.color2, draw_shadow, &self.color3, i32::MAX, true,
                     );
-                    let bounds = self.char_draw_bounds(&main_font, main_draw_size, draw_x, draw_y, ch, draw_outline1, draw_shadow);
+                    let bounds = self.char_draw_bounds(&main_fonts, main_draw_size, draw_x, draw_y, ch, draw_outline1, draw_shadow);
                     pen_x += logical_adv + self.main_gap_x as i32;
                     queue_reveal_rect(&mut reveal_queue, &mut total_required_units, bounds, &full_buffer);
                     line_has_any = true;
@@ -1970,8 +2226,8 @@ impl TextItem {
                 FontItem::RubyFont(ruby, base) => {
                     let item_for_measure = FontItem::RubyFont(ruby.clone(), base.clone());
                     let item_adv = self.measure_item_advance(
-                        &main_font,
-                        &ruby_font,
+                        &main_fonts,
+                        &ruby_fonts,
                         main_size,
                         ruby_size,
                         gaiji,
@@ -1995,14 +2251,14 @@ impl TextItem {
                     let mut base_total_adv = 0i32;
 
                     for ch in base.iter() {
-                        let logical_adv = self.measure_char_advance(&main_font, main_size, gaiji, main_slot, *ch, self.outline_size1, self.shadow_distance);
+                        let logical_adv = self.measure_char_advance(&main_fonts, main_size, gaiji, main_slot, *ch, self.outline_size1, self.shadow_distance);
                         let draw_x = Self::scale_pos_i32(pen_x, render_scale);
                         let draw_y = Self::scale_pos_i32(pen_y, render_scale);
                         self.draw_char(
-                            &mut full_buffer, bw, bh, &main_font, main_draw_size, gaiji, main_slot, draw_x, draw_y, *ch,
+                            &mut full_buffer, bw, bh, &main_fonts, main_draw_size, gaiji, main_slot, draw_x, draw_y, *ch,
                             &self.color1, draw_outline1, &self.color2, draw_shadow, &self.color3, i32::MAX, true,
                         );
-                        item_bounds = item_bounds.union(self.char_draw_bounds(&main_font, main_draw_size, draw_x, draw_y, *ch, draw_outline1, draw_shadow));
+                        item_bounds = item_bounds.union(self.char_draw_bounds(&main_fonts, main_draw_size, draw_x, draw_y, *ch, draw_outline1, draw_shadow));
                         pen_x += logical_adv + self.main_gap_x as i32;
                         base_total_adv += logical_adv + self.main_gap_x as i32;
                     }
@@ -2010,20 +2266,20 @@ impl TextItem {
                     let ruby_y = pen_y - ruby_baseline_up;
                     let mut ruby_width = 0i32;
                     for rch in ruby.iter() {
-                        ruby_width += self.measure_char_advance(&ruby_font, ruby_size, gaiji, ruby_slot, *rch, self.outline_size2, self.shadow_distance)
+                        ruby_width += self.measure_char_advance(&ruby_fonts, ruby_size, gaiji, ruby_slot, *rch, self.outline_size2, self.shadow_distance)
                             + self.ruby_gap_x as i32;
                     }
                     let mut ruby_x = base_start_x + (base_total_adv - ruby_width) / 2;
 
                     for rch in ruby {
-                        let logical_adv = self.measure_char_advance(&ruby_font, ruby_size, gaiji, ruby_slot, rch, self.outline_size2, self.shadow_distance);
+                        let logical_adv = self.measure_char_advance(&ruby_fonts, ruby_size, gaiji, ruby_slot, rch, self.outline_size2, self.shadow_distance);
                         let draw_x = Self::scale_pos_i32(ruby_x, render_scale);
                         let draw_y = Self::scale_pos_i32(ruby_y, render_scale);
                         self.draw_char(
-                            &mut full_buffer, bw, bh, &ruby_font, ruby_draw_size, gaiji, ruby_slot, draw_x, draw_y, rch,
+                            &mut full_buffer, bw, bh, &ruby_fonts, ruby_draw_size, gaiji, ruby_slot, draw_x, draw_y, rch,
                             &self.color1, draw_outline2, &self.color2, draw_shadow, &self.color3, i32::MAX, true,
                         );
-                        item_bounds = item_bounds.union(self.char_draw_bounds(&ruby_font, ruby_draw_size, draw_x, draw_y, rch, draw_outline2, draw_shadow));
+                        item_bounds = item_bounds.union(self.char_draw_bounds(&ruby_fonts, ruby_draw_size, draw_x, draw_y, rch, draw_outline2, draw_shadow));
                         ruby_x += logical_adv + self.ruby_gap_x as i32;
                     }
 

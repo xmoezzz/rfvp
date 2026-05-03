@@ -1797,6 +1797,13 @@ impl AppBuilder {
         self
     }
 
+    pub fn with_system_font(mut self, enabled: bool) -> Self {
+        self.world
+            .fontface_manager
+            .set_system_font_fallback_enabled(enabled);
+        self
+    }
+
     async fn init_render(
         window: Arc<Window>,
         hud_window: Option<Arc<Window>>,
