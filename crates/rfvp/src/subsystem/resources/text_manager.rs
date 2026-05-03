@@ -558,6 +558,7 @@ pub struct FontEnumerator {
     // Hidden OS CJK fallbacks used only when the requested/game font lacks a glyph.
     system_fallback_fonts: Vec<LoadedFont>,
     system_fallback_scan_done: bool,
+    system_fallback_enabled: bool,
 
     system_fontface_id: i32,
     current_font_name: String,
@@ -597,9 +598,14 @@ impl FontEnumerator {
             fonts: vec![],
             system_fallback_fonts: vec![],
             system_fallback_scan_done: false,
+            system_fallback_enabled: false,
             system_fontface_id: FONTFACE_MS_GOTHIC,
             current_font_name: "MS Gothic".to_string(),
         }
+    }
+
+    pub fn set_system_font_fallback_enabled(&mut self, enabled: bool) {
+        self.system_fallback_enabled = enabled;
     }
 
     pub fn init_fontface(&mut self) -> Result<()> {
@@ -641,7 +647,9 @@ impl FontEnumerator {
             }
         }
 
-        self.init_system_fallback_fonts();
+        if self.system_fallback_enabled {
+            self.init_system_fallback_fonts();
+        }
 
         // default: MSGOTHIC
         self.system_fontface_id = FONTFACE_MS_GOTHIC;

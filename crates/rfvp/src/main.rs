@@ -78,6 +78,11 @@ fn parse_nls_arg() -> Nls {
     Nls::ShiftJIS
 }
 
+/// Parse `--system-font`; when present, system-wide CJK fallback fonts are scanned.
+fn parse_system_font_arg() -> bool {
+    std::env::args().skip(1).any(|a| a == "--system-font")
+}
+
 // use dhat;
 
 // #[global_allocator]
@@ -90,19 +95,25 @@ fn main() -> Result<()> {
         set_base_path(&project_dir);
     }
     let nls = parse_nls_arg();
+    let system_font = parse_system_font_arg();
     let parser = load_script(nls)?;
     let title  = parser.get_title();
     let size = parser.get_screen_size();
     let script_engine = ThreadManager::new();
 
-    App::app_with_config(app_config(&title, size))
+    let app = App::app_with_config(app_config(&title, size))
         .with_scene::<AnzuScene>()
         .with_script_engine(script_engine)
         .with_window_title(&title)
         .with_window_size(size)
         .with_parser(parser)
-        .with_vfs(nls)?
-        .run();
+        .with_vfs(nls)?;
+    let app = if system_font {
+        app.with_system_font(true)
+    } else {
+        app
+    };
+    app.run();
 
     // handle.shutdown();
     
