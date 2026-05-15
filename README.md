@@ -14,6 +14,9 @@
 ### Pre-built Binaries
 Pre-built binaries for supported platforms are available in the [Pre-built Binaries](https://github.com/xmoezzz/rfvp/releases/tag/pre-release)
 
+* Please note that pre-release version is the latest version containing the most recent features and fixes. 
+* I usually don't bump the version so ofter. So if you want to get the latest features and fixes, please check the pre-release version.
+
 ### HOW TO BUILD
 * macOS Bundle: [setsumei/HOW-TO-BUILD.macos-bundle.md](setsumei/HOW-TO-BUILD.macos-bundle.md)
 * iOS IPA: [setsumei/HOW-TO-BUILD.ios.md](setsumei/HOW-TO-BUILD.ios.md)
