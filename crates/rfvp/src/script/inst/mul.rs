@@ -1,5 +1,5 @@
-use crate::script::opcode::OpcodeBase;
 use crate::script::opcode::Opcode;
+use crate::script::opcode::OpcodeBase;
 
 pub struct MulInst {
     address: u32,
@@ -7,9 +7,7 @@ pub struct MulInst {
 
 impl MulInst {
     pub fn new(address: u32) -> Self {
-        Self {
-            address,
-        }
+        Self { address }
     }
 }
 
@@ -30,4 +28,3 @@ impl OpcodeBase for MulInst {
         format!("{:8}", self.mnemonic())
     }
 }
-

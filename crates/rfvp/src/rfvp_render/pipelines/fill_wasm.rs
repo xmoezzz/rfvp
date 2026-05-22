@@ -1,6 +1,6 @@
+use glam::{Mat4, Vec4};
 use std::cell::Cell;
 use std::sync::Arc;
-use glam::{Mat4, Vec4};
 
 use crate::rfvp_render::vertices::{PosVertex, VertexSource};
 
@@ -18,25 +18,30 @@ pub struct FillPipeline {
 }
 
 impl FillPipeline {
-    pub fn new(device: &wgpu::Device, queue: &Arc<wgpu::Queue>, target_format: wgpu::TextureFormat) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        queue: &Arc<wgpu::Queue>,
+        target_format: wgpu::TextureFormat,
+    ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("rfvp_render.fill_shader.wasm"),
             source: wgpu::ShaderSource::Wgsl(include_str!("fill_wasm.wgsl").into()),
         });
 
-        let pc_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("rfvp_render.fill_pc_bind_group_layout.wasm"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: true,
-                    min_binding_size: std::num::NonZeroU64::new(80),
-                },
-                count: None,
-            }],
-        });
+        let pc_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("rfvp_render.fill_pc_bind_group_layout.wasm"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: true,
+                        min_binding_size: std::num::NonZeroU64::new(80),
+                    },
+                    count: None,
+                }],
+            });
 
         let pc_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("rfvp_render.fill_pc_uniform.wasm"),
@@ -135,15 +140,25 @@ impl FillPipeline {
         let c = color.to_array();
         pc[64..80].copy_from_slice(bytemuck::bytes_of(&c));
         let pc_offset = self.next_pc_offset();
-        self.queue.write_buffer(&self.pc_buffer, pc_offset as u64, &pc);
+        self.queue
+            .write_buffer(&self.pc_buffer, pc_offset as u64, &pc);
         pass.set_bind_group(0, &self.pc_bind_group, &[pc_offset]);
 
         match src {
-            VertexSource::VertexBuffer { vertex_buffer, vertices, instances } => {
+            VertexSource::VertexBuffer {
+                vertex_buffer,
+                vertices,
+                instances,
+            } => {
                 pass.set_vertex_buffer(0, vertex_buffer.slice(..));
                 pass.draw(vertices, instances);
             }
-            VertexSource::VertexIndexBuffer { vertex_buffer, index_buffer, indices, instances } => {
+            VertexSource::VertexIndexBuffer {
+                vertex_buffer,
+                index_buffer,
+                indices,
+                instances,
+            } => {
                 pass.set_vertex_buffer(0, vertex_buffer.slice(..));
                 pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
                 pass.draw_indexed(indices, 0, instances);

@@ -57,7 +57,8 @@ pub fn to_nop(_inst: &Inst2) -> Result<NopInst> {
 
 pub fn to_init_stack(inst: &Inst2) -> Result<InitStackInst> {
     Ok(InitStackInst::new(
-        inst.operands.first()
+        inst.operands
+            .first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
         inst.operands
@@ -69,7 +70,8 @@ pub fn to_init_stack(inst: &Inst2) -> Result<InitStackInst> {
 
 pub fn to_call(inst: &Inst2) -> Result<CallInst> {
     Ok(CallInst::new(
-        inst.operands.first()
+        inst.operands
+            .first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -77,7 +79,8 @@ pub fn to_call(inst: &Inst2) -> Result<CallInst> {
 
 pub fn to_syscall(inst: &Inst2, syscalls: &BTreeMap<String, u32>) -> Result<SyscallInst> {
     let syscall_name = inst
-        .operands.first()
+        .operands
+        .first()
         .ok_or(anyhow::anyhow!("missing operand"))?;
     let id = syscalls
         .get(syscall_name)
@@ -96,7 +99,8 @@ pub fn to_ret_v(_inst: &Inst2) -> Result<RetVInst> {
 
 pub fn to_jmp(inst: &Inst2) -> Result<JmpInst> {
     Ok(JmpInst::new(
-        inst.operands.first()
+        inst.operands
+            .first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -104,7 +108,8 @@ pub fn to_jmp(inst: &Inst2) -> Result<JmpInst> {
 
 pub fn to_jz(inst: &Inst2) -> Result<JzInst> {
     Ok(JzInst::new(
-        inst.operands.first()
+        inst.operands
+            .first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -120,7 +125,8 @@ pub fn to_push_true(_inst: &Inst2) -> Result<PushTrueInst> {
 
 pub fn to_push_i32(inst: &Inst2) -> Result<PushI32Inst> {
     Ok(PushI32Inst::new(
-        inst.operands.first()
+        inst.operands
+            .first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -128,7 +134,8 @@ pub fn to_push_i32(inst: &Inst2) -> Result<PushI32Inst> {
 
 pub fn to_push_i16(inst: &Inst2) -> Result<PushI16Inst> {
     Ok(PushI16Inst::new(
-        inst.operands.first()
+        inst.operands
+            .first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -136,7 +143,8 @@ pub fn to_push_i16(inst: &Inst2) -> Result<PushI16Inst> {
 
 pub fn to_push_i8(inst: &Inst2) -> Result<PushI8Inst> {
     Ok(PushI8Inst::new(
-        inst.operands.first()
+        inst.operands
+            .first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -144,7 +152,8 @@ pub fn to_push_i8(inst: &Inst2) -> Result<PushI8Inst> {
 
 pub fn to_push_f32(inst: &Inst2) -> Result<PushF32Inst> {
     Ok(PushF32Inst::new(
-        inst.operands.first()
+        inst.operands
+            .first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -152,7 +161,8 @@ pub fn to_push_f32(inst: &Inst2) -> Result<PushF32Inst> {
 
 pub fn to_push_string(inst: &Inst2, nls: Nls) -> Result<PushStringInst> {
     Ok(PushStringInst::new(
-        inst.operands.first()
+        inst.operands
+            .first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .to_owned(),
         nls,
@@ -161,7 +171,8 @@ pub fn to_push_string(inst: &Inst2, nls: Nls) -> Result<PushStringInst> {
 
 pub fn to_push_global(inst: &Inst2) -> Result<PushGlobalInst> {
     Ok(PushGlobalInst::new(
-        inst.operands.first()
+        inst.operands
+            .first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -169,7 +180,8 @@ pub fn to_push_global(inst: &Inst2) -> Result<PushGlobalInst> {
 
 pub fn to_push_stack(inst: &Inst2) -> Result<PushStackInst> {
     Ok(PushStackInst::new(
-        inst.operands.first()
+        inst.operands
+            .first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -177,7 +189,8 @@ pub fn to_push_stack(inst: &Inst2) -> Result<PushStackInst> {
 
 pub fn to_push_global_table(inst: &Inst2) -> Result<PushGlobalTableInst> {
     Ok(PushGlobalTableInst::new(
-        inst.operands.first()
+        inst.operands
+            .first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -185,7 +198,8 @@ pub fn to_push_global_table(inst: &Inst2) -> Result<PushGlobalTableInst> {
 
 pub fn to_push_local_table(inst: &Inst2) -> Result<PushLocalTableInst> {
     Ok(PushLocalTableInst::new(
-        inst.operands.first()
+        inst.operands
+            .first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -201,7 +215,8 @@ pub fn to_push_return(_inst: &Inst2) -> Result<PushReturnInst> {
 
 pub fn to_pop_global(inst: &Inst2) -> Result<PopGlobalInst> {
     Ok(PopGlobalInst::new(
-        inst.operands.first()
+        inst.operands
+            .first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -209,7 +224,8 @@ pub fn to_pop_global(inst: &Inst2) -> Result<PopGlobalInst> {
 
 pub fn to_pop_stack(inst: &Inst2) -> Result<PopStackInst> {
     Ok(PopStackInst::new(
-        inst.operands.first()
+        inst.operands
+            .first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -217,7 +233,8 @@ pub fn to_pop_stack(inst: &Inst2) -> Result<PopStackInst> {
 
 pub fn to_pop_global_table(inst: &Inst2) -> Result<PopGlobalTableInst> {
     Ok(PopGlobalTableInst::new(
-        inst.operands.first()
+        inst.operands
+            .first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -225,7 +242,8 @@ pub fn to_pop_global_table(inst: &Inst2) -> Result<PopGlobalTableInst> {
 
 pub fn to_pop_local_table(inst: &Inst2) -> Result<PopLocalTableInst> {
     Ok(PopLocalTableInst::new(
-        inst.operands.first()
+        inst.operands
+            .first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .parse()?,
     ))
@@ -290,4 +308,3 @@ pub fn to_set_l(_inst: &Inst2) -> Result<SetLInst> {
 pub fn to_set_ge(_inst: &Inst2) -> Result<SetGEInst> {
     Ok(SetGEInst::new())
 }
-

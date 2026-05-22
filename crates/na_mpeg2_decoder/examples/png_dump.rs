@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use na_mpeg2_decoder::{
-    frame_to_gray_rgba, frame_to_rgba_bt601_limited, Demuxer, Decoder, Frame, StreamType,
+    frame_to_gray_rgba, frame_to_rgba_bt601_limited, Decoder, Demuxer, Frame, StreamType,
 };
 
 fn main() {
@@ -128,7 +128,12 @@ fn main() {
 
 type AnyResult<T> = Result<T, Box<dyn std::error::Error>>;
 
-fn write_frame_png(path: &Path, frame: &Frame, gray: bool, rgba_scratch: &mut Vec<u8>) -> AnyResult<()> {
+fn write_frame_png(
+    path: &Path,
+    frame: &Frame,
+    gray: bool,
+    rgba_scratch: &mut Vec<u8>,
+) -> AnyResult<()> {
     let need = frame.width * frame.height * 4;
     if rgba_scratch.len() != need {
         rgba_scratch.resize(need, 0);

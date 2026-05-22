@@ -108,7 +108,11 @@ fn scan_runtime_tables(functions: &[Function]) -> (bool, bool, bool) {
     (need_g, need_gt, need_lt)
 }
 
-fn uses_fallback_global(functions: &[Function], non_volatile_count: u16, volatile_count: u16) -> bool {
+fn uses_fallback_global(
+    functions: &[Function],
+    non_volatile_count: u16,
+    volatile_count: u16,
+) -> bool {
     let limit = non_volatile_count.saturating_add(volatile_count);
     for func in functions {
         for inst in &func.insts {
@@ -147,7 +151,12 @@ fn emit_push_value<W: Write>(w: &mut W, indent: &str, value: &str) -> IoResult<(
     writeln!(w, "{}__stk[__sp] = {}", indent, value)
 }
 
-fn emit_binary_reduce<W: Write>(w: &mut W, indent: &str, expr: &str, op_name: &str) -> IoResult<()> {
+fn emit_binary_reduce<W: Write>(
+    w: &mut W,
+    indent: &str,
+    expr: &str,
+    op_name: &str,
+) -> IoResult<()> {
     writeln!(w, "{}if __sp < 2 then", indent)?;
     writeln!(w, "{}  -- {} on short stack", indent, op_name)?;
     writeln!(w, "{}else", indent)?;
@@ -176,7 +185,9 @@ fn emit_runtime_inst<W: Write>(
         Op::PushI16(v) => emit_push_value(w, indent, &format!("{}", v))?,
         Op::PushI32(v) => emit_push_value(w, indent, &format!("{}", v))?,
         Op::PushF32(v) => emit_push_value(w, indent, &format!("{}", v))?,
-        Op::PushString(s0) => emit_push_value(w, indent, &format!("\"{}\"", escape_lua_string(s0)))?,
+        Op::PushString(s0) => {
+            emit_push_value(w, indent, &format!("\"{}\"", escape_lua_string(s0)))?
+        }
         Op::PushTop => {
             writeln!(w, "{}if __sp == 0 then", indent)?;
             writeln!(w, "{}  -- push_top on empty stack", indent)?;
@@ -188,12 +199,21 @@ fn emit_runtime_inst<W: Write>(
             writeln!(w, "{}end", indent)?;
         }
         Op::PushReturn => emit_push_value(w, indent, "__ret")?,
-        Op::PushGlobal(idx) => emit_push_value(w, indent, &emit_global(*idx, non_volatile_count, volatile_count))?,
+        Op::PushGlobal(idx) => emit_push_value(
+            w,
+            indent,
+            &emit_global(*idx, non_volatile_count, volatile_count),
+        )?,
         Op::PopGlobal(idx) => {
             writeln!(w, "{}if __sp == 0 then", indent)?;
             writeln!(w, "{}  -- pop_global with empty stack", indent)?;
             writeln!(w, "{}else", indent)?;
-            writeln!(w, "{}  {} = __stk[__sp]", indent, emit_global(*idx, non_volatile_count, volatile_count))?;
+            writeln!(
+                w,
+                "{}  {} = __stk[__sp]",
+                indent,
+                emit_global(*idx, non_volatile_count, volatile_count)
+            )?;
             writeln!(w, "{}  __stk[__sp] = nil", indent)?;
             writeln!(w, "{}  __sp = __sp - 1", indent)?;
             writeln!(w, "{}end", indent)?;
@@ -202,7 +222,12 @@ fn emit_runtime_inst<W: Write>(
             writeln!(w, "{}if __sp == 0 then", indent)?;
             writeln!(w, "{}  -- push_global_table on empty stack", indent)?;
             writeln!(w, "{}else", indent)?;
-            writeln!(w, "{}  __stk[__sp] = {}[__stk[__sp]]", indent, emit_global_table(*idx))?;
+            writeln!(
+                w,
+                "{}  __stk[__sp] = {}[__stk[__sp]]",
+                indent,
+                emit_global_table(*idx)
+            )?;
             writeln!(w, "{}end", indent)?;
         }
         Op::PopGlobalTable(idx) => {
@@ -214,7 +239,12 @@ fn emit_runtime_inst<W: Write>(
             writeln!(w, "{}  __stk[__sp] = nil", indent)?;
             writeln!(w, "{}  __sp = __sp - 1", indent)?;
             writeln!(w, "{}  local __key = __stk[__sp]", indent)?;
-            writeln!(w, "{}  {}[__key] = __value", indent, emit_global_table(*idx))?;
+            writeln!(
+                w,
+                "{}  {}[__key] = __value",
+                indent,
+                emit_global_table(*idx)
+            )?;
             writeln!(w, "{}  __stk[__sp] = nil", indent)?;
             writeln!(w, "{}  __sp = __sp - 1", indent)?;
             writeln!(w, "{}end", indent)?;
@@ -223,7 +253,12 @@ fn emit_runtime_inst<W: Write>(
             writeln!(w, "{}if __sp == 0 then", indent)?;
             writeln!(w, "{}  -- push_local_table on empty stack", indent)?;
             writeln!(w, "{}else", indent)?;
-            writeln!(w, "{}  __stk[__sp] = {}[__stk[__sp]]", indent, emit_local_table(*idx))?;
+            writeln!(
+                w,
+                "{}  __stk[__sp] = {}[__stk[__sp]]",
+                indent,
+                emit_local_table(*idx)
+            )?;
             writeln!(w, "{}end", indent)?;
         }
         Op::PopLocalTable(idx) => {
@@ -245,7 +280,12 @@ fn emit_runtime_inst<W: Write>(
             writeln!(w, "{}if __sp == 0 then", indent)?;
             writeln!(w, "{}  -- pop_stack with empty stack", indent)?;
             writeln!(w, "{}else", indent)?;
-            writeln!(w, "{}  {}", indent, emit_stack_slot_set(func.args, *idx, "__stk[__sp]"))?;
+            writeln!(
+                w,
+                "{}  {}",
+                indent,
+                emit_stack_slot_set(func.args, *idx, "__stk[__sp]")
+            )?;
             writeln!(w, "{}  __stk[__sp] = nil", indent)?;
             writeln!(w, "{}  __sp = __sp - 1", indent)?;
             writeln!(w, "{}end", indent)?;
@@ -274,15 +314,27 @@ fn emit_runtime_inst<W: Write>(
         Op::Call { target } => {
             let argc = callee_args.get(target).copied().unwrap_or(0) as usize;
             writeln!(w, "{}if __sp < {} then", indent, argc)?;
-            writeln!(w, "{}  -- call {} with argc={} on short stack", indent, func_name(*target), argc)?;
+            writeln!(
+                w,
+                "{}  -- call {} with argc={} on short stack",
+                indent,
+                func_name(*target),
+                argc
+            )?;
             writeln!(w, "{}  __ret = {}()", indent, func_name(*target))?;
             writeln!(w, "{}  __sp = 0", indent)?;
             writeln!(w, "{}else", indent)?;
-            let base_expr = if argc == 0 { "__sp + 1".to_string() } else { format!("__sp - {} + 1", argc) };
+            let base_expr = if argc == 0 {
+                "__sp + 1".to_string()
+            } else {
+                format!("__sp - {} + 1", argc)
+            };
             writeln!(w, "{}  local __base = {}", indent, base_expr)?;
             let mut args_s = String::new();
             for i in 0..argc {
-                if i > 0 { args_s.push_str(", "); }
+                if i > 0 {
+                    args_s.push_str(", ");
+                }
                 write!(&mut args_s, "__stk[__base + {}]", i).ok();
             }
             writeln!(w, "{}  __ret = {}({})", indent, func_name(*target), args_s)?;
@@ -295,15 +347,25 @@ fn emit_runtime_inst<W: Write>(
         Op::Syscall { id, name, args } => {
             let argc = *args as usize;
             writeln!(w, "{}if __sp < {} then", indent, argc)?;
-            writeln!(w, "{}  -- syscall {} (id={}) argc={} on short stack", indent, name, id, argc)?;
+            writeln!(
+                w,
+                "{}  -- syscall {} (id={}) argc={} on short stack",
+                indent, name, id, argc
+            )?;
             writeln!(w, "{}  __ret = {}()", indent, name)?;
             writeln!(w, "{}  __sp = 0", indent)?;
             writeln!(w, "{}else", indent)?;
-            let base_expr = if argc == 0 { "__sp + 1".to_string() } else { format!("__sp - {} + 1", argc) };
+            let base_expr = if argc == 0 {
+                "__sp + 1".to_string()
+            } else {
+                format!("__sp - {} + 1", argc)
+            };
             writeln!(w, "{}  local __base = {}", indent, base_expr)?;
             let mut args_s = String::new();
             for i in 0..argc {
-                if i > 0 { args_s.push_str(", "); }
+                if i > 0 {
+                    args_s.push_str(", ");
+                }
                 write!(&mut args_s, "__stk[__base + {}]", i).ok();
             }
             writeln!(w, "{}  __ret = {}({})", indent, name, args_s)?;
@@ -319,7 +381,12 @@ fn emit_runtime_inst<W: Write>(
     Ok(())
 }
 
-fn emit_runtime_terminator<W: Write>(w: &mut W, indent: &str, term: BlockTerm, succs: &[usize]) -> IoResult<()> {
+fn emit_runtime_terminator<W: Write>(
+    w: &mut W,
+    indent: &str,
+    term: BlockTerm,
+    succs: &[usize],
+) -> IoResult<()> {
     match term {
         BlockTerm::Jmp | BlockTerm::Fallthrough => {
             if let Some(&t) = succs.get(0) {
@@ -480,7 +547,10 @@ fn emit_optimized_chain(
 
     for (pos, &bid) in chain.iter().enumerate() {
         let b = &cfg.blocks[bid];
-        let term_idx = if matches!(b.term, BlockTerm::Jmp | BlockTerm::Jz | BlockTerm::Ret | BlockTerm::RetV) {
+        let term_idx = if matches!(
+            b.term,
+            BlockTerm::Jmp | BlockTerm::Jz | BlockTerm::Ret | BlockTerm::RetV
+        ) {
             b.inst_indices.clone().last()
         } else {
             None
@@ -589,7 +659,10 @@ fn emit_runtime_chain<W: Write>(
 ) -> IoResult<()> {
     for (pos, &bid) in chain.iter().enumerate() {
         let b = &cfg.blocks[bid];
-        let term_idx = if matches!(b.term, BlockTerm::Jmp | BlockTerm::Jz | BlockTerm::Ret | BlockTerm::RetV) {
+        let term_idx = if matches!(
+            b.term,
+            BlockTerm::Jmp | BlockTerm::Jz | BlockTerm::Ret | BlockTerm::RetV
+        ) {
             b.inst_indices.clone().last()
         } else {
             None
@@ -787,7 +860,11 @@ fn emit_function<W: Write>(
     Ok(())
 }
 
-pub fn emit_lua_script<W: Write>(w: &mut W, parser: &Parser, functions: &[Function]) -> IoResult<()> {
+pub fn emit_lua_script<W: Write>(
+    w: &mut W,
+    parser: &Parser,
+    functions: &[Function],
+) -> IoResult<()> {
     writeln!(w, "-- Decompiled from HCB bytecode")?;
     writeln!(w, "-- Title: {}", parser.get_title())?;
     let (sw, sh) = parser.get_screen_size();

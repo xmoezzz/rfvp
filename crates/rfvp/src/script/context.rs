@@ -1,13 +1,12 @@
-
 use std::mem::size_of;
 
 use crate::script::global::GLOBAL;
+use crate::script::opcode::Opcode;
 use crate::script::parser::Parser;
 use crate::script::Variant;
-use serde::{Serialize, Deserialize};
 use crate::script::VmSyscall;
-use crate::script::opcode::Opcode;
 use bitflags::bitflags;
+use serde::{Deserialize, Serialize};
 
 use anyhow::{bail, Result};
 
@@ -96,14 +95,13 @@ impl Context {
         };
 
         // the initial stack frame
-        ctx.push(Variant::SavedStackInfo(
-            super::SavedStackInfo { 
-                stack_base: 0, 
-                stack_pos: 0, 
-                return_addr: usize::MAX,
-                args: 0,
-            }
-        )).unwrap();
+        ctx.push(Variant::SavedStackInfo(super::SavedStackInfo {
+            stack_base: 0,
+            stack_pos: 0,
+            return_addr: usize::MAX,
+            args: 0,
+        }))
+        .unwrap();
 
         ctx.cur_stack_base = ctx.cur_stack_pos;
         ctx.cur_stack_pos = 0;
@@ -111,44 +109,44 @@ impl Context {
         ctx
     }
 
-pub fn capture_snapshot_v1(&self) -> ContextSnapshotV1 {
-    ContextSnapshotV1 {
-        id: self.id,
-        stack: self.stack.clone(),
-        cursor: self.cursor,
-        cur_stack_pos: self.cur_stack_pos,
-        cur_stack_base: self.cur_stack_base,
-        start_addr: self.start_addr,
-        return_value: self.return_value.clone(),
-        state_bits: self.state.bits(),
-        wait_ms: self.wait_ms,
-        sleep_ms: self.sleep_ms,
-        should_exit: self.should_exit,
-        should_break: self.should_break,
+    pub fn capture_snapshot_v1(&self) -> ContextSnapshotV1 {
+        ContextSnapshotV1 {
+            id: self.id,
+            stack: self.stack.clone(),
+            cursor: self.cursor,
+            cur_stack_pos: self.cur_stack_pos,
+            cur_stack_base: self.cur_stack_base,
+            start_addr: self.start_addr,
+            return_value: self.return_value.clone(),
+            state_bits: self.state.bits(),
+            wait_ms: self.wait_ms,
+            sleep_ms: self.sleep_ms,
+            should_exit: self.should_exit,
+            should_break: self.should_break,
+        }
     }
-}
 
-pub fn apply_snapshot_v1(&mut self, snap: &ContextSnapshotV1) {
-    self.id = snap.id;
-    self.stack = snap.stack.clone();
-    self.cursor = snap.cursor;
-    self.cur_stack_pos = snap.cur_stack_pos;
-    self.cur_stack_base = snap.cur_stack_base;
-    self.start_addr = snap.start_addr;
-    self.return_value = snap.return_value.clone();
-    self.state = ThreadState::from_bits_truncate(snap.state_bits);
-    self.wait_ms = snap.wait_ms;
-    self.sleep_ms = snap.sleep_ms;
-    self.should_exit = snap.should_exit;
-    self.should_break = snap.should_break;
+    pub fn apply_snapshot_v1(&mut self, snap: &ContextSnapshotV1) {
+        self.id = snap.id;
+        self.stack = snap.stack.clone();
+        self.cursor = snap.cursor;
+        self.cur_stack_pos = snap.cur_stack_pos;
+        self.cur_stack_base = snap.cur_stack_base;
+        self.start_addr = snap.start_addr;
+        self.return_value = snap.return_value.clone();
+        self.state = ThreadState::from_bits_truncate(snap.state_bits);
+        self.wait_ms = snap.wait_ms;
+        self.sleep_ms = snap.sleep_ms;
+        self.should_exit = snap.should_exit;
+        self.should_break = snap.should_break;
 
-    // Ensure stack capacity matches runtime expectations.
-    if self.stack.len() < MAX_STACK_SIZE {
-        self.stack.resize(MAX_STACK_SIZE, Variant::Nil);
-    } else if self.stack.len() > MAX_STACK_SIZE {
-        self.stack.truncate(MAX_STACK_SIZE);
+        // Ensure stack capacity matches runtime expectations.
+        if self.stack.len() < MAX_STACK_SIZE {
+            self.stack.resize(MAX_STACK_SIZE, Variant::Nil);
+        } else if self.stack.len() > MAX_STACK_SIZE {
+            self.stack.truncate(MAX_STACK_SIZE);
+        }
     }
-}
 
     pub fn set_should_break(&mut self, should_break: bool) {
         self.should_break = should_break;
@@ -204,8 +202,7 @@ pub fn apply_snapshot_v1(&mut self, snap: &ContextSnapshotV1) {
             let r = self.stack[pos].clone();
             self.stack[pos].set_nil();
             r
-        }
-        else {
+        } else {
             bail!("stack pointer out of bounds");
         };
 
@@ -340,10 +337,9 @@ pub fn apply_snapshot_v1(&mut self, snap: &ContextSnapshotV1) {
             // we must allocate the space for the locals
             self.push(Variant::Nil)?;
         }
-        
+
         Ok(())
     }
-
 
     /// 0x02 call instruction
     /// call a routine
@@ -357,14 +353,12 @@ pub fn apply_snapshot_v1(&mut self, snap: &ContextSnapshotV1) {
 
         // log::info!("call: {:x}", addr);
 
-        let frame = Variant::SavedStackInfo(
-            super::SavedStackInfo { 
-                stack_base: self.cur_stack_base, 
-                stack_pos: self.cur_stack_pos, 
-                return_addr: self.cursor,
-                args: 0, // the field will be updated in the init_stack instruction
-            }
-        );
+        let frame = Variant::SavedStackInfo(super::SavedStackInfo {
+            stack_base: self.cur_stack_base,
+            stack_pos: self.cur_stack_pos,
+            return_addr: self.cursor,
+            args: 0, // the field will be updated in the init_stack instruction
+        });
 
         self.push(frame)?;
 
@@ -401,7 +395,10 @@ pub fn apply_snapshot_v1(&mut self, snap: &ContextSnapshotV1) {
                 }
             };
             self.return_value = result;
-            crate::trace::syscall(format_args!("syscall_ret: {} -> {:?}", &syscall.name, &self.return_value));
+            crate::trace::syscall(format_args!(
+                "syscall_ret: {} -> {:?}",
+                &syscall.name, &self.return_value
+            ));
         } else {
             bail!("syscall not found: {}", id);
         }
@@ -416,7 +413,6 @@ pub fn apply_snapshot_v1(&mut self, snap: &ContextSnapshotV1) {
         self.return_value = Variant::Nil;
         let frame = self.get_local(-1)?;
         if let Some(frame) = frame.as_saved_stack_info() {
-
             self.cur_stack_pos = frame.stack_pos;
             self.cur_stack_base = frame.stack_base;
             self.cursor = frame.return_addr;
@@ -625,7 +621,7 @@ pub fn apply_snapshot_v1(&mut self, snap: &ContextSnapshotV1) {
 
     /// 0x11 push global table
     /// push a value than stored in the global table by immediate key onto the stack
-    /// we assume that if any failure occurs, such as the key not found, 
+    /// we assume that if any failure occurs, such as the key not found,
     /// we will push a nil value onto the stack for compatibility reasons.
     pub fn push_global_table(&mut self, parser: &mut Parser) -> Result<()> {
         self.cursor += 1;
@@ -751,7 +747,7 @@ pub fn apply_snapshot_v1(&mut self, snap: &ContextSnapshotV1) {
         Ok(())
     }
 
-    /// 0x18 pop local table 
+    /// 0x18 pop local table
     /// pop the top of the stack and store it in the local table by key
     pub fn pop_local_table(&mut self, parser: &mut Parser) -> Result<()> {
         self.cursor += 1;
@@ -780,7 +776,7 @@ pub fn apply_snapshot_v1(&mut self, snap: &ContextSnapshotV1) {
         Ok(())
     }
 
-    /// 0x19 neg 
+    /// 0x19 neg
     /// negate the top of the stack, only works for integers and floats
     pub fn neg(&mut self) -> Result<()> {
         self.cursor += 1;
@@ -1003,7 +999,7 @@ pub fn apply_snapshot_v1(&mut self, snap: &ContextSnapshotV1) {
     /// get waiting time for the context in ms
     pub fn get_waiting_time(&self) -> u64 {
         self.wait_ms
-    } 
+    }
 
     /// set waiting time for the context in ms
     pub fn set_waiting_time(&mut self, wait_ms: u64) {
@@ -1030,7 +1026,7 @@ pub fn apply_snapshot_v1(&mut self, snap: &ContextSnapshotV1) {
     pub fn is_main(&self) -> bool {
         self.id == 0
     }
-    
+
     pub fn set_exited(&mut self) {
         self.should_exit = true;
     }
@@ -1040,9 +1036,13 @@ pub fn apply_snapshot_v1(&mut self, snap: &ContextSnapshotV1) {
     }
 
     #[inline]
-    pub fn dispatch_opcode(&mut self, syscaller: &mut impl VmSyscall, parser: &mut Parser) -> Result<()> {
+    pub fn dispatch_opcode(
+        &mut self,
+        syscaller: &mut impl VmSyscall,
+        parser: &mut Parser,
+    ) -> Result<()> {
         let opcode = parser.read_u8(self.get_pc())? as i32;
-        
+
         match opcode.try_into() {
             Ok(Opcode::Nop) => {
                 self.nop()?;
@@ -1165,7 +1165,12 @@ pub fn apply_snapshot_v1(&mut self, snap: &ContextSnapshotV1) {
                 self.setge()?;
             }
             _ => {
-                log::error!("unknown opcode: {:#02x} @ {:#08x}, thread: {}", opcode, self.cursor, self.id);
+                log::error!(
+                    "unknown opcode: {:#02x} @ {:#08x}, thread: {}",
+                    opcode,
+                    self.cursor,
+                    self.id
+                );
                 self.backtrace();
                 std::process::exit(1);
             }
@@ -1184,5 +1189,4 @@ pub fn apply_snapshot_v1(&mut self, snap: &ContextSnapshotV1) {
             pos -= 1;
         }
     }
-
 }

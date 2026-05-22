@@ -239,7 +239,10 @@ pub fn assemble(meta: &Meta, items: &[Item]) -> Result<(Vec<u8>, HashMap<String,
                 out.extend_from_slice(&idx.to_le_bytes());
             }
 
-            OpKind::PushStack(idx) | OpKind::PopStack(idx) | OpKind::PushLocalTable(idx) | OpKind::PopLocalTable(idx) => {
+            OpKind::PushStack(idx)
+            | OpKind::PopStack(idx)
+            | OpKind::PushLocalTable(idx)
+            | OpKind::PopLocalTable(idx) => {
                 out.push(*idx as u8);
             }
         }

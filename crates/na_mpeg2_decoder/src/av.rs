@@ -41,7 +41,13 @@ pub struct MpegAvPipeline {
 
 impl MpegAvPipeline {
     pub fn new() -> Self {
-        Self { demux: Demuxer::new_auto(), vdec: VideoDecoder::new(), adec: MpaAudioDecoder::new(), pkts: Vec::new(), stash: VecDeque::new() }
+        Self {
+            demux: Demuxer::new_auto(),
+            vdec: VideoDecoder::new(),
+            adec: MpaAudioDecoder::new(),
+            pkts: Vec::new(),
+            stash: VecDeque::new(),
+        }
     }
 
     #[inline]
@@ -134,7 +140,12 @@ impl MpegAvPipeline {
         frame_to_rgba_bt601_limited(&f, &mut rgba);
 
         let pts_ms = pts90k_opt_to_ms(f.pts_90k);
-        on_event(MpegAvEvent::Video(MpegRgbaFrame { pts_ms, width: w, height: h, rgba }));
+        on_event(MpegAvEvent::Video(MpegRgbaFrame {
+            pts_ms,
+            width: w,
+            height: h,
+            rgba,
+        }));
         Ok(())
     }
 
@@ -143,14 +154,15 @@ impl MpegAvPipeline {
         F: FnMut(MpegAvEvent),
     {
         let pts_ms_opt = pkt.pts_90k.map(pts90k_to_ms);
-        self.adec.push_with(&pkt.data, pts_ms_opt, |ch: MpaAudioChunk| {
-            on_event(MpegAvEvent::Audio(MpegAudioF32 {
-                pts_ms: ch.pts_ms,
-                sample_rate: ch.sample_rate,
-                channels: ch.channels,
-                samples: ch.samples,
-            }))
-        })?;
+        self.adec
+            .push_with(&pkt.data, pts_ms_opt, |ch: MpaAudioChunk| {
+                on_event(MpegAvEvent::Audio(MpegAudioF32 {
+                    pts_ms: ch.pts_ms,
+                    sample_rate: ch.sample_rate,
+                    channels: ch.channels,
+                    samples: ch.samples,
+                }))
+            })?;
         Ok(())
     }
 }

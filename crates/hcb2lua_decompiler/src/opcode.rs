@@ -1,4 +1,3 @@
-
 pub enum Opcode {
     Nop = 0,
     InitStack = 1,
@@ -91,7 +90,6 @@ impl TryFrom<i32> for Opcode {
         }
     }
 }
-
 
 impl TryFrom<u8> for Opcode {
     type Error = ();
@@ -236,7 +234,8 @@ impl ToString for Opcode {
             Opcode::SetLE => "set_le",
             Opcode::SetL => "set_l",
             Opcode::SetGE => "set_ge",
-        }.to_string()
+        }
+        .to_string()
     }
 }
 
@@ -246,4 +245,3 @@ pub trait OpcodeBase {
     fn mnemonic(&self) -> &'static str;
     fn disassemble(&self) -> String;
 }
-

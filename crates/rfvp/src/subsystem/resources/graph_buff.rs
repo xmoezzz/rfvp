@@ -1,5 +1,5 @@
+use anyhow::{anyhow, Result};
 use image::{DynamicImage, GenericImageView, ImageBuffer};
-use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 
 use super::texture::NvsgTexture;
@@ -128,11 +128,19 @@ impl GraphBuff {
     }
 
     pub fn get_display_width(&self) -> u16 {
-        if self.display_width == 0 { self.width } else { self.display_width }
+        if self.display_width == 0 {
+            self.width
+        } else {
+            self.display_width
+        }
     }
 
     pub fn get_display_height(&self) -> u16 {
-        if self.display_height == 0 { self.height } else { self.display_height }
+        if self.display_height == 0 {
+            self.height
+        } else {
+            self.display_height
+        }
     }
 
     /// Export this graph as an 8-bit coverage mask (alpha plane) for text rendering.
@@ -206,8 +214,8 @@ impl GraphBuff {
     pub fn load_texture(&mut self, file_name: &str, buff: Vec<u8>) -> Result<()> {
         let mut nvsg_texture = NvsgTexture::new(file_name);
         nvsg_texture.read_texture(&buff, |typ| {
-            typ == super::texture::TextureType::Single24Bit ||
-            typ == super::texture::TextureType::Single32Bit
+            typ == super::texture::TextureType::Single24Bit
+                || typ == super::texture::TextureType::Single32Bit
         })?;
 
         self.unload();
@@ -228,15 +236,13 @@ impl GraphBuff {
         self.texture_path = file_name.to_string();
         self.load_kind = GraphBuffLoadKind::Texture;
         self.mark_dirty();
-    
+
         Ok(())
     }
 
     pub fn load_gaiji_fontface_glyph(&mut self, file_name: &str, buff: Vec<u8>) -> Result<()> {
         let mut nvsg_texture = NvsgTexture::new(file_name);
-        nvsg_texture.read_texture(&buff, |typ| {
-            typ == super::texture::TextureType::Single1Bit
-        })?;
+        nvsg_texture.read_texture(&buff, |typ| typ == super::texture::TextureType::Single1Bit)?;
 
         self.unload();
         self.texture = Some(nvsg_texture.get_texture(0)?);
@@ -255,15 +261,13 @@ impl GraphBuff {
         self.texture_path = file_name.to_string();
         self.load_kind = GraphBuffLoadKind::GaijiGlyph;
         self.mark_dirty();
-    
+
         Ok(())
     }
 
     pub fn load_mask(&mut self, file_name: &str, buff: Vec<u8>) -> Result<()> {
         let mut nvsg_texture = NvsgTexture::new(file_name);
-        nvsg_texture.read_texture(&buff, |typ| {
-            typ == super::texture::TextureType::Single8Bit
-        })?;
+        nvsg_texture.read_texture(&buff, |typ| typ == super::texture::TextureType::Single8Bit)?;
 
         self.unload();
         self.texture = Some(nvsg_texture.get_texture(0)?);
@@ -282,7 +286,7 @@ impl GraphBuff {
         self.texture_path = file_name.to_string();
         self.load_kind = GraphBuffLoadKind::Mask;
         self.mark_dirty();
-    
+
         Ok(())
     }
 
@@ -294,9 +298,22 @@ impl GraphBuff {
         self.load_from_buff_ref_with_display_size(buff, width, height, width, height)
     }
 
-    pub fn load_from_buff_ref_with_display_size(&mut self, buff: &[u8], width: u32, height: u32, display_width: u32, display_height: u32) -> Result<()> {
+    pub fn load_from_buff_ref_with_display_size(
+        &mut self,
+        buff: &[u8],
+        width: u32,
+        height: u32,
+        display_width: u32,
+        display_height: u32,
+    ) -> Result<()> {
         if width == 0 || height == 0 || display_width == 0 || display_height == 0 {
-            return Err(anyhow!("load_from_buff: invalid size {}x{} (display {}x{})", width, height, display_width, display_height));
+            return Err(anyhow!(
+                "load_from_buff: invalid size {}x{} (display {}x{})",
+                width,
+                height,
+                display_width,
+                display_height
+            ));
         }
 
         let expected = (width as usize)
@@ -314,7 +331,11 @@ impl GraphBuff {
             ));
         }
 
-        if width > u16::MAX as u32 || height > u16::MAX as u32 || display_width > u16::MAX as u32 || display_height > u16::MAX as u32 {
+        if width > u16::MAX as u32
+            || height > u16::MAX as u32
+            || display_width > u16::MAX as u32
+            || display_height > u16::MAX as u32
+        {
             return Err(anyhow!(
                 "load_from_buff: size too large for u16: {}x{} (display {}x{})",
                 width,
@@ -325,7 +346,9 @@ impl GraphBuff {
         }
 
         let reused = match self.texture.as_mut() {
-            Some(DynamicImage::ImageRgba8(img)) if img.width() == width && img.height() == height => {
+            Some(DynamicImage::ImageRgba8(img))
+                if img.width() == width && img.height() == height =>
+            {
                 img.as_mut().copy_from_slice(buff);
                 true
             }
@@ -333,8 +356,14 @@ impl GraphBuff {
         };
 
         if !reused {
-            let img = image::RgbaImage::from_raw(width, height, buff.to_vec())
-                .ok_or_else(|| anyhow!("load_from_buff: RgbaImage::from_raw failed ({}x{})", width, height))?;
+            let img =
+                image::RgbaImage::from_raw(width, height, buff.to_vec()).ok_or_else(|| {
+                    anyhow!(
+                        "load_from_buff: RgbaImage::from_raw failed ({}x{})",
+                        width,
+                        height
+                    )
+                })?;
             self.texture = Some(DynamicImage::ImageRgba8(img));
         }
 
@@ -353,12 +382,7 @@ impl GraphBuff {
         Ok(())
     }
 
-    pub fn set_color_tone(
-        &mut self,
-        red_value: i32,
-        green_value: i32,
-        blue_value: i32
-    ) {
+    pub fn set_color_tone(&mut self, red_value: i32, green_value: i32, blue_value: i32) {
         // IDA: GraphRGB -> color_tone_texture -> apply_color_tone.
         // apply_color_tone operates on premultiplied-alpha BGRA pixels and clamps channels to alpha.
         // For RGBA8 in Rust, we apply the same math per channel, clamping to A.
@@ -422,7 +446,6 @@ impl GraphBuff {
     }
 }
 
-
 pub fn copy_rect(
     src: &DynamicImage,
     src_x: u32,
@@ -447,7 +470,7 @@ pub fn copy_rect(
             *dest_pixel = src_pixel;
         }
     }
-    
+
     Ok(())
 }
 
@@ -468,7 +491,11 @@ pub fn copy_rect_clipped(
 ) -> Result<()> {
     let dest_rgba = match dest.as_mut_rgba8() {
         Some(dest) => dest,
-        None => return Err(anyhow!("copy_rect_clipped: dest image is not in RGBA8 format")),
+        None => {
+            return Err(anyhow!(
+                "copy_rect_clipped: dest image is not in RGBA8 format"
+            ))
+        }
     };
 
     let dw = dest_rgba.width() as i32;
@@ -625,7 +652,13 @@ impl GraphBuff {
                 Err(e) => {
                     // Fall back to embedded pixels if provided.
                     if let Some(rgba) = &snap.rgba {
-                        self.load_from_buff_ref_with_display_size(rgba, snap.width as u32, snap.height as u32, snap.display_width as u32, snap.display_height as u32)?;
+                        self.load_from_buff_ref_with_display_size(
+                            rgba,
+                            snap.width as u32,
+                            snap.height as u32,
+                            snap.display_width as u32,
+                            snap.display_height as u32,
+                        )?;
                         self.offset_x = snap.offset_x;
                         self.offset_y = snap.offset_y;
                         self.u = snap.u;
@@ -646,7 +679,9 @@ impl GraphBuff {
 
             match snap.load_kind {
                 GraphBuffLoadKind::Mask => self.load_mask(&snap.texture_path, bytes)?,
-                GraphBuffLoadKind::GaijiGlyph => self.load_gaiji_fontface_glyph(&snap.texture_path, bytes)?,
+                GraphBuffLoadKind::GaijiGlyph => {
+                    self.load_gaiji_fontface_glyph(&snap.texture_path, bytes)?
+                }
                 _ => self.load_texture(&snap.texture_path, bytes)?,
             }
 
@@ -656,7 +691,13 @@ impl GraphBuff {
 
         // No path: require pixels.
         if let Some(rgba) = &snap.rgba {
-            self.load_from_buff_ref_with_display_size(rgba, snap.width as u32, snap.height as u32, snap.display_width as u32, snap.display_height as u32)?;
+            self.load_from_buff_ref_with_display_size(
+                rgba,
+                snap.width as u32,
+                snap.height as u32,
+                snap.display_width as u32,
+                snap.display_height as u32,
+            )?;
             self.offset_x = snap.offset_x;
             self.offset_y = snap.offset_y;
             self.u = snap.u;

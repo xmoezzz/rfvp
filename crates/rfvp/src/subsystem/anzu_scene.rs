@@ -81,7 +81,6 @@ impl Scene for AnzuScene {
             game_data.thread_wrapper.thread_text_resume(tid);
         }
     }
-
 }
 
 impl AnzuScene {
@@ -128,9 +127,11 @@ impl AnzuScene {
     fn update_anim_motions(&mut self, game_data: &mut GameData, elapsed: i64) {
         game_data.motion_manager.update_anim_motions(elapsed);
         let bgm_playing_slots = game_data.bgm_player.get_playing_slots();
-        game_data
-            .motion_manager
-            .update_lip_motions(elapsed,  game_data.get_game_should_exit(), &bgm_playing_slots);
+        game_data.motion_manager.update_lip_motions(
+            elapsed,
+            game_data.get_game_should_exit(),
+            &bgm_playing_slots,
+        );
     }
 
     fn update_parts_motions(&mut self, game_data: &mut GameData, elapsed: i64) {

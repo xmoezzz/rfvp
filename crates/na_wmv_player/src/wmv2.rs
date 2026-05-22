@@ -12,7 +12,7 @@ use crate::error::{DecoderError, Result};
 
 #[derive(Debug, Clone)]
 pub struct Wmv2Params {
-    pub width:  u32,
+    pub width: u32,
     pub height: u32,
 }
 
@@ -64,7 +64,9 @@ impl Wmv2FrameHeader {
         }
         let mut cands = Self::parse_candidates(data, mb_w, mb_h);
         if cands.is_empty() {
-            return Err(DecoderError::InvalidData("Could not parse WMV2 picture header".into()));
+            return Err(DecoderError::InvalidData(
+                "Could not parse WMV2 picture header".into(),
+            ));
         }
         Ok(cands.remove(0))
     }
@@ -83,7 +85,11 @@ impl Wmv2FrameHeader {
 
         // upstream: h->c.pict_type = get_bits1(&gb) + 1;
         let is_p = br.read_bit()?;
-        let frame_type = if is_p { Wmv2FrameType::P } else { Wmv2FrameType::I };
+        let frame_type = if is_p {
+            Wmv2FrameType::P
+        } else {
+            Wmv2FrameType::I
+        };
 
         if frame_type == Wmv2FrameType::I {
             let _i7 = br.read_bits(7)?;

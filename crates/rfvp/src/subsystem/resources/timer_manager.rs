@@ -2,7 +2,7 @@ use std::vec;
 
 #[derive(Debug, Clone, Default)]
 pub struct TimerItem {
-    enabled : bool,
+    enabled: bool,
     elapsed: u32,
     resolution: u32,
 }
@@ -113,6 +113,3 @@ impl TimerManager {
         }
     }
 }
-
-
-

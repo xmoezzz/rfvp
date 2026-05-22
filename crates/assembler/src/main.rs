@@ -487,23 +487,23 @@ impl Assembler {
             match inst {
                 InstSet::Jmp(inst) => {
                     let old_target = inst.get_old_target();
-                    let target_inst = insts
-                        .get(&old_target)
-                        .ok_or_else(|| anyhow::anyhow!(format!("target not found: {}", old_target)))?;
+                    let target_inst = insts.get(&old_target).ok_or_else(|| {
+                        anyhow::anyhow!(format!("target not found: {}", old_target))
+                    })?;
                     inst.set_target(target_inst.borrow().get_address());
                 }
                 InstSet::Jz(inst) => {
                     let old_target = inst.get_old_target();
-                    let target_inst = insts
-                        .get(&old_target)
-                        .ok_or_else(|| anyhow::anyhow!(format!("target not found: {}", old_target)))?;
+                    let target_inst = insts.get(&old_target).ok_or_else(|| {
+                        anyhow::anyhow!(format!("target not found: {}", old_target))
+                    })?;
                     inst.set_target(target_inst.borrow().get_address());
                 }
                 InstSet::Call(inst) => {
                     let old_target = inst.get_old_func_target();
-                    let target_inst = insts
-                        .get(&old_target)
-                        .ok_or_else(|| anyhow::anyhow!(format!("target not found: {}", old_target)))?;
+                    let target_inst = insts.get(&old_target).ok_or_else(|| {
+                        anyhow::anyhow!(format!("target not found: {}", old_target))
+                    })?;
                     inst.set_func_target(target_inst.borrow().get_address());
                 }
                 _ => {}
@@ -518,9 +518,9 @@ impl Assembler {
             }
 
             for ts_old_addr in threadstart_sites {
-                let idx = *index_by_old
-                    .get(&ts_old_addr)
-                    .ok_or_else(|| anyhow::anyhow!(format!("ThreadStart site not found: {ts_old_addr}")))?;
+                let idx = *index_by_old.get(&ts_old_addr).ok_or_else(|| {
+                    anyhow::anyhow!(format!("ThreadStart site not found: {ts_old_addr}"))
+                })?;
 
                 // Scan a small window before ThreadStart and find exactly one push of a function entry address.
                 let mut candidates: Vec<(u32, u32)> = Vec::new();
@@ -581,9 +581,9 @@ impl Assembler {
                     .borrow()
                     .get_address();
 
-                let push_inst = insts
-                    .get(&push_old_addr)
-                    .ok_or_else(|| anyhow::anyhow!(format!("push inst missing at {push_old_addr}")))?;
+                let push_inst = insts.get(&push_old_addr).ok_or_else(|| {
+                    anyhow::anyhow!(format!("push inst missing at {push_old_addr}"))
+                })?;
                 match &mut *push_inst.borrow_mut() {
                     InstSet::PushI32(p) => p.set_value(target_new as i32),
                     InstSet::PushI16(p) => {

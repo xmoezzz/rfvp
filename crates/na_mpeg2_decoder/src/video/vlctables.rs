@@ -1,7 +1,7 @@
 use std::sync::OnceLock;
 
-use super::vlc::{Vlc, VlcElem, RlVlcElem};
 use super::tables::*;
+use super::vlc::{RlVlcElem, Vlc, VlcElem};
 
 pub const DC_VLC_BITS: i32 = 9;
 pub const MV_VLC_BITS: i32 = 8;
@@ -31,20 +31,32 @@ pub const MB_TYPE_SKIP: i16 = 0x0200;
 pub const MB_TYPE_ZERO_MV: i16 = 0x0400;
 
 #[inline]
-pub fn is_intra(mb_type: i16) -> bool { (mb_type & MB_TYPE_INTRA) != 0 }
+pub fn is_intra(mb_type: i16) -> bool {
+    (mb_type & MB_TYPE_INTRA) != 0
+}
 #[inline]
-pub fn has_cbp(mb_type: i16) -> bool { (mb_type & MB_TYPE_CBP) != 0 }
+pub fn has_cbp(mb_type: i16) -> bool {
+    (mb_type & MB_TYPE_CBP) != 0
+}
 #[inline]
-pub fn is_quant(mb_type: i16) -> bool { (mb_type & MB_TYPE_QUANT) != 0 }
+pub fn is_quant(mb_type: i16) -> bool {
+    (mb_type & MB_TYPE_QUANT) != 0
+}
 
 #[inline]
 pub fn mb_type_mv_2_mv_dir(mb_type: i16) -> i32 {
     // Equivalent to `MB_TYPE_MV_2_MV_DIR` for MPEG-1/2 subset.
     // Forward/back/bidir flags map to MV_DIR_FORWARD/MV_DIR_BACKWARD.
     let mut dir = 0;
-    if (mb_type & MB_TYPE_FORWARD_MV) != 0 { dir |= 1; }
-    if (mb_type & MB_TYPE_BACKWARD_MV) != 0 { dir |= 2; }
-    if (mb_type & MB_TYPE_BIDIR_MV) != 0 { dir |= 3; }
+    if (mb_type & MB_TYPE_FORWARD_MV) != 0 {
+        dir |= 1;
+    }
+    if (mb_type & MB_TYPE_BACKWARD_MV) != 0 {
+        dir |= 2;
+    }
+    if (mb_type & MB_TYPE_BIDIR_MV) != 0 {
+        dir |= 3;
+    }
     dir
 }
 
@@ -96,15 +108,29 @@ fn init_2d_vlc_rl(table_vlc: &[[u16; 2]; 113]) -> Vec<RlVlcElem> {
                 (l as i16, r as u8)
             }
         };
-        out[i] = RlVlcElem { level, len8: len as i8, run };
+        out[i] = RlVlcElem {
+            level,
+            len8: len as i8,
+            run,
+        };
     }
     out
 }
 
 fn build() -> Mpeg12Vlcs {
     // DC tables.
-    let dc_lum = Vlc::init_sparse(DC_VLC_BITS, &FF_MPEG12_VLC_DC_LUM_BITS, &FF_MPEG12_VLC_DC_LUM_CODE, None);
-    let dc_chroma = Vlc::init_sparse(DC_VLC_BITS, &FF_MPEG12_VLC_DC_CHROMA_BITS, &FF_MPEG12_VLC_DC_CHROMA_CODE, None);
+    let dc_lum = Vlc::init_sparse(
+        DC_VLC_BITS,
+        &FF_MPEG12_VLC_DC_LUM_BITS,
+        &FF_MPEG12_VLC_DC_LUM_CODE,
+        None,
+    );
+    let dc_chroma = Vlc::init_sparse(
+        DC_VLC_BITS,
+        &FF_MPEG12_VLC_DC_CHROMA_BITS,
+        &FF_MPEG12_VLC_DC_CHROMA_CODE,
+        None,
+    );
 
     // MV table.
     let mut mv_bits = [0u8; 17];
@@ -135,15 +161,7 @@ fn build() -> Mpeg12Vlcs {
 
     // P-type and B-type.
     // From mpeg12.c `table_mb_ptype` and `ptype2mb_type`.
-    const TABLE_MB_PTYPE: [[u8; 2]; 7] = [
-        [3, 5],
-        [1, 2],
-        [1, 3],
-        [1, 1],
-        [1, 6],
-        [1, 5],
-        [2, 5],
-    ];
+    const TABLE_MB_PTYPE: [[u8; 2]; 7] = [[3, 5], [1, 2], [1, 3], [1, 1], [1, 6], [1, 5], [2, 5]];
 
     const PTYPE2MB_TYPE: [i16; 7] = [
         MB_TYPE_INTRA,
@@ -163,7 +181,12 @@ fn build() -> Mpeg12Vlcs {
         ptype_bits[i] = TABLE_MB_PTYPE[i][1];
         ptype_syms[i] = PTYPE2MB_TYPE[i];
     }
-    let mb_ptype = Vlc::init_sparse(MB_PTYPE_VLC_BITS, &ptype_bits, &ptype_codes, Some(&ptype_syms));
+    let mb_ptype = Vlc::init_sparse(
+        MB_PTYPE_VLC_BITS,
+        &ptype_bits,
+        &ptype_codes,
+        Some(&ptype_syms),
+    );
 
     const TABLE_MB_BTYPE: [[u8; 2]; 11] = [
         [3, 5],
@@ -201,12 +224,27 @@ fn build() -> Mpeg12Vlcs {
         btype_bits[i] = TABLE_MB_BTYPE[i][1];
         btype_syms[i] = BTYPE2MB_TYPE[i];
     }
-    let mb_btype = Vlc::init_sparse(MB_BTYPE_VLC_BITS, &btype_bits, &btype_codes, Some(&btype_syms));
+    let mb_btype = Vlc::init_sparse(
+        MB_BTYPE_VLC_BITS,
+        &btype_bits,
+        &btype_codes,
+        Some(&btype_syms),
+    );
 
     let rl_mpeg1 = init_2d_vlc_rl(&FF_MPEG1_VLC_TABLE);
     let rl_mpeg2 = init_2d_vlc_rl(&FF_MPEG2_VLC_TABLE);
 
-    Mpeg12Vlcs { dc_lum, dc_chroma, mv, mbincr, mb_pat, mb_ptype, mb_btype, rl_mpeg1, rl_mpeg2 }
+    Mpeg12Vlcs {
+        dc_lum,
+        dc_chroma,
+        mv,
+        mbincr,
+        mb_pat,
+        mb_ptype,
+        mb_btype,
+        rl_mpeg1,
+        rl_mpeg2,
+    }
 }
 
 pub fn get_vlcs() -> &'static Mpeg12Vlcs {

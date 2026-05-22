@@ -1,6 +1,12 @@
 #[inline(always)]
 fn clip_u8(x: i32) -> u8 {
-    if x < 0 { 0 } else if x > 255 { 255 } else { x as u8 }
+    if x < 0 {
+        0
+    } else if x > 255 {
+        255
+    } else {
+        x as u8
+    }
 }
 
 // --- Constants (BIT_DEPTH=8) ---
@@ -147,7 +153,13 @@ fn idct_sparse_col_int16_8bit(block: &mut [i16; 64], col: usize) {
 }
 
 #[inline(always)]
-fn idct_sparse_col_add_int16_8bit(dest: &mut [u8], dest_off: usize, line_size: usize, block: &[i16; 64], col: usize) {
+fn idct_sparse_col_add_int16_8bit(
+    dest: &mut [u8],
+    dest_off: usize,
+    line_size: usize,
+    block: &[i16; 64],
+    col: usize,
+) {
     let c0 = block[col + 8 * 0] as i64;
     let c1 = block[col + 8 * 1] as i64;
     let c2 = block[col + 8 * 2] as i64;
@@ -236,7 +248,12 @@ pub fn ff_simple_idct_int16_8bit(block: &mut [i16; 64]) {
 }
 
 /// Add an 8x8 IDCT block into destination: equivalent to upstream `ff_simple_idct_add_int16_8bit`.
-pub fn ff_simple_idct_add_int16_8bit(dest: &mut [u8], dest_off: usize, line_size: usize, block: &mut [i16; 64]) {
+pub fn ff_simple_idct_add_int16_8bit(
+    dest: &mut [u8],
+    dest_off: usize,
+    line_size: usize,
+    block: &mut [i16; 64],
+) {
     // Row transform in-place
     for r in 0..8usize {
         let mut row = [0i16; 8];
@@ -272,7 +289,13 @@ const R2: i64 = 12540;
 const R3: i64 = 23170;
 
 #[inline(always)]
-fn idct4col_add(dest: &mut [u8], dest_off: usize, line_size: usize, col: &[i16; 64], col_idx: usize) {
+fn idct4col_add(
+    dest: &mut [u8],
+    dest_off: usize,
+    line_size: usize,
+    col: &[i16; 64],
+    col_idx: usize,
+) {
     // col points to block + i (column i), but in upstream idct4col_add reads col[8*0..8*3]
     let a0 = col[col_idx + 8 * 0] as i64;
     let a1 = col[col_idx + 8 * 1] as i64;
@@ -320,7 +343,12 @@ fn idct4row(row: &mut [i16; 8]) {
 }
 
 /// WMV2 ABT: add an 8x4 IDCT block (top or bottom half). Equivalent to upstream `ff_simple_idct84_add`.
-pub fn ff_simple_idct84_add(dest: &mut [u8], dest_off: usize, line_size: usize, block: &mut [i16; 64]) {
+pub fn ff_simple_idct84_add(
+    dest: &mut [u8],
+    dest_off: usize,
+    line_size: usize,
+    block: &mut [i16; 64],
+) {
     // IDCT8 on each of the first 4 rows
     for r in 0..4usize {
         let mut row = [0i16; 8];
@@ -339,7 +367,12 @@ pub fn ff_simple_idct84_add(dest: &mut [u8], dest_off: usize, line_size: usize, 
 }
 
 /// WMV2 ABT: add a 4x8 IDCT block (left or right half). Equivalent to upstream `ff_simple_idct48_add`.
-pub fn ff_simple_idct48_add(dest: &mut [u8], dest_off: usize, line_size: usize, block: &mut [i16; 64]) {
+pub fn ff_simple_idct48_add(
+    dest: &mut [u8],
+    dest_off: usize,
+    line_size: usize,
+    block: &mut [i16; 64],
+) {
     // IDCT4 on each line (8 rows)
     for r in 0..8usize {
         let mut row = [0i16; 8];

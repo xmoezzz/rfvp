@@ -32,7 +32,9 @@ pub struct AppConfigBuilder {
 impl AppConfigBuilder {
     /// Create a new `AppConfigBuilder` builder
     pub fn new() -> Self {
-        Self { config: Default::default() }
+        Self {
+            config: Default::default(),
+        }
     }
 
     /// Sets the app name. Will also be used for the window name
@@ -58,4 +60,3 @@ impl AppConfigBuilder {
         self.config
     }
 }
-

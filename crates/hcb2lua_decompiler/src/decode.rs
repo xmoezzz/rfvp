@@ -276,4 +276,3 @@ pub fn all_call_targets(program: &Program) -> BTreeMap<u32, ()> {
     }
     m
 }
-

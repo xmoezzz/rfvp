@@ -20,7 +20,11 @@ pub struct MpegVideoPipeline {
 impl MpegVideoPipeline {
     #[inline]
     pub fn new() -> Self {
-        Self { demux: Demuxer::new_auto(), dec: Decoder::new(), pkts: Vec::new() }
+        Self {
+            demux: Demuxer::new_auto(),
+            dec: Decoder::new(),
+            pkts: Vec::new(),
+        }
     }
 
     #[inline]

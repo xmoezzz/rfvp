@@ -10,7 +10,11 @@ pub struct GetBits<'a> {
 
 impl<'a> GetBits<'a> {
     pub fn init(buf: &'a [u8]) -> Self {
-        Self { buf, size_in_bits: buf.len() * 8, bit_pos: 0 }
+        Self {
+            buf,
+            size_in_bits: buf.len() * 8,
+            bit_pos: 0,
+        }
     }
 
     #[inline]

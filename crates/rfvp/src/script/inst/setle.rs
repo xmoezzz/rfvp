@@ -1,5 +1,5 @@
-use crate::script::opcode::OpcodeBase;
 use crate::script::opcode::Opcode;
+use crate::script::opcode::OpcodeBase;
 
 pub struct SetleInst {
     address: u32,
@@ -7,9 +7,7 @@ pub struct SetleInst {
 
 impl SetleInst {
     pub fn new(address: u32) -> Self {
-        Self {
-            address,
-        }
+        Self { address }
     }
 }
 

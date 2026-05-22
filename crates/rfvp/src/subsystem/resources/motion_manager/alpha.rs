@@ -1,6 +1,5 @@
-use anyhow::Result;
 use crate::subsystem::resources::prim::{PrimManager, INVAILD_PRIM_HANDLE};
-
+use anyhow::Result;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AlphaMotionType {
@@ -125,7 +124,7 @@ impl AlphaMotion {
     pub fn update(
         &mut self,
         prim_manager: &PrimManager,
-        flag: bool,      // corresponds to engine->scene.should_break
+        flag: bool, // corresponds to engine->scene.should_break
         elapsed: i32,
     ) -> bool {
         // Return value semantics from decompile: 1 = keep running, 0 = finished
@@ -183,7 +182,7 @@ impl AlphaMotion {
         self.elapsed += step;
 
         if step < 0 || self.elapsed >= self.duration {
-            self.running = false; 
+            self.running = false;
             prim.set_alpha(self.dst_alpha);
             return false;
         }
@@ -310,17 +309,12 @@ impl AlphaMotionContainer {
         })
     }
 
-    pub fn exec_alpha_motion(
-        &mut self,
-        prim_manager: &PrimManager,
-        flag: bool,
-        elapsed: i32,
-    ) {
+    pub fn exec_alpha_motion(&mut self, prim_manager: &PrimManager, flag: bool, elapsed: i32) {
         for i in 0..256 {
             if !self.motions[i].is_running() {
                 continue;
             }
-            
+
             if !self.motions[i].update(prim_manager, flag, elapsed) {
                 self.motions[i].set_running(false);
                 if self.current_id > 0 {
@@ -331,8 +325,6 @@ impl AlphaMotionContainer {
         }
     }
 }
-
-
 
 impl AlphaMotionContainer {
     pub fn debug_dump(&self, max: usize) -> String {
@@ -347,13 +339,7 @@ impl AlphaMotionContainer {
             }
             out.push_str(&format!(
                 "  [alpha] prim={} src={} dst={} elapsed={} dur={} type={:?} rev={}\n",
-                m.prim_id,
-                m.src_alpha,
-                m.dst_alpha,
-                m.elapsed,
-                m.duration,
-                m.anm_type,
-                m.reverse
+                m.prim_id, m.src_alpha, m.dst_alpha, m.elapsed, m.duration, m.anm_type, m.reverse
             ));
             n += 1;
         }

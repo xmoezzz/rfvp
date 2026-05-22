@@ -1,5 +1,5 @@
-use crate::script::opcode::OpcodeBase;
 use crate::script::opcode::Opcode;
+use crate::script::opcode::OpcodeBase;
 
 pub struct JmpInst {
     address: u32,
@@ -8,10 +8,7 @@ pub struct JmpInst {
 
 impl JmpInst {
     pub fn new(address: u32, target: u32) -> Self {
-        Self {
-            address,
-            target,
-        }
+        Self { address, target }
     }
 
     pub fn get_target(&self) -> u32 {

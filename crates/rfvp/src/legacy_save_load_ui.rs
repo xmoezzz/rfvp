@@ -1,14 +1,17 @@
-use anyhow::Result;
 use crate::font::{Font, LineMetrics};
+use anyhow::Result;
 use glam::{Mat4, Vec2, Vec3, Vec4};
 use image::{DynamicImage, Rgba, RgbaImage};
 use wgpu::util::DeviceExt;
-use winit::{event::{MouseButton, WindowEvent}, keyboard::{KeyCode, PhysicalKey}};
+use winit::{
+    event::{MouseButton, WindowEvent},
+    keyboard::{KeyCode, PhysicalKey},
+};
 
 use crate::{
-    rfvp_render::{GpuCommonResources, GpuTexture},
     rfvp_render::pipelines::sprite::SpritePipeline,
     rfvp_render::vertices::{PosColTexVertex, VertexSource},
+    rfvp_render::{GpuCommonResources, GpuTexture},
     subsystem::{components::syscalls::legacy::LegacySaveLoadRequest, world::GameData},
 };
 
@@ -59,12 +62,11 @@ fn format_slot_time(game: &GameData, slot: u32) -> String {
     let hour = game.save_manager.get_hour(slot);
     let minute = game.save_manager.get_minute(slot);
 
-    let valid =
-        (2000..=9999).contains(&year) &&
-        (1..=12).contains(&month) &&
-        (1..=31).contains(&day) &&
-        hour <= 23 &&
-        minute <= 59;
+    let valid = (2000..=9999).contains(&year)
+        && (1..=12).contains(&month)
+        && (1..=31).contains(&day)
+        && hour <= 23
+        && minute <= 59;
 
     if !valid {
         return String::new();
@@ -82,22 +84,43 @@ impl LegacySaveLoadUi {
         let texture = GpuTexture::new(resources, &img, Some("legacy_save_load_ui"));
 
         let vertices = [
-            PosColTexVertex { position: Vec3::new(0.0, 0.0, 0.0), color: Vec4::ONE, texture_coordinate: Vec2::new(0.0, 0.0) },
-            PosColTexVertex { position: Vec3::new(1.0, 0.0, 0.0), color: Vec4::ONE, texture_coordinate: Vec2::new(1.0, 0.0) },
-            PosColTexVertex { position: Vec3::new(1.0, 1.0, 0.0), color: Vec4::ONE, texture_coordinate: Vec2::new(1.0, 1.0) },
-            PosColTexVertex { position: Vec3::new(0.0, 1.0, 0.0), color: Vec4::ONE, texture_coordinate: Vec2::new(0.0, 1.0) },
+            PosColTexVertex {
+                position: Vec3::new(0.0, 0.0, 0.0),
+                color: Vec4::ONE,
+                texture_coordinate: Vec2::new(0.0, 0.0),
+            },
+            PosColTexVertex {
+                position: Vec3::new(1.0, 0.0, 0.0),
+                color: Vec4::ONE,
+                texture_coordinate: Vec2::new(1.0, 0.0),
+            },
+            PosColTexVertex {
+                position: Vec3::new(1.0, 1.0, 0.0),
+                color: Vec4::ONE,
+                texture_coordinate: Vec2::new(1.0, 1.0),
+            },
+            PosColTexVertex {
+                position: Vec3::new(0.0, 1.0, 0.0),
+                color: Vec4::ONE,
+                texture_coordinate: Vec2::new(0.0, 1.0),
+            },
         ];
         let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
-        let vertex_buffer = resources.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("legacy_save_load_ui.vb"),
-            contents: bytemuck::cast_slice(&vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        let index_buffer = resources.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("legacy_save_load_ui.ib"),
-            contents: bytemuck::cast_slice(&indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
+        let vertex_buffer =
+            resources
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("legacy_save_load_ui.vb"),
+                    contents: bytemuck::cast_slice(&vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+        let index_buffer = resources
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("legacy_save_load_ui.ib"),
+                contents: bytemuck::cast_slice(&indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
 
         Self {
             active: false,
@@ -125,7 +148,11 @@ impl LegacySaveLoadUi {
         self.hover_row = None;
         self.hover_cancel = false;
         let cur_slot = game.save_manager.get_current_save_slot();
-        let slot = if (cur_slot as usize) < UI_MAX_SLOT { cur_slot as usize } else { 0 };
+        let slot = if (cur_slot as usize) < UI_MAX_SLOT {
+            cur_slot as usize
+        } else {
+            0
+        };
         self.page = slot / UI_ROWS_PER_PAGE;
         self.selected_row = slot % UI_ROWS_PER_PAGE;
         let _ = game.save_manager.refresh_all_savedata(game.get_nls());
@@ -159,14 +186,19 @@ impl LegacySaveLoadUi {
                         self.close();
                         return true;
                     }
-                    PhysicalKey::Code(KeyCode::Enter) | PhysicalKey::Code(KeyCode::NumpadEnter) | PhysicalKey::Code(KeyCode::Space) => {
+                    PhysicalKey::Code(KeyCode::Enter)
+                    | PhysicalKey::Code(KeyCode::NumpadEnter)
+                    | PhysicalKey::Code(KeyCode::Space) => {
                         self.confirm(game);
                         return true;
                     }
                     PhysicalKey::Code(KeyCode::ArrowUp) => self.move_row(-1),
                     PhysicalKey::Code(KeyCode::ArrowDown) => self.move_row(1),
-                    PhysicalKey::Code(KeyCode::ArrowLeft) | PhysicalKey::Code(KeyCode::PageUp) => self.move_page(-1),
-                    PhysicalKey::Code(KeyCode::ArrowRight) | PhysicalKey::Code(KeyCode::PageDown) => self.move_page(1),
+                    PhysicalKey::Code(KeyCode::ArrowLeft) | PhysicalKey::Code(KeyCode::PageUp) => {
+                        self.move_page(-1)
+                    }
+                    PhysicalKey::Code(KeyCode::ArrowRight)
+                    | PhysicalKey::Code(KeyCode::PageDown) => self.move_page(1),
                     PhysicalKey::Code(KeyCode::Home) => {
                         self.selected_row = 0;
                         self.dirty = true;
@@ -180,7 +212,9 @@ impl LegacySaveLoadUi {
                 return true;
             }
             WindowEvent::CursorMoved { position, .. } => {
-                if let Some((vx, vy)) = map_window_to_virtual(position.x, position.y, surface_size, virtual_size) {
+                if let Some((vx, vy)) =
+                    map_window_to_virtual(position.x, position.y, surface_size, virtual_size)
+                {
                     let hover = self.hit_test_row(vx, vy, virtual_size);
                     let hover_cancel = Self::hit_test_cancel_button(vx, vy, virtual_size);
                     if hover != self.hover_row || hover_cancel != self.hover_cancel {
@@ -290,7 +324,13 @@ impl LegacySaveLoadUi {
         true
     }
 
-    pub fn update(&mut self, resources: &GpuCommonResources, game: &mut GameData, virtual_size: (u32, u32), surface_size: (u32, u32)) {
+    pub fn update(
+        &mut self,
+        resources: &GpuCommonResources,
+        game: &mut GameData,
+        virtual_size: (u32, u32),
+        surface_size: (u32, u32),
+    ) {
         if !self.active {
             return;
         }
@@ -333,16 +373,35 @@ impl LegacySaveLoadUi {
         let sw = sw.max(1);
         let sh = sh.max(1);
         let vertices = [
-            PosColTexVertex { position: Vec3::new(0.0, 0.0, 0.0), color: Vec4::ONE, texture_coordinate: Vec2::new(0.0, 0.0) },
-            PosColTexVertex { position: Vec3::new(sw as f32, 0.0, 0.0), color: Vec4::ONE, texture_coordinate: Vec2::new(1.0, 0.0) },
-            PosColTexVertex { position: Vec3::new(sw as f32, sh as f32, 0.0), color: Vec4::ONE, texture_coordinate: Vec2::new(1.0, 1.0) },
-            PosColTexVertex { position: Vec3::new(0.0, sh as f32, 0.0), color: Vec4::ONE, texture_coordinate: Vec2::new(0.0, 1.0) },
+            PosColTexVertex {
+                position: Vec3::new(0.0, 0.0, 0.0),
+                color: Vec4::ONE,
+                texture_coordinate: Vec2::new(0.0, 0.0),
+            },
+            PosColTexVertex {
+                position: Vec3::new(sw as f32, 0.0, 0.0),
+                color: Vec4::ONE,
+                texture_coordinate: Vec2::new(1.0, 0.0),
+            },
+            PosColTexVertex {
+                position: Vec3::new(sw as f32, sh as f32, 0.0),
+                color: Vec4::ONE,
+                texture_coordinate: Vec2::new(1.0, 1.0),
+            },
+            PosColTexVertex {
+                position: Vec3::new(0.0, sh as f32, 0.0),
+                color: Vec4::ONE,
+                texture_coordinate: Vec2::new(0.0, 1.0),
+            },
         ];
-        self.vertex_buffer = resources.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("legacy_save_load_ui.vb"),
-            contents: bytemuck::cast_slice(&vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        self.vertex_buffer =
+            resources
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("legacy_save_load_ui.vb"),
+                    contents: bytemuck::cast_slice(&vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
     }
 
     fn move_row(&mut self, delta: isize) {
@@ -371,7 +430,8 @@ impl LegacySaveLoadUi {
                     return;
                 }
                 game.save_manager.request_load(slot);
-                game.motion_manager.start_dissolve2_in_out(DISSOLVE2_LOAD_COLOR_ID, DISSOLVE2_LOAD_DURATION_MS);
+                game.motion_manager
+                    .start_dissolve2_in_out(DISSOLVE2_LOAD_COLOR_ID, DISSOLVE2_LOAD_DURATION_MS);
                 self.close();
             }
             LegacySaveLoadMode::Save | LegacySaveLoadMode::SaveTitle => {
@@ -394,20 +454,60 @@ impl LegacySaveLoadUi {
         }
     }
 
-    fn build_image(&self, game: &mut GameData, virtual_size: (u32, u32), surface_size: (u32, u32)) -> RgbaImage {
+    fn build_image(
+        &self,
+        game: &mut GameData,
+        virtual_size: (u32, u32),
+        surface_size: (u32, u32),
+    ) -> RgbaImage {
         let transform = UiSurfaceTransform::new(virtual_size, surface_size);
         let (sw, sh) = surface_size;
         let mut img = RgbaImage::from_pixel(sw.max(1), sh.max(1), Rgba([0, 0, 0, 0]));
-        fill_rect(&mut img, transform.content_x, transform.content_y, transform.content_w, transform.content_h, [0, 0, 0, 160]);
+        fill_rect(
+            &mut img,
+            transform.content_x,
+            transform.content_y,
+            transform.content_w,
+            transform.content_h,
+            [0, 0, 0, 160],
+        );
 
         let panel_x = 24i32;
         let panel_y = 18i32;
         let panel_w = virtual_size.0 as i32 - 48;
         let panel_h = virtual_size.1 as i32 - 36;
-        fill_rect(&mut img, transform.map_x(panel_x), transform.map_y(panel_y), transform.map_w(panel_w), transform.map_h(panel_h), [238, 238, 238, 245]);
-        stroke_rect(&mut img, transform.map_x(panel_x), transform.map_y(panel_y), transform.map_w(panel_w), transform.map_h(panel_h), [24, 24, 24, 255]);
-        fill_rect(&mut img, transform.map_x(panel_x + 1), transform.map_y(panel_y + 1), transform.map_w(panel_w - 2), transform.map_h(28), [48, 72, 112, 255]);
-        draw_text_left(&self.font, &mut img, transform.map_rect(panel_x + 10, panel_y + 4, panel_w - 20, 20), transform.scale_font(16.0), [255, 255, 255, 255], self.mode_label());
+        fill_rect(
+            &mut img,
+            transform.map_x(panel_x),
+            transform.map_y(panel_y),
+            transform.map_w(panel_w),
+            transform.map_h(panel_h),
+            [238, 238, 238, 245],
+        );
+        stroke_rect(
+            &mut img,
+            transform.map_x(panel_x),
+            transform.map_y(panel_y),
+            transform.map_w(panel_w),
+            transform.map_h(panel_h),
+            [24, 24, 24, 255],
+        );
+        fill_rect(
+            &mut img,
+            transform.map_x(panel_x + 1),
+            transform.map_y(panel_y + 1),
+            transform.map_w(panel_w - 2),
+            transform.map_h(28),
+            [48, 72, 112, 255],
+        );
+        draw_text_left(
+            &self.font,
+            &mut img,
+            transform.map_rect(panel_x + 10, panel_y + 4, panel_w - 20, 20),
+            transform.scale_font(16.0),
+            [255, 255, 255, 255],
+            self.mode_label(),
+        );
 
         let tabs_y = panel_y + 34;
         let tabs_x = panel_x + 8;
@@ -416,10 +516,35 @@ impl LegacySaveLoadUi {
         for page in 0..UI_PAGE_COUNT {
             let x = tabs_x + page as i32 * tab_w;
             let active = page == self.page;
-            fill_rect(&mut img, transform.map_x(x), transform.map_y(tabs_y), transform.map_w(tab_w - 2), transform.map_h(22), if active { [255, 255, 255, 255] } else { [188, 196, 212, 255] });
-            stroke_rect(&mut img, transform.map_x(x), transform.map_y(tabs_y), transform.map_w(tab_w - 2), transform.map_h(22), [24, 24, 24, 255]);
+            fill_rect(
+                &mut img,
+                transform.map_x(x),
+                transform.map_y(tabs_y),
+                transform.map_w(tab_w - 2),
+                transform.map_h(22),
+                if active {
+                    [255, 255, 255, 255]
+                } else {
+                    [188, 196, 212, 255]
+                },
+            );
+            stroke_rect(
+                &mut img,
+                transform.map_x(x),
+                transform.map_y(tabs_y),
+                transform.map_w(tab_w - 2),
+                transform.map_h(22),
+                [24, 24, 24, 255],
+            );
             let label = format!("PAGE{}", page + 1);
-            draw_text_centered(&self.font, &mut img, transform.map_rect(x + 2, tabs_y + 2, tab_w - 6, 18), transform.scale_font(12.0), [0, 0, 0, 255], &label);
+            draw_text_centered(
+                &self.font,
+                &mut img,
+                transform.map_rect(x + 2, tabs_y + 2, tab_w - 6, 18),
+                transform.scale_font(12.0),
+                [0, 0, 0, 255],
+                &label,
+            );
         }
 
         let list_x = panel_x + 8;
@@ -427,20 +552,76 @@ impl LegacySaveLoadUi {
         let list_w = panel_w - 16;
         let footer_h = 34;
         let list_h = panel_h - (list_y - panel_y) - footer_h - 8;
-        fill_rect(&mut img, transform.map_x(list_x), transform.map_y(list_y), transform.map_w(list_w), transform.map_h(list_h), [248, 248, 248, 255]);
-        stroke_rect(&mut img, transform.map_x(list_x), transform.map_y(list_y), transform.map_w(list_w), transform.map_h(list_h), [32, 32, 32, 255]);
+        fill_rect(
+            &mut img,
+            transform.map_x(list_x),
+            transform.map_y(list_y),
+            transform.map_w(list_w),
+            transform.map_h(list_h),
+            [248, 248, 248, 255],
+        );
+        stroke_rect(
+            &mut img,
+            transform.map_x(list_x),
+            transform.map_y(list_y),
+            transform.map_w(list_w),
+            transform.map_h(list_h),
+            [32, 32, 32, 255],
+        );
 
         let c0 = (list_w as f32 * 0.42) as i32;
         let c1 = (list_w as f32 * 0.28) as i32;
         let c2 = list_w - c0 - c1;
-        fill_rect(&mut img, transform.map_x(list_x + c0), transform.map_y(list_y), transform.map_w(1), transform.map_h(list_h), [96, 96, 96, 255]);
-        fill_rect(&mut img, transform.map_x(list_x + c0 + c1), transform.map_y(list_y), transform.map_w(1), transform.map_h(list_h), [96, 96, 96, 255]);
+        fill_rect(
+            &mut img,
+            transform.map_x(list_x + c0),
+            transform.map_y(list_y),
+            transform.map_w(1),
+            transform.map_h(list_h),
+            [96, 96, 96, 255],
+        );
+        fill_rect(
+            &mut img,
+            transform.map_x(list_x + c0 + c1),
+            transform.map_y(list_y),
+            transform.map_w(1),
+            transform.map_h(list_h),
+            [96, 96, 96, 255],
+        );
 
         let header_h = 18;
-        fill_rect(&mut img, transform.map_x(list_x), transform.map_y(list_y), transform.map_w(list_w), transform.map_h(header_h), [216, 220, 228, 255]);
-        draw_text_left(&self.font, &mut img, transform.map_rect(list_x + 4, list_y + 1, c0 - 8, header_h - 2), transform.scale_font(12.0), [0, 0, 0, 255], "TITLE");
-        draw_text_left(&self.font, &mut img, transform.map_rect(list_x + c0 + 4, list_y + 1, c1 - 8, header_h - 2), transform.scale_font(12.0), [0, 0, 0, 255], "SCENE");
-        draw_text_left(&self.font, &mut img, transform.map_rect(list_x + c0 + c1 + 4, list_y + 1, c2 - 8, header_h - 2), transform.scale_font(12.0), [0, 0, 0, 255], "TIME");
+        fill_rect(
+            &mut img,
+            transform.map_x(list_x),
+            transform.map_y(list_y),
+            transform.map_w(list_w),
+            transform.map_h(header_h),
+            [216, 220, 228, 255],
+        );
+        draw_text_left(
+            &self.font,
+            &mut img,
+            transform.map_rect(list_x + 4, list_y + 1, c0 - 8, header_h - 2),
+            transform.scale_font(12.0),
+            [0, 0, 0, 255],
+            "TITLE",
+        );
+        draw_text_left(
+            &self.font,
+            &mut img,
+            transform.map_rect(list_x + c0 + 4, list_y + 1, c1 - 8, header_h - 2),
+            transform.scale_font(12.0),
+            [0, 0, 0, 255],
+            "SCENE",
+        );
+        draw_text_left(
+            &self.font,
+            &mut img,
+            transform.map_rect(list_x + c0 + c1 + 4, list_y + 1, c2 - 8, header_h - 2),
+            transform.scale_font(12.0),
+            [0, 0, 0, 255],
+            "TIME",
+        );
 
         let rows_top = list_y + header_h;
         let row_h = ((list_h - header_h) / UI_ROWS_PER_PAGE as i32).max(12);
@@ -458,27 +639,80 @@ impl LegacySaveLoadUi {
             } else {
                 [240, 240, 240, 255]
             };
-            fill_rect(&mut img, transform.map_x(list_x + 1), transform.map_y(y), transform.map_w(list_w - 2), transform.map_h(row_h), bg);
-            fill_rect(&mut img, transform.map_x(list_x), transform.map_y(y + row_h - 1), transform.map_w(list_w), transform.map_h(1), [220, 220, 220, 255]);
+            fill_rect(
+                &mut img,
+                transform.map_x(list_x + 1),
+                transform.map_y(y),
+                transform.map_w(list_w - 2),
+                transform.map_h(row_h),
+                bg,
+            );
+            fill_rect(
+                &mut img,
+                transform.map_x(list_x),
+                transform.map_y(y + row_h - 1),
+                transform.map_w(list_w),
+                transform.map_h(1),
+                [220, 220, 220, 255],
+            );
 
             let exists = slot < UI_MAX_SLOT && game.save_manager.test_save_slot(slot as u32);
             let title = if exists {
                 let t = game.save_manager.get_save_title(slot as u32);
-                format!("{:03}. {}", slot + 1, if t.trim().is_empty() { "<EMPTY>" } else { &t })
+                format!(
+                    "{:03}. {}",
+                    slot + 1,
+                    if t.trim().is_empty() { "<EMPTY>" } else { &t }
+                )
             } else {
                 format!("{:03}. <EMPTY>", slot + 1)
             };
-            let scene = if exists { game.save_manager.get_save_scene_title(slot as u32) } else { String::new() };
-            let time = if exists { format_slot_time(game, slot as u32) } else { String::new() };
-            let color = if exists { [0, 0, 0, 255] } else { [96, 96, 96, 255] };
-            draw_text_left(&self.font, &mut img, transform.map_rect(list_x + 4, y + 1, c0 - 8, row_h - 2), transform.scale_font(11.0), color, &title);
-            draw_text_left(&self.font, &mut img, transform.map_rect(list_x + c0 + 4, y + 1, c1 - 8, row_h - 2), transform.scale_font(11.0), color, &scene);
-            draw_text_left(&self.font, &mut img, transform.map_rect(list_x + c0 + c1 + 4, y + 1, c2 - 8, row_h - 2), transform.scale_font(11.0), color, &time);
+            let scene = if exists {
+                game.save_manager.get_save_scene_title(slot as u32)
+            } else {
+                String::new()
+            };
+            let time = if exists {
+                format_slot_time(game, slot as u32)
+            } else {
+                String::new()
+            };
+            let color = if exists {
+                [0, 0, 0, 255]
+            } else {
+                [96, 96, 96, 255]
+            };
+            draw_text_left(
+                &self.font,
+                &mut img,
+                transform.map_rect(list_x + 4, y + 1, c0 - 8, row_h - 2),
+                transform.scale_font(11.0),
+                color,
+                &title,
+            );
+            draw_text_left(
+                &self.font,
+                &mut img,
+                transform.map_rect(list_x + c0 + 4, y + 1, c1 - 8, row_h - 2),
+                transform.scale_font(11.0),
+                color,
+                &scene,
+            );
+            draw_text_left(
+                &self.font,
+                &mut img,
+                transform.map_rect(list_x + c0 + c1 + 4, y + 1, c2 - 8, row_h - 2),
+                transform.scale_font(11.0),
+                color,
+                &time,
+            );
         }
 
         let footer_y = panel_y + panel_h - footer_h;
         let msg = match self.mode {
-            LegacySaveLoadMode::Load | LegacySaveLoadMode::LoadTitle => "Enter: load selected slot, Esc: cancel",
+            LegacySaveLoadMode::Load | LegacySaveLoadMode::LoadTitle => {
+                "Enter: load selected slot, Esc: cancel"
+            }
             LegacySaveLoadMode::Save | LegacySaveLoadMode::SaveTitle => {
                 if game.save_manager.has_local_saved() {
                     "Enter: save to selected slot, Esc: cancel"
@@ -488,11 +722,48 @@ impl LegacySaveLoadUi {
             }
         };
         let (btn_x, btn_y, btn_w, btn_h) = Self::cancel_button_rect(virtual_size);
-        let btn_bg = if self.hover_cancel { [184, 196, 220, 255] } else { [216, 220, 228, 255] };
-        fill_rect(&mut img, transform.map_x(btn_x), transform.map_y(btn_y), transform.map_w(btn_w), transform.map_h(btn_h), btn_bg);
-        stroke_rect(&mut img, transform.map_x(btn_x), transform.map_y(btn_y), transform.map_w(btn_w), transform.map_h(btn_h), [32, 32, 32, 255]);
-        draw_text_centered(&self.font, &mut img, transform.map_rect(btn_x + 2, btn_y + 2, btn_w - 4, btn_h - 4), transform.scale_font(12.0), [0, 0, 0, 255], "ESC");
-        draw_text_left(&self.font, &mut img, transform.map_rect(panel_x + 10, footer_y + 6, (btn_x - (panel_x + 10) - 8).max(0), 18), transform.scale_font(12.0), [0, 0, 0, 255], msg);
+        let btn_bg = if self.hover_cancel {
+            [184, 196, 220, 255]
+        } else {
+            [216, 220, 228, 255]
+        };
+        fill_rect(
+            &mut img,
+            transform.map_x(btn_x),
+            transform.map_y(btn_y),
+            transform.map_w(btn_w),
+            transform.map_h(btn_h),
+            btn_bg,
+        );
+        stroke_rect(
+            &mut img,
+            transform.map_x(btn_x),
+            transform.map_y(btn_y),
+            transform.map_w(btn_w),
+            transform.map_h(btn_h),
+            [32, 32, 32, 255],
+        );
+        draw_text_centered(
+            &self.font,
+            &mut img,
+            transform.map_rect(btn_x + 2, btn_y + 2, btn_w - 4, btn_h - 4),
+            transform.scale_font(12.0),
+            [0, 0, 0, 255],
+            "ESC",
+        );
+        draw_text_left(
+            &self.font,
+            &mut img,
+            transform.map_rect(
+                panel_x + 10,
+                footer_y + 6,
+                (btn_x - (panel_x + 10) - 8).max(0),
+                18,
+            ),
+            transform.scale_font(12.0),
+            [0, 0, 0, 255],
+            msg,
+        );
 
         img
     }
@@ -532,14 +803,21 @@ impl LegacySaveLoadUi {
         let header_h = 18;
         let rows_top = list_y + header_h;
         let row_h = ((list_h - header_h) / UI_ROWS_PER_PAGE as i32).max(12);
-        if x < list_x || x >= list_x + list_w || y < rows_top || y >= rows_top + row_h * UI_ROWS_PER_PAGE as i32 {
+        if x < list_x
+            || x >= list_x + list_w
+            || y < rows_top
+            || y >= rows_top + row_h * UI_ROWS_PER_PAGE as i32
+        {
             return None;
         }
         let row = ((y - rows_top) / row_h) as usize;
-        if row < UI_ROWS_PER_PAGE { Some(row) } else { None }
+        if row < UI_ROWS_PER_PAGE {
+            Some(row)
+        } else {
+            None
+        }
     }
 }
-
 
 struct UiSurfaceTransform {
     scale: f32,
@@ -573,17 +851,32 @@ impl UiSurfaceTransform {
         }
     }
 
-    fn map_x(&self, x: i32) -> i32 { (self.off_x + x as f32 * self.scale).round() as i32 }
-    fn map_y(&self, y: i32) -> i32 { (self.off_y + y as f32 * self.scale).round() as i32 }
-    fn map_w(&self, w: i32) -> i32 { ((w as f32 * self.scale).round() as i32).max(if w > 0 { 1 } else { 0 }) }
-    fn map_h(&self, h: i32) -> i32 { ((h as f32 * self.scale).round() as i32).max(if h > 0 { 1 } else { 0 }) }
+    fn map_x(&self, x: i32) -> i32 {
+        (self.off_x + x as f32 * self.scale).round() as i32
+    }
+    fn map_y(&self, y: i32) -> i32 {
+        (self.off_y + y as f32 * self.scale).round() as i32
+    }
+    fn map_w(&self, w: i32) -> i32 {
+        ((w as f32 * self.scale).round() as i32).max(if w > 0 { 1 } else { 0 })
+    }
+    fn map_h(&self, h: i32) -> i32 {
+        ((h as f32 * self.scale).round() as i32).max(if h > 0 { 1 } else { 0 })
+    }
     fn map_rect(&self, x: i32, y: i32, w: i32, h: i32) -> (i32, i32, i32, i32) {
         (self.map_x(x), self.map_y(y), self.map_w(w), self.map_h(h))
     }
-    fn scale_font(&self, size: f32) -> f32 { (size * self.scale).max(1.0) }
+    fn scale_font(&self, size: f32) -> f32 {
+        (size * self.scale).max(1.0)
+    }
 }
 
-fn map_window_to_virtual(px: f64, py: f64, surface_size: (u32, u32), virtual_size: (u32, u32)) -> Option<(i32, i32)> {
+fn map_window_to_virtual(
+    px: f64,
+    py: f64,
+    surface_size: (u32, u32),
+    virtual_size: (u32, u32),
+) -> Option<(i32, i32)> {
     let (sw_u, sh_u) = surface_size;
     let (vw_u, vh_u) = virtual_size;
     let sw = sw_u.max(1) as f64;
@@ -604,7 +897,9 @@ fn map_window_to_virtual(px: f64, py: f64, surface_size: (u32, u32), virtual_siz
 }
 
 fn fill_rect(img: &mut RgbaImage, x: i32, y: i32, w: i32, h: i32, color: [u8; 4]) {
-    if w <= 0 || h <= 0 { return; }
+    if w <= 0 || h <= 0 {
+        return;
+    }
     let x0 = x.max(0) as u32;
     let y0 = y.max(0) as u32;
     let x1 = (x + w).min(img.width() as i32).max(0) as u32;
@@ -710,10 +1005,23 @@ fn layout_text(font: &Font, size: f32, text: &str, max_width: i32) -> TextLayout
         max_y = (lm.new_line_size.ceil() as i32).max(0);
     }
 
-    TextLayout { glyphs, bitmap, width, min_y, max_y }
+    TextLayout {
+        glyphs,
+        bitmap,
+        width,
+        min_y,
+        max_y,
+    }
 }
 
-fn draw_text_left(font: &Font, img: &mut RgbaImage, rect: (i32, i32, i32, i32), size: f32, color: [u8; 4], text: &str) {
+fn draw_text_left(
+    font: &Font,
+    img: &mut RgbaImage,
+    rect: (i32, i32, i32, i32),
+    size: f32,
+    color: [u8; 4],
+    text: &str,
+) {
     let (x, y, w, h) = rect;
     if w <= 0 || h <= 0 {
         return;
@@ -739,7 +1047,14 @@ fn draw_text_left(font: &Font, img: &mut RgbaImage, rect: (i32, i32, i32, i32), 
     }
 }
 
-fn draw_text_centered(font: &Font, img: &mut RgbaImage, rect: (i32, i32, i32, i32), size: f32, color: [u8; 4], text: &str) {
+fn draw_text_centered(
+    font: &Font,
+    img: &mut RgbaImage,
+    rect: (i32, i32, i32, i32),
+    size: f32,
+    color: [u8; 4],
+    text: &str,
+) {
     let (x, y, w, h) = rect;
     if w <= 0 || h <= 0 {
         return;
@@ -767,15 +1082,21 @@ fn draw_text_centered(font: &Font, img: &mut RgbaImage, rect: (i32, i32, i32, i3
 }
 
 fn draw_glyph(img: &mut RgbaImage, x: i32, y: i32, w: i32, h: i32, bitmap: &[u8], color: [u8; 4]) {
-    if w <= 0 || h <= 0 { return; }
+    if w <= 0 || h <= 0 {
+        return;
+    }
     for yy in 0..h {
         for xx in 0..w {
             let idx = (yy * w + xx) as usize;
             let cov = bitmap.get(idx).copied().unwrap_or(0) as u32;
-            if cov == 0 { continue; }
+            if cov == 0 {
+                continue;
+            }
             let px = x + xx;
             let py = y + yy;
-            if px < 0 || py < 0 || px >= img.width() as i32 || py >= img.height() as i32 { continue; }
+            if px < 0 || py < 0 || px >= img.width() as i32 || py >= img.height() as i32 {
+                continue;
+            }
             let dst = img.get_pixel_mut(px as u32, py as u32);
             let src_a = (color[3] as u32 * cov) / 255;
             let inv_a = 255u32.saturating_sub(src_a);

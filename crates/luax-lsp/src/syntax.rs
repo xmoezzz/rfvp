@@ -94,7 +94,11 @@ pub struct FuncName {
 
 impl FuncName {
     pub fn as_string(&self) -> String {
-        self.parts.iter().map(|p| p.text.as_str()).collect::<Vec<_>>().join(".")
+        self.parts
+            .iter()
+            .map(|p| p.text.as_str())
+            .collect::<Vec<_>>()
+            .join(".")
     }
 }
 
@@ -174,9 +178,12 @@ impl BinaryOp {
         match self {
             BinaryOp::Or => (1, 2),
             BinaryOp::And => (3, 4),
-            BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
-                (5, 6)
-            }
+            BinaryOp::Eq
+            | BinaryOp::Ne
+            | BinaryOp::Lt
+            | BinaryOp::Le
+            | BinaryOp::Gt
+            | BinaryOp::Ge => (5, 6),
             BinaryOp::Add | BinaryOp::Sub => (7, 8),
             BinaryOp::Mul | BinaryOp::Div | BinaryOp::Mod => (9, 10),
         }
@@ -573,7 +580,11 @@ impl Parser {
                 None
             };
             let span = Span {
-                start: if entries.is_empty() { start_offset } else { name.span.start },
+                start: if entries.is_empty() {
+                    start_offset
+                } else {
+                    name.span.start
+                },
                 end,
             };
             entries.push(GlobalEntry {
@@ -600,7 +611,11 @@ impl Parser {
         self.parse_function_decl_with_start(is_local, self.current().span.start)
     }
 
-    fn parse_function_decl_with_start(&mut self, is_local: bool, start_offset: usize) -> Option<Stmt> {
+    fn parse_function_decl_with_start(
+        &mut self,
+        is_local: bool,
+        start_offset: usize,
+    ) -> Option<Stmt> {
         self.expect(TokenKind::Function)?;
         let name = self.parse_func_name()?;
         let (params, body, end) = self.parse_function_body()?;
@@ -623,14 +638,16 @@ impl Parser {
         let mut arms = Vec::new();
         let first_cond = self.parse_expr_bp(0)?;
         self.expect(TokenKind::Then)?;
-        let (body, _, span) = self.parse_block_until(&[TokenKind::ElseIf, TokenKind::Else, TokenKind::End]);
+        let (body, _, span) =
+            self.parse_block_until(&[TokenKind::ElseIf, TokenKind::Else, TokenKind::End]);
         arms.push((first_cond, body, span));
 
         while self.at(TokenKind::ElseIf) {
             self.expect(TokenKind::ElseIf)?;
             let cond = self.parse_expr_bp(0)?;
             self.expect(TokenKind::Then)?;
-            let (body, _, span) = self.parse_block_until(&[TokenKind::ElseIf, TokenKind::Else, TokenKind::End]);
+            let (body, _, span) =
+                self.parse_block_until(&[TokenKind::ElseIf, TokenKind::Else, TokenKind::End]);
             arms.push((cond, body, span));
         }
 
@@ -672,7 +689,10 @@ impl Parser {
         self.expect(TokenKind::Until)?;
         let cond = self.parse_expr_bp(0)?;
         Some(Stmt {
-            kind: StmtKind::Repeat { body, cond: cond.clone() },
+            kind: StmtKind::Repeat {
+                body,
+                cond: cond.clone(),
+            },
             span: Span {
                 start: start.span.start,
                 end: cond.span.end,
@@ -713,7 +733,11 @@ impl Parser {
     fn parse_return(&mut self) -> Option<Stmt> {
         let start = self.expect(TokenKind::Return)?;
         let values = match self.current().kind {
-            TokenKind::End | TokenKind::Else | TokenKind::ElseIf | TokenKind::Until | TokenKind::Eof => Vec::new(),
+            TokenKind::End
+            | TokenKind::Else
+            | TokenKind::ElseIf
+            | TokenKind::Until
+            | TokenKind::Eof => Vec::new(),
             _ => self.parse_expr_list().unwrap_or_default(),
         };
         let end = values.last().map(|x| x.span.end).unwrap_or(start.span.end);
@@ -735,9 +759,15 @@ impl Parser {
         if self.eat(TokenKind::Assign).is_some() {
             let values = self.parse_expr_list()?;
             let start = exprs.first().unwrap().span.start;
-            let end = values.last().map(|x| x.span.end).unwrap_or(exprs.last().unwrap().span.end);
+            let end = values
+                .last()
+                .map(|x| x.span.end)
+                .unwrap_or(exprs.last().unwrap().span.end);
             return Some(Stmt {
-                kind: StmtKind::Assign { targets: exprs, values },
+                kind: StmtKind::Assign {
+                    targets: exprs,
+                    values,
+                },
                 span: Span { start, end },
             });
         }
@@ -845,29 +875,47 @@ impl Parser {
             }
             TokenKind::Nil => {
                 self.bump();
-                Some(Expr { kind: ExprKind::Nil, span: tok.span })
+                Some(Expr {
+                    kind: ExprKind::Nil,
+                    span: tok.span,
+                })
             }
             TokenKind::True => {
                 self.bump();
-                Some(Expr { kind: ExprKind::Bool(true), span: tok.span })
+                Some(Expr {
+                    kind: ExprKind::Bool(true),
+                    span: tok.span,
+                })
             }
             TokenKind::False => {
                 self.bump();
-                Some(Expr { kind: ExprKind::Bool(false), span: tok.span })
+                Some(Expr {
+                    kind: ExprKind::Bool(false),
+                    span: tok.span,
+                })
             }
             TokenKind::Number => {
                 self.bump();
-                Some(Expr { kind: ExprKind::Number(tok.text), span: tok.span })
+                Some(Expr {
+                    kind: ExprKind::Number(tok.text),
+                    span: tok.span,
+                })
             }
             TokenKind::String => {
                 self.bump();
-                Some(Expr { kind: ExprKind::String(tok.text), span: tok.span })
+                Some(Expr {
+                    kind: ExprKind::String(tok.text),
+                    span: tok.span,
+                })
             }
             TokenKind::Minus => {
                 let start = self.bump().span.start;
                 let expr = self.parse_expr_bp(11)?;
                 Some(Expr {
-                    span: Span { start, end: expr.span.end },
+                    span: Span {
+                        start,
+                        end: expr.span.end,
+                    },
                     kind: ExprKind::Unary {
                         op: UnaryOp::Neg,
                         expr: Box::new(expr),
@@ -878,7 +926,10 @@ impl Parser {
                 let start = self.bump().span.start;
                 let expr = self.parse_expr_bp(11)?;
                 Some(Expr {
-                    span: Span { start, end: expr.span.end },
+                    span: Span {
+                        start,
+                        end: expr.span.end,
+                    },
                     kind: ExprKind::Unary {
                         op: UnaryOp::Not,
                         expr: Box::new(expr),
@@ -894,7 +945,10 @@ impl Parser {
             TokenKind::LBrace => self.parse_table(),
             TokenKind::Function => self.parse_function_expr(),
             _ => {
-                self.error(tok.span, format!("unexpected token '{}' in expression", tok.text));
+                self.error(
+                    tok.span,
+                    format!("unexpected token '{}' in expression", tok.text),
+                );
                 None
             }
         }
@@ -992,7 +1046,10 @@ impl Parser {
         })
     }
 
-    fn parse_block_until(&mut self, end_tokens: &[TokenKind]) -> (Vec<Stmt>, Option<TokenKind>, Span) {
+    fn parse_block_until(
+        &mut self,
+        end_tokens: &[TokenKind],
+    ) -> (Vec<Stmt>, Option<TokenKind>, Span) {
         let mut stmts = Vec::new();
         while !self.at(TokenKind::Eof) && !end_tokens.contains(&self.current().kind) {
             if self.at(TokenKind::Comment) {
@@ -1055,7 +1112,11 @@ impl Parser {
             let current = self.current().clone();
             self.error(
                 current.span,
-                format!("expected {}, found '{}'", DisplayTokenKind(kind), current.text),
+                format!(
+                    "expected {}, found '{}'",
+                    DisplayTokenKind(kind),
+                    current.text
+                ),
             );
             None
         }
@@ -1074,7 +1135,9 @@ impl Parser {
     }
 
     fn current(&self) -> &Token {
-        self.tokens.get(self.pos).unwrap_or_else(|| self.tokens.last().unwrap())
+        self.tokens
+            .get(self.pos)
+            .unwrap_or_else(|| self.tokens.last().unwrap())
     }
 
     fn prev(&self) -> &Token {

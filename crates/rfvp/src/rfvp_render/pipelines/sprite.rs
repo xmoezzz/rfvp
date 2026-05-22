@@ -2,15 +2,19 @@ use std::ops::Range;
 
 use glam::Mat4;
 
-use crate::rfvp_render::{BindGroupLayouts, TextureBindGroup};
 use crate::rfvp_render::vertices::{PosColTexVertex, VertexSource};
+use crate::rfvp_render::{BindGroupLayouts, TextureBindGroup};
 
 pub struct SpritePipeline {
     pipeline: wgpu::RenderPipeline,
 }
 
 impl SpritePipeline {
-    pub fn new(device: &wgpu::Device, layouts: &BindGroupLayouts, target_format: wgpu::TextureFormat) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        layouts: &BindGroupLayouts,
+        target_format: wgpu::TextureFormat,
+    ) -> Self {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("rfvp_render.sprite_shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("sprite.wgsl").into()),
@@ -29,9 +33,21 @@ impl SpritePipeline {
             array_stride: std::mem::size_of::<PosColTexVertex>() as u64,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &[
-                wgpu::VertexAttribute { offset: 0, shader_location: 0, format: wgpu::VertexFormat::Float32x3 },
-                wgpu::VertexAttribute { offset: 12, shader_location: 1, format: wgpu::VertexFormat::Float32x4 },
-                wgpu::VertexAttribute { offset: 28, shader_location: 2, format: wgpu::VertexFormat::Float32x2 },
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x3,
+                },
+                wgpu::VertexAttribute {
+                    offset: 12,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+                wgpu::VertexAttribute {
+                    offset: 28,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
             ],
         };
 
@@ -82,11 +98,20 @@ impl SpritePipeline {
         pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, bytemuck::bytes_of(&m));
 
         match src {
-            VertexSource::VertexBuffer { vertex_buffer, vertices, instances } => {
+            VertexSource::VertexBuffer {
+                vertex_buffer,
+                vertices,
+                instances,
+            } => {
                 pass.set_vertex_buffer(0, vertex_buffer.slice(..));
                 pass.draw(vertices, instances);
             }
-            VertexSource::VertexIndexBuffer { vertex_buffer, index_buffer, indices, instances } => {
+            VertexSource::VertexIndexBuffer {
+                vertex_buffer,
+                index_buffer,
+                indices,
+                instances,
+            } => {
                 pass.set_vertex_buffer(0, vertex_buffer.slice(..));
                 pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
                 pass.draw_indexed(indices, 0, instances);

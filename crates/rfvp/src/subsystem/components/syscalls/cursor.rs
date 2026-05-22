@@ -1,7 +1,7 @@
 use anyhow::Result;
 
-use crate::script::Variant;
 use crate::script::global::get_int_var;
+use crate::script::Variant;
 use crate::subsystem::world::GameData;
 
 use super::{get_var, Syscaller};

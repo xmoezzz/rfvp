@@ -11,7 +11,7 @@ pub fn timer_set(game_data: &mut GameData, id: &Variant, resolution: &Variant) -
         _ => {
             log::error!("timer_set: invalid id type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..16).contains(&id) {
@@ -24,7 +24,7 @@ pub fn timer_set(game_data: &mut GameData, id: &Variant, resolution: &Variant) -
         _ => {
             log::error!("timer_set: invalid resolution type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if resolution <= 0 || resolution > 100000 {
@@ -46,7 +46,7 @@ pub fn timer_get(game_data: &GameData, id: &Variant, default_value: &Variant) ->
         _ => {
             log::error!("timer_get: invalid id type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..16).contains(&id) {
@@ -76,14 +76,12 @@ pub fn timer_get(game_data: &GameData, id: &Variant, default_value: &Variant) ->
     Ok(Variant::Nil)
 }
 
-
 pub fn timer_suspend(game_data: &mut GameData, on: &Variant) -> Result<Variant> {
     // IDA (original engine): boolean args are evaluated as (Type != 0).
     game_data.timer_manager.set_suspend(!on.canbe_true());
 
     Ok(Variant::Nil)
 }
-
 
 pub struct TimerSet;
 impl Syscaller for TimerSet {
@@ -100,7 +98,6 @@ impl Syscaller for TimerSet {
 unsafe impl Send for TimerSet {}
 unsafe impl Sync for TimerSet {}
 
-
 pub struct TimerGet;
 impl Syscaller for TimerGet {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -116,7 +113,6 @@ impl Syscaller for TimerGet {
 unsafe impl Send for TimerGet {}
 unsafe impl Sync for TimerGet {}
 
-
 pub struct TimerSuspend;
 impl Syscaller for TimerSuspend {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -131,4 +127,3 @@ impl Syscaller for TimerSuspend {
 
 unsafe impl Send for TimerSuspend {}
 unsafe impl Sync for TimerSuspend {}
-

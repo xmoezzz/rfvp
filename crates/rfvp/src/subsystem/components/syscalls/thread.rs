@@ -17,9 +17,7 @@ pub fn thread_exit(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
         None
     };
 
-    game_data
-        .thread_wrapper
-        .thread_exit(id);
+    game_data.thread_wrapper.thread_exit(id);
     Ok(Variant::Nil)
 }
 
@@ -38,9 +36,7 @@ pub fn thread_raise(game_data: &mut GameData, time: &Variant) -> Result<Variant>
         return Ok(Variant::Nil);
     };
 
-    game_data
-        .thread_wrapper
-        .thread_raise(time);
+    game_data.thread_wrapper.thread_raise(time);
 
     Ok(Variant::Nil)
 }
@@ -54,9 +50,7 @@ pub fn thread_sleep(game_data: &mut GameData, time: &Variant) -> Result<Variant>
         return Ok(Variant::Nil);
     };
 
-    game_data
-        .thread_wrapper
-        .thread_sleep(time);
+    game_data.thread_wrapper.thread_sleep(time);
 
     Ok(Variant::Nil)
 }
@@ -103,9 +97,7 @@ pub fn thread_wait(game_data: &mut GameData, time: &Variant) -> Result<Variant> 
         return Ok(Variant::Nil);
     }
 
-    game_data
-        .thread_wrapper
-        .thread_wait(time as u32);
+    game_data.thread_wrapper.thread_wait(time as u32);
     Ok(Variant::Nil)
 }
 

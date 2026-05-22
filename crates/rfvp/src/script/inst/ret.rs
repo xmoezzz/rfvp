@@ -1,5 +1,5 @@
-use crate::script::opcode::OpcodeBase;
 use crate::script::opcode::Opcode;
+use crate::script::opcode::OpcodeBase;
 
 pub struct RetInst {
     address: u32,
@@ -7,9 +7,7 @@ pub struct RetInst {
 
 impl RetInst {
     pub fn new(address: u32) -> Self {
-        Self {
-            address,
-        }
+        Self { address }
     }
 }
 

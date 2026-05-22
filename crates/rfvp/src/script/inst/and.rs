@@ -1,5 +1,5 @@
-use crate::script::opcode::OpcodeBase;
 use crate::script::opcode::Opcode;
+use crate::script::opcode::OpcodeBase;
 
 pub struct AndInst {
     address: u32,
@@ -7,9 +7,7 @@ pub struct AndInst {
 
 impl AndInst {
     pub fn new(address: u32) -> Self {
-        Self {
-            address,
-        }
+        Self { address }
     }
 }
 
@@ -30,4 +28,3 @@ impl OpcodeBase for AndInst {
         format!("{:8}", self.mnemonic())
     }
 }
-

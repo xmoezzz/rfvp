@@ -1,16 +1,14 @@
 use anyhow::Result;
 use std::fs;
 
-use crate::script::{context::ThreadState, parser::Parser};
-use crate::subsystem::resources::{
-    motion_manager::DissolveType,
-    thread_manager::ThreadManager,
-    thread_wrapper::ThreadRequest,
-};
-use crate::subsystem::world::GameData;
-use crate::subsystem::resources::save_manager::SaveItem;
 use crate::debug_ui;
+use crate::script::{context::ThreadState, parser::Parser};
+use crate::subsystem::resources::save_manager::SaveItem;
+use crate::subsystem::resources::{
+    motion_manager::DissolveType, thread_manager::ThreadManager, thread_wrapper::ThreadRequest,
+};
 use crate::subsystem::save_state::try_decode_state_chunk_v1;
+use crate::subsystem::world::GameData;
 
 /// Drives the script VM (which is coroutine-based, not OS-thread based).
 ///
@@ -50,7 +48,12 @@ impl VmRunner {
     /// Execute one engine frame worth of script VM work.
     ///
     /// `frame_time_ms` is the elapsed time budget for timers (wait/sleep/etc.).
-    pub fn tick(&mut self, game: &mut GameData, parser: &mut Parser, frame_time_ms: u64) -> Result<VmTickReport> {
+    pub fn tick(
+        &mut self,
+        game: &mut GameData,
+        parser: &mut Parser,
+        frame_time_ms: u64,
+    ) -> Result<VmTickReport> {
         self.process_deferred_text_requests(game);
         // The VM itself is cooperative; the engine decides when to advance contexts.
         // If the game is halted (e.g. waiting for IO / modal UI), we do not advance contexts.
@@ -62,52 +65,71 @@ impl VmRunner {
         }
 
         // If a save capture is pending, snapshot the VM state now (on the VM thread) so the
-// render thread can serialize it without accessing the VM internals.
-if game.save_manager.wants_vm_snapshot_capture() && !game.save_manager.has_pending_vm_snapshot() {
-    let snap = self.tm.capture_snapshot_v1();
-    game.save_manager.set_pending_vm_snapshot(snap);
-}
+        // render thread can serialize it without accessing the VM internals.
+        if game.save_manager.wants_vm_snapshot_capture()
+            && !game.save_manager.has_pending_vm_snapshot()
+        {
+            let snap = self.tm.capture_snapshot_v1();
+            game.save_manager.set_pending_vm_snapshot(snap);
+        }
 
-// Process deferred load requests at a safe point (between VM ticks).
-if let Some(slot) = game.save_manager.take_load_request() {
-    let path = SaveItem::resolve_save_path_for_read(slot);
-    match fs::read(&path) {
-        Ok(bytes) => {
-            let nls = game.get_nls();
-            if let Err(e) = game.save_manager.load_slot_into_current_from_bytes(slot, nls, &bytes) {
-                log::error!("load: failed to parse save header for slot {}: {:#}", slot, e);
-            }
+        // Process deferred load requests at a safe point (between VM ticks).
+        if let Some(slot) = game.save_manager.take_load_request() {
+            let path = SaveItem::resolve_save_path_for_read(slot);
+            match fs::read(&path) {
+                Ok(bytes) => {
+                    let nls = game.get_nls();
+                    if let Err(e) = game
+                        .save_manager
+                        .load_slot_into_current_from_bytes(slot, nls, &bytes)
+                    {
+                        log::error!(
+                            "load: failed to parse save header for slot {}: {:#}",
+                            slot,
+                            e
+                        );
+                    }
 
-            match try_decode_state_chunk_v1(&bytes) {
-                Ok(Some(s)) => {
-                    if let Err(e) = s.apply(game, &mut self.tm) {
-                        log::error!("load: apply SaveStateSnapshotV1 failed: {:#}", e);
+                    match try_decode_state_chunk_v1(&bytes) {
+                        Ok(Some(s)) => {
+                            if let Err(e) = s.apply(game, &mut self.tm) {
+                                log::error!("load: apply SaveStateSnapshotV1 failed: {:#}", e);
+                            }
+                        }
+                        Ok(None) => {
+                            // No RFVS chunk: header-only save (engine save or older rfvp save).
+                            log::warn!(
+                                "load: no RFVS chunk found in slot {} (header-only load)",
+                                slot
+                            );
+                        }
+                        Err(e) => {
+                            log::error!(
+                                "load: failed to decode RFVS chunk for slot {}: {:#}",
+                                slot,
+                                e
+                            );
+                        }
                     }
                 }
-                Ok(None) => {
-                    // No RFVS chunk: header-only save (engine save or older rfvp save).
-                    log::warn!("load: no RFVS chunk found in slot {} (header-only load)", slot);
-                }
                 Err(e) => {
-                    log::error!("load: failed to decode RFVS chunk for slot {}: {:#}", slot, e);
+                    log::error!(
+                        "load: failed to read save slot {} from {}: {:#}",
+                        slot,
+                        path.display(),
+                        e
+                    );
                 }
             }
+
+            // Do not advance contexts in the same tick; resume on the next frame.
+            if debug_ui::enabled() {
+                game.debug_vm_mut().update_from_thread_manager(&self.tm);
+            }
+            return Ok(VmTickReport::default());
         }
-        Err(e) => {
-            log::error!("load: failed to read save slot {} from {}: {:#}", slot, path.display(), e);
-        }
-    }
 
-    // Do not advance contexts in the same tick; resume on the next frame.
-    if debug_ui::enabled() {
-        game.debug_vm_mut().update_from_thread_manager(&self.tm);
-    }
-    return Ok(VmTickReport::default());
-}
-
-
-
-// In the original engine, dissolve is a global visual state that can unblock VM waits.
+        // In the original engine, dissolve is a global visual state that can unblock VM waits.
         let dissolve_type = game.motion_manager.get_dissolve_type();
         let dissolve2_transitioning = game.motion_manager.is_dissolve2_transitioning();
 
@@ -124,7 +146,12 @@ if let Some(slot) = game.save_manager.take_load_request() {
                 continue;
             }
 
-            self.advance_timers_and_state(tid, dissolve_type, dissolve2_transitioning, frame_time_ms);
+            self.advance_timers_and_state(
+                tid,
+                dissolve_type,
+                dissolve2_transitioning,
+                frame_time_ms,
+            );
 
             let status = self.tm.get_context_status(tid);
             if status.contains(ThreadState::CONTEXT_STATUS_RUNNING)
@@ -147,13 +174,12 @@ if let Some(slot) = game.save_manager.take_load_request() {
             }
         }
 
-
-// If a save capture is pending, snapshot VM state after the tick so the render thread
-// can serialize a consistent coroutine state for this frame.
-if game.save_manager.wants_vm_snapshot_capture() {
-    let snap = self.tm.capture_snapshot_v1();
-    game.save_manager.set_pending_vm_snapshot(snap);
-}
+        // If a save capture is pending, snapshot VM state after the tick so the render thread
+        // can serialize a consistent coroutine state for this frame.
+        if game.save_manager.wants_vm_snapshot_capture() {
+            let snap = self.tm.capture_snapshot_v1();
+            game.save_manager.set_pending_vm_snapshot(snap);
+        }
 
         if debug_ui::enabled() {
             game.debug_vm_mut().update_from_thread_manager(&self.tm);
@@ -191,7 +217,13 @@ if game.save_manager.wants_vm_snapshot_capture() {
         }
     }
 
-    fn advance_timers_and_state(&mut self, tid: u32, dissolve_type: DissolveType, dissolve2_transitioning: bool, frame_time_ms: u64) {
+    fn advance_timers_and_state(
+        &mut self,
+        tid: u32,
+        dissolve_type: DissolveType,
+        dissolve2_transitioning: bool,
+        frame_time_ms: u64,
+    ) {
         let status = self.tm.get_context_status(tid);
 
         // WAIT timer
@@ -214,7 +246,8 @@ if game.save_manager.wants_vm_snapshot_capture() {
         if status.contains(ThreadState::CONTEXT_STATUS_SLEEP) {
             let sleep_time = self.tm.get_context_sleeping_time(tid);
             if sleep_time > frame_time_ms {
-                self.tm.set_context_sleeping_time(tid, sleep_time - frame_time_ms);
+                self.tm
+                    .set_context_sleeping_time(tid, sleep_time - frame_time_ms);
             } else {
                 self.tm.set_context_sleeping_time(tid, 0);
                 let mut new_status = status.clone();
@@ -271,11 +304,11 @@ if game.save_manager.wants_vm_snapshot_capture() {
                     ThreadRequest::Wait(time) => {
                         self.tm.thread_wait(time);
                         must_yield = true;
-                    },
+                    }
                     ThreadRequest::DissolveWait() => {
                         self.tm.thread_dissolve_wait();
                         must_yield = true;
-                    },
+                    }
                     ThreadRequest::Sleep(time) => {
                         self.tm.thread_sleep(time);
                         must_yield = true;

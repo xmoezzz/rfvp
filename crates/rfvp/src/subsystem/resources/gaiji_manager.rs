@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 
-use serde::{Deserialize, Serialize};
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 
 use super::graph_buff::{GraphBuff, GraphBuffSnapshotV1};
 use super::vfs::Vfs;
@@ -15,11 +15,7 @@ pub struct GaijiItem {
 
 impl GaijiItem {
     pub fn new(key: String, size: u8, texture: GraphBuff) -> Self {
-        Self {
-            key,
-            size,
-            texture,
-        }
+        Self { key, size, texture }
     }
 
     pub fn set_key(&mut self, key: String) {
@@ -44,7 +40,7 @@ impl GaijiItem {
 }
 
 pub struct GaijiManager {
-    item: HashMap<String, BTreeMap<u8, GaijiItem>>
+    item: HashMap<String, BTreeMap<u8, GaijiItem>>,
 }
 
 impl Default for GaijiManager {
@@ -56,13 +52,16 @@ impl Default for GaijiManager {
 impl GaijiManager {
     pub fn new() -> Self {
         Self {
-            item: HashMap::new()
+            item: HashMap::new(),
         }
     }
 
     pub fn set_gaiji(&mut self, key: String, size: u8, texture: GraphBuff) {
         let item = GaijiItem::new(key.clone(), size, texture);
-        self.item.entry(key).or_insert_with(BTreeMap::new).insert(size, item);
+        self.item
+            .entry(key)
+            .or_insert_with(BTreeMap::new)
+            .insert(size, item);
     }
 
     pub fn get_exact(&self, key: &str, size: u8) -> Option<&GaijiItem> {
@@ -84,13 +83,13 @@ impl GaijiManager {
     }
 
     pub fn get(&self, key: &str, size: u8) -> Option<&GaijiItem> {
-        self.get_exact(key, size).or_else(|| self.get_nearest(key, size))
+        self.get_exact(key, size)
+            .or_else(|| self.get_nearest(key, size))
     }
 
     pub fn get_texture(&self, key: &str, size: u8) -> Option<&GraphBuff> {
         self.get(key, size).map(|it| it.get_texture())
     }
-
 }
 
 // ----------------------------

@@ -35,7 +35,11 @@ pub struct Dimensions {
 
 impl Dimensions {
     pub fn new(width: usize, height: usize, depth: usize) -> Self {
-        Self { width, height, depth }
+        Self {
+            width,
+            height,
+            depth,
+        }
     }
 
     pub fn width(&self) -> usize {

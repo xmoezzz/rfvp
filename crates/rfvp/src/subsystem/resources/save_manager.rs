@@ -3,8 +3,8 @@ use chrono::{Datelike, Local, Timelike};
 use std::mem::size_of;
 use std::{io::Read, path::Path};
 
-use crate::{script::parser::Nls, utils::file::app_base_path};
 use crate::subsystem::resources::thread_manager::ThreadManagerSnapshotV1;
+use crate::{script::parser::Nls, utils::file::app_base_path};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SaveDataFunction {
@@ -63,35 +63,35 @@ pub struct SaveItem {
 
 impl SaveItem {
     pub fn get_save_path(slot: u32) -> std::path::PathBuf {
-    // rfvp save files use "rfvp_s%03d.bin"; read path remains compatible with original/legacy names.
-    app_base_path()
-        .get_path()
-        .join("save")
-        .join(format!("rfvp_s{:03}.bin", slot))
-}
-
-fn legacy_save_path(slot: u32) -> std::path::PathBuf {
-    // Legacy rfvp builds used "s{slot}.bin".
-    app_base_path()
-        .get_path()
-        .join("save")
-        .join(format!("s{}.bin", slot))
-}
-
-pub fn resolve_save_path_for_read(slot: u32) -> std::path::PathBuf {
-    let p = Self::get_save_path(slot);
-    if p.exists() {
-        return p;
+        // rfvp save files use "rfvp_s%03d.bin"; read path remains compatible with original/legacy names.
+        app_base_path()
+            .get_path()
+            .join("save")
+            .join(format!("rfvp_s{:03}.bin", slot))
     }
-    let legacy_padded = app_base_path()
-        .get_path()
-        .join("save")
-        .join(format!("s{:03}.bin", slot));
-    if legacy_padded.exists() {
-        return legacy_padded;
+
+    fn legacy_save_path(slot: u32) -> std::path::PathBuf {
+        // Legacy rfvp builds used "s{slot}.bin".
+        app_base_path()
+            .get_path()
+            .join("save")
+            .join(format!("s{}.bin", slot))
     }
-    Self::legacy_save_path(slot)
-}
+
+    pub fn resolve_save_path_for_read(slot: u32) -> std::path::PathBuf {
+        let p = Self::get_save_path(slot);
+        if p.exists() {
+            return p;
+        }
+        let legacy_padded = app_base_path()
+            .get_path()
+            .join("save")
+            .join(format!("s{:03}.bin", slot));
+        if legacy_padded.exists() {
+            return legacy_padded;
+        }
+        Self::legacy_save_path(slot)
+    }
 
     fn decode_bytes(nls: Nls, bytes: &[u8]) -> String {
         match nls {
@@ -164,7 +164,9 @@ pub fn resolve_save_path_for_read(slot: u32) -> std::path::PathBuf {
 
     pub fn load_from_mem(buf: &[u8], nls: Nls) -> anyhow::Result<Self> {
         fn take<'a>(buf: &'a [u8], cur: &mut usize, n: usize) -> anyhow::Result<&'a [u8]> {
-            let end = cur.checked_add(n).ok_or_else(|| anyhow::anyhow!("cursor overflow"))?;
+            let end = cur
+                .checked_add(n)
+                .ok_or_else(|| anyhow::anyhow!("cursor overflow"))?;
             if end > buf.len() {
                 return Err(anyhow::anyhow!("invalid save data: too short"));
             }
@@ -252,11 +254,17 @@ pub fn resolve_save_path_for_read(slot: u32) -> std::path::PathBuf {
 
         // skip title/scene/script
         let title_len = read_u16_le(&mut r)? as usize;
-        if title_len != 0 { skip_bytes(&mut r, title_len)?; }
+        if title_len != 0 {
+            skip_bytes(&mut r, title_len)?;
+        }
         let scene_len = read_u16_le(&mut r)? as usize;
-        if scene_len != 0 { skip_bytes(&mut r, scene_len)?; }
+        if scene_len != 0 {
+            skip_bytes(&mut r, scene_len)?;
+        }
         let script_len = read_u16_le(&mut r)? as usize;
-        if script_len != 0 { skip_bytes(&mut r, script_len)?; }
+        if script_len != 0 {
+            skip_bytes(&mut r, script_len)?;
+        }
 
         let thumb_size = (width as usize)
             .saturating_mul(height as usize)
@@ -272,7 +280,9 @@ pub fn resolve_save_path_for_read(slot: u32) -> std::path::PathBuf {
         height: u32,
     ) -> anyhow::Result<Vec<u8>> {
         fn take<'a>(buf: &'a [u8], cur: &mut usize, n: usize) -> anyhow::Result<&'a [u8]> {
-            let end = cur.checked_add(n).ok_or_else(|| anyhow::anyhow!("cursor overflow"))?;
+            let end = cur
+                .checked_add(n)
+                .ok_or_else(|| anyhow::anyhow!("cursor overflow"))?;
             if end > buf.len() {
                 return Err(anyhow::anyhow!("invalid save data: too short"));
             }
@@ -420,37 +430,32 @@ impl SaveManager {
         self.should_load
     }
 
-
-/// True if the VM runner should capture a coroutine snapshot for an upcoming save.
-///
-/// This includes both:
-/// - regular `SaveWrite(slot)` path (when no local_saved is prepared), and
-/// - `SaveCreate(3, nil/int)` local_saved preparation.
-pub fn wants_vm_snapshot_capture(&self) -> bool {
-    if self.need_save_prepare && self.local_saved_bytes.is_none() {
-        return true;
+    /// True if the VM runner should capture a coroutine snapshot for an upcoming save.
+    ///
+    /// This includes both:
+    /// - regular `SaveWrite(slot)` path (when no local_saved is prepared), and
+    /// - `SaveCreate(3, nil/int)` local_saved preparation.
+    pub fn wants_vm_snapshot_capture(&self) -> bool {
+        if self.need_save_prepare && self.local_saved_bytes.is_none() {
+            return true;
+        }
+        if self.save_requested && !self.savedata_prepared && self.local_saved_bytes.is_none() {
+            return true;
+        }
+        false
     }
-    if self.save_requested && !self.savedata_prepared && self.local_saved_bytes.is_none() {
-        return true;
+
+    pub fn set_pending_vm_snapshot(&mut self, snap: ThreadManagerSnapshotV1) {
+        self.pending_vm_snapshot = Some(snap);
     }
-    false
-}
 
+    pub fn has_pending_vm_snapshot(&self) -> bool {
+        self.pending_vm_snapshot.is_some()
+    }
 
-
-pub fn set_pending_vm_snapshot(&mut self, snap: ThreadManagerSnapshotV1) {
-    self.pending_vm_snapshot = Some(snap);
-}
-
-pub fn has_pending_vm_snapshot(&self) -> bool {
-    self.pending_vm_snapshot.is_some()
-}
-
-pub fn take_pending_vm_snapshot(&mut self) -> Option<ThreadManagerSnapshotV1> {
-    self.pending_vm_snapshot.take()
-}
-
-
+    pub fn take_pending_vm_snapshot(&mut self) -> Option<ThreadManagerSnapshotV1> {
+        self.pending_vm_snapshot.take()
+    }
 
     pub fn asynchronously_save(&mut self, slot: u32) {
         // mark the save status as dirty and perform the 'delayed' save
@@ -593,7 +598,7 @@ pub fn take_pending_vm_snapshot(&mut self) -> Option<ThreadManagerSnapshotV1> {
         if let Some(save_item) = self.slots.get(src as usize) {
             if let Some(save_item) = save_item {
                 self.slots[dst as usize] = Some(save_item.clone());
-                                let src_data = SaveItem::resolve_save_path_for_read(src);
+                let src_data = SaveItem::resolve_save_path_for_read(src);
 
                 let dst_data = SaveItem::get_save_path(dst);
 
@@ -664,7 +669,7 @@ pub fn take_pending_vm_snapshot(&mut self) -> Option<ThreadManagerSnapshotV1> {
     }
 
     pub fn load_savedata(&mut self, slot: u32, nls: Nls) -> Result<()> {
-                let path = SaveItem::resolve_save_path_for_read(slot);
+        let path = SaveItem::resolve_save_path_for_read(slot);
 
         // Missing save slots are not fatal for callers that enumerate all slots.
         if !path.exists() {
@@ -686,7 +691,6 @@ pub fn take_pending_vm_snapshot(&mut self) -> Option<ThreadManagerSnapshotV1> {
         self.slots[slot as usize] = Some(save_item);
         Ok(())
     }
-
 
     /// If either a `SaveCreate(3, nil/int)` requested preparation of an in-memory payload
     /// (original engine: `local_saved`), or a `SaveWrite` requested a fallback capture,
@@ -720,7 +724,6 @@ pub fn take_pending_vm_snapshot(&mut self) -> Option<ThreadManagerSnapshotV1> {
         Some((self.current_save_slot, w, h))
     }
 
-        
     /// Request preparing an in-memory save payload (original engine: `local_saved`).
     ///
     /// This should be triggered when the save/load UI is opened (scripts call `SaveCreate(3, nil)`),
@@ -846,7 +849,8 @@ pub fn take_pending_vm_snapshot(&mut self) -> Option<ThreadManagerSnapshotV1> {
     pub fn consume_save_write_result(&mut self) {
         self.save_requested = false;
         self.savedata_prepared = false;
-        self.current_save_slot = u32::MAX;    }
+        self.current_save_slot = u32::MAX;
+    }
 
     /// Request a load of a save slot (deferred to the engine loop).
     pub fn request_load(&mut self, slot: u32) {
@@ -859,7 +863,8 @@ pub fn take_pending_vm_snapshot(&mut self) -> Option<ThreadManagerSnapshotV1> {
         if !self.should_load {
             return None;
         }
-        self.should_load = false;        Some(self.load_slot)
+        self.should_load = false;
+        Some(self.load_slot)
     }
 
     /// Load a save slot into the current save fields.
@@ -873,7 +878,12 @@ pub fn take_pending_vm_snapshot(&mut self) -> Option<ThreadManagerSnapshotV1> {
         self.load_slot_into_current_from_bytes(slot, nls, &bytes)
     }
 
-    pub fn load_slot_into_current_from_bytes(&mut self, slot: u32, nls: Nls, bytes: &[u8]) -> Result<()> {
+    pub fn load_slot_into_current_from_bytes(
+        &mut self,
+        slot: u32,
+        nls: Nls,
+        bytes: &[u8],
+    ) -> Result<()> {
         let item = SaveItem::load_from_mem(bytes, nls)?;
         self.current_save_slot = slot;
         self.current_title = item.title.clone();
@@ -935,10 +945,12 @@ pub fn take_pending_vm_snapshot(&mut self) -> Option<ThreadManagerSnapshotV1> {
         let script_len: u16 = script_b.len().min(u16::MAX as usize) as u16;
 
         let mut out: Vec<u8> = Vec::with_capacity(
-            7
-                + 2 + (title_len as usize)
-                + 2 + (scene_len as usize)
-                + 2 + (script_len as usize)
+            7 + 2
+                + (title_len as usize)
+                + 2
+                + (scene_len as usize)
+                + 2
+                + (script_len as usize)
                 + thumb_rgba.len(),
         );
 
@@ -963,13 +975,24 @@ pub fn take_pending_vm_snapshot(&mut self) -> Option<ThreadManagerSnapshotV1> {
         Ok(out)
     }
 
-    pub fn finish_save_write_from_thumb(&mut self, slot: u32, nls: Nls, thumb_rgba: &[u8]) -> Result<()> {
+    pub fn finish_save_write_from_thumb(
+        &mut self,
+        slot: u32,
+        nls: Nls,
+        thumb_rgba: &[u8],
+    ) -> Result<()> {
         // Deprecated entrypoint kept for compatibility with older call sites.
         // Prefer `finalize_save_write()` which validates state and refreshes caches.
         self.current_save_slot = slot;
         self.save_requested = true;
         self.savedata_prepared = false;
-        self.finalize_save_write(nls, self.thumb_width.max(1), self.thumb_height.max(1), thumb_rgba, None)?;
+        self.finalize_save_write(
+            nls,
+            self.thumb_width.max(1),
+            self.thumb_height.max(1),
+            thumb_rgba,
+            None,
+        )?;
         Ok(())
     }
 }

@@ -20,7 +20,9 @@ pub struct VlcTree {
 
 impl VlcTree {
     pub fn new() -> Self {
-        VlcTree { nodes: vec![Node::default()] }
+        VlcTree {
+            nodes: vec![Node::default()],
+        }
     }
 
     pub fn insert(&mut self, code: u32, len: u8, sym: i32) {
@@ -30,7 +32,11 @@ impl VlcTree {
 
             // Avoid holding a mutable reference into `self.nodes` across a `push()`.
             // (A push may reallocate and would invalidate such a reference.)
-            let next = if !bit_is_one { self.nodes[cur].left } else { self.nodes[cur].right };
+            let next = if !bit_is_one {
+                self.nodes[cur].left
+            } else {
+                self.nodes[cur].right
+            };
             cur = match next {
                 Some(i) => i,
                 None => {

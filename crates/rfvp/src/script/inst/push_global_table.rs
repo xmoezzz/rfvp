@@ -1,5 +1,5 @@
-use crate::script::opcode::OpcodeBase;
 use crate::script::opcode::Opcode;
+use crate::script::opcode::OpcodeBase;
 
 pub struct PushGlobalTableInst {
     address: u32,
@@ -8,10 +8,7 @@ pub struct PushGlobalTableInst {
 
 impl PushGlobalTableInst {
     pub fn new(address: u32, idx: u32) -> Self {
-        Self {
-            address,
-            idx,
-        }
+        Self { address, idx }
     }
 
     pub fn get_idx(&self) -> u32 {
@@ -36,4 +33,3 @@ impl OpcodeBase for PushGlobalTableInst {
         format!("{:8} {}", self.mnemonic(), self.idx)
     }
 }
-

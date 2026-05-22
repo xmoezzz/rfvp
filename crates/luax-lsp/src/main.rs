@@ -18,7 +18,9 @@ use workspace::{ChainResolution, DocumentData, WorkspaceState};
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env().add_directive("luax_lsp=info".parse().unwrap()))
+        .with_env_filter(
+            EnvFilter::from_default_env().add_directive("luax_lsp=info".parse().unwrap()),
+        )
         .init();
 
     let stdin = tokio::io::stdin();
@@ -51,11 +53,17 @@ impl Backend {
                 .collect()
         };
         for (uri, diagnostics, version) in payloads {
-            self.client.publish_diagnostics(uri, diagnostics, Some(version)).await;
+            self.client
+                .publish_diagnostics(uri, diagnostics, Some(version))
+                .await;
         }
     }
 
-    async fn with_doc<T>(&self, uri: &Url, f: impl FnOnce(&WorkspaceState, &DocumentData) -> T) -> Option<T> {
+    async fn with_doc<T>(
+        &self,
+        uri: &Url,
+        f: impl FnOnce(&WorkspaceState, &DocumentData) -> T,
+    ) -> Option<T> {
         let state = self.state.lock().await;
         let doc = state.document(uri)?;
         Some(f(&state, doc))
@@ -82,7 +90,9 @@ impl LanguageServer for Backend {
                 version: Some(env!("CARGO_PKG_VERSION").to_string()),
             }),
             capabilities: ServerCapabilities {
-                text_document_sync: Some(TextDocumentSyncCapability::Kind(TextDocumentSyncKind::FULL)),
+                text_document_sync: Some(TextDocumentSyncCapability::Kind(
+                    TextDocumentSyncKind::FULL,
+                )),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 completion_provider: Some(CompletionOptions {
                     trigger_characters: Some(vec![".".to_string()]),
@@ -95,12 +105,14 @@ impl LanguageServer for Backend {
                 document_symbol_provider: Some(OneOf::Left(true)),
                 workspace_symbol_provider: Some(OneOf::Left(true)),
                 semantic_tokens_provider: Some(
-                    SemanticTokensServerCapabilities::SemanticTokensOptions(SemanticTokensOptions {
-                        legend: semantic_legend(),
-                        full: Some(SemanticTokensFullOptions::Bool(true)),
-                        range: None,
-                        ..Default::default()
-                    }),
+                    SemanticTokensServerCapabilities::SemanticTokensOptions(
+                        SemanticTokensOptions {
+                            legend: semantic_legend(),
+                            full: Some(SemanticTokensFullOptions::Bool(true)),
+                            range: None,
+                            ..Default::default()
+                        },
+                    ),
                 ),
                 signature_help_provider: Some(SignatureHelpOptions {
                     trigger_characters: Some(vec!["(".to_string(), ",".to_string()]),
@@ -134,7 +146,11 @@ impl LanguageServer for Backend {
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
         if let Some(change) = params.content_changes.into_iter().next() {
             let mut state = self.state.lock().await;
-            state.upsert_open_document(params.text_document.uri, change.text, params.text_document.version);
+            state.upsert_open_document(
+                params.text_document.uri,
+                change.text,
+                params.text_document.version,
+            );
             drop(state);
             self.publish_all_diagnostics().await;
         }
@@ -152,10 +168,13 @@ impl LanguageServer for Backend {
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let pos = params.text_document_position_params.position;
         Ok(self
-            .with_doc(&params.text_document_position_params.text_document.uri, |state, doc| {
-                let offset = doc.source.position_to_offset(pos);
-                hover_for(state, doc, offset)
-            })
+            .with_doc(
+                &params.text_document_position_params.text_document.uri,
+                |state, doc| {
+                    let offset = doc.source.position_to_offset(pos);
+                    hover_for(state, doc, offset)
+                },
+            )
             .await
             .flatten())
     }
@@ -173,7 +192,10 @@ impl LanguageServer for Backend {
             .flatten())
     }
 
-    async fn goto_definition(&self, params: GotoDefinitionParams) -> Result<Option<GotoDefinitionResponse>> {
+    async fn goto_definition(
+        &self,
+        params: GotoDefinitionParams,
+    ) -> Result<Option<GotoDefinitionResponse>> {
         let uri = params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
         Ok(self
@@ -210,7 +232,10 @@ impl LanguageServer for Backend {
             .flatten())
     }
 
-    async fn document_symbol(&self, params: DocumentSymbolParams) -> Result<Option<DocumentSymbolResponse>> {
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> Result<Option<DocumentSymbolResponse>> {
         Ok(self
             .with_doc(&params.text_document.uri, |_state, doc| {
                 Some(DocumentSymbolResponse::Nested(document_symbols_for(doc)))
@@ -219,7 +244,10 @@ impl LanguageServer for Backend {
             .flatten())
     }
 
-    async fn symbol(&self, params: WorkspaceSymbolParams) -> Result<Option<Vec<SymbolInformation>>> {
+    async fn symbol(
+        &self,
+        params: WorkspaceSymbolParams,
+    ) -> Result<Option<Vec<SymbolInformation>>> {
         let state = self.state.lock().await;
         Ok(Some(workspace_symbols_for(&state, &params.query)))
     }
@@ -336,7 +364,11 @@ fn symbol_hover(doc: &DocumentData, def: &SymbolDef) -> Hover {
     }
 }
 
-fn completions_for(state: &WorkspaceState, doc: &DocumentData, offset: usize) -> Vec<CompletionItem> {
+fn completions_for(
+    state: &WorkspaceState,
+    doc: &DocumentData,
+    offset: usize,
+) -> Vec<CompletionItem> {
     let ctx = completion_context(&doc.text, offset);
     let mut items = Vec::new();
     let mut seen = BTreeSet::new();
@@ -352,14 +384,20 @@ fn completions_for(state: &WorkspaceState, doc: &DocumentData, offset: usize) ->
             }
             ChainResolution::Module(module_name) => {
                 if let Some(module_doc) = state.module_doc(&module_name) {
-                    for def in module_doc.analysis.defs.iter().filter(|d| d.parent.is_none()) {
+                    for def in module_doc
+                        .analysis
+                        .defs
+                        .iter()
+                        .filter(|d| d.parent.is_none())
+                    {
                         push_completion(&mut items, &mut seen, completion_from_symbol(def));
                     }
                 }
             }
             ChainResolution::CrossDocSymbol((module_doc, def)) => {
                 for child_id in &def.children {
-                    if let Some(child) = module_doc.analysis.defs.iter().find(|d| d.id == *child_id) {
+                    if let Some(child) = module_doc.analysis.defs.iter().find(|d| d.id == *child_id)
+                    {
                         push_completion(&mut items, &mut seen, completion_from_symbol(child));
                     }
                 }
@@ -421,7 +459,11 @@ fn completions_for(state: &WorkspaceState, doc: &DocumentData, offset: usize) ->
     filter_completion_prefix(items, &ctx.prefix)
 }
 
-fn goto_definition_for(state: &WorkspaceState, doc: &DocumentData, offset: usize) -> Option<GotoDefinitionResponse> {
+fn goto_definition_for(
+    state: &WorkspaceState,
+    doc: &DocumentData,
+    offset: usize,
+) -> Option<GotoDefinitionResponse> {
     if let Some(def) = doc.analysis.symbol_def_at(offset) {
         return Some(GotoDefinitionResponse::Scalar(Location::new(
             doc.uri.clone(),
@@ -449,7 +491,12 @@ fn goto_definition_for(state: &WorkspaceState, doc: &DocumentData, offset: usize
         }
         if let Some(module_name) = &member.owner_module {
             if let Some(module_doc) = state.module_doc(module_name) {
-                if let Some(def) = module_doc.analysis.defs.iter().find(|d| d.parent.is_none() && d.name == member.name) {
+                if let Some(def) = module_doc
+                    .analysis
+                    .defs
+                    .iter()
+                    .find(|d| d.parent.is_none() && d.name == member.name)
+                {
                     return Some(GotoDefinitionResponse::Scalar(Location::new(
                         module_doc.uri.clone(),
                         module_doc.source.range(def.span.start, def.span.end),
@@ -473,13 +520,32 @@ fn references_for(doc: &DocumentData, offset: usize) -> Option<Vec<Location>> {
     }?;
     let mut out = Vec::new();
     if let Some(def) = doc.analysis.defs.iter().find(|d| d.id == def_id) {
-        out.push(Location::new(doc.uri.clone(), doc.source.range(def.span.start, def.span.end)));
+        out.push(Location::new(
+            doc.uri.clone(),
+            doc.source.range(def.span.start, def.span.end),
+        ));
     }
-    for reference in doc.analysis.refs.iter().filter(|r| r.def_id == Some(def_id)) {
-        out.push(Location::new(doc.uri.clone(), doc.source.range(reference.span.start, reference.span.end)));
+    for reference in doc
+        .analysis
+        .refs
+        .iter()
+        .filter(|r| r.def_id == Some(def_id))
+    {
+        out.push(Location::new(
+            doc.uri.clone(),
+            doc.source.range(reference.span.start, reference.span.end),
+        ));
     }
-    for member in doc.analysis.member_accesses.iter().filter(|r| r.def_id == Some(def_id)) {
-        out.push(Location::new(doc.uri.clone(), doc.source.range(member.span.start, member.span.end)));
+    for member in doc
+        .analysis
+        .member_accesses
+        .iter()
+        .filter(|r| r.def_id == Some(def_id))
+    {
+        out.push(Location::new(
+            doc.uri.clone(),
+            doc.source.range(member.span.start, member.span.end),
+        ));
     }
     Some(out)
 }
@@ -501,13 +567,23 @@ fn rename_for(doc: &DocumentData, offset: usize, new_name: &str) -> Option<Works
             new_text: new_name.to_string(),
         });
     }
-    for reference in doc.analysis.refs.iter().filter(|r| r.def_id == Some(def_id)) {
+    for reference in doc
+        .analysis
+        .refs
+        .iter()
+        .filter(|r| r.def_id == Some(def_id))
+    {
         edits.push(TextEdit {
             range: doc.source.range(reference.span.start, reference.span.end),
             new_text: new_name.to_string(),
         });
     }
-    for member in doc.analysis.member_accesses.iter().filter(|r| r.def_id == Some(def_id)) {
+    for member in doc
+        .analysis
+        .member_accesses
+        .iter()
+        .filter(|r| r.def_id == Some(def_id))
+    {
         edits.push(TextEdit {
             range: doc.source.range(member.span.start, member.span.end),
             new_text: new_name.to_string(),
@@ -531,20 +607,34 @@ fn document_symbols_for(doc: &DocumentData) -> Vec<DocumentSymbol> {
         }
         DocumentSymbol {
             name: def.name.clone(),
-            detail: if def.detail.is_empty() { None } else { Some(def.detail.clone()) },
+            detail: if def.detail.is_empty() {
+                None
+            } else {
+                Some(def.detail.clone())
+            },
             kind: symbol_kind(def.kind),
             tags: None,
             deprecated: None,
             range: doc.source.range(def.visible.start, def.visible.end),
             selection_range: doc.source.range(def.span.start, def.span.end),
-            children: if children.is_empty() { None } else { Some(children) },
+            children: if children.is_empty() {
+                None
+            } else {
+                Some(children)
+            },
         }
     }
 
     doc.analysis
         .defs
         .iter()
-        .filter(|d| d.parent.is_none() && !matches!(d.kind, SymbolKindLite::Module | SymbolKindLite::ConfigGlobal | SymbolKindLite::Syscall))
+        .filter(|d| {
+            d.parent.is_none()
+                && !matches!(
+                    d.kind,
+                    SymbolKindLite::Module | SymbolKindLite::ConfigGlobal | SymbolKindLite::Syscall
+                )
+        })
         .map(|d| build(doc, d))
         .collect()
 }
@@ -561,7 +651,10 @@ fn workspace_symbols_for(state: &WorkspaceState, query: &str) -> Vec<SymbolInfor
                 kind: symbol_kind(def.kind),
                 tags: None,
                 deprecated: None,
-                location: Location::new(doc.uri.clone(), doc.source.range(def.span.start, def.span.end)),
+                location: Location::new(
+                    doc.uri.clone(),
+                    doc.source.range(def.span.start, def.span.end),
+                ),
                 container_name: None,
             });
         }
@@ -606,7 +699,11 @@ fn semantic_tokens_for(doc: &DocumentData) -> SemanticTokens {
         let start = doc.source.offset_to_position(token.span.start);
         let end = doc.source.offset_to_position(token.span.end);
         let delta_line = start.line - prev_line;
-        let delta_start = if delta_line == 0 { start.character - prev_start } else { start.character };
+        let delta_start = if delta_line == 0 {
+            start.character - prev_start
+        } else {
+            start.character
+        };
         let length = end.character.saturating_sub(start.character).max(1);
         data.push(SemanticToken {
             delta_line,
@@ -624,16 +721,26 @@ fn semantic_tokens_for(doc: &DocumentData) -> SemanticTokens {
     }
 }
 
-fn signature_help_for(state: &WorkspaceState, doc: &DocumentData, offset: usize) -> Option<SignatureHelp> {
+fn signature_help_for(
+    state: &WorkspaceState,
+    doc: &DocumentData,
+    offset: usize,
+) -> Option<SignatureHelp> {
     let call = call_context(&doc.text, offset)?;
-    let def = state.resolve_visible_symbol(doc, offset, &call.callee).or_else(|| {
-        if let Some(module_name) = call.owner_chain.as_deref() {
-            if let Some(module_doc) = state.module_doc(module_name) {
-                return module_doc.analysis.defs.iter().find(|d| d.name == call.callee);
+    let def = state
+        .resolve_visible_symbol(doc, offset, &call.callee)
+        .or_else(|| {
+            if let Some(module_name) = call.owner_chain.as_deref() {
+                if let Some(module_doc) = state.module_doc(module_name) {
+                    return module_doc
+                        .analysis
+                        .defs
+                        .iter()
+                        .find(|d| d.name == call.callee);
+                }
             }
-        }
-        None
-    })?;
+            None
+        })?;
     let params: Vec<String> = doc
         .analysis
         .defs
@@ -718,7 +825,9 @@ fn classify_identifier(doc: &DocumentData, offset: usize) -> Option<u32> {
 
 fn symbol_kind(kind: SymbolKindLite) -> SymbolKind {
     match kind {
-        SymbolKindLite::Local | SymbolKindLite::Global | SymbolKindLite::ConfigGlobal => SymbolKind::VARIABLE,
+        SymbolKindLite::Local | SymbolKindLite::Global | SymbolKindLite::ConfigGlobal => {
+            SymbolKind::VARIABLE
+        }
         SymbolKindLite::Function | SymbolKindLite::Syscall => SymbolKind::FUNCTION,
         SymbolKindLite::Parameter => SymbolKind::VARIABLE,
         SymbolKindLite::Field => SymbolKind::FIELD,
@@ -748,7 +857,11 @@ fn completion_from_symbol(def: &SymbolDef) -> CompletionItem {
             SymbolKindLite::Module => CompletionItemKind::MODULE,
             _ => CompletionItemKind::VARIABLE,
         }),
-        detail: if def.detail.is_empty() { None } else { Some(def.detail.clone()) },
+        detail: if def.detail.is_empty() {
+            None
+        } else {
+            Some(def.detail.clone())
+        },
         documentation: if def.documentation.is_empty() {
             None
         } else {
@@ -761,7 +874,11 @@ fn completion_from_symbol(def: &SymbolDef) -> CompletionItem {
     }
 }
 
-fn push_completion(items: &mut Vec<CompletionItem>, seen: &mut BTreeSet<String>, item: CompletionItem) {
+fn push_completion(
+    items: &mut Vec<CompletionItem>,
+    seen: &mut BTreeSet<String>,
+    item: CompletionItem,
+) {
     if seen.insert(item.label.clone()) {
         items.push(item);
     }
@@ -797,7 +914,11 @@ fn completion_context(text: &str, offset: usize) -> CompletionContext {
         }
         let owner_chain = text[j..i - 1].trim().to_string();
         return CompletionContext {
-            owner_chain: if owner_chain.is_empty() { None } else { Some(owner_chain) },
+            owner_chain: if owner_chain.is_empty() {
+                None
+            } else {
+                Some(owner_chain)
+            },
             prefix,
         };
     }
@@ -874,4 +995,6 @@ const KEYWORDS: &[&str] = &[
     "local", "nil", "not", "or", "repeat", "return", "then", "true", "until", "volatile", "while",
 ];
 
-const BUILTINS: &[&str] = &["assert", "ipairs", "pairs", "print", "require", "tonumber", "tostring", "type"];
+const BUILTINS: &[&str] = &[
+    "assert", "ipairs", "pairs", "print", "require", "tonumber", "tostring", "type",
+];

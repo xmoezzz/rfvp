@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-use crate::decode::{Instruction, Function, Op};
+use crate::decode::{Function, Instruction, Op};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlockTerm {
@@ -40,19 +40,17 @@ fn inst_stack_delta(inst: &Instruction, callee_args: &BTreeMap<u32, u8>) -> i32 
         Op::RetV => -1,
         Op::PushNil
         | Op::PushTrue
-	    | Op::PushI8(_)
-	    | Op::PushI16(_)
-	    | Op::PushI32(_)
-	    | Op::PushF32(_)
-	    | Op::PushString(_)
-	    | Op::PushGlobal(_)
-	    | Op::PushStack(_) => 1,
-	    | Op::PushGlobalTable(_)
-	    | Op::PushLocalTable(_) => 0,
-        | Op::PushTop
-        | Op::PushReturn => 1,
-	    Op::PopGlobal(_) | Op::PopStack(_) => -1,
-        | Op::PopGlobalTable(_) | Op::PopLocalTable(_) => -2,
+        | Op::PushI8(_)
+        | Op::PushI16(_)
+        | Op::PushI32(_)
+        | Op::PushF32(_)
+        | Op::PushString(_)
+        | Op::PushGlobal(_)
+        | Op::PushStack(_) => 1,
+        Op::PushGlobalTable(_) | Op::PushLocalTable(_) => 0,
+        Op::PushTop | Op::PushReturn => 1,
+        Op::PopGlobal(_) | Op::PopStack(_) => -1,
+        Op::PopGlobalTable(_) | Op::PopLocalTable(_) => -2,
         Op::Neg => 0,
         Op::Add
         | Op::Sub
@@ -70,7 +68,7 @@ fn inst_stack_delta(inst: &Instruction, callee_args: &BTreeMap<u32, u8>) -> i32 
         | Op::SetGE => -1,
         Op::Call { target } => -(callee_args.get(target).copied().unwrap_or(0) as i32),
         Op::Syscall { args, .. } => -(*args as i32),
-	    Op::Unknown(_) => 0,
+        Op::Unknown(_) => 0,
     }
 }
 
@@ -170,10 +168,7 @@ pub fn build_cfg(func: &Function, callee_args: &BTreeMap<u32, u8>) -> FunctionCf
                     b.succs.push(tid);
                 }
                 // fallthrough
-                let ft = func
-                    .insts
-                    .get(b.inst_indices.end)
-                    .map(|i| i.addr);
+                let ft = func.insts.get(b.inst_indices.end).map(|i| i.addr);
                 if let Some(ft) = ft {
                     if let Some(&fid) = addr_to_block.get(&ft) {
                         b.succs.push(fid);
@@ -183,10 +178,7 @@ pub fn build_cfg(func: &Function, callee_args: &BTreeMap<u32, u8>) -> FunctionCf
             Some(Op::Ret) | Some(Op::RetV) => {}
             _ => {
                 // Fallthrough to next block by address.
-                let ft = func
-                    .insts
-                    .get(b.inst_indices.end)
-                    .map(|i| i.addr);
+                let ft = func.insts.get(b.inst_indices.end).map(|i| i.addr);
                 if let Some(ft) = ft {
                     if let Some(&fid) = addr_to_block.get(&ft) {
                         b.succs.push(fid);

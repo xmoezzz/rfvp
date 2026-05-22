@@ -12,9 +12,8 @@ use super::tables::{
 use super::vlc::{get_rl_vlc, get_vlc2};
 use super::vlctables::{
     get_vlcs, has_cbp, is_intra, is_quant, mb_type_mv_2_mv_dir, MB_TYPE_16x16, MB_TYPE_16x8,
-    MB_TYPE_BACKWARD_MV, MB_TYPE_BIDIR_MV, MB_TYPE_CBP, MB_TYPE_FORWARD_MV, MB_TYPE_INTRA,
-    MB_TYPE_INTERLACED, MB_TYPE_QUANT, MB_TYPE_SKIP, MB_TYPE_ZERO_MV, MV_DIR_BACKWARD,
-    MV_DIR_FORWARD,
+    MB_TYPE_BACKWARD_MV, MB_TYPE_BIDIR_MV, MB_TYPE_CBP, MB_TYPE_FORWARD_MV, MB_TYPE_INTERLACED,
+    MB_TYPE_INTRA, MB_TYPE_QUANT, MB_TYPE_SKIP, MB_TYPE_ZERO_MV, MV_DIR_BACKWARD, MV_DIR_FORWARD,
 };
 
 const PICT_TOP_FIELD: i32 = 1;
@@ -252,7 +251,13 @@ impl Decoder {
             .collect())
     }
 
-    fn process_unit(&mut self, code: u8, payload: &[u8], pts_90k: Option<i64>, out: &mut Vec<Arc<Frame>>) -> Result<()> {
+    fn process_unit(
+        &mut self,
+        code: u8,
+        payload: &[u8],
+        pts_90k: Option<i64>,
+        out: &mut Vec<Arc<Frame>>,
+    ) -> Result<()> {
         match code {
             0x00 => {
                 self.finish_picture(out)?;
@@ -290,7 +295,12 @@ impl Decoder {
                     // remainder of the slice and continue with the next one.
                     if let DecodeError::InvalidData(tag) = e {
                         let pict_type = self.pic.as_ref().map(|p| p.pict_type).unwrap_or(0);
-                        log::warn!("Video slice decode error (row={} pict_type={}): {}", mb_y, pict_type, tag);
+                        log::warn!(
+                            "Video slice decode error (row={} pict_type={}): {}",
+                            mb_y,
+                            pict_type,
+                            tag
+                        );
                         return Ok(());
                     }
                     return Err(e);
@@ -420,7 +430,10 @@ impl Decoder {
         let mut f = Frame::new(self.mb_width * 16, self.mb_height * 16, self.pix_fmt);
         f.pts_90k = pts_90k;
 
-        self.pic = Some(PictureParams { pict_type, _temporal_reference: temporal_reference });
+        self.pic = Some(PictureParams {
+            pict_type,
+            _temporal_reference: temporal_reference,
+        });
         self.cur = Some(f);
         self.mb_types.clear();
         self.mb_types.resize(self.mb_width * self.mb_height, 0);
@@ -747,8 +760,18 @@ impl Decoder {
                 if self.picture_structure != PICT_FRAME {
                     gb.skip_bits1();
                 }
-                let mx = mpeg_decode_motion(gb, &vlcs.mv, self.mpeg_f_code[0][0], self.last_mv[0][0][0])?;
-                let my = mpeg_decode_motion(gb, &vlcs.mv, self.mpeg_f_code[0][1], self.last_mv[0][0][1])?;
+                let mx = mpeg_decode_motion(
+                    gb,
+                    &vlcs.mv,
+                    self.mpeg_f_code[0][0],
+                    self.last_mv[0][0][0],
+                )?;
+                let my = mpeg_decode_motion(
+                    gb,
+                    &vlcs.mv,
+                    self.mpeg_f_code[0][1],
+                    self.last_mv[0][0][1],
+                )?;
                 self.mv[0][0][0] = mx;
                 self.mv[0][0][1] = my;
                 self.last_mv[0][0][0] = mx;
@@ -797,15 +820,16 @@ impl Decoder {
                 self.last_mv[0][1] = [0, 0];
                 self.mv[0][0] = [0, 0];
             } else {
-                let motion_type = if self.picture_structure == PICT_FRAME && self.frame_pred_frame_dct {
-                    MT_FRAME
-                } else {
-                    let mt = gb.get_bits(2) as i32;
-                    if self.picture_structure == PICT_FRAME && has_cbp(mb_type) {
-                        self.interlaced_dct = gb.get_bits1() != 0;
-                    }
-                    mt
-                };
+                let motion_type =
+                    if self.picture_structure == PICT_FRAME && self.frame_pred_frame_dct {
+                        MT_FRAME
+                    } else {
+                        let mt = gb.get_bits(2) as i32;
+                        if self.picture_structure == PICT_FRAME && has_cbp(mb_type) {
+                            self.interlaced_dct = gb.get_bits1() != 0;
+                        }
+                        mt
+                    };
                 if is_quant(mb_type) {
                     self.qscale = mpeg_get_qscale(gb, self.q_scale_type);
                 }
@@ -834,8 +858,10 @@ impl Decoder {
                                     self.last_mv[dir][0][1] = my;
                                     self.last_mv[dir][1][0] = mx;
                                     self.last_mv[dir][1][1] = my;
-                                    self.mv[dir][0][0] = if self.full_pel[dir] { mx * 2 } else { mx };
-                                    self.mv[dir][0][1] = if self.full_pel[dir] { my * 2 } else { my };
+                                    self.mv[dir][0][0] =
+                                        if self.full_pel[dir] { mx * 2 } else { mx };
+                                    self.mv[dir][0][1] =
+                                        if self.full_pel[dir] { my * 2 } else { my };
                                 }
                             }
                         } else {
@@ -914,7 +940,11 @@ impl Decoder {
                         self.mv_type = MV_TYPE_DMV;
                         for dir in 0..2 {
                             if has_mv_dir(mb_type, dir) {
-                                let my_shift = if self.picture_structure == PICT_FRAME { 1 } else { 0 };
+                                let my_shift = if self.picture_structure == PICT_FRAME {
+                                    1
+                                } else {
+                                    0
+                                };
                                 let mx = mpeg_decode_motion(
                                     gb,
                                     &vlcs.mv,
@@ -940,15 +970,21 @@ impl Decoder {
                                 if self.picture_structure == PICT_FRAME {
                                     mb_type |= MB_TYPE_16x16 | MB_TYPE_INTERLACED;
                                     let mut m = if self.top_field_first { 1 } else { 3 };
-                                    self.mv[dir][2][0] = ((mx * m + if mx > 0 { 1 } else { 0 }) >> 1) + dmx;
-                                    self.mv[dir][2][1] = ((my * m + if my > 0 { 1 } else { 0 }) >> 1) + dmy - 1;
+                                    self.mv[dir][2][0] =
+                                        ((mx * m + if mx > 0 { 1 } else { 0 }) >> 1) + dmx;
+                                    self.mv[dir][2][1] =
+                                        ((my * m + if my > 0 { 1 } else { 0 }) >> 1) + dmy - 1;
                                     m = 4 - m;
-                                    self.mv[dir][3][0] = ((mx * m + if mx > 0 { 1 } else { 0 }) >> 1) + dmx;
-                                    self.mv[dir][3][1] = ((my * m + if my > 0 { 1 } else { 0 }) >> 1) + dmy + 1;
+                                    self.mv[dir][3][0] =
+                                        ((mx * m + if mx > 0 { 1 } else { 0 }) >> 1) + dmx;
+                                    self.mv[dir][3][1] =
+                                        ((my * m + if my > 0 { 1 } else { 0 }) >> 1) + dmy + 1;
                                 } else {
                                     mb_type |= MB_TYPE_16x16;
-                                    self.mv[dir][2][0] = ((mx + if mx > 0 { 1 } else { 0 }) >> 1) + dmx;
-                                    self.mv[dir][2][1] = ((my + if my > 0 { 1 } else { 0 }) >> 1) + dmy;
+                                    self.mv[dir][2][0] =
+                                        ((mx + if mx > 0 { 1 } else { 0 }) >> 1) + dmx;
+                                    self.mv[dir][2][1] =
+                                        ((my + if my > 0 { 1 } else { 0 }) >> 1) + dmy;
                                     if self.picture_structure == PICT_TOP_FIELD {
                                         self.mv[dir][2][1] -= 1;
                                     } else {
@@ -1086,7 +1122,11 @@ impl Decoder {
                             &mut cur,
                             ref_frame,
                             1,
-                            if did_any { MotionOp::Avg } else { MotionOp::Put },
+                            if did_any {
+                                MotionOp::Avg
+                            } else {
+                                MotionOp::Put
+                            },
                             self.mv_type,
                             self.picture_structure,
                             self.mb_x,
@@ -1130,19 +1170,35 @@ impl Decoder {
                 let y = self.mb_y * 8;
                 let off_u = y * cur.linesize_u + x;
                 let off_v = y * cur.linesize_v + x;
-                simple_idct_put(&mut cur.data_u[off_u..], cur.linesize_u, &mut self.blocks[4]);
-                simple_idct_put(&mut cur.data_v[off_v..], cur.linesize_v, &mut self.blocks[5]);
+                simple_idct_put(
+                    &mut cur.data_u[off_u..],
+                    cur.linesize_u,
+                    &mut self.blocks[4],
+                );
+                simple_idct_put(
+                    &mut cur.data_v[off_v..],
+                    cur.linesize_v,
+                    &mut self.blocks[5],
+                );
             }
             PixelFormat::Yuv422p => {
                 let x = self.mb_x * 8;
                 let y = self.mb_y * 16;
                 for by in 0..2 {
                     let off_u = (y + by * 8) * cur.linesize_u + x;
-                    simple_idct_put(&mut cur.data_u[off_u..], cur.linesize_u, &mut self.blocks[4 + by]);
+                    simple_idct_put(
+                        &mut cur.data_u[off_u..],
+                        cur.linesize_u,
+                        &mut self.blocks[4 + by],
+                    );
                 }
                 for by in 0..2 {
                     let off_v = (y + by * 8) * cur.linesize_v + x;
-                    simple_idct_put(&mut cur.data_v[off_v..], cur.linesize_v, &mut self.blocks[6 + by]);
+                    simple_idct_put(
+                        &mut cur.data_v[off_v..],
+                        cur.linesize_v,
+                        &mut self.blocks[6 + by],
+                    );
                 }
             }
             PixelFormat::Yuv444p => {
@@ -1189,13 +1245,21 @@ impl Decoder {
                     let x = self.mb_x * 8;
                     let y = self.mb_y * 8;
                     let off_u = y * cur.linesize_u + x;
-                    simple_idct_add(&mut cur.data_u[off_u..], cur.linesize_u, &mut self.blocks[4]);
+                    simple_idct_add(
+                        &mut cur.data_u[off_u..],
+                        cur.linesize_u,
+                        &mut self.blocks[4],
+                    );
                 }
                 if self.block_last_index[5] >= 0 {
                     let x = self.mb_x * 8;
                     let y = self.mb_y * 8;
                     let off_v = y * cur.linesize_v + x;
-                    simple_idct_add(&mut cur.data_v[off_v..], cur.linesize_v, &mut self.blocks[5]);
+                    simple_idct_add(
+                        &mut cur.data_v[off_v..],
+                        cur.linesize_v,
+                        &mut self.blocks[5],
+                    );
                 }
             }
             PixelFormat::Yuv422p => {
@@ -1205,12 +1269,20 @@ impl Decoder {
                     let idx_u = 4 + by;
                     if self.block_last_index[idx_u] >= 0 {
                         let off_u = (y + by * 8) * cur.linesize_u + x;
-                        simple_idct_add(&mut cur.data_u[off_u..], cur.linesize_u, &mut self.blocks[idx_u]);
+                        simple_idct_add(
+                            &mut cur.data_u[off_u..],
+                            cur.linesize_u,
+                            &mut self.blocks[idx_u],
+                        );
                     }
                     let idx_v = 6 + by;
                     if self.block_last_index[idx_v] >= 0 {
                         let off_v = (y + by * 8) * cur.linesize_v + x;
-                        simple_idct_add(&mut cur.data_v[off_v..], cur.linesize_v, &mut self.blocks[idx_v]);
+                        simple_idct_add(
+                            &mut cur.data_v[off_v..],
+                            cur.linesize_v,
+                            &mut self.blocks[idx_v],
+                        );
                     }
                 }
             }
@@ -1241,7 +1313,11 @@ impl Decoder {
     fn mpeg2_decode_block_intra(&mut self, gb: &mut GetBits<'_>, n: usize) -> Result<()> {
         let vlcs = get_vlcs();
         let component = self.block_component(n);
-        let quant_matrix = if component == 0 { &self.intra_matrix } else { &self.chroma_intra_matrix };
+        let quant_matrix = if component == 0 {
+            &self.intra_matrix
+        } else {
+            &self.chroma_intra_matrix
+        };
         let alt = self.alternate_scan;
         let scantable: &'static [u8; 64] = if alt {
             &FF_ALTERNATE_VERTICAL_SCAN
@@ -1257,7 +1333,11 @@ impl Decoder {
 
         let mut mismatch: i32 = (self.blocks[n][0] as i32) ^ 1;
         let mut i: i32 = 0;
-        let rl = if self.intra_vlc_format { &vlcs.rl_mpeg2 } else { &vlcs.rl_mpeg1 };
+        let rl = if self.intra_vlc_format {
+            &vlcs.rl_mpeg2
+        } else {
+            &vlcs.rl_mpeg1
+        };
 
         loop {
             let (level, run) = get_rl_vlc(gb, rl, super::vlctables::TEX_VLC_BITS, 2);
@@ -1305,7 +1385,11 @@ impl Decoder {
     fn mpeg2_decode_block_non_intra(&mut self, gb: &mut GetBits<'_>, n: usize) -> Result<()> {
         let vlcs = get_vlcs();
         let component = self.block_component(n);
-        let quant_matrix = if component == 0 { &self.inter_matrix } else { &self.chroma_inter_matrix };
+        let quant_matrix = if component == 0 {
+            &self.inter_matrix
+        } else {
+            &self.chroma_inter_matrix
+        };
         let alt = self.alternate_scan;
         let scantable: &'static [u8; 64] = if alt {
             &FF_ALTERNATE_VERTICAL_SCAN
@@ -1375,7 +1459,12 @@ impl Decoder {
         Ok(())
     }
 
-    fn mpeg1_decode_block_intra(&mut self, gb: &mut GetBits<'_>, n: usize, qscale: i32) -> Result<()> {
+    fn mpeg1_decode_block_intra(
+        &mut self,
+        gb: &mut GetBits<'_>,
+        n: usize,
+        qscale: i32,
+    ) -> Result<()> {
         let component = if n <= 3 { 0 } else { (n - 4) + 1 };
         let diff = self.decode_dc(gb, component)?;
         let dc = self.last_dc[component] + diff;
@@ -1545,13 +1634,31 @@ impl Decoder {
     fn block_component(&self, n: usize) -> usize {
         match self.pix_fmt {
             PixelFormat::Yuv420p => {
-                if n < 4 { 0 } else if n == 4 { 1 } else { 2 }
+                if n < 4 {
+                    0
+                } else if n == 4 {
+                    1
+                } else {
+                    2
+                }
             }
             PixelFormat::Yuv422p => {
-                if n < 4 { 0 } else if n < 6 { 1 } else { 2 }
+                if n < 4 {
+                    0
+                } else if n < 6 {
+                    1
+                } else {
+                    2
+                }
             }
             PixelFormat::Yuv444p => {
-                if n < 4 { 0 } else if n < 8 { 1 } else { 2 }
+                if n < 4 {
+                    0
+                } else if n < 8 {
+                    1
+                } else {
+                    2
+                }
             }
         }
     }

@@ -1,5 +1,5 @@
-use crate::script::opcode::OpcodeBase;
 use crate::script::opcode::Opcode;
+use crate::script::opcode::OpcodeBase;
 
 pub struct PopLocalTableInst {
     address: u32,
@@ -8,10 +8,7 @@ pub struct PopLocalTableInst {
 
 impl PopLocalTableInst {
     pub fn new(address: u32, idx: i8) -> Self {
-        Self {
-            address,
-            idx,
-        }
+        Self { address, idx }
     }
 
     pub fn get_idx(&self) -> i8 {
@@ -36,4 +33,3 @@ impl OpcodeBase for PopLocalTableInst {
         format!("{:8} {}", self.mnemonic(), self.idx)
     }
 }
-

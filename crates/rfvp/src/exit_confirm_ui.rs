@@ -45,22 +45,43 @@ impl ExitConfirmUi {
         let texture = GpuTexture::new(resources, &img, Some("exit_confirm_ui"));
 
         let vertices = [
-            PosColTexVertex { position: Vec3::new(0.0, 0.0, 0.0), color: Vec4::ONE, texture_coordinate: Vec2::new(0.0, 0.0) },
-            PosColTexVertex { position: Vec3::new(1.0, 0.0, 0.0), color: Vec4::ONE, texture_coordinate: Vec2::new(1.0, 0.0) },
-            PosColTexVertex { position: Vec3::new(1.0, 1.0, 0.0), color: Vec4::ONE, texture_coordinate: Vec2::new(1.0, 1.0) },
-            PosColTexVertex { position: Vec3::new(0.0, 1.0, 0.0), color: Vec4::ONE, texture_coordinate: Vec2::new(0.0, 1.0) },
+            PosColTexVertex {
+                position: Vec3::new(0.0, 0.0, 0.0),
+                color: Vec4::ONE,
+                texture_coordinate: Vec2::new(0.0, 0.0),
+            },
+            PosColTexVertex {
+                position: Vec3::new(1.0, 0.0, 0.0),
+                color: Vec4::ONE,
+                texture_coordinate: Vec2::new(1.0, 0.0),
+            },
+            PosColTexVertex {
+                position: Vec3::new(1.0, 1.0, 0.0),
+                color: Vec4::ONE,
+                texture_coordinate: Vec2::new(1.0, 1.0),
+            },
+            PosColTexVertex {
+                position: Vec3::new(0.0, 1.0, 0.0),
+                color: Vec4::ONE,
+                texture_coordinate: Vec2::new(0.0, 1.0),
+            },
         ];
         let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
-        let vertex_buffer = resources.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("exit_confirm_ui.vb"),
-            contents: bytemuck::cast_slice(&vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        let index_buffer = resources.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("exit_confirm_ui.ib"),
-            contents: bytemuck::cast_slice(&indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
+        let vertex_buffer =
+            resources
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("exit_confirm_ui.vb"),
+                    contents: bytemuck::cast_slice(&vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+        let index_buffer = resources
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("exit_confirm_ui.ib"),
+                contents: bytemuck::cast_slice(&indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
 
         Self {
             active: false,
@@ -139,8 +160,9 @@ impl ExitConfirmUi {
                 true
             }
             WindowEvent::CursorMoved { position, .. } => {
-                self.hover = map_window_to_virtual(position.x, position.y, surface_size, virtual_size)
-                    .and_then(|(vx, vy)| self.hit_test_button(vx, vy, virtual_size));
+                self.hover =
+                    map_window_to_virtual(position.x, position.y, surface_size, virtual_size)
+                        .and_then(|(vx, vy)| self.hit_test_button(vx, vy, virtual_size));
                 self.dirty = true;
                 true
             }
@@ -231,7 +253,12 @@ impl ExitConfirmUi {
         true
     }
 
-    pub fn update(&mut self, resources: &GpuCommonResources, virtual_size: (u32, u32), surface_size: (u32, u32)) {
+    pub fn update(
+        &mut self,
+        resources: &GpuCommonResources,
+        virtual_size: (u32, u32),
+        surface_size: (u32, u32),
+    ) {
         if !self.active {
             return;
         }
@@ -274,16 +301,35 @@ impl ExitConfirmUi {
         let sw = sw.max(1);
         let sh = sh.max(1);
         let vertices = [
-            PosColTexVertex { position: Vec3::new(0.0, 0.0, 0.0), color: Vec4::ONE, texture_coordinate: Vec2::new(0.0, 0.0) },
-            PosColTexVertex { position: Vec3::new(sw as f32, 0.0, 0.0), color: Vec4::ONE, texture_coordinate: Vec2::new(1.0, 0.0) },
-            PosColTexVertex { position: Vec3::new(sw as f32, sh as f32, 0.0), color: Vec4::ONE, texture_coordinate: Vec2::new(1.0, 1.0) },
-            PosColTexVertex { position: Vec3::new(0.0, sh as f32, 0.0), color: Vec4::ONE, texture_coordinate: Vec2::new(0.0, 1.0) },
+            PosColTexVertex {
+                position: Vec3::new(0.0, 0.0, 0.0),
+                color: Vec4::ONE,
+                texture_coordinate: Vec2::new(0.0, 0.0),
+            },
+            PosColTexVertex {
+                position: Vec3::new(sw as f32, 0.0, 0.0),
+                color: Vec4::ONE,
+                texture_coordinate: Vec2::new(1.0, 0.0),
+            },
+            PosColTexVertex {
+                position: Vec3::new(sw as f32, sh as f32, 0.0),
+                color: Vec4::ONE,
+                texture_coordinate: Vec2::new(1.0, 1.0),
+            },
+            PosColTexVertex {
+                position: Vec3::new(0.0, sh as f32, 0.0),
+                color: Vec4::ONE,
+                texture_coordinate: Vec2::new(0.0, 1.0),
+            },
         ];
-        self.vertex_buffer = resources.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("exit_confirm_ui.vb"),
-            contents: bytemuck::cast_slice(&vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        self.vertex_buffer =
+            resources
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("exit_confirm_ui.vb"),
+                    contents: bytemuck::cast_slice(&vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
     }
 
     fn toggle_selection(&mut self) {
@@ -315,7 +361,14 @@ impl ExitConfirmUi {
         let transform = UiSurfaceTransform::new(virtual_size, surface_size);
         let (sw, sh) = surface_size;
         let mut img = RgbaImage::from_pixel(sw.max(1), sh.max(1), Rgba([0, 0, 0, 0]));
-        fill_rect(&mut img, transform.content_x, transform.content_y, transform.content_w, transform.content_h, [0, 0, 0, 160]);
+        fill_rect(
+            &mut img,
+            transform.content_x,
+            transform.content_y,
+            transform.content_w,
+            transform.content_h,
+            [0, 0, 0, 160],
+        );
 
         let (vw, vh) = (virtual_size.0.max(1) as i32, virtual_size.1.max(1) as i32);
         let panel_w = (vw * 3 / 5).clamp(280, vw - 32);
@@ -323,12 +376,54 @@ impl ExitConfirmUi {
         let panel_x = (vw - panel_w) / 2;
         let panel_y = (vh - panel_h) / 2;
 
-        fill_rect(&mut img, transform.map_x(panel_x), transform.map_y(panel_y), transform.map_w(panel_w), transform.map_h(panel_h), [238, 238, 238, 246]);
-        stroke_rect(&mut img, transform.map_x(panel_x), transform.map_y(panel_y), transform.map_w(panel_w), transform.map_h(panel_h), [24, 24, 24, 255]);
-        fill_rect(&mut img, transform.map_x(panel_x + 1), transform.map_y(panel_y + 1), transform.map_w(panel_w - 2), transform.map_h(28), [72, 88, 128, 255]);
-        draw_text_left(&self.font, &mut img, transform.map_rect(panel_x + 10, panel_y + 4, panel_w - 20, 20), transform.scale_font(16.0), [255, 255, 255, 255], "EXIT");
-        draw_text_left(&self.font, &mut img, transform.map_rect(panel_x + 16, panel_y + 40, panel_w - 32, 24), transform.scale_font(16.0), [0, 0, 0, 255], "Are you sure you want to quit?");
-        draw_text_left(&self.font, &mut img, transform.map_rect(panel_x + 16, panel_y + 68, panel_w - 32, 18), transform.scale_font(12.0), [48, 48, 48, 255], "Enter: confirm  Esc: cancel");
+        fill_rect(
+            &mut img,
+            transform.map_x(panel_x),
+            transform.map_y(panel_y),
+            transform.map_w(panel_w),
+            transform.map_h(panel_h),
+            [238, 238, 238, 246],
+        );
+        stroke_rect(
+            &mut img,
+            transform.map_x(panel_x),
+            transform.map_y(panel_y),
+            transform.map_w(panel_w),
+            transform.map_h(panel_h),
+            [24, 24, 24, 255],
+        );
+        fill_rect(
+            &mut img,
+            transform.map_x(panel_x + 1),
+            transform.map_y(panel_y + 1),
+            transform.map_w(panel_w - 2),
+            transform.map_h(28),
+            [72, 88, 128, 255],
+        );
+        draw_text_left(
+            &self.font,
+            &mut img,
+            transform.map_rect(panel_x + 10, panel_y + 4, panel_w - 20, 20),
+            transform.scale_font(16.0),
+            [255, 255, 255, 255],
+            "EXIT",
+        );
+        draw_text_left(
+            &self.font,
+            &mut img,
+            transform.map_rect(panel_x + 16, panel_y + 40, panel_w - 32, 24),
+            transform.scale_font(16.0),
+            [0, 0, 0, 255],
+            "Are you sure you want to quit?",
+        );
+        draw_text_left(
+            &self.font,
+            &mut img,
+            transform.map_rect(panel_x + 16, panel_y + 68, panel_w - 32, 18),
+            transform.scale_font(12.0),
+            [48, 48, 48, 255],
+            "Enter: confirm  Esc: cancel",
+        );
 
         let button_w = 96;
         let button_h = 28;
@@ -337,10 +432,7 @@ impl ExitConfirmUi {
         let base_x = panel_x + (panel_w - total_w) / 2;
         let button_y = panel_y + panel_h - 44;
 
-        for (idx, btn, label) in [
-            (0, ExitButton::Yes, "YES"),
-            (1, ExitButton::No, "NO"),
-        ] {
+        for (idx, btn, label) in [(0, ExitButton::Yes, "YES"), (1, ExitButton::No, "NO")] {
             let x = base_x + idx * (button_w + gap);
             let is_selected = self.selected == btn;
             let is_hover = self.hover == Some(btn);
@@ -351,9 +443,30 @@ impl ExitConfirmUi {
             } else {
                 [248, 248, 248, 255]
             };
-            fill_rect(&mut img, transform.map_x(x), transform.map_y(button_y), transform.map_w(button_w), transform.map_h(button_h), fill);
-            stroke_rect(&mut img, transform.map_x(x), transform.map_y(button_y), transform.map_w(button_w), transform.map_h(button_h), [24, 24, 24, 255]);
-            draw_text_centered(&self.font, &mut img, transform.map_rect(x + 6, button_y + 3, button_w - 12, button_h - 6), transform.scale_font(13.0), [0, 0, 0, 255], label);
+            fill_rect(
+                &mut img,
+                transform.map_x(x),
+                transform.map_y(button_y),
+                transform.map_w(button_w),
+                transform.map_h(button_h),
+                fill,
+            );
+            stroke_rect(
+                &mut img,
+                transform.map_x(x),
+                transform.map_y(button_y),
+                transform.map_w(button_w),
+                transform.map_h(button_h),
+                [24, 24, 24, 255],
+            );
+            draw_text_centered(
+                &self.font,
+                &mut img,
+                transform.map_rect(x + 6, button_y + 3, button_w - 12, button_h - 6),
+                transform.scale_font(13.0),
+                [0, 0, 0, 255],
+                label,
+            );
         }
 
         img
@@ -416,14 +529,24 @@ impl UiSurfaceTransform {
             content_h: dst_h.round() as i32,
         }
     }
-    fn map_x(&self, x: i32) -> i32 { (self.off_x + x as f32 * self.scale).round() as i32 }
-    fn map_y(&self, y: i32) -> i32 { (self.off_y + y as f32 * self.scale).round() as i32 }
-    fn map_w(&self, w: i32) -> i32 { ((w as f32 * self.scale).round() as i32).max(if w > 0 { 1 } else { 0 }) }
-    fn map_h(&self, h: i32) -> i32 { ((h as f32 * self.scale).round() as i32).max(if h > 0 { 1 } else { 0 }) }
+    fn map_x(&self, x: i32) -> i32 {
+        (self.off_x + x as f32 * self.scale).round() as i32
+    }
+    fn map_y(&self, y: i32) -> i32 {
+        (self.off_y + y as f32 * self.scale).round() as i32
+    }
+    fn map_w(&self, w: i32) -> i32 {
+        ((w as f32 * self.scale).round() as i32).max(if w > 0 { 1 } else { 0 })
+    }
+    fn map_h(&self, h: i32) -> i32 {
+        ((h as f32 * self.scale).round() as i32).max(if h > 0 { 1 } else { 0 })
+    }
     fn map_rect(&self, x: i32, y: i32, w: i32, h: i32) -> (i32, i32, i32, i32) {
         (self.map_x(x), self.map_y(y), self.map_w(w), self.map_h(h))
     }
-    fn scale_font(&self, size: f32) -> f32 { (size * self.scale).max(1.0) }
+    fn scale_font(&self, size: f32) -> f32 {
+        (size * self.scale).max(1.0)
+    }
 }
 
 fn inside_rect(x: i32, y: i32, rect: (i32, i32, i32, i32)) -> bool {
@@ -431,7 +554,12 @@ fn inside_rect(x: i32, y: i32, rect: (i32, i32, i32, i32)) -> bool {
     x >= rx && x < rx + rw && y >= ry && y < ry + rh
 }
 
-fn map_window_to_virtual(px: f64, py: f64, surface_size: (u32, u32), virtual_size: (u32, u32)) -> Option<(i32, i32)> {
+fn map_window_to_virtual(
+    px: f64,
+    py: f64,
+    surface_size: (u32, u32),
+    virtual_size: (u32, u32),
+) -> Option<(i32, i32)> {
     let (sw_u, sh_u) = surface_size;
     let (vw_u, vh_u) = virtual_size;
     let sw = sw_u.max(1) as f64;
@@ -560,10 +688,23 @@ fn layout_text(font: &Font, size: f32, text: &str, max_width: i32) -> TextLayout
         max_y = (lm.new_line_size.ceil() as i32).max(0);
     }
 
-    TextLayout { glyphs, bitmap, width, min_y, max_y }
+    TextLayout {
+        glyphs,
+        bitmap,
+        width,
+        min_y,
+        max_y,
+    }
 }
 
-fn draw_text_left(font: &Font, img: &mut RgbaImage, rect: (i32, i32, i32, i32), size: f32, color: [u8; 4], text: &str) {
+fn draw_text_left(
+    font: &Font,
+    img: &mut RgbaImage,
+    rect: (i32, i32, i32, i32),
+    size: f32,
+    color: [u8; 4],
+    text: &str,
+) {
     let (x, y, w, h) = rect;
     if w <= 0 || h <= 0 {
         return;
@@ -589,7 +730,14 @@ fn draw_text_left(font: &Font, img: &mut RgbaImage, rect: (i32, i32, i32, i32), 
     }
 }
 
-fn draw_text_centered(font: &Font, img: &mut RgbaImage, rect: (i32, i32, i32, i32), size: f32, color: [u8; 4], text: &str) {
+fn draw_text_centered(
+    font: &Font,
+    img: &mut RgbaImage,
+    rect: (i32, i32, i32, i32),
+    size: f32,
+    color: [u8; 4],
+    text: &str,
+) {
     let (x, y, w, h) = rect;
     if w <= 0 || h <= 0 {
         return;

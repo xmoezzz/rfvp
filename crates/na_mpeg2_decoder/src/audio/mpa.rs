@@ -1,7 +1,9 @@
 use crate::error::{AvError, Result};
 
 use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::{CodecParameters, Decoder, DecoderOptions, CODEC_TYPE_MP1, CODEC_TYPE_MP2, CODEC_TYPE_MP3};
+use symphonia::core::codecs::{
+    CodecParameters, Decoder, DecoderOptions, CODEC_TYPE_MP1, CODEC_TYPE_MP2, CODEC_TYPE_MP3,
+};
 use symphonia::core::errors::Error as SymphError;
 use symphonia::core::formats::Packet;
 
@@ -29,7 +31,13 @@ pub struct MpaAudioDecoder {
 
 impl MpaAudioDecoder {
     pub fn new() -> Self {
-        Self { buf: Vec::new(), dec: None, sample_buf: None, next_pts_ms: None, track_id: 0 }
+        Self {
+            buf: Vec::new(),
+            dec: None,
+            sample_buf: None,
+            next_pts_ms: None,
+            track_id: 0,
+        }
     }
 
     pub fn push_with<F>(&mut self, data: &[u8], pts_ms: Option<i64>, mut on_chunk: F) -> Result<()>
@@ -68,7 +76,13 @@ impl MpaAudioDecoder {
         Ok(())
     }
 
-    fn decode_one_packet<F>(&mut self, pkt_bytes: &[u8], pts_ms: i64, codec_type: symphonia::core::codecs::CodecType, on_chunk: &mut F) -> Result<()>
+    fn decode_one_packet<F>(
+        &mut self,
+        pkt_bytes: &[u8],
+        pts_ms: i64,
+        codec_type: symphonia::core::codecs::CodecType,
+        on_chunk: &mut F,
+    ) -> Result<()>
     where
         F: FnMut(MpaAudioChunk),
     {
@@ -82,7 +96,12 @@ impl MpaAudioDecoder {
             self.dec = Some(dec);
         }
 
-        let pkt = Packet::new_from_boxed_slice(self.track_id, 0, 0, pkt_bytes.to_vec().into_boxed_slice());
+        let pkt = Packet::new_from_boxed_slice(
+            self.track_id,
+            0,
+            0,
+            pkt_bytes.to_vec().into_boxed_slice(),
+        );
 
         let dec = self.dec.as_mut().expect("decoder must be initialized");
         match dec.decode(&pkt) {
@@ -110,7 +129,12 @@ impl MpaAudioDecoder {
                 let samples = sb.samples().to_vec();
 
                 let sample_rate = spec.rate;
-                on_chunk(MpaAudioChunk { pts_ms, sample_rate, channels, samples });
+                on_chunk(MpaAudioChunk {
+                    pts_ms,
+                    sample_rate,
+                    channels,
+                    samples,
+                });
 
                 // Advance PTS based on decoded frames.
                 let frames = decoded.frames() as i64;
@@ -178,7 +202,8 @@ impl MpaHeader {
                 } else {
                     BITRATES_V2_L1[bitrate_idx as usize]
                 };
-                let fl = (((12u64 * (br as u64) * 1000u64) / (sr as u64)) + (padding as u64)) * 4u64;
+                let fl =
+                    (((12u64 * (br as u64) * 1000u64) / (sr as u64)) + (padding as u64)) * 4u64;
                 (CODEC_TYPE_MP1, br, fl as usize)
             }
             0x02 => {
@@ -209,7 +234,10 @@ impl MpaHeader {
             return None;
         }
 
-        Some(Self { frame_len, codec_type })
+        Some(Self {
+            frame_len,
+            codec_type,
+        })
     }
 }
 
@@ -217,9 +245,19 @@ const SAMPLE_RATES_V1: [u32; 3] = [44100, 48000, 32000];
 const SAMPLE_RATES_V2: [u32; 3] = [22050, 24000, 16000];
 const SAMPLE_RATES_V25: [u32; 3] = [11025, 12000, 8000];
 
-const BITRATES_V1_L1: [u32; 16] = [0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 0];
-const BITRATES_V1_L2: [u32; 16] = [0, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 0];
-const BITRATES_V1_L3: [u32; 16] = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0];
+const BITRATES_V1_L1: [u32; 16] = [
+    0, 32, 64, 96, 128, 160, 192, 224, 256, 288, 320, 352, 384, 416, 448, 0,
+];
+const BITRATES_V1_L2: [u32; 16] = [
+    0, 32, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 384, 0,
+];
+const BITRATES_V1_L3: [u32; 16] = [
+    0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0,
+];
 
-const BITRATES_V2_L1: [u32; 16] = [0, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256, 0];
-const BITRATES_V2_L2L3: [u32; 16] = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0];
+const BITRATES_V2_L1: [u32; 16] = [
+    0, 32, 48, 56, 64, 80, 96, 112, 128, 144, 160, 176, 192, 224, 256, 0,
+];
+const BITRATES_V2_L2L3: [u32; 16] = [
+    0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0,
+];

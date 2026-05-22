@@ -1,6 +1,6 @@
+use super::frame::Frame;
 use super::utils::avg_u8;
 use super::videodsp::emulated_edge_mc;
-use super::frame::Frame;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MotionOp {
@@ -173,8 +173,16 @@ impl MotionCompensator {
         } else {
             ref_frame.linesize_u
         };
-        let ref_base_y = if field_select { ref_frame.linesize_y } else { 0 };
-        let ref_base_uv = if field_select { ref_frame.linesize_u } else { 0 };
+        let ref_base_y = if field_select {
+            ref_frame.linesize_y
+        } else {
+            0
+        };
+        let ref_base_uv = if field_select {
+            ref_frame.linesize_u
+        } else {
+            0
+        };
 
         // Destination coordinates.
         let dst_x = mb_x * 16;
@@ -207,7 +215,11 @@ impl MotionCompensator {
         let bw_uv = 16 >> chroma_x_shift;
         let bh_uv = h >> chroma_y_shift;
         let dst_x_uv = mb_x * bw_uv;
-        let dst_y_uv = if field_based { mb_y * (8 >> chroma_y_shift) } else { mb_y * (16 >> chroma_y_shift) };
+        let dst_y_uv = if field_based {
+            mb_y * (8 >> chroma_y_shift)
+        } else {
+            mb_y * (16 >> chroma_y_shift)
+        };
 
         // U
         {

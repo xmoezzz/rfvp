@@ -58,5 +58,4 @@ impl VmSnapshot {
 
         self.tick_seq = self.tick_seq.wrapping_add(1);
     }
-
 }

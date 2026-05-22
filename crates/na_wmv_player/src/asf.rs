@@ -32,18 +32,24 @@ impl std::fmt::Display for Guid {
 }
 
 // Well-known GUIDs (stored in little-endian GUID format)
-pub const GUID_ASF_HEADER: Guid =
-    Guid([0x30, 0x26, 0xB2, 0x75, 0x8E, 0x66, 0xCF, 0x11, 0xA6, 0xD9, 0x00, 0xAA, 0x00, 0x62, 0xCE, 0x6C]);
-pub const GUID_ASF_DATA: Guid =
-    Guid([0x36, 0x26, 0xB2, 0x75, 0x8E, 0x66, 0xCF, 0x11, 0xA6, 0xD9, 0x00, 0xAA, 0x00, 0x62, 0xCE, 0x6C]);
-pub const GUID_FILE_PROPERTIES: Guid =
-    Guid([0xA1, 0xDC, 0xAB, 0x8C, 0x47, 0xA9, 0xCF, 0x11, 0x8E, 0xE4, 0x00, 0xC0, 0x0C, 0x20, 0x53, 0x65]);
-pub const GUID_STREAM_PROPERTIES: Guid =
-    Guid([0x91, 0x07, 0xDC, 0xB7, 0xB7, 0xA9, 0xCF, 0x11, 0x8E, 0xE6, 0x00, 0xC0, 0x0C, 0x20, 0x53, 0x65]);
-pub const GUID_STREAM_TYPE_VIDEO: Guid =
-    Guid([0xC0, 0xEF, 0x19, 0xBC, 0x4D, 0x5B, 0xCF, 0x11, 0xA8, 0xFD, 0x00, 0x80, 0x5F, 0x5C, 0x44, 0x2B]);
-pub const GUID_STREAM_TYPE_AUDIO: Guid =
-    Guid([0x40, 0x9E, 0x69, 0xF8, 0x4D, 0x5B, 0xCF, 0x11, 0xA8, 0xFD, 0x00, 0x80, 0x5F, 0x5C, 0x44, 0x2B]);
+pub const GUID_ASF_HEADER: Guid = Guid([
+    0x30, 0x26, 0xB2, 0x75, 0x8E, 0x66, 0xCF, 0x11, 0xA6, 0xD9, 0x00, 0xAA, 0x00, 0x62, 0xCE, 0x6C,
+]);
+pub const GUID_ASF_DATA: Guid = Guid([
+    0x36, 0x26, 0xB2, 0x75, 0x8E, 0x66, 0xCF, 0x11, 0xA6, 0xD9, 0x00, 0xAA, 0x00, 0x62, 0xCE, 0x6C,
+]);
+pub const GUID_FILE_PROPERTIES: Guid = Guid([
+    0xA1, 0xDC, 0xAB, 0x8C, 0x47, 0xA9, 0xCF, 0x11, 0x8E, 0xE4, 0x00, 0xC0, 0x0C, 0x20, 0x53, 0x65,
+]);
+pub const GUID_STREAM_PROPERTIES: Guid = Guid([
+    0x91, 0x07, 0xDC, 0xB7, 0xB7, 0xA9, 0xCF, 0x11, 0x8E, 0xE6, 0x00, 0xC0, 0x0C, 0x20, 0x53, 0x65,
+]);
+pub const GUID_STREAM_TYPE_VIDEO: Guid = Guid([
+    0xC0, 0xEF, 0x19, 0xBC, 0x4D, 0x5B, 0xCF, 0x11, 0xA8, 0xFD, 0x00, 0x80, 0x5F, 0x5C, 0x44, 0x2B,
+]);
+pub const GUID_STREAM_TYPE_AUDIO: Guid = Guid([
+    0x40, 0x9E, 0x69, 0xF8, 0x4D, 0x5B, 0xCF, 0x11, 0xA8, 0xFD, 0x00, 0x80, 0x5F, 0x5C, 0x44, 0x2B,
+]);
 
 // ─── ASF Object Header ───────────────────────────────────────────────────────
 
@@ -216,7 +222,11 @@ impl AsfFile {
                     reader.read_exact(&mut four_cc)?;
                     reader.seek(SeekFrom::Current(20))?;
 
-                    let extra_len = if fmt_data_size > 40 { fmt_data_size - 40 } else { 0 };
+                    let extra_len = if fmt_data_size > 40 {
+                        fmt_data_size - 40
+                    } else {
+                        0
+                    };
                     let mut extra_data = vec![0u8; extra_len];
                     reader.read_exact(&mut extra_data)?;
 
@@ -416,7 +426,9 @@ impl AsfFile {
         let mut buf = vec![0u8; pkt_size];
         match reader.read_exact(&mut buf) {
             Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Err(DecoderError::EndOfStream),
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                return Err(DecoderError::EndOfStream)
+            }
             Err(e) => return Err(DecoderError::Io(e)),
         }
 
@@ -448,7 +460,8 @@ impl AsfFile {
         i += 2;
 
         // packet_length / sequence / padsize (upstream DO_2BITS)
-        let packet_length = Self::read_2bits_from_buf(&buf, &mut i, packet_flags >> 5, self.packet_size)? as u32;
+        let packet_length =
+            Self::read_2bits_from_buf(&buf, &mut i, packet_flags >> 5, self.packet_size)? as u32;
         let _seq_ignored = Self::read_2bits_from_buf(&buf, &mut i, packet_flags >> 1, 0)?;
         let mut padsize = Self::read_2bits_from_buf(&buf, &mut i, packet_flags >> 3, 0)? as u32;
 
@@ -510,7 +523,9 @@ impl AsfFile {
 
         // Parse payloads within this packet.
         loop {
-            if packet_size_left < FRAME_HEADER_SIZE || (packet_segments < 1 && packet_time_start == 0) {
+            if packet_size_left < FRAME_HEADER_SIZE
+                || (packet_segments < 1 && packet_time_start == 0)
+            {
                 // End-of-packet; ignore remaining + padding.
                 let _ = packet_padsize;
                 break;
@@ -535,7 +550,8 @@ impl AsfFile {
                 packet_size_left -= (i - before) as i32;
 
                 before = i;
-                packet_frag_offset = Self::read_2bits_from_buf(&buf, &mut i, packet_property >> 2, 0)?;
+                packet_frag_offset =
+                    Self::read_2bits_from_buf(&buf, &mut i, packet_property >> 2, 0)?;
                 packet_size_left -= (i - before) as i32;
 
                 before = i;
@@ -555,9 +571,11 @@ impl AsfFile {
                     if i + 8 > buf.len() {
                         break;
                     }
-                    packet_obj_size = u32::from_le_bytes([buf[i], buf[i + 1], buf[i + 2], buf[i + 3]]);
+                    packet_obj_size =
+                        u32::from_le_bytes([buf[i], buf[i + 1], buf[i + 2], buf[i + 3]]);
                     i += 4;
-                    packet_frag_timestamp = u32::from_le_bytes([buf[i], buf[i + 1], buf[i + 2], buf[i + 3]]);
+                    packet_frag_timestamp =
+                        u32::from_le_bytes([buf[i], buf[i + 1], buf[i + 2], buf[i + 3]]);
                     i += 4;
                     packet_size_left -= 8;
 
@@ -587,7 +605,8 @@ impl AsfFile {
                 // frag_size
                 if (packet_flags & 0x01) != 0 {
                     let before = i;
-                    packet_frag_size = Self::read_2bits_from_buf(&buf, &mut i, packet_segsizetype >> 6, 0)?;
+                    packet_frag_size =
+                        Self::read_2bits_from_buf(&buf, &mut i, packet_segsizetype >> 6, 0)?;
                     let consumed = (i - before) as i32;
                     packet_size_left -= consumed;
 
@@ -702,7 +721,8 @@ impl AsfFile {
             let obj_size = packet_obj_size as usize;
             let frag_off = packet_frag_offset as usize;
 
-            let need_new = st.pkt.len() != obj_size || st.frag_offset_sum + frag_size > st.pkt.len();
+            let need_new =
+                st.pkt.len() != obj_size || st.frag_offset_sum + frag_size > st.pkt.len();
             if need_new {
                 st.pkt.clear();
                 st.pkt.resize(obj_size, 0);

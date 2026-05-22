@@ -1,4 +1,4 @@
-use anyhow::{Result};
+use anyhow::Result;
 
 use crate::script::Variant;
 use crate::subsystem::world::GameData;
@@ -18,17 +18,20 @@ pub fn color_set(
         _ => {
             log::error!("Invalid color id");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
-    let id = id as u8;  // compiler optimization
+    let id = id as u8; // compiler optimization
 
     if !(0..=255).contains(&id) {
         log::error!("id must be in range 0..256");
         return Ok(Variant::Nil);
     }
 
-    let color = game_data.motion_manager.color_manager.get_entry_mut(id as u8);
+    let color = game_data
+        .motion_manager
+        .color_manager
+        .get_entry_mut(id as u8);
     if let Variant::Int(r) = r {
         color.set_r(*r as u8);
     }
@@ -48,9 +51,8 @@ pub fn color_set(
     Ok(Variant::Nil)
 }
 
-
 /// Set color value (rbga) for the corresponding slot
-/// 
+///
 /// Arg1: color index (0~255)
 /// Arg2: the red value (0~255)
 /// Arg2: the green value (0~255)

@@ -66,11 +66,14 @@ impl Wmv2Decoder {
         &self.cur
     }
 
-
     /// Decode one assembled WMV2 frame payload.
     ///
     /// Returns `Ok(None)` if no plausible picture header can be found.
-    pub fn decode_frame(&mut self, payload: &[u8], is_key_frame: bool) -> Result<Option<&YuvFrame>> {
+    pub fn decode_frame(
+        &mut self,
+        payload: &[u8],
+        is_key_frame: bool,
+    ) -> Result<Option<&YuvFrame>> {
         if payload.is_empty() {
             return Ok(None);
         }
@@ -94,7 +97,11 @@ impl Wmv2Decoder {
             if off > payload.len() {
                 continue;
             }
-            let cands = Wmv2FrameHeader::parse_candidates(&payload[off..], self.mb_dec.width_mb, self.mb_dec.height_mb);
+            let cands = Wmv2FrameHeader::parse_candidates(
+                &payload[off..],
+                self.mb_dec.width_mb,
+                self.mb_dec.height_mb,
+            );
             if cands.is_empty() {
                 continue;
             }
@@ -134,12 +141,17 @@ impl Wmv2Decoder {
         }
 
         let frame_data = &payload[best_off..];
-        self.mb_dec.decode_wmv2_frame(frame_data, &hdr, &self.params, &mut self.cur)?;
+        self.mb_dec
+            .decode_wmv2_frame(frame_data, &hdr, &self.params, &mut self.cur)?;
         Ok(Some(&self.cur))
     }
 
     /// Decode and return an owned frame buffer (clone).
-    pub fn decode_frame_owned(&mut self, payload: &[u8], is_key_frame: bool) -> Result<Option<YuvFrame>> {
+    pub fn decode_frame_owned(
+        &mut self,
+        payload: &[u8],
+        is_key_frame: bool,
+    ) -> Result<Option<YuvFrame>> {
         let Some(f) = self.decode_frame(payload, is_key_frame)? else {
             return Ok(None);
         };
@@ -390,7 +402,9 @@ impl<R: Read + Seek> AsfWmv2Decoder<R> {
             }
         }
         let Some(video_info) = video_info else {
-            return Err(DecoderError::Unsupported("No WMV2/WMV1 video stream found".into()));
+            return Err(DecoderError::Unsupported(
+                "No WMV2/WMV1 video stream found".into(),
+            ));
         };
 
         reader.seek(SeekFrom::Start(asf.data_offset))?;

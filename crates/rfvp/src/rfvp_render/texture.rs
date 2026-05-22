@@ -1,6 +1,6 @@
 use image::DynamicImage;
-use wgpu::util::DeviceExt;
 use image::GenericImageView;
+use wgpu::util::DeviceExt;
 
 use super::GpuCommonResources;
 
@@ -68,11 +68,27 @@ pub enum TextureFilterMode {
 
 impl GpuTexture {
     pub fn new(resources: &GpuCommonResources, img: &DynamicImage, label: Option<&str>) -> Self {
-        Self::new_with_filter(resources, img, label, wgpu::TextureFormat::Rgba8UnormSrgb, TextureFilterMode::Linear)
+        Self::new_with_filter(
+            resources,
+            img,
+            label,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            TextureFilterMode::Linear,
+        )
     }
 
-    pub fn new_nearest(resources: &GpuCommonResources, img: &DynamicImage, label: Option<&str>) -> Self {
-        Self::new_with_filter(resources, img, label, wgpu::TextureFormat::Rgba8UnormSrgb, TextureFilterMode::Nearest)
+    pub fn new_nearest(
+        resources: &GpuCommonResources,
+        img: &DynamicImage,
+        label: Option<&str>,
+    ) -> Self {
+        Self::new_with_filter(
+            resources,
+            img,
+            label,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            TextureFilterMode::Nearest,
+        )
     }
 
     /// Create a non-sRGB RGBA8 texture.
@@ -83,7 +99,13 @@ impl GpuTexture {
         img: &DynamicImage,
         label: Option<&str>,
     ) -> Self {
-        Self::new_with_filter(resources, img, label, wgpu::TextureFormat::Rgba8Unorm, TextureFilterMode::Linear)
+        Self::new_with_filter(
+            resources,
+            img,
+            label,
+            wgpu::TextureFormat::Rgba8Unorm,
+            TextureFilterMode::Linear,
+        )
     }
 
     fn new_with_filter(
@@ -144,20 +166,22 @@ impl GpuTexture {
             ..Default::default()
         });
 
-        let bind_group = resources.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("rfvp_render.texture_bind_group"),
-            layout: &resources.bind_group_layouts.texture,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-            ],
-        });
+        let bind_group = resources
+            .device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("rfvp_render.texture_bind_group"),
+                layout: &resources.bind_group_layouts.texture,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                ],
+            });
 
         Self {
             texture,

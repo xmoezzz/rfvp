@@ -92,24 +92,36 @@ impl Expr {
             (BinOp::Eq, Expr::Nil, _) | (BinOp::Eq, _, Expr::Nil) => {
                 // If the other side is a known non-nil literal.
                 if matches!(a, Expr::Nil) {
-                    if matches!(b, Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) | Expr::Str(_)) {
+                    if matches!(
+                        b,
+                        Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) | Expr::Str(_)
+                    ) {
                         return Expr::Bool(false);
                     }
                 }
                 if matches!(b, Expr::Nil) {
-                    if matches!(a, Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) | Expr::Str(_)) {
+                    if matches!(
+                        a,
+                        Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) | Expr::Str(_)
+                    ) {
                         return Expr::Bool(false);
                     }
                 }
             }
             (BinOp::Ne, Expr::Nil, _) | (BinOp::Ne, _, Expr::Nil) => {
                 if matches!(a, Expr::Nil) {
-                    if matches!(b, Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) | Expr::Str(_)) {
+                    if matches!(
+                        b,
+                        Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) | Expr::Str(_)
+                    ) {
                         return Expr::Bool(true);
                     }
                 }
                 if matches!(b, Expr::Nil) {
-                    if matches!(a, Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) | Expr::Str(_)) {
+                    if matches!(
+                        a,
+                        Expr::Bool(_) | Expr::Int(_) | Expr::Float(_) | Expr::Str(_)
+                    ) {
                         return Expr::Bool(true);
                     }
                 }
@@ -431,8 +443,20 @@ impl<'a> BlockEmitter<'a> {
                 self.push(Expr::unary(UnOp::Neg, a));
             }
 
-            Op::Add | Op::Sub | Op::Mul | Op::Div | Op::Mod | Op::BitTest | Op::And | Op::Or
-            | Op::SetE | Op::SetNE | Op::SetG | Op::SetGE | Op::SetL | Op::SetLE => {
+            Op::Add
+            | Op::Sub
+            | Op::Mul
+            | Op::Div
+            | Op::Mod
+            | Op::BitTest
+            | Op::And
+            | Op::Or
+            | Op::SetE
+            | Op::SetNE
+            | Op::SetG
+            | Op::SetGE
+            | Op::SetL
+            | Op::SetLE => {
                 let b = self.pop();
                 let a = self.pop();
                 let e = match &inst.op {

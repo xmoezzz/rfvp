@@ -29,7 +29,10 @@ impl SpriteAnim {
         Self {
             prim_id,
             mode,
-            steps: vec![SpriteAnimStep { sprt_prim_id: first_sprt_prim_id, time_ms }],
+            steps: vec![SpriteAnimStep {
+                sprt_prim_id: first_sprt_prim_id,
+                time_ms,
+            }],
             current: 0,
             time_left_ms: time_ms,
             running: true,
@@ -37,7 +40,10 @@ impl SpriteAnim {
     }
 
     fn append_step(&mut self, sprt_prim_id: i16, time_ms: i32) {
-        self.steps.push(SpriteAnimStep { sprt_prim_id, time_ms });
+        self.steps.push(SpriteAnimStep {
+            sprt_prim_id,
+            time_ms,
+        });
     }
 
     fn current_sprt(&self) -> i16 {
@@ -45,7 +51,10 @@ impl SpriteAnim {
     }
 
     fn last_sprt(&self) -> i16 {
-        self.steps.last().map(|s| s.sprt_prim_id).unwrap_or(INVAILD_PRIM_HANDLE)
+        self.steps
+            .last()
+            .map(|s| s.sprt_prim_id)
+            .unwrap_or(INVAILD_PRIM_HANDLE)
     }
 }
 
@@ -59,7 +68,13 @@ impl SpriteAnimContainer {
         Self { anims: vec![] }
     }
 
-    pub fn set_motion(&mut self, prim_id: u32, sprt_prim_id: i32, time_ms: i32, typ: i32) -> Result<()> {
+    pub fn set_motion(
+        &mut self,
+        prim_id: u32,
+        sprt_prim_id: i32,
+        time_ms: i32,
+        typ: i32,
+    ) -> Result<()> {
         if prim_id as i32 == INVAILD_PRIM_HANDLE as i32 {
             return Ok(());
         }
@@ -80,7 +95,8 @@ impl SpriteAnimContainer {
         };
 
         self.anims.retain(|a| a.prim_id != prim_id);
-        self.anims.push(SpriteAnim::new(prim_id, sprt_prim_id as i16, time_ms, mode));
+        self.anims
+            .push(SpriteAnim::new(prim_id, sprt_prim_id as i16, time_ms, mode));
         Ok(())
     }
 
@@ -95,7 +111,11 @@ impl SpriteAnimContainer {
             bail!("MotionAnim: invalid time {}", time_ms);
         }
 
-        if let Some(anim) = self.anims.iter_mut().find(|a| a.prim_id == prim_id && a.running) {
+        if let Some(anim) = self
+            .anims
+            .iter_mut()
+            .find(|a| a.prim_id == prim_id && a.running)
+        {
             anim.append_step(sprt_prim_id as i16, time_ms);
         }
         Ok(())

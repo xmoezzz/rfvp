@@ -1,4 +1,4 @@
-use anyhow::{Result};
+use anyhow::Result;
 
 use crate::script::Variant;
 use crate::subsystem::world::GameData;
@@ -126,7 +126,6 @@ pub fn parts_select(game_data: &mut GameData, id: &Variant, entry_id: &Variant) 
     Ok(Variant::Nil)
 }
 
-
 pub fn parts_assign(
     game_data: &mut GameData,
     parts_id: &Variant,
@@ -159,7 +158,6 @@ pub fn parts_assign(
         .next_free_id(parts_id as u8);
     Ok(Variant::Nil)
 }
-
 
 pub fn parts_motion(
     game_data: &mut GameData,
@@ -263,7 +261,6 @@ pub fn parts_motion_test(game_data: &mut GameData, id: &Variant) -> Result<Varia
     ))
 }
 
-
 pub struct PartsAssign;
 impl Syscaller for PartsAssign {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -284,17 +281,20 @@ impl Syscaller for PartsLoad {
 unsafe impl Send for PartsLoad {}
 unsafe impl Sync for PartsLoad {}
 
-
 pub struct PartsMotion;
 impl Syscaller for PartsMotion {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
-        parts_motion(game_data, get_var!(args, 0), get_var!(args, 1), get_var!(args, 2))
+        parts_motion(
+            game_data,
+            get_var!(args, 0),
+            get_var!(args, 1),
+            get_var!(args, 2),
+        )
     }
 }
 
 unsafe impl Send for PartsMotion {}
 unsafe impl Sync for PartsMotion {}
-
 
 pub struct PartsMotionPause;
 impl Syscaller for PartsMotionPause {
@@ -306,7 +306,6 @@ impl Syscaller for PartsMotionPause {
 unsafe impl Send for PartsMotionPause {}
 unsafe impl Sync for PartsMotionPause {}
 
-
 pub struct PartsMotionStop;
 impl Syscaller for PartsMotionStop {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -316,7 +315,6 @@ impl Syscaller for PartsMotionStop {
 
 unsafe impl Send for PartsMotionStop {}
 unsafe impl Sync for PartsMotionStop {}
-
 
 pub struct PartsMotionTest;
 impl Syscaller for PartsMotionTest {
@@ -328,7 +326,6 @@ impl Syscaller for PartsMotionTest {
 unsafe impl Send for PartsMotionTest {}
 unsafe impl Sync for PartsMotionTest {}
 
-
 pub struct PartsRGB;
 impl Syscaller for PartsRGB {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -339,7 +336,6 @@ impl Syscaller for PartsRGB {
 unsafe impl Send for PartsRGB {}
 unsafe impl Sync for PartsRGB {}
 
-
 pub struct PartsSelect;
 impl Syscaller for PartsSelect {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -349,4 +345,3 @@ impl Syscaller for PartsSelect {
 
 unsafe impl Send for PartsSelect {}
 unsafe impl Sync for PartsSelect {}
-

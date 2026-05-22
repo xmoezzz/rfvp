@@ -85,4 +85,3 @@ impl SceneController {
         self.action.take()
     }
 }
-

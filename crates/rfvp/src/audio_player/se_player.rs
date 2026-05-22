@@ -1,11 +1,11 @@
-use std::sync::Arc;
 use anyhow::{anyhow, Context, Result};
+use std::sync::Arc;
 
-use kira::Tween;
-use kira::track::{TrackBuilder, TrackHandle};
-use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings};
 use crate::rfvp_audio::AudioManager;
+use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings};
 use kira::sound::Region;
+use kira::track::{TrackBuilder, TrackHandle};
+use kira::Tween;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
@@ -83,7 +83,12 @@ impl SePlayer {
         Ok(())
     }
 
-    pub fn load_named(&mut self, slot: i32, name: impl Into<String>, se: Vec<u8>) -> anyhow::Result<()> {
+    pub fn load_named(
+        &mut self,
+        slot: i32,
+        name: impl Into<String>,
+        se: Vec<u8>,
+    ) -> anyhow::Result<()> {
         let slot_usize = slot as usize;
         self.se_names[slot_usize] = Some(name.into());
         self.load(slot, se)
@@ -91,7 +96,9 @@ impl SePlayer {
 
     fn type_volume_for_slot(&self, slot: usize) -> f32 {
         match self.se_kinds[slot] {
-            Some(kind) if (0..SOUND_TYPE_COUNT as i32).contains(&kind) => self.se_type_volumes[kind as usize],
+            Some(kind) if (0..SOUND_TYPE_COUNT as i32).contains(&kind) => {
+                self.se_type_volumes[kind as usize]
+            }
             _ => 1.0,
         }
     }
@@ -113,7 +120,11 @@ impl SePlayer {
         self.se_repeat[slot] = repeat;
         self.se_pan[slot] = pan;
         self.se_volumes[slot] = volume;
-        let actual_volume = if self.se_muted[slot] { 0.0 } else { self.effective_volume_for_slot(slot) };
+        let actual_volume = if self.se_muted[slot] {
+            0.0
+        } else {
+            self.effective_volume_for_slot(slot)
+        };
         let bgm = match &self.se_datas[slot] {
             Some(data) => data.clone(),
             None => {
@@ -147,9 +158,12 @@ impl SePlayer {
     pub fn set_volume(&mut self, slot: i32, volume: f32, tween: kira::Tween) {
         let slot = slot as usize;
 
-        
         self.se_volumes[slot] = volume;
-        let actual_volume = if self.se_muted[slot] { 0.0 } else { self.effective_volume_for_slot(slot) };
+        let actual_volume = if self.se_muted[slot] {
+            0.0
+        } else {
+            self.effective_volume_for_slot(slot)
+        };
         if let Some(handle) = self.se_slots[slot].as_mut() {
             handle.set_volume(actual_volume, tween);
         } else {
@@ -248,7 +262,11 @@ impl SePlayer {
         let playing_slots = self
             .se_slots
             .iter()
-            .filter(|x| x.as_ref().map(|handle| handle.state().is_advancing()).unwrap_or(false))
+            .filter(|x| {
+                x.as_ref()
+                    .map(|handle| handle.state().is_advancing())
+                    .unwrap_or(false)
+            })
             .count();
 
         let mut slots = Vec::new();
@@ -286,7 +304,9 @@ impl SePlayer {
         let mut slots: Vec<SeSlotSnapshotV1> = Vec::new();
 
         for i in 0..SE_SLOT_COUNT {
-            let has_any = self.se_datas[i].is_some() || self.se_slots[i].is_some() || self.se_names[i].is_some();
+            let has_any = self.se_datas[i].is_some()
+                || self.se_slots[i].is_some()
+                || self.se_names[i].is_some();
             if !has_any {
                 continue;
             }
@@ -311,7 +331,10 @@ impl SePlayer {
 
     pub fn apply_snapshot_v1(&mut self, snap: &SePlayerSnapshotV1, vfs: &Vfs) -> Result<()> {
         if snap.version != 1 {
-            return Err(anyhow!("unsupported SePlayerSnapshotV1 version: {}", snap.version));
+            return Err(anyhow!(
+                "unsupported SePlayerSnapshotV1 version: {}",
+                snap.version
+            ));
         }
 
         // Stop and clear current state.

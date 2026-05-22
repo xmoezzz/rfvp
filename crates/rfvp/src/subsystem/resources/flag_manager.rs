@@ -11,15 +11,13 @@ impl FlagManager {
     pub fn set_flag(&mut self, id: u8, pos: u8, on: bool) {
         let mut flag = if let Some(flag) = self.flags.get(&id) {
             *flag
-        }
-        else {
+        } else {
             0u8
         };
 
         if on {
             flag |= 1 << pos;
-        }
-        else {
+        } else {
             flag &= !(1 << pos)
         }
 

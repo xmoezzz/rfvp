@@ -28,9 +28,15 @@ impl Pipelines {
         swapchain_format: wgpu::TextureFormat,
     ) -> Self {
         #[cfg(not(target_arch = "wasm32"))]
-        let sprite = sprite::SpritePipeline::new(device, layouts, crate::rfvp_render::RenderTarget::FORMAT);
+        let sprite =
+            sprite::SpritePipeline::new(device, layouts, crate::rfvp_render::RenderTarget::FORMAT);
         #[cfg(target_arch = "wasm32")]
-        let sprite = sprite::SpritePipeline::new(device, queue, layouts, crate::rfvp_render::RenderTarget::FORMAT);
+        let sprite = sprite::SpritePipeline::new(
+            device,
+            queue,
+            layouts,
+            crate::rfvp_render::RenderTarget::FORMAT,
+        );
 
         #[cfg(not(target_arch = "wasm32"))]
         let sprite_screen = sprite::SpritePipeline::new(device, layouts, swapchain_format);
@@ -41,6 +47,10 @@ impl Pipelines {
         let fill = fill::FillPipeline::new(device, crate::rfvp_render::RenderTarget::FORMAT);
         #[cfg(target_arch = "wasm32")]
         let fill = fill::FillPipeline::new(device, queue, crate::rfvp_render::RenderTarget::FORMAT);
-        Self { sprite, sprite_screen, fill }
+        Self {
+            sprite,
+            sprite_screen,
+            fill,
+        }
     }
 }

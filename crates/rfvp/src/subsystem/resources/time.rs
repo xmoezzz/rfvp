@@ -184,8 +184,12 @@ mod timer {
             if self.timers.contains_key(name) {
                 return Err(Error::TimerAlreadyExists);
             }
-            self.timers.insert(name.to_string(), Timer::new(duration_in_second, timer_type));
-            Ok(self.timers.get_mut(name).expect("Missing the timer we just inserted..."))
+            self.timers
+                .insert(name.to_string(), Timer::new(duration_in_second, timer_type));
+            Ok(self
+                .timers
+                .get_mut(name)
+                .expect("Missing the timer we just inserted..."))
         }
 
         /// Delete a timer from the list of known timers

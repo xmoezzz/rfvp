@@ -3,11 +3,22 @@ use std::{collections::HashMap, sync::Arc};
 use glam::{mat4, vec2, vec3, vec4, Mat4, Vec2, Vec3, Vec4};
 use image::{DynamicImage, GenericImageView};
 
-use crate::{rfvp_render::{
-    GpuCommonResources, GpuTexture, TextureBindGroup, VertexBuffer, pipelines::sprite::SpritePipeline, vertices::{PosColTexVertex, VertexSource}
-}, subsystem::resources::{color_manager::ColorManager, motion_manager::{MotionManager, snow::SnowMotion}}};
+use crate::{
+    rfvp_render::{
+        pipelines::sprite::SpritePipeline,
+        vertices::{PosColTexVertex, VertexSource},
+        GpuCommonResources, GpuTexture, TextureBindGroup, VertexBuffer,
+    },
+    subsystem::resources::{
+        color_manager::ColorManager,
+        motion_manager::{snow::SnowMotion, MotionManager},
+    },
+};
 
-use crate::subsystem::resources::{graph_buff::{GraphBuff, GraphBuffLoadKind}, prim::{Prim, PrimManager, PrimType}};
+use crate::subsystem::resources::{
+    graph_buff::{GraphBuff, GraphBuffLoadKind},
+    prim::{Prim, PrimManager, PrimType},
+};
 
 #[derive(Clone, Copy, Debug)]
 enum DrawTextureKey {
@@ -59,7 +70,6 @@ pub struct PrimRenderStats {
     pub cached_graphs: usize,
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DebugPrimTileKind {
     Sprt,
@@ -92,11 +102,19 @@ impl GpuPrimRenderer {
 
     pub fn new(resources: Arc<GpuCommonResources>, virtual_size: (u32, u32)) -> Self {
         let vb_capacity = 1024 * 6; // initial: 1024 quads
-        let vb = VertexBuffer::new_updatable(resources.as_ref(), vb_capacity, Some("GpuPrimRenderer.vertex_buffer"));
+        let vb = VertexBuffer::new_updatable(
+            resources.as_ref(),
+            vb_capacity,
+            Some("GpuPrimRenderer.vertex_buffer"),
+        );
 
         let white = {
             let img = image::RgbaImage::from_pixel(1, 1, image::Rgba([255, 255, 255, 255]));
-            GpuTexture::new(resources.as_ref(), &DynamicImage::ImageRgba8(img), Some("white_1x1"))
+            GpuTexture::new(
+                resources.as_ref(),
+                &DynamicImage::ImageRgba8(img),
+                Some("white_1x1"),
+            )
         };
 
         Self {
@@ -131,12 +149,14 @@ impl GpuPrimRenderer {
         }
     }
 
-
     pub fn debug_tiles(&self) -> &[DebugPrimTile] {
         &self.debug_tiles
     }
 
-    pub fn debug_graph_native(&self, graph_id: u16) -> Option<(u64, &wgpu::TextureView, (u32, u32))> {
+    pub fn debug_graph_native(
+        &self,
+        graph_id: u16,
+    ) -> Option<(u64, &wgpu::TextureView, (u32, u32))> {
         let e = self.graph_cache.get(&graph_id)?;
         Some((e.generation, e.texture.raw_view(), e.texture.size()))
     }
@@ -146,10 +166,11 @@ impl GpuPrimRenderer {
     }
 
     fn prune_unloaded_graph_cache(&mut self, graphs: &[GraphBuff]) {
-        self.graph_cache.retain(|graph_id, _| match graphs.get(*graph_id as usize) {
-            Some(graph) => graph.get_texture_ready() && graph.get_texture().is_some(),
-            None => false,
-        });
+        self.graph_cache
+            .retain(|graph_id, _| match graphs.get(*graph_id as usize) {
+                Some(graph) => graph.get_texture_ready() && graph.get_texture().is_some(),
+                None => false,
+            });
     }
 
     fn reload_debug_tile_cfg(&mut self) {
@@ -215,7 +236,11 @@ impl GpuPrimRenderer {
     /// upload them (or upload was skipped due to earlier errors).
     ///
     /// This is debug-only and is meant to support HUD thumbnail previews.
-    pub fn debug_force_upload_tiles(&mut self, resources: &GpuCommonResources, graphs: &[GraphBuff]) {
+    pub fn debug_force_upload_tiles(
+        &mut self,
+        resources: &GpuCommonResources,
+        graphs: &[GraphBuff],
+    ) {
         if !self.debug_tiles_enabled {
             return;
         }
@@ -257,9 +282,11 @@ impl GpuPrimRenderer {
             new_cap = new_cap.saturating_mul(2);
         }
 
-        self.vb = VertexBuffer::new_updatable(resources, new_cap, Some("GpuPrimRenderer.vertex_buffer"));
+        self.vb =
+            VertexBuffer::new_updatable(resources, new_cap, Some("GpuPrimRenderer.vertex_buffer"));
         self.vb_capacity = new_cap;
-        self.vertices.reserve((new_cap - self.vertices.len() as u32) as usize);
+        self.vertices
+            .reserve((new_cap - self.vertices.len() as u32) as usize);
     }
 
     fn virtual_projection(&self) -> Mat4 {
@@ -272,7 +299,6 @@ impl GpuPrimRenderer {
             vec4(-1.0, 1.0, 0.0, 1.0),
         )
     }
-
 
     fn build_draw_model(
         &self,
@@ -369,7 +395,13 @@ impl GpuPrimRenderer {
         } else {
             GpuTexture::new(resources, img, Some(&format!("graph_{}", graph_id)))
         };
-        self.graph_cache.insert(graph_id, GraphGpuEntry { generation: gen, texture: tex });
+        self.graph_cache.insert(
+            graph_id,
+            GraphGpuEntry {
+                generation: gen,
+                texture: tex,
+            },
+        );
     }
 
     fn texture_bind_group(&self, key: DrawTextureKey) -> &TextureBindGroup {
@@ -573,18 +605,8 @@ impl GpuPrimRenderer {
                                     (g.get_u() as f32, g.get_v() as f32)
                                 };
                                 let model = self.build_draw_model(
-                                    &draw_prim,
-                                    parent_x,
-                                    parent_y,
-                                    draw_x,
-                                    draw_y,
-                                    off_x,
-                                    off_y,
-                                    pivot_x,
-                                    pivot_y,
-                                    v3d_x,
-                                    v3d_y,
-                                    v3d_z,
+                                    &draw_prim, parent_x, parent_y, draw_x, draw_y, off_x, off_y,
+                                    pivot_x, pivot_y, v3d_x, v3d_y, v3d_z,
                                 );
 
                                 self.emit_sprite_vertices(
@@ -619,8 +641,16 @@ impl GpuPrimRenderer {
                                 let use_rect = (attr & 1) != 0;
                                 let display_w = g.get_display_width() as f32;
                                 let display_h = g.get_display_height() as f32;
-                                let tex_scale_x = if display_w > 0.0 { tw as f32 / display_w } else { 1.0 };
-                                let tex_scale_y = if display_h > 0.0 { th as f32 / display_h } else { 1.0 };
+                                let tex_scale_x = if display_w > 0.0 {
+                                    tw as f32 / display_w
+                                } else {
+                                    1.0
+                                };
+                                let tex_scale_y = if display_h > 0.0 {
+                                    th as f32 / display_h
+                                } else {
+                                    1.0
+                                };
                                 let (w, h, u, v, tex_w, tex_h) = if use_rect {
                                     let mut w = draw_prim.get_w() as f32;
                                     let mut h = draw_prim.get_h() as f32;
@@ -642,7 +672,8 @@ impl GpuPrimRenderer {
                                 let tex_u = u * tex_scale_x;
                                 let tex_v = v * tex_scale_y;
                                 let uv0 = vec2(tex_u / tw as f32, tex_v / th as f32);
-                                let uv1 = vec2((tex_u + tex_w) / tw as f32, (tex_v + tex_h) / th as f32);
+                                let uv1 =
+                                    vec2((tex_u + tex_w) / tw as f32, (tex_v + tex_h) / th as f32);
                                 let color = vec4(1.0, 1.0, 1.0, draw_alpha);
                                 let off_x = g.get_offset_x() as f32;
                                 let off_y = g.get_offset_y() as f32;
@@ -652,18 +683,8 @@ impl GpuPrimRenderer {
                                     (g.get_u() as f32, g.get_v() as f32)
                                 };
                                 let model = self.build_draw_model(
-                                    &draw_prim,
-                                    parent_x,
-                                    parent_y,
-                                    draw_x,
-                                    draw_y,
-                                    off_x,
-                                    off_y,
-                                    pivot_x,
-                                    pivot_y,
-                                    v3d_x,
-                                    v3d_y,
-                                    v3d_z,
+                                    &draw_prim, parent_x, parent_y, draw_x, draw_y, off_x, off_y,
+                                    pivot_x, pivot_y, v3d_x, v3d_y, v3d_z,
                                 );
 
                                 self.emit_sprite_vertices(
@@ -726,7 +747,12 @@ impl GpuPrimRenderer {
                                 let graph_id = graph_i32 as u16;
                                 if let Some(g) = graphs.get(graph_id as usize) {
                                     if !pushed_debug_tile {
-                                        self.push_debug_tile(draw_id, graph_id, DebugPrimTileKind::Snow, Some(g));
+                                        self.push_debug_tile(
+                                            draw_id,
+                                            graph_id,
+                                            DebugPrimTileKind::Snow,
+                                            Some(g),
+                                        );
                                         pushed_debug_tile = true;
                                     }
                                     self.upload_graph_if_needed(resources, graph_id, g);
@@ -740,7 +766,11 @@ impl GpuPrimRenderer {
                                     if tw == 0 || th == 0 {
                                         continue;
                                     }
-                                    let scale = if flake.period > 0.0 { 1000.0 / flake.period } else { 1.0 };
+                                    let scale = if flake.period > 0.0 {
+                                        1000.0 / flake.period
+                                    } else {
+                                        1.0
+                                    };
                                     let tile_w = tile_w_cfg.min(tw as f32 - 1.0).max(0.0);
                                     let tile_h = tile_h_cfg.min(th as f32 - 1.0).max(0.0);
                                     let w = tile_w * scale;
@@ -784,18 +814,8 @@ impl GpuPrimRenderer {
                         (0.0, 0.0)
                     };
                     let model = self.build_draw_model(
-                        &draw_prim,
-                        parent_x,
-                        parent_y,
-                        draw_x,
-                        draw_y,
-                        0.0,
-                        0.0,
-                        pivot_x,
-                        pivot_y,
-                        v3d_x,
-                        v3d_y,
-                        v3d_z,
+                        &draw_prim, parent_x, parent_y, draw_x, draw_y, 0.0, 0.0, pivot_x, pivot_y,
+                        v3d_x, v3d_y, v3d_z,
                     );
                     self.emit_sprite_vertices(
                         model,
@@ -918,7 +938,6 @@ impl GpuPrimRenderer {
         self.vb.write(&resources.queue, &self.vertices);
     }
 
-
     fn draw_items_with_proj<'a>(
         &'a self,
         render_pass: &mut wgpu::RenderPass<'a>,
@@ -971,7 +990,12 @@ impl GpuPrimRenderer {
         projection_matrix: Mat4,
     ) {
         let end = self.root0_draw_end.min(self.draws.len());
-        self.draw_items_with_proj(render_pass, sprite_pipeline, projection_matrix, &self.draws[..end]);
+        self.draw_items_with_proj(
+            render_pass,
+            sprite_pipeline,
+            projection_matrix,
+            &self.draws[..end],
+        );
     }
 
     /// Draw only the overlay/custom root prim tree portion.
@@ -985,6 +1009,11 @@ impl GpuPrimRenderer {
         if end >= self.draws.len() {
             return;
         }
-        self.draw_items_with_proj(render_pass, sprite_pipeline, projection_matrix, &self.draws[end..]);
+        self.draw_items_with_proj(
+            render_pass,
+            sprite_pipeline,
+            projection_matrix,
+            &self.draws[end..],
+        );
     }
 }

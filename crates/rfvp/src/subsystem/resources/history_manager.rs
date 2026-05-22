@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct HistoryEntry {
     /// character name - 0
@@ -35,7 +34,6 @@ impl TryFrom<i32> for HistoryFunction {
     }
 }
 
-
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct HistoryManager {
     histories: Vec<HistoryEntry>,
@@ -68,9 +66,7 @@ impl HistoryManager {
     }
 
     pub fn get_name(&mut self, id: u32) -> Option<String> {
-        self.histories
-            .get(id as usize)
-            .and_then(|h| h.name.clone())
+        self.histories.get(id as usize).and_then(|h| h.name.clone())
     }
 
     pub fn get_content(&mut self, id: u32) -> Option<String> {
@@ -80,8 +76,6 @@ impl HistoryManager {
     }
 
     pub fn get_voice(&mut self, id: u32) -> Option<i32> {
-        self.histories
-            .get(id as usize)
-            .and_then(|h| h.voice_id)
+        self.histories.get(id as usize).and_then(|h| h.voice_id)
     }
 }

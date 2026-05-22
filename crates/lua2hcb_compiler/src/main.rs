@@ -47,7 +47,8 @@ fn main() -> Result<()> {
         .copied()
         .ok_or_else(|| anyhow!("missing entry function: main"))?;
 
-    let sysdesc = asm::build_sysdesc(&emit_meta, entry_point).with_context(|| "building sysdesc")?;
+    let sysdesc =
+        asm::build_sysdesc(&emit_meta, entry_point).with_context(|| "building sysdesc")?;
 
     let sys_desc_offset: u32 =
         4 + u32::try_from(code.len()).map_err(|_| anyhow!("code too large"))?;

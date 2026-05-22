@@ -4,8 +4,8 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use clap::Parser as ClapParser;
 
-mod decode;
 mod cfg;
+mod decode;
 mod lua;
 mod lua_opt;
 mod opcode;
@@ -27,7 +27,6 @@ struct Args {
     #[arg(short, long, default_value = "sjis")]
     lang: Nls,
 }
-
 
 fn output_dir_from_file(output: &Path) -> PathBuf {
     output

@@ -202,7 +202,9 @@ impl RotationMotionContainer {
         reverse: bool,
     ) -> Result<()> {
         let _ = self.stop_motion(prim_id);
-        let Some(id) = self.free_ids.pop() else { return Ok(()); };
+        let Some(id) = self.free_ids.pop() else {
+            return Ok(());
+        };
         let m = &mut self.motions[id as usize];
         m.prim_id = prim_id;
         m.running = true;

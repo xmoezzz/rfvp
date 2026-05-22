@@ -1,6 +1,6 @@
-use std::{collections::VecDeque, env};
-use std::time::Instant;
 use std::sync::Arc;
+use std::time::Instant;
+use std::{collections::VecDeque, env};
 
 use anyhow::{Context, Result};
 use bytemuck::{Pod, Zeroable};
@@ -65,7 +65,6 @@ struct State {
     video_fps_n: u32,
     video_delta_sum_us: i64,
     video_delta_n: u32,
-
 }
 
 impl State {
@@ -73,7 +72,9 @@ impl State {
         let size = window.inner_size();
 
         let instance = wgpu::Instance::default();
-        let surface = instance.create_surface(window.clone()).context("create_surface")?;
+        let surface = instance
+            .create_surface(window.clone())
+            .context("create_surface")?;
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -214,10 +215,22 @@ impl State {
         });
 
         let vertices = [
-            Vertex { pos: [-1.0, -1.0], uv: [0.0, 1.0] },
-            Vertex { pos: [ 1.0, -1.0], uv: [1.0, 1.0] },
-            Vertex { pos: [ 1.0,  1.0], uv: [1.0, 0.0] },
-            Vertex { pos: [-1.0,  1.0], uv: [0.0, 0.0] },
+            Vertex {
+                pos: [-1.0, -1.0],
+                uv: [0.0, 1.0],
+            },
+            Vertex {
+                pos: [1.0, -1.0],
+                uv: [1.0, 1.0],
+            },
+            Vertex {
+                pos: [1.0, 1.0],
+                uv: [1.0, 0.0],
+            },
+            Vertex {
+                pos: [-1.0, 1.0],
+                uv: [0.0, 0.0],
+            },
         ];
         let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
 
@@ -313,7 +326,6 @@ impl State {
         Ok(())
     }
 
-
     fn upload_frame(&mut self, rgba: &[u8], width: u32, height: u32) {
         // wgpu requires bytes_per_row to be a multiple of 256.
         let bytes_per_pixel = 4usize;
@@ -373,12 +385,19 @@ impl State {
     }
 
     fn render(&mut self) -> Result<()> {
-        let output = self.surface.get_current_texture().context("get_current_texture")?;
-        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let output = self
+            .surface
+            .get_current_texture()
+            .context("get_current_texture")?;
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("encoder"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("encoder"),
+            });
 
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

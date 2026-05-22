@@ -39,7 +39,11 @@ pub struct DebugHud {
 }
 
 impl DebugHud {
-    pub fn new(_device: &wgpu::Device, _surface_format: wgpu::TextureFormat, ring: Arc<LogRing>) -> Self {
+    pub fn new(
+        _device: &wgpu::Device,
+        _surface_format: wgpu::TextureFormat,
+        ring: Arc<LogRing>,
+    ) -> Self {
         Self { _ring: ring }
     }
 

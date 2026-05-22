@@ -239,7 +239,11 @@ fn split_functions(lines: &[String], start_idx: usize) -> Result<Vec<Vec<String>
     Ok(out)
 }
 
-fn parse_global_line(line: &str, seen: &mut HashSet<String>, out: &mut Vec<GlobalDecl>) -> Result<()> {
+fn parse_global_line(
+    line: &str,
+    seen: &mut HashSet<String>,
+    out: &mut Vec<GlobalDecl>,
+) -> Result<()> {
     let t = line.trim();
     let (kind, rest) = if let Some(rest) = t.strip_prefix("global ") {
         (GlobalKind::NonVolatile, rest.trim())
@@ -289,7 +293,8 @@ fn parse_global_line(line: &str, seen: &mut HashSet<String>, out: &mut Vec<Globa
 }
 
 pub fn parse_lua(path: &Path) -> Result<Program> {
-    let txt = std::fs::read_to_string(path).with_context(|| format!("read lua: {}", path.display()))?;
+    let txt =
+        std::fs::read_to_string(path).with_context(|| format!("read lua: {}", path.display()))?;
     let lines: Vec<String> = txt.lines().map(|s| s.to_string()).collect();
     let head_re = Regex::new(r"^(?:local\s+)?function\s+").unwrap();
 
@@ -330,7 +335,11 @@ pub fn parse_lua(path: &Path) -> Result<Program> {
         let args: Vec<&str> = if args_s.is_empty() {
             vec![]
         } else {
-            args_s.split(',').map(|x| x.trim()).filter(|x| !x.is_empty()).collect()
+            args_s
+                .split(',')
+                .map(|x| x.trim())
+                .filter(|x| !x.is_empty())
+                .collect()
         };
 
         let mut max_a: Option<u32> = None;

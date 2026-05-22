@@ -5,10 +5,10 @@ use std::{
 
 use crate::platform_time::{Duration, Instant};
 
+use bitflags::bitflags;
 use byteorder::{LittleEndian, ReadBytesExt};
 use ico::IconDir;
 use riff::{Chunk, ChunkId, LIST_ID};
-use bitflags::bitflags;
 
 use winit::window::{CustomCursor, CustomCursorSource};
 
@@ -56,7 +56,6 @@ bitflags! {
         const HAS_SEQUENCE_CHUNK = 1 << 1;
     }
 }
-
 
 impl AnimatedCursorMetadata {
     #[inline(always)]
@@ -220,7 +219,6 @@ impl<R: Read + Seek> Decoder<R> {
     }
 }
 
-
 pub fn icondir_to_custom_cursor(frame: &IconDir) -> anyhow::Result<CustomCursorSource> {
     let entry = frame.entries().first().unwrap();
     let image = entry.decode().unwrap();
@@ -242,11 +240,13 @@ pub struct CursorBundle {
 impl CursorBundle {
     pub fn update(&mut self) -> CustomCursor {
         let now = Instant::now();
-        if now.duration_since(self.last_update) >= self.animated_cursor.metadata.duration_per_frame() {
+        if now.duration_since(self.last_update)
+            >= self.animated_cursor.metadata.duration_per_frame()
+        {
             self.current_frame = (self.current_frame + 1) % self.frames.len();
             self.last_update = now;
         }
-        
+
         self.frames[self.current_frame].clone()
     }
 
@@ -256,14 +256,16 @@ impl CursorBundle {
     }
 }
 
-
 mod tests {
     use super::*;
     use std::path::Path;
 
     #[test]
     fn test_read_ani() {
-        let filepath = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../testcase/cursor1.ani"));
+        let filepath = Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../testcase/cursor1.ani"
+        ));
         let file = std::fs::File::open(filepath).unwrap();
         let cursor = Decoder::new(file).decode().unwrap();
         crate::trace::vm(format_args!("ANI metadata: {:#?}", cursor.metadata));

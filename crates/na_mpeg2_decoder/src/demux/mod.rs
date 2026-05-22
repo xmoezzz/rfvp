@@ -59,12 +59,24 @@ pub struct Demuxer {
 impl Demuxer {
     /// Create an auto-detecting demuxer.
     pub fn new_auto() -> Self {
-        Self { kind: ContainerKind::Auto, stream_type: StreamType::MpegVideo, buf: Vec::new(), ts_video_pid: None, ts_audio_pid: None }
+        Self {
+            kind: ContainerKind::Auto,
+            stream_type: StreamType::MpegVideo,
+            buf: Vec::new(),
+            ts_video_pid: None,
+            ts_audio_pid: None,
+        }
     }
 
     /// Create a demuxer with explicit container kind.
     pub fn new(kind: StreamType) -> Self {
-        Self { kind: ContainerKind::Es, stream_type: kind, buf: Vec::new(), ts_video_pid: None, ts_audio_pid: None }
+        Self {
+            kind: ContainerKind::Es,
+            stream_type: kind,
+            buf: Vec::new(),
+            ts_video_pid: None,
+            ts_audio_pid: None,
+        }
     }
 
     /// Feed bytes and return extracted video ES chunks.
@@ -88,7 +100,11 @@ impl Demuxer {
         match self.kind {
             ContainerKind::Es => {
                 if !self.buf.is_empty() {
-                    out.push(Packet { stream_type: self.stream_type, pts_90k, data: std::mem::take(&mut self.buf) });
+                    out.push(Packet {
+                        stream_type: self.stream_type,
+                        pts_90k,
+                        data: std::mem::take(&mut self.buf),
+                    });
                 }
             }
             ContainerKind::MpegTs => self.push_ts_into(out),
@@ -190,16 +206,28 @@ impl Demuxer {
                     if off <= payload.len() {
                         let es = &payload[off..];
                         if !es.is_empty() {
-                            out.push(Packet { stream_type, pts_90k: pts, data: es.to_vec() });
+                            out.push(Packet {
+                                stream_type,
+                                pts_90k: pts,
+                                data: es.to_vec(),
+                            });
                         }
                     }
                 } else {
                     // No PES header; forward payload.
-                    out.push(Packet { stream_type, pts_90k: None, data: payload.to_vec() });
+                    out.push(Packet {
+                        stream_type,
+                        pts_90k: None,
+                        data: payload.to_vec(),
+                    });
                 }
             } else {
                 // PES continuation: payload is pure ES bytes.
-                out.push(Packet { stream_type, pts_90k: None, data: payload.to_vec() });
+                out.push(Packet {
+                    stream_type,
+                    pts_90k: None,
+                    data: payload.to_vec(),
+                });
             }
 
             // Drop processed TS packet bytes.
@@ -208,7 +236,6 @@ impl Demuxer {
     }
 
     fn push_ps_into(&mut self, out: &mut Vec<Packet>) {
-
         // Scan for PES start codes; keep the last partial chunk.
         let mut pos = 0usize;
         while let Some((sc_pos, sid)) = find_start_code(&self.buf, pos) {
@@ -256,11 +283,19 @@ impl Demuxer {
             let pes = &self.buf[sc_pos..pes_end];
             if let Some((pts, off)) = parse_pes_header(pes) {
                 if off < pes.len() {
-                    out.push(Packet { stream_type, pts_90k: pts, data: pes[off..].to_vec() });
+                    out.push(Packet {
+                        stream_type,
+                        pts_90k: pts,
+                        data: pes[off..].to_vec(),
+                    });
                 }
             } else {
                 // Could not parse; forward raw PES bytes after start code.
-                out.push(Packet { stream_type, pts_90k: None, data: pes[4..].to_vec() });
+                out.push(Packet {
+                    stream_type,
+                    pts_90k: None,
+                    data: pes[4..].to_vec(),
+                });
             }
 
             pos = pes_end;
@@ -281,7 +316,11 @@ fn detect_kind(buf: &[u8]) -> ContainerKind {
         }
     }
     // PS: pack start code 00 00 01 BA.
-    if buf.windows(4).take(4096).any(|w| w == [0x00, 0x00, 0x01, 0xBA]) {
+    if buf
+        .windows(4)
+        .take(4096)
+        .any(|w| w == [0x00, 0x00, 0x01, 0xBA])
+    {
         return ContainerKind::MpegPs;
     }
     ContainerKind::Es

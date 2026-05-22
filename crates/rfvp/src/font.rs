@@ -71,15 +71,17 @@ impl Font {
 
     /// fontdue-compatible entry point. Settings are ignored; ab_glyph has no
     /// directly equivalent rendering hint cache.
-    pub fn from_bytes_static(bytes: &'static [u8], _settings: FontSettings)
-        -> Result<Self, ab_glyph::InvalidFont>
-    {
+    pub fn from_bytes_static(
+        bytes: &'static [u8],
+        _settings: FontSettings,
+    ) -> Result<Self, ab_glyph::InvalidFont> {
         Self::from_static(bytes)
     }
 
-    pub fn from_bytes_owned(bytes: Vec<u8>, _settings: FontSettings)
-        -> Result<Self, ab_glyph::InvalidFont>
-    {
+    pub fn from_bytes_owned(
+        bytes: Vec<u8>,
+        _settings: FontSettings,
+    ) -> Result<Self, ab_glyph::InvalidFont> {
         Self::from_vec(bytes)
     }
 
@@ -114,9 +116,7 @@ impl Font {
         self.glyph_metrics_internal(ch, size, true)
     }
 
-    fn glyph_metrics_internal(&self, ch: char, size: f32, want_bitmap: bool)
-        -> (Metrics, Vec<u8>)
-    {
+    fn glyph_metrics_internal(&self, ch: char, size: f32, want_bitmap: bool) -> (Metrics, Vec<u8>) {
         let scale = PxScale::from(size);
         let scaled = self.inner.as_scaled(scale);
         let glyph_id = self.inner.glyph_id(ch);
@@ -146,7 +146,7 @@ impl Font {
         let xmin_i = bb.min.x.floor() as i32;
         let xmax_i = bb.max.x.ceil() as i32;
         let ymin_top_down = bb.min.y.floor() as i32; // negative for ascenders
-        let ymax_top_down = bb.max.y.ceil() as i32;  // positive for descenders
+        let ymax_top_down = bb.max.y.ceil() as i32; // positive for descenders
         let width = (xmax_i - xmin_i).max(0) as usize;
         let height = (ymax_top_down - ymin_top_down).max(0) as usize;
 

@@ -29,10 +29,12 @@ pub fn audio_load(game_data: &mut GameData, channel: &Variant, path: &Variant) -
                 log::error!("audio_load: {:?}", e);
             }
             return Ok(Variant::Nil);
-        },
+        }
         // unload channel
         Variant::Nil => {
-            game_data.bgm_player_mut().stop(channel, kira::Tween::default());
+            game_data
+                .bgm_player_mut()
+                .stop(channel, kira::Tween::default());
             return Ok(Variant::Nil);
         }
         _ => {
@@ -129,7 +131,9 @@ pub fn audio_silent_on(game_data: &mut GameData, channel: &Variant) -> Result<Va
         return Ok(Variant::Nil);
     }
 
-    game_data.bgm_player_mut().silent_on(channel, kira::Tween::default());
+    game_data
+        .bgm_player_mut()
+        .silent_on(channel, kira::Tween::default());
     Ok(Variant::Nil)
 }
 
@@ -270,7 +274,6 @@ pub fn audio_vol(
     Ok(Variant::Nil)
 }
 
-
 /// load sound on a specific channel, used for voice and sound effects
 pub fn sound_load(game_data: &mut GameData, channel: &Variant, path: &Variant) -> Result<Variant> {
     let channel = match channel {
@@ -290,14 +293,19 @@ pub fn sound_load(game_data: &mut GameData, channel: &Variant, path: &Variant) -
         Variant::String(path) | Variant::ConstString(path, _) => {
             let path = path.clone();
             let data = game_data.vfs_load_file(&path)?;
-            if let Err(e) = game_data.se_player_mut().load_named(channel, path.clone(), data) {
+            if let Err(e) = game_data
+                .se_player_mut()
+                .load_named(channel, path.clone(), data)
+            {
                 log::error!("sound_load: {:?}", e);
             }
             return Ok(Variant::Nil);
-        },
+        }
         // unload channel
         Variant::Nil => {
-            game_data.se_player_mut().stop(channel, kira::Tween::default());
+            game_data
+                .se_player_mut()
+                .stop(channel, kira::Tween::default());
             return Ok(Variant::Nil);
         }
         _ => {
@@ -355,10 +363,9 @@ pub fn sound_play(
         ..Default::default()
     };
 
-    if let Err(e) =
-        game_data
-            .se_player_mut()
-            .play(channel, looped, 1.0, 0.5, fade_in)
+    if let Err(e) = game_data
+        .se_player_mut()
+        .play(channel, looped, 1.0, 0.5, fade_in)
     {
         log::error!("sound_play: {:?}", e);
     }
@@ -383,7 +390,9 @@ pub fn sound_silent_on(game_data: &mut GameData, channel: &Variant) -> Result<Va
         return Ok(Variant::Nil);
     }
 
-    game_data.se_player_mut().silent_on(channel, kira::Tween::default());
+    game_data
+        .se_player_mut()
+        .silent_on(channel, kira::Tween::default());
     Ok(Variant::Nil)
 }
 

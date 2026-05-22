@@ -2,8 +2,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::config::{ConfigGlobal, ConfigSyscall, LuaxConfig};
 use crate::syntax::{
-    parse, Expr, ExprKind, FuncName, GlobalEntry, Name, ParseError, Program, Span, Stmt, StmtKind, TableField,
-    Token,
+    parse, Expr, ExprKind, FuncName, GlobalEntry, Name, ParseError, Program, Span, Stmt, StmtKind,
+    TableField, Token,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -102,7 +102,9 @@ impl DocumentAnalysis {
     }
 
     pub fn member_at(&self, offset: usize) -> Option<&MemberAccess> {
-        self.member_accesses.iter().find(|r| contains(r.span, offset))
+        self.member_accesses
+            .iter()
+            .find(|r| contains(r.span, offset))
     }
 
     pub fn visible_defs(&self, offset: usize) -> Vec<&SymbolDef> {
@@ -116,9 +118,17 @@ impl DocumentAnalysis {
     }
 }
 
-pub fn analyze_document(text: &str, module_name: Option<String>, config: Option<&LuaxConfig>) -> DocumentAnalysis {
+pub fn analyze_document(
+    text: &str,
+    module_name: Option<String>,
+    config: Option<&LuaxConfig>,
+) -> DocumentAnalysis {
     let (program, parse_errors, tokens) = parse(text);
-    let mut analyzer = Analyzer::new(module_name.clone(), config.cloned().unwrap_or_default(), program.clone());
+    let mut analyzer = Analyzer::new(
+        module_name.clone(),
+        config.cloned().unwrap_or_default(),
+        program.clone(),
+    );
     analyzer.run();
     let outlines = analyzer.build_outline();
     DocumentAnalysis {
@@ -233,7 +243,10 @@ impl Analyzer {
         self.walk_block(&stmts, file_span, None);
 
         if let Some(entry) = &self.config.entry {
-            let found = self.defs.iter().any(|def| def.name == *entry && def.kind == SymbolKindLite::Function);
+            let found = self
+                .defs
+                .iter()
+                .any(|def| def.name == *entry && def.kind == SymbolKindLite::Function);
             if !found {
                 self.diagnostics.push(LintDiagnostic {
                     span: file_span,
@@ -247,7 +260,15 @@ impl Analyzer {
     fn build_outline(&self) -> Vec<OutlineItem> {
         let mut roots = Vec::new();
         let mut children: BTreeMap<usize, Vec<OutlineItem>> = BTreeMap::new();
-        for def in self.defs.iter().filter(|d| matches!(d.kind, SymbolKindLite::Function | SymbolKindLite::Global | SymbolKindLite::Field | SymbolKindLite::Local)) {
+        for def in self.defs.iter().filter(|d| {
+            matches!(
+                d.kind,
+                SymbolKindLite::Function
+                    | SymbolKindLite::Global
+                    | SymbolKindLite::Field
+                    | SymbolKindLite::Local
+            )
+        }) {
             let item = OutlineItem {
                 name: def.name.clone(),
                 kind: def.kind,
@@ -261,9 +282,16 @@ impl Analyzer {
                 roots.push(item);
             }
         }
-        fn attach(items: &mut [OutlineItem], children: &mut BTreeMap<usize, Vec<OutlineItem>>, defs: &[SymbolDef]) {
+        fn attach(
+            items: &mut [OutlineItem],
+            children: &mut BTreeMap<usize, Vec<OutlineItem>>,
+            defs: &[SymbolDef],
+        ) {
             for item in items {
-                if let Some(def) = defs.iter().find(|d| d.name == item.name && d.span == item.selection) {
+                if let Some(def) = defs
+                    .iter()
+                    .find(|d| d.name == item.name && d.span == item.selection)
+                {
                     if let Some(mut cs) = children.remove(&def.id) {
                         attach(&mut cs, children, defs);
                         item.children = cs;
@@ -301,7 +329,9 @@ impl Analyzer {
                         String::new(),
                         parent,
                     );
-                    if let Some(expr) = values.get(names.iter().position(|n| n.span == name.span).unwrap_or(0)) {
+                    if let Some(expr) =
+                        values.get(names.iter().position(|n| n.span == name.span).unwrap_or(0))
+                    {
                         self.register_value_shape(id, expr, block_visible.end);
                         self.capture_require_alias(name, expr, block_visible.end);
                     }
@@ -318,7 +348,11 @@ impl Analyzer {
                     if let Some(v) = value {
                         self.walk_expr(v, false);
                     }
-                    let detail = if *is_volatile { "volatile global" } else { "global" };
+                    let detail = if *is_volatile {
+                        "volatile global"
+                    } else {
+                        "global"
+                    };
                     let id = self.define_global(
                         name,
                         SymbolKindLite::Global,
@@ -352,7 +386,8 @@ impl Analyzer {
                 body,
                 is_local,
             } => {
-                let function_id = self.define_function_name(name, *is_local, stmt.span, block_visible, parent);
+                let function_id =
+                    self.define_function_name(name, *is_local, stmt.span, block_visible, parent);
                 self.scopes.push(HashMap::new());
                 for param in params {
                     self.define_in_current_scope(
@@ -368,25 +403,60 @@ impl Analyzer {
                     );
                 }
                 for inner in body {
-                    self.walk_stmt(inner, Span { start: stmt.span.start, end: stmt.span.end }, Some(function_id));
+                    self.walk_stmt(
+                        inner,
+                        Span {
+                            start: stmt.span.start,
+                            end: stmt.span.end,
+                        },
+                        Some(function_id),
+                    );
                 }
                 self.scopes.pop();
             }
             StmtKind::If { arms, else_body } => {
                 for (cond, body, _) in arms {
                     self.walk_expr(cond, false);
-                    self.walk_block(body, Span { start: stmt.span.start, end: stmt.span.end }, parent);
+                    self.walk_block(
+                        body,
+                        Span {
+                            start: stmt.span.start,
+                            end: stmt.span.end,
+                        },
+                        parent,
+                    );
                 }
                 if let Some(body) = else_body {
-                    self.walk_block(body, Span { start: stmt.span.start, end: stmt.span.end }, parent);
+                    self.walk_block(
+                        body,
+                        Span {
+                            start: stmt.span.start,
+                            end: stmt.span.end,
+                        },
+                        parent,
+                    );
                 }
             }
             StmtKind::While { cond, body } => {
                 self.walk_expr(cond, false);
-                self.walk_block(body, Span { start: stmt.span.start, end: stmt.span.end }, parent);
+                self.walk_block(
+                    body,
+                    Span {
+                        start: stmt.span.start,
+                        end: stmt.span.end,
+                    },
+                    parent,
+                );
             }
             StmtKind::Repeat { body, cond } => {
-                self.walk_block(body, Span { start: stmt.span.start, end: stmt.span.end }, parent);
+                self.walk_block(
+                    body,
+                    Span {
+                        start: stmt.span.start,
+                        end: stmt.span.end,
+                    },
+                    parent,
+                );
                 self.walk_expr(cond, false);
             }
             StmtKind::NumericFor {
@@ -414,7 +484,14 @@ impl Analyzer {
                     parent,
                 );
                 for inner in body {
-                    self.walk_stmt(inner, Span { start: stmt.span.start, end: stmt.span.end }, parent);
+                    self.walk_stmt(
+                        inner,
+                        Span {
+                            start: stmt.span.start,
+                            end: stmt.span.end,
+                        },
+                        parent,
+                    );
                 }
                 self.scopes.pop();
             }
@@ -552,7 +629,10 @@ impl Analyzer {
             if owner_def.is_none() {
                 self.diagnostics.push(LintDiagnostic {
                     span: name.parts[0].span,
-                    message: format!("owner '{}' is not defined for dotted function declaration", owner_name),
+                    message: format!(
+                        "owner '{}' is not defined for dotted function declaration",
+                        owner_name
+                    ),
                     severity: DiagnosticSeverityLite::Warning,
                 });
             }
@@ -563,7 +643,10 @@ impl Analyzer {
                         owner_name.clone(),
                         SymbolKindLite::Global,
                         name.parts[0].span,
-                        Span { start: 0, end: self.program.eof },
+                        Span {
+                            start: 0,
+                            end: self.program.eof,
+                        },
                         "synthetic owner".to_string(),
                         String::new(),
                         None,
@@ -602,7 +685,15 @@ impl Analyzer {
             self.emit_duplicate(existing, name, "global");
             return existing;
         }
-        let id = self.alloc_symbol(name.text.clone(), kind, name.span, visible, detail, documentation, parent);
+        let id = self.alloc_symbol(
+            name.text.clone(),
+            kind,
+            name.span,
+            visible,
+            detail,
+            documentation,
+            parent,
+        );
         self.scopes[0].insert(name.text.clone(), id);
         id
     }
@@ -616,13 +707,27 @@ impl Analyzer {
         documentation: String,
         parent: Option<usize>,
     ) -> usize {
-        let existing = self.scopes.last().and_then(|scope| scope.get(&name.text).copied());
+        let existing = self
+            .scopes
+            .last()
+            .and_then(|scope| scope.get(&name.text).copied());
         if let Some(existing) = existing {
             self.emit_duplicate(existing, name, "symbol");
             return existing;
         }
-        let id = self.alloc_symbol(name.text.clone(), kind, name.span, visible, detail, documentation, parent);
-        self.scopes.last_mut().unwrap().insert(name.text.clone(), id);
+        let id = self.alloc_symbol(
+            name.text.clone(),
+            kind,
+            name.span,
+            visible,
+            detail,
+            documentation,
+            parent,
+        );
+        self.scopes
+            .last_mut()
+            .unwrap()
+            .insert(name.text.clone(), id);
         id
     }
 
@@ -669,11 +774,22 @@ impl Analyzer {
         if let Some(existing) = self.find_child(owner, &name.text) {
             return existing;
         }
-        self.alloc_symbol(name.text, kind, name.span, visible, detail, documentation, Some(owner))
+        self.alloc_symbol(
+            name.text,
+            kind,
+            name.span,
+            visible,
+            detail,
+            documentation,
+            Some(owner),
+        )
     }
 
     fn emit_duplicate(&mut self, existing: usize, name: &Name, label: &str) {
-        if self.emitted_duplicate.insert((name.text.clone(), name.span.start)) {
+        if self
+            .emitted_duplicate
+            .insert((name.text.clone(), name.span.start))
+        {
             self.diagnostics.push(LintDiagnostic {
                 span: name.span,
                 message: format!("duplicate {} '{}'", label, name.text),

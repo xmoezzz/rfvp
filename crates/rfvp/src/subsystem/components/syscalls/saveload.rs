@@ -29,14 +29,14 @@ pub fn save_create(game_data: &mut GameData, fnid: &Variant, value: &Variant) ->
     match fnid {
         0 => {
             if let Variant::ConstString(title, _) | Variant::String(title) = value {
-                game_data
-                    .save_manager
-                    .set_current_title(title.to_string());
+                game_data.save_manager.set_current_title(title.to_string());
             }
         }
         1 => {
             if let Variant::ConstString(title, _) | Variant::String(title) = value {
-                game_data.save_manager.set_current_scene_title(title.to_string());
+                game_data
+                    .save_manager
+                    .set_current_scene_title(title.to_string());
             }
         }
         2 => {
@@ -46,24 +46,24 @@ pub fn save_create(game_data: &mut GameData, fnid: &Variant, value: &Variant) ->
                     .set_current_script_content(content.to_string());
             }
         }
-3 => {
-    // Original engine behavior (from exe reverse): SaveCreate(fnid=3) prepares an in-memory
-    // save payload (`local_saved`). The save/load UI can then call SaveWrite(slot) to
-    // commit this payload to disk without capturing the menu overlay.
-    game_data.save_manager.request_prepare_local_savedata();
+        3 => {
+            // Original engine behavior (from exe reverse): SaveCreate(fnid=3) prepares an in-memory
+            // save payload (`local_saved`). The save/load UI can then call SaveWrite(slot) to
+            // commit this payload to disk without capturing the menu overlay.
+            game_data.save_manager.request_prepare_local_savedata();
 
-    if let Variant::Int(slot) = value {
-        let slot = *slot as u32;
-        if (0..1000).contains(&slot) {
-            // Request committing the prepared payload to a concrete slot.
-            game_data.save_manager.set_savedata_requested(true);
-            game_data.save_manager.set_current_save_slot(slot);
+            if let Variant::Int(slot) = value {
+                let slot = *slot as u32;
+                if (0..1000).contains(&slot) {
+                    // Request committing the prepared payload to a concrete slot.
+                    game_data.save_manager.set_savedata_requested(true);
+                    game_data.save_manager.set_current_save_slot(slot);
+                }
+            }
+
+            // Break the current context so the host loop can prepare `local_saved` immediately.
+            game_data.thread_wrapper.should_break();
         }
-    }
-
-    // Break the current context so the host loop can prepare `local_saved` immediately.
-    game_data.thread_wrapper.should_break();
-}
         _ => {
             log::error!("save_create: invalid fnid: {}", fnid);
         }
@@ -282,7 +282,11 @@ pub fn save_data(
     Ok(Variant::Nil)
 }
 
-pub fn save_thumb_size(game_data: &mut GameData, width: &Variant, height: &Variant) -> Result<Variant> {
+pub fn save_thumb_size(
+    game_data: &mut GameData,
+    width: &Variant,
+    height: &Variant,
+) -> Result<Variant> {
     if let Variant::Int(width) = width {
         if let Variant::Int(height) = height {
             let width = *width;
@@ -372,7 +376,12 @@ unsafe impl Sync for SaveCreate {}
 pub struct SaveData;
 impl Syscaller for SaveData {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
-        save_data(game_data, get_var!(args, 0), get_var!(args, 1), get_var!(args, 2))
+        save_data(
+            game_data,
+            get_var!(args, 0),
+            get_var!(args, 1),
+            get_var!(args, 2),
+        )
     }
 }
 unsafe impl Send for SaveData {}

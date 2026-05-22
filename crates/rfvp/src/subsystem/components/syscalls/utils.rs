@@ -38,7 +38,7 @@ pub fn debug_message(
         _ => {
             log::error!("debug_message: Invalid message type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     log::info!("DEBUG => {}: {:?}", msg, var);
@@ -207,11 +207,6 @@ pub fn window_mode(game_data: &mut GameData, mode: &Variant) -> Result<Variant> 
     }
 }
 
-
-
-
-
-
 pub fn title_menu(_game_data: &mut GameData, _title: &Variant) -> Result<Variant> {
     Ok(Variant::Nil)
 }
@@ -222,7 +217,7 @@ pub fn exit_mode(game_data: &mut GameData, mode: &Variant) -> Result<Variant> {
         _ => {
             log::error!("exit_mode: Invalid mode type");
             return Ok(Variant::True);
-        },
+        }
     };
 
     if mode == 0 {
@@ -230,20 +225,16 @@ pub fn exit_mode(game_data: &mut GameData, mode: &Variant) -> Result<Variant> {
             game_data.set_close_pending(false);
             return Ok(Variant::True);
         }
-    }
-    else if mode == 1 {
+    } else if mode == 1 {
         game_data.set_close_immediate(true);
-    }
-    else if mode == 2 {
+    } else if mode == 2 {
         game_data.set_close_immediate(false);
-    }
-    else if mode == 3 {
+    } else if mode == 3 {
         game_data.set_lock_scripter(true);
         game_data.set_last_current_thread(game_data.get_current_thread());
         game_data.set_main_thread_exited(false);
         game_data.thread_wrapper.should_break();
-    }
-    else if mode == 4 {
+    } else if mode == 4 {
         game_data.set_lock_scripter(false);
         game_data.set_main_thread_exited(false);
     }
@@ -321,7 +312,6 @@ impl Syscaller for SysAtSkipName {
 unsafe impl Send for SysAtSkipName {}
 unsafe impl Sync for SysAtSkipName {}
 
-
 pub struct WindowMode;
 impl Syscaller for WindowMode {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -331,7 +321,6 @@ impl Syscaller for WindowMode {
 
 unsafe impl Send for WindowMode {}
 unsafe impl Sync for WindowMode {}
-
 
 pub struct ExitMode;
 impl Syscaller for ExitMode {
@@ -343,8 +332,6 @@ impl Syscaller for ExitMode {
 
 unsafe impl Send for ExitMode {}
 unsafe impl Sync for ExitMode {}
-
-
 
 pub struct TitleMenu;
 impl Syscaller for TitleMenu {
@@ -361,7 +348,12 @@ mod tests {
 
     #[test]
     fn test_int_to_text() {
-        let result = int_to_text(&mut GameData::default(), &Variant::Int(42), &Variant::Int(5)).unwrap();
+        let result = int_to_text(
+            &mut GameData::default(),
+            &Variant::Int(42),
+            &Variant::Int(5),
+        )
+        .unwrap();
         crate::trace::syscall(format_args!("Result: {:?}", result));
     }
 }
@@ -376,8 +368,6 @@ impl Syscaller for Debmess {
     }
 }
 
-
-
 /// nullsub_2(...)
 /// Used by auto-generated syscall specs for no-op placeholders.
 pub struct nullsub_2;
@@ -386,7 +376,6 @@ impl Syscaller for nullsub_2 {
         Ok(Variant::Nil)
     }
 }
-
 
 /// DissolveWait()
 /// IDA SYSCALL_SPECS: argc=1
@@ -402,12 +391,17 @@ impl Syscaller for DissolveWait {
 
         let dissolve_type = game_data.motion_manager.get_dissolve_type();
         let dissolve2_transitioning = game_data.motion_manager.is_dissolve2_transitioning();
-        let dis_wait = !(dissolve_type == DissolveType::None || dissolve_type == DissolveType::Static)
+        let dis_wait = !(dissolve_type == DissolveType::None
+            || dissolve_type == DissolveType::Static)
             || dissolve2_transitioning;
 
         let arg0 = args.get(0).unwrap_or(&Variant::Nil);
         if arg0.is_nil() {
-            return Ok(if dis_wait { Variant::True } else { Variant::Nil });
+            return Ok(if dis_wait {
+                Variant::True
+            } else {
+                Variant::Nil
+            });
         }
 
         if dis_wait {
@@ -416,7 +410,6 @@ impl Syscaller for DissolveWait {
         Ok(Variant::Nil)
     }
 }
-
 
 /// ExitDialog()
 /// IDA SYSCALL_SPECS: argc=0
@@ -434,7 +427,6 @@ impl Syscaller for ExitDialog {
     }
 }
 
-
 /// MenuMessSkip()
 /// IDA SYSCALL_SPECS: argc=1
 pub struct MenuMessSkip;
@@ -443,8 +435,6 @@ impl Syscaller for MenuMessSkip {
         Ok(Variant::Nil)
     }
 }
-
-
 
 /// A minimal named stub used to keep the script VM running even when a syscall is not implemented yet.
 /// This is intentionally "soft-fail": it logs once per call site and returns Nil.

@@ -1,5 +1,3 @@
-
-
 #[inline(always)]
 fn clip_u8(v: i32) -> u8 {
     if v < 0 {

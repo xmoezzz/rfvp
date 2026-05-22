@@ -53,11 +53,17 @@ fn parse_bool_env(name: &str) -> bool {
 }
 
 fn parse_u64_env(name: &str, default_v: u64) -> u64 {
-    env::var(name).ok().and_then(|v| v.trim().parse::<u64>().ok()).unwrap_or(default_v)
+    env::var(name)
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(default_v)
 }
 
 fn parse_usize_env(name: &str, default_v: usize) -> usize {
-    env::var(name).ok().and_then(|v| v.trim().parse::<usize>().ok()).unwrap_or(default_v)
+    env::var(name)
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .unwrap_or(default_v)
 }
 
 fn parse_mask_from_trace_list(s: &str) -> u32 {

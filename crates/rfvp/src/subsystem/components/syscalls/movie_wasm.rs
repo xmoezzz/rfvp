@@ -33,13 +33,18 @@ pub fn movie_play(game_data: &mut GameData, path: &Variant, flag: &Variant) -> R
         let bytes = match read_movie_bytes(game_data, &cand) {
             Ok(bytes) => bytes,
             Err(e) => {
-                log::debug!("wasm Movie: resolve/read failed for {} (orig {}): {e:?}", cand, path);
+                log::debug!(
+                    "wasm Movie: resolve/read failed for {} (orig {}): {e:?}",
+                    cand,
+                    path
+                );
                 continue;
             }
         };
 
         let start_result = {
-            let (video_manager, motion_manager) = (&mut game_data.video_manager, &mut game_data.motion_manager);
+            let (video_manager, motion_manager) =
+                (&mut game_data.video_manager, &mut game_data.motion_manager);
             video_manager.start_from_bytes(
                 &cand,
                 bytes,
@@ -60,7 +65,11 @@ pub fn movie_play(game_data: &mut GameData, path: &Variant, flag: &Variant) -> R
                 return Ok(Variant::True);
             }
             Err(e) => {
-                log::debug!("wasm Movie: start failed for {} (orig {}): {e:?}", cand, path);
+                log::debug!(
+                    "wasm Movie: start failed for {} (orig {}): {e:?}",
+                    cand,
+                    path
+                );
                 continue;
             }
         }
@@ -171,7 +180,11 @@ fn safe_rel_path_from_vfs(path: &str) -> anyhow::Result<PathBuf> {
 pub struct Movie;
 impl Syscaller for Movie {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
-        movie_play(game_data, super::get_var!(args, 0), super::get_var!(args, 1))
+        movie_play(
+            game_data,
+            super::get_var!(args, 0),
+            super::get_var!(args, 1),
+        )
     }
 }
 

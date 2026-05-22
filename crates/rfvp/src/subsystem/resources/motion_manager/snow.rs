@@ -1,5 +1,3 @@
-
-
 use rand::Rng;
 
 #[derive(Copy, Clone, Debug, Default)]
@@ -22,28 +20,28 @@ impl SnowFlake {
 
 #[derive(Debug, Clone)]
 pub struct SnowMotion {
-    pub flakes: [SnowFlake; 1024],     // 0x0000 .. 0x3FFF (16 * 1024 = 16384)
-    pub flake_ptrs: [usize; 1024],     // 0x4000 .. 0x4FFF (store indices 0..1023)
+    pub flakes: [SnowFlake; 1024], // 0x0000 .. 0x3FFF (16 * 1024 = 16384)
+    pub flake_ptrs: [usize; 1024], // 0x4000 .. 0x4FFF (store indices 0..1023)
     // control area (starting ~0x5000)
-    pub enabled: bool,                   // byte at 0x5000 (we use u8's LOBYTE)
+    pub enabled: bool, // byte at 0x5000 (we use u8's LOBYTE)
     // pub _pad0: [u8; 3],
-    pub game_w_override: i32,          // dword @ 0x5004 (index 5121)
-    pub game_h_override: i32,          // dword @ 0x5008 (5122)
-    pub texture_id: i32,               // dword @ 0x500C (5123) - inferred
-    pub flake_w: i32,                  // dword @ 0x5010 (5124)
-    pub flake_h: i32,                  // dword @ 0x5014 (5125)
-    pub variant_count: i32,            // dword @ 0x5018 (5126)
-    pub period_min: i32,               // dword @ 0x501C (5127)
-    pub period_max: i32,               // dword @ 0x5020 (5128)
-    pub time_override: i32,            // dword @ 0x5024 (5129) - inferred
-    pub flake_count: i32,              // dword @ 0x5028 (5130)
-    pub base_y_per_period: i32,        // dword @ 0x502C (5131) signed
-    pub base_x_per_period: i32,        // dword @ 0x5030 (5132) signed
-    pub accel_param: i32,              // dword @ 0x5034 (5133)
-    pub jitter_amplitude: i32,         // dword @ 0x5038 (5134)
-    pub color_r: i32,                  // dword @ 0x503C (5135) (likely)
-    pub color_g: i32,                  // dword @ 0x5040 (5136) (likely)
-    pub color_b_or_extra: i32,         // dword @ 0x5044 (5137) (likely)
+    pub game_w_override: i32,   // dword @ 0x5004 (index 5121)
+    pub game_h_override: i32,   // dword @ 0x5008 (5122)
+    pub texture_id: i32,        // dword @ 0x500C (5123) - inferred
+    pub flake_w: i32,           // dword @ 0x5010 (5124)
+    pub flake_h: i32,           // dword @ 0x5014 (5125)
+    pub variant_count: i32,     // dword @ 0x5018 (5126)
+    pub period_min: i32,        // dword @ 0x501C (5127)
+    pub period_max: i32,        // dword @ 0x5020 (5128)
+    pub time_override: i32,     // dword @ 0x5024 (5129) - inferred
+    pub flake_count: i32,       // dword @ 0x5028 (5130)
+    pub base_y_per_period: i32, // dword @ 0x502C (5131) signed
+    pub base_x_per_period: i32, // dword @ 0x5030 (5132) signed
+    pub accel_param: i32,       // dword @ 0x5034 (5133)
+    pub jitter_amplitude: i32,  // dword @ 0x5038 (5134)
+    pub color_r: i32,           // dword @ 0x503C (5135) (likely)
+    pub color_g: i32,           // dword @ 0x5040 (5136) (likely)
+    pub color_b_or_extra: i32,  // dword @ 0x5044 (5137) (likely)
 }
 
 impl SnowMotion {
@@ -76,7 +74,13 @@ impl SnowMotion {
     ///
     /// Original signature: void __thiscall sub_4248C0(SnowMotion *this, float *a2, float a3)
     /// In our Rust port: adjust_flake_accel(snowmotion, flake_index, accel)
-    fn adjust_flake_accel(s: &mut SnowMotion, flake_idx: usize, a3: f32, ori_game_w: i32, ori_game_h: i32) {
+    fn adjust_flake_accel(
+        s: &mut SnowMotion,
+        flake_idx: usize,
+        a3: f32,
+        ori_game_w: i32,
+        ori_game_h: i32,
+    ) {
         // Corresponds to: if ( a2 ) { v4 = a3; if ( a3 != 0.0 ) { ... } }
         if flake_idx >= s.flake_count as usize {
             return;
@@ -128,11 +132,17 @@ impl SnowMotion {
     /// We pass index instead of pointer.
     fn set_snow_flake(s: &mut SnowMotion, flake_idx: usize, ori_game_w: i32, ori_game_h: i32) {
         let mut rng = rand::thread_rng();
-        if flake_idx >= 1024 { return; }
+        if flake_idx >= 1024 {
+            return;
+        }
         let mut game_w = s.game_w_override;
-        if game_w == 0 { game_w = ori_game_w; }
+        if game_w == 0 {
+            game_w = ori_game_w;
+        }
         let mut game_h = s.game_h_override;
-        if game_h == 0 { game_h = ori_game_h; }
+        if game_h == 0 {
+            game_h = ori_game_h;
+        }
 
         let period_min = s.period_min;
         let v6 = s.period_max - period_min; // difference
@@ -188,17 +198,29 @@ impl SnowMotion {
     ///
     /// Reproduces the loop and checks from original sub_4249B0.
     /// Accepts flake index.
-    fn adjust_after_reset(s: &mut SnowMotion, flake_idx: usize, rng: &mut impl Rng, ori_game_w: i32, ori_game_h: i32) {
-        if flake_idx >= 1024 { return; }
+    fn adjust_after_reset(
+        s: &mut SnowMotion,
+        flake_idx: usize,
+        rng: &mut impl Rng,
+        ori_game_w: i32,
+        ori_game_h: i32,
+    ) {
+        if flake_idx >= 1024 {
+            return;
+        }
         // Guard: if no motion (base_x/base_y/accel) then nothing to do
         if s.base_x_per_period == 0 && s.base_y_per_period == 0 && s.accel_param == 0 {
             return;
         }
 
         let mut game_w = s.game_w_override;
-        if game_w == 0 { game_w = ori_game_w; }
+        if game_w == 0 {
+            game_w = ori_game_w;
+        }
         let mut game_h = s.game_h_override;
-        if game_h == 0 { game_h = ori_game_h; }
+        if game_h == 0 {
+            game_h = ori_game_h;
+        }
         let half_w = (game_w as f32) * 0.5_f32;
         let half_h = (game_h as f32) * 0.5_f32;
 
@@ -230,7 +252,7 @@ impl SnowMotion {
         // Translate to loop that repeats to try to push flake into bounds; reproduce the condition logic.
 
         // Convert some values to f32 for checks
-        #[allow(clippy::never_loop)]  // loop once
+        #[allow(clippy::never_loop)] // loop once
         loop {
             let fl = &s.flakes[flake_idx];
             let inv_p = 1000.0_f32 / fl.period;
@@ -374,7 +396,7 @@ impl SnowMotion {
                 let v21 = 1000.0_f32 / p.period;
                 // v8 = v17 * v21 / 1000.0; where v17 = elapsed_f
                 let v8 = elapsed_f * v21 / 1000.0_f32; // equals elapsed / period
-                // elapsedd = elapseda * v8;
+                                                       // elapsedd = elapseda * v8;
                 let elapsedd = elapseda * v8;
                 // elapsede = elapsedd + p_period[1]; // new x
                 let new_x = elapsedd + p.x;
@@ -393,19 +415,19 @@ impl SnowMotion {
                 // v10 = v28 < v9; v11 = v28 == v9; v12 = v22;
                 let cond1 = !(old_x < new_x) && !(old_x == new_x);
                 let v7 = v21; // earlier v7 assigned as v21, used in other comparisons
-                // Now replicate the big if condition:
-                // if ( !v10 && !v11 && -v18 * v7 > v12
-                //   || v12 > v28 && v7 * v18 + v23 < v22
-                //   || (v13 = elapsedb, v29 > (double)elapsedb) && -v19 * v7 > v13
-                //   || v13 > v29 && elapsedb > v7 * v19 + v24
-                //   || v27 > (double)*p_period && period_min > (double)*p_period
-                //   || *p_period > (double)v27 && period_max < (double)*p_period )
-                //
-                // translate names:
-                // v18 = half_flake_w; v19 = half_flake_h;
-                // v23 = game_w as f32; v24 = game_h as f32;
-                // v27 = old_period; *p_period = p.period (maybe updated by adjust_flake_accel)
-                //
+                              // Now replicate the big if condition:
+                              // if ( !v10 && !v11 && -v18 * v7 > v12
+                              //   || v12 > v28 && v7 * v18 + v23 < v22
+                              //   || (v13 = elapsedb, v29 > (double)elapsedb) && -v19 * v7 > v13
+                              //   || v13 > v29 && elapsedb > v7 * v19 + v24
+                              //   || v27 > (double)*p_period && period_min > (double)*p_period
+                              //   || *p_period > (double)v27 && period_max < (double)*p_period )
+                              //
+                              // translate names:
+                              // v18 = half_flake_w; v19 = half_flake_h;
+                              // v23 = game_w as f32; v24 = game_h as f32;
+                              // v27 = old_period; *p_period = p.period (maybe updated by adjust_flake_accel)
+                              //
                 let mut triggered = false;
 
                 // 1st clause: (!old_x < new_x && ... ) i.e. cond1 && -half_flake_w * v7 > new_x
@@ -612,7 +634,6 @@ impl SnowMotionContainer {
     }
 }
 
-
 impl SnowMotionContainer {
     pub fn debug_dump(&self, max: usize) -> String {
         let mut out = String::new();
@@ -644,11 +665,7 @@ impl SnowMotionContainer {
                 let f = &m.flakes[idx];
                 out.push_str(&format!(
                     "    flake[{}] var={} x={:.2} y={:.2} period={:.2}\n",
-                    idx,
-                    f.variant_idx,
-                    f.x,
-                    f.y,
-                    f.period
+                    idx, f.variant_idx, f.x, f.y, f.period
                 ));
             }
             shown += 1;

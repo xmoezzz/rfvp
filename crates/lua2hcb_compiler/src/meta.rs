@@ -97,7 +97,8 @@ fn as_str(v: &Value, key: &str) -> Result<String> {
 }
 
 pub fn load_meta(path: &Path) -> Result<Meta> {
-    let txt = std::fs::read_to_string(path).with_context(|| format!("read meta: {}", path.display()))?;
+    let txt =
+        std::fs::read_to_string(path).with_context(|| format!("read meta: {}", path.display()))?;
     let doc: Value = serde_yaml::from_str(&txt).context("parse yaml")?;
     let map = doc
         .as_mapping()
@@ -166,13 +167,12 @@ pub fn load_meta(path: &Path) -> Result<Meta> {
                 let name = m
                     .get(&Value::String("name".to_string()))
                     .ok_or_else(|| anyhow!("meta.syscalls[{i}].name missing"))?;
-                let args = m
-                    .get(Value::String("args".to_string()))
-                    .unwrap();
+                let args = m.get(Value::String("args".to_string())).unwrap();
 
                 let name = as_str(name, "name")?;
                 let argc = as_u16(args, "args")?;
-                let argc_u8 = u8::try_from(argc).map_err(|_| anyhow!("syscall args must fit u8"))?;
+                let argc_u8 =
+                    u8::try_from(argc).map_err(|_| anyhow!("syscall args must fit u8"))?;
 
                 syscalls.push(Syscall {
                     id: u16::try_from(i).unwrap(),
@@ -210,7 +210,8 @@ pub fn load_meta(path: &Path) -> Result<Meta> {
 
                 let name = as_str(name_v, "name")?;
                 let argc = as_u16(args_v, "args")?;
-                let argc_u8 = u8::try_from(argc).map_err(|_| anyhow!("syscall args must fit u8"))?;
+                let argc_u8 =
+                    u8::try_from(argc).map_err(|_| anyhow!("syscall args must fit u8"))?;
 
                 if tmp.contains_key(&id) {
                     bail!("duplicate syscall id: {id}");
@@ -226,8 +227,7 @@ pub fn load_meta(path: &Path) -> Result<Meta> {
             }
 
             // Validate contiguity if syscall_count exists.
-            let declared_count = get("syscall_count")
-                .and_then(|v| as_u16(v, "syscall_count").ok());
+            let declared_count = get("syscall_count").and_then(|v| as_u16(v, "syscall_count").ok());
             let count = if let Some(dc) = declared_count {
                 dc
             } else {
@@ -245,7 +245,10 @@ pub fn load_meta(path: &Path) -> Result<Meta> {
 
             if declared_count.is_some() {
                 if syscalls.len() != usize::from(count) {
-                    bail!("syscall_count mismatch: declared {count}, found {}", syscalls.len());
+                    bail!(
+                        "syscall_count mismatch: declared {count}, found {}",
+                        syscalls.len()
+                    );
                 }
             }
         }

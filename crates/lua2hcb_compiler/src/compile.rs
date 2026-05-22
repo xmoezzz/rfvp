@@ -328,7 +328,10 @@ fn tokenize_expr(s: &str) -> Result<Vec<Tok>> {
                     i += 1;
                 }
                 if i >= b.len() || b[i] as char != '"' {
-                    bail!("unterminated string literal starting at: {}", &s[start - 1..]);
+                    bail!(
+                        "unterminated string literal starting at: {}",
+                        &s[start - 1..]
+                    );
                 }
                 i += 1;
                 toks.push(Tok::Str(out));
@@ -413,11 +416,27 @@ enum Expr {
     Float(f32),
     Str(String),
     Var(String),
-    Call { name: String, args: Vec<Expr> },
-    GlobalTable { idx: u16, key: Box<Expr> },
-    LocalTable { idx: i8, key: Box<Expr> },
-    Unary { op: UnaryOp, expr: Box<Expr> },
-    Binary { op: BinaryOp, left: Box<Expr>, right: Box<Expr> },
+    Call {
+        name: String,
+        args: Vec<Expr>,
+    },
+    GlobalTable {
+        idx: u16,
+        key: Box<Expr>,
+    },
+    LocalTable {
+        idx: i8,
+        key: Box<Expr>,
+    },
+    Unary {
+        op: UnaryOp,
+        expr: Box<Expr>,
+    },
+    Binary {
+        op: BinaryOp,
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
 }
 
 struct ExprParser {
@@ -463,7 +482,11 @@ impl ExprParser {
         let mut expr = self.parse_and()?;
         while self.eat(&Tok::Or) {
             let rhs = self.parse_and()?;
-            expr = Expr::Binary { op: BinaryOp::Or, left: Box::new(expr), right: Box::new(rhs) };
+            expr = Expr::Binary {
+                op: BinaryOp::Or,
+                left: Box::new(expr),
+                right: Box::new(rhs),
+            };
         }
         Ok(expr)
     }
@@ -472,7 +495,11 @@ impl ExprParser {
         let mut expr = self.parse_cmp()?;
         while self.eat(&Tok::And) {
             let rhs = self.parse_cmp()?;
-            expr = Expr::Binary { op: BinaryOp::And, left: Box::new(expr), right: Box::new(rhs) };
+            expr = Expr::Binary {
+                op: BinaryOp::And,
+                left: Box::new(expr),
+                right: Box::new(rhs),
+            };
         }
         Ok(expr)
     }
@@ -491,7 +518,11 @@ impl ExprParser {
             };
             self.bump();
             let rhs = self.parse_add()?;
-            expr = Expr::Binary { op, left: Box::new(expr), right: Box::new(rhs) };
+            expr = Expr::Binary {
+                op,
+                left: Box::new(expr),
+                right: Box::new(rhs),
+            };
         }
         Ok(expr)
     }
@@ -506,7 +537,11 @@ impl ExprParser {
             };
             self.bump();
             let rhs = self.parse_mul()?;
-            expr = Expr::Binary { op, left: Box::new(expr), right: Box::new(rhs) };
+            expr = Expr::Binary {
+                op,
+                left: Box::new(expr),
+                right: Box::new(rhs),
+            };
         }
         Ok(expr)
     }
@@ -522,7 +557,11 @@ impl ExprParser {
             };
             self.bump();
             let rhs = self.parse_bitand()?;
-            expr = Expr::Binary { op, left: Box::new(expr), right: Box::new(rhs) };
+            expr = Expr::Binary {
+                op,
+                left: Box::new(expr),
+                right: Box::new(rhs),
+            };
         }
         Ok(expr)
     }
@@ -531,7 +570,11 @@ impl ExprParser {
         let mut expr = self.parse_unary()?;
         while self.eat(&Tok::Amp) {
             let rhs = self.parse_unary()?;
-            expr = Expr::Binary { op: BinaryOp::BitAnd, left: Box::new(expr), right: Box::new(rhs) };
+            expr = Expr::Binary {
+                op: BinaryOp::BitAnd,
+                left: Box::new(expr),
+                right: Box::new(rhs),
+            };
         }
         Ok(expr)
     }
@@ -539,13 +582,19 @@ impl ExprParser {
     fn parse_unary(&mut self) -> Result<Expr> {
         if self.eat(&Tok::Minus) {
             let expr = self.parse_unary()?;
-            return Ok(Expr::Unary { op: UnaryOp::Neg, expr: Box::new(expr) });
+            return Ok(Expr::Unary {
+                op: UnaryOp::Neg,
+                expr: Box::new(expr),
+            });
         }
         self.parse_primary()
     }
 
     fn parse_primary(&mut self) -> Result<Expr> {
-        match self.bump().ok_or_else(|| anyhow!("unexpected end of expression"))? {
+        match self
+            .bump()
+            .ok_or_else(|| anyhow!("unexpected end of expression"))?
+        {
             Tok::Nil => Ok(Expr::Nil),
             Tok::True => Ok(Expr::True),
             Tok::False => Ok(Expr::False),
@@ -597,12 +646,18 @@ impl ExprParser {
                         if idx < 0 || idx > i64::from(u16::MAX) {
                             bail!("GT index out of range: {idx}");
                         }
-                        return Ok(Expr::GlobalTable { idx: idx as u16, key: Box::new(key) });
+                        return Ok(Expr::GlobalTable {
+                            idx: idx as u16,
+                            key: Box::new(key),
+                        });
                     }
                     if idx < i64::from(i8::MIN) || idx > i64::from(i8::MAX) {
                         bail!("LT index out of range: {idx}");
                     }
-                    return Ok(Expr::LocalTable { idx: idx as i8, key: Box::new(key) });
+                    return Ok(Expr::LocalTable {
+                        idx: idx as i8,
+                        key: Box::new(key),
+                    });
                 }
 
                 Ok(Expr::Var(name))
@@ -617,7 +672,15 @@ fn parse_expr(expr: &str) -> Result<Expr> {
     ExprParser::new(toks).parse()
 }
 
-fn emit_call(name: &str, args: &[Expr], meta: &Meta, user_fns: &HashSet<String>, layout: &GlobalLayout, args_count: i8, out: &mut Vec<Item>) -> Result<()> {
+fn emit_call(
+    name: &str,
+    args: &[Expr],
+    meta: &Meta,
+    user_fns: &HashSet<String>,
+    layout: &GlobalLayout,
+    args_count: i8,
+    out: &mut Vec<Item>,
+) -> Result<()> {
     for arg in args {
         compile_expr(arg, args_count, meta, user_fns, layout, out)?;
     }
@@ -633,14 +696,23 @@ fn emit_call(name: &str, args: &[Expr], meta: &Meta, user_fns: &HashSet<String>,
     }
 
     if name.starts_with("f_") || user_fns.contains(name) {
-        out.push(Item::Op(OpKind::CallFn { name: name.to_string() }));
+        out.push(Item::Op(OpKind::CallFn {
+            name: name.to_string(),
+        }));
         return Ok(());
     }
 
     bail!("unknown callee: {name}")
 }
 
-fn compile_expr(expr: &Expr, args_count: i8, meta: &Meta, user_fns: &HashSet<String>, layout: &GlobalLayout, out: &mut Vec<Item>) -> Result<()> {
+fn compile_expr(
+    expr: &Expr,
+    args_count: i8,
+    meta: &Meta,
+    user_fns: &HashSet<String>,
+    layout: &GlobalLayout,
+    out: &mut Vec<Item>,
+) -> Result<()> {
     match expr {
         Expr::Nil => out.push(Item::Op(OpKind::PushNil)),
         Expr::True => out.push(Item::Op(OpKind::PushTrue)),
@@ -676,13 +748,21 @@ fn compile_expr(expr: &Expr, args_count: i8, meta: &Meta, user_fns: &HashSet<Str
             compile_expr(key, args_count, meta, user_fns, layout, out)?;
             out.push(Item::Op(OpKind::PushLocalTable(*idx)));
         }
-        Expr::Unary { op: UnaryOp::Neg, expr } => {
+        Expr::Unary {
+            op: UnaryOp::Neg,
+            expr,
+        } => {
             compile_expr(expr, args_count, meta, user_fns, layout, out)?;
             out.push(Item::Op(OpKind::Neg));
         }
         Expr::Binary { op, left, right } => {
             if *op == BinaryOp::Ne {
-                if let Expr::Binary { op: BinaryOp::BitAnd, left: bleft, right: bright } = &**left {
+                if let Expr::Binary {
+                    op: BinaryOp::BitAnd,
+                    left: bleft,
+                    right: bright,
+                } = &**left
+                {
                     if matches!(&**right, Expr::Int(0)) {
                         compile_expr(bleft, args_count, meta, user_fns, layout, out)?;
                         compile_expr(bright, args_count, meta, user_fns, layout, out)?;
@@ -753,7 +833,11 @@ fn split_assignment(stmt: &str) -> Option<(String, String)> {
             ']' => depth_brack -= 1,
             '=' if depth_paren == 0 && depth_brack == 0 => {
                 let prev = if i > 0 { Some(b[i - 1] as char) } else { None };
-                let next = if i + 1 < b.len() { Some(b[i + 1] as char) } else { None };
+                let next = if i + 1 < b.len() {
+                    Some(b[i + 1] as char)
+                } else {
+                    None
+                };
                 if prev != Some('=') && prev != Some('~') && next != Some('=') {
                     let lhs = stmt[..i].trim().to_string();
                     let rhs = stmt[i + 1..].trim().to_string();
@@ -817,7 +901,9 @@ fn compile_simple_stmt(
         return Ok(());
     }
 
-    let ignore_re = Regex::new(r#"^__ret\s*=\s*(nil|true|false|-?\d+(?:\.\d+)?|\"(?:\\.|[^\"])*\")\s*$"#).unwrap();
+    let ignore_re =
+        Regex::new(r#"^__ret\s*=\s*(nil|true|false|-?\d+(?:\.\d+)?|\"(?:\\.|[^\"])*\")\s*$"#)
+            .unwrap();
     if ignore_re.is_match(s) {
         return Ok(());
     }
@@ -933,33 +1019,85 @@ fn compile_stmts(
                     let after_lbl = lg.fresh(&format!("if_next_{idx}"));
                     match parse_cond(cond) {
                         CondKind::AlwaysTrue => {
-                            compile_stmts(body, args_count, meta, user_fns, layout, out, lg, break_stack)?;
-                            out.push(Item::Op(OpKind::JmpLabel { label: end_lbl.clone() }));
+                            compile_stmts(
+                                body,
+                                args_count,
+                                meta,
+                                user_fns,
+                                layout,
+                                out,
+                                lg,
+                                break_stack,
+                            )?;
+                            out.push(Item::Op(OpKind::JmpLabel {
+                                label: end_lbl.clone(),
+                            }));
                             break;
                         }
                         CondKind::AlwaysFalse => {
                             out.push(Item::Label(Label::new(after_lbl.clone())));
                         }
                         CondKind::NonZero => {
-                            out.push(Item::Op(OpKind::JzLabel { label: after_lbl.clone() }));
-                            compile_stmts(body, args_count, meta, user_fns, layout, out, lg, break_stack)?;
-                            out.push(Item::Op(OpKind::JmpLabel { label: end_lbl.clone() }));
+                            out.push(Item::Op(OpKind::JzLabel {
+                                label: after_lbl.clone(),
+                            }));
+                            compile_stmts(
+                                body,
+                                args_count,
+                                meta,
+                                user_fns,
+                                layout,
+                                out,
+                                lg,
+                                break_stack,
+                            )?;
+                            out.push(Item::Op(OpKind::JmpLabel {
+                                label: end_lbl.clone(),
+                            }));
                             out.push(Item::Label(Label::new(after_lbl)));
                         }
                         CondKind::Zero => {
                             let body_lbl = lg.fresh(&format!("if_body_{idx}"));
-                            out.push(Item::Op(OpKind::JzLabel { label: body_lbl.clone() }));
-                            out.push(Item::Op(OpKind::JmpLabel { label: after_lbl.clone() }));
+                            out.push(Item::Op(OpKind::JzLabel {
+                                label: body_lbl.clone(),
+                            }));
+                            out.push(Item::Op(OpKind::JmpLabel {
+                                label: after_lbl.clone(),
+                            }));
                             out.push(Item::Label(Label::new(body_lbl)));
-                            compile_stmts(body, args_count, meta, user_fns, layout, out, lg, break_stack)?;
-                            out.push(Item::Op(OpKind::JmpLabel { label: end_lbl.clone() }));
+                            compile_stmts(
+                                body,
+                                args_count,
+                                meta,
+                                user_fns,
+                                layout,
+                                out,
+                                lg,
+                                break_stack,
+                            )?;
+                            out.push(Item::Op(OpKind::JmpLabel {
+                                label: end_lbl.clone(),
+                            }));
                             out.push(Item::Label(Label::new(after_lbl)));
                         }
                         CondKind::Generic => {
                             compile_cond_generic(cond, args_count, meta, user_fns, layout, out)?;
-                            out.push(Item::Op(OpKind::JzLabel { label: after_lbl.clone() }));
-                            compile_stmts(body, args_count, meta, user_fns, layout, out, lg, break_stack)?;
-                            out.push(Item::Op(OpKind::JmpLabel { label: end_lbl.clone() }));
+                            out.push(Item::Op(OpKind::JzLabel {
+                                label: after_lbl.clone(),
+                            }));
+                            compile_stmts(
+                                body,
+                                args_count,
+                                meta,
+                                user_fns,
+                                layout,
+                                out,
+                                lg,
+                                break_stack,
+                            )?;
+                            out.push(Item::Op(OpKind::JmpLabel {
+                                label: end_lbl.clone(),
+                            }));
                             out.push(Item::Label(Label::new(after_lbl)));
                         }
                     }
@@ -979,7 +1117,16 @@ fn compile_stmts(
 
                 match parse_cond(cond) {
                     CondKind::AlwaysTrue => {
-                        compile_stmts(body, args_count, meta, user_fns, layout, out, lg, break_stack)?;
+                        compile_stmts(
+                            body,
+                            args_count,
+                            meta,
+                            user_fns,
+                            layout,
+                            out,
+                            lg,
+                            break_stack,
+                        )?;
                         out.push(Item::Op(OpKind::JmpLabel { label: head }));
                     }
                     CondKind::AlwaysFalse => {
@@ -987,20 +1134,49 @@ fn compile_stmts(
                     }
                     CondKind::NonZero => {
                         out.push(Item::Op(OpKind::JzLabel { label: end.clone() }));
-                        compile_stmts(body, args_count, meta, user_fns, layout, out, lg, break_stack)?;
+                        compile_stmts(
+                            body,
+                            args_count,
+                            meta,
+                            user_fns,
+                            layout,
+                            out,
+                            lg,
+                            break_stack,
+                        )?;
                         out.push(Item::Op(OpKind::JmpLabel { label: head }));
                     }
                     CondKind::Zero => {
-                        out.push(Item::Op(OpKind::JzLabel { label: body_lbl.clone() }));
+                        out.push(Item::Op(OpKind::JzLabel {
+                            label: body_lbl.clone(),
+                        }));
                         out.push(Item::Op(OpKind::JmpLabel { label: end.clone() }));
                         out.push(Item::Label(Label::new(body_lbl)));
-                        compile_stmts(body, args_count, meta, user_fns, layout, out, lg, break_stack)?;
+                        compile_stmts(
+                            body,
+                            args_count,
+                            meta,
+                            user_fns,
+                            layout,
+                            out,
+                            lg,
+                            break_stack,
+                        )?;
                         out.push(Item::Op(OpKind::JmpLabel { label: head }));
                     }
                     CondKind::Generic => {
                         compile_cond_generic(cond, args_count, meta, user_fns, layout, out)?;
                         out.push(Item::Op(OpKind::JzLabel { label: end.clone() }));
-                        compile_stmts(body, args_count, meta, user_fns, layout, out, lg, break_stack)?;
+                        compile_stmts(
+                            body,
+                            args_count,
+                            meta,
+                            user_fns,
+                            layout,
+                            out,
+                            lg,
+                            break_stack,
+                        )?;
                         out.push(Item::Op(OpKind::JmpLabel { label: head }));
                     }
                 }
@@ -1102,7 +1278,11 @@ fn collect_case_body(body: &[String], mut i: usize, re_case: &Regex) -> (Vec<Str
 
         out.push(body[i].clone());
 
-        if is_if_start_line(t) || is_while_start_line(t) || is_for_start_line(t) || is_repeat_start_line(t) {
+        if is_if_start_line(t)
+            || is_while_start_line(t)
+            || is_for_start_line(t)
+            || is_repeat_start_line(t)
+        {
             nest += 1;
         } else if is_end_line(t) {
             nest -= 1;
@@ -1295,7 +1475,16 @@ fn compile_pc_dispatcher_function(
     }
 
     for (pc, lines) in cases {
-        compile_pc_case(pc, &lines, &f.name, f.args_count, meta, user_fns, layout, out)?;
+        compile_pc_case(
+            pc,
+            &lines,
+            &f.name,
+            f.args_count,
+            meta,
+            user_fns,
+            layout,
+            out,
+        )?;
     }
 
     Ok(())

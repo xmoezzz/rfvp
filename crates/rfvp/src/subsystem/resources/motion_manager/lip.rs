@@ -1,5 +1,5 @@
-use anyhow::Result;
 use crate::subsystem::resources::prim::PrimManager;
+use anyhow::Result;
 
 /// A small lip-animation state machine.
 ///
@@ -17,7 +17,10 @@ struct Frame {
 
 impl Default for Frame {
     fn default() -> Self {
-        Self { graph_id: 0, dur_ms: 0 }
+        Self {
+            graph_id: 0,
+            dur_ms: 0,
+        }
     }
 }
 
@@ -55,7 +58,9 @@ pub struct LipMotionContainer {
 
 impl LipMotionContainer {
     pub fn new() -> Self {
-        Self { slots: [LipSlot::default(); LIP_SLOTS] }
+        Self {
+            slots: [LipSlot::default(); LIP_SLOTS],
+        }
     }
 
     fn find_or_alloc_slot(&mut self, prim_id: i16) -> Option<usize> {
@@ -99,17 +104,31 @@ impl LipMotionContainer {
         id4: i32,
         t4: u32,
     ) -> Result<()> {
-        let Some(idx) = self.find_or_alloc_slot(prim_id) else { return Ok(()); };
+        let Some(idx) = self.find_or_alloc_slot(prim_id) else {
+            return Ok(());
+        };
         let mut s = LipSlot::default();
         s.prim_id = prim_id;
         s.bgm_slot = bgm_slot;
         s.kind = 1;
 
         let id4 = if id4 > 0 { id4 } else { id2 };
-        s.frames[0] = Frame { graph_id: id2, dur_ms: t2 };
-        s.frames[1] = Frame { graph_id: id3, dur_ms: t3 };
-        s.frames[2] = Frame { graph_id: id3, dur_ms: t3 };
-        s.frames[3] = Frame { graph_id: id4, dur_ms: t4 };
+        s.frames[0] = Frame {
+            graph_id: id2,
+            dur_ms: t2,
+        };
+        s.frames[1] = Frame {
+            graph_id: id3,
+            dur_ms: t3,
+        };
+        s.frames[2] = Frame {
+            graph_id: id3,
+            dur_ms: t3,
+        };
+        s.frames[3] = Frame {
+            graph_id: id4,
+            dur_ms: t4,
+        };
         self.slots[idx] = s;
         Ok(())
     }
@@ -127,7 +146,13 @@ impl LipMotionContainer {
         }
     }
 
-    pub fn tick(&mut self, prims: &mut PrimManager, bgm_playing_slots: &[bool], elapsed_ms: i32, freeze: bool) {
+    pub fn tick(
+        &mut self,
+        prims: &mut PrimManager,
+        bgm_playing_slots: &[bool],
+        elapsed_ms: i32,
+        freeze: bool,
+    ) {
         if freeze {
             return;
         }
@@ -157,7 +182,10 @@ impl LipMotionContainer {
             }
 
             // When the referenced BGM slot is not playing, reset to first frame.
-            let is_playing = bgm_playing_slots.get(s.bgm_slot as usize).copied().unwrap_or(false);
+            let is_playing = bgm_playing_slots
+                .get(s.bgm_slot as usize)
+                .copied()
+                .unwrap_or(false);
             if !is_playing {
                 if s.running != 0 {
                     s.running = 0;

@@ -1,8 +1,12 @@
 use std::cell::{RefCell, RefMut};
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
-use crate::script::{context::{Context, ContextSnapshotV1, ThreadState}, parser::Parser, VmSyscall};
+use crate::script::{
+    context::{Context, ContextSnapshotV1, ThreadState},
+    parser::Parser,
+    VmSyscall,
+};
 
 #[derive(Debug)]
 pub struct ThreadManager {
@@ -31,7 +35,7 @@ impl ThreadManager {
             let context = Context::new(0, i as u32);
             contexts.push(context);
         }
-        
+
         ThreadManager {
             contexts,
             current_id: 0,
@@ -91,7 +95,12 @@ impl ThreadManager {
         self.contexts[id as usize].should_exit_now()
     }
 
-    pub fn context_dispatch_opcode(&mut self, id: u32, syscaller: &mut impl VmSyscall, parser: &mut Parser) -> anyhow::Result<()> {
+    pub fn context_dispatch_opcode(
+        &mut self,
+        id: u32,
+        syscaller: &mut impl VmSyscall,
+        parser: &mut Parser,
+    ) -> anyhow::Result<()> {
         self.contexts[id as usize].dispatch_opcode(syscaller, parser)
     }
 
@@ -126,8 +135,9 @@ impl ThreadManager {
 
         let status = self.contexts[self.current_id as usize].get_status();
         // WAIT blocks execution: clear RUNNING until the timer expires.
-        self.contexts[self.current_id as usize]
-            .set_status((status | ThreadState::CONTEXT_STATUS_WAIT) & !ThreadState::CONTEXT_STATUS_RUNNING);
+        self.contexts[self.current_id as usize].set_status(
+            (status | ThreadState::CONTEXT_STATUS_WAIT) & !ThreadState::CONTEXT_STATUS_RUNNING,
+        );
     }
 
     pub fn thread_dissolve_wait(&mut self) {
@@ -135,7 +145,8 @@ impl ThreadManager {
         let status = self.contexts[self.current_id as usize].get_status();
         // DISSOLVE_WAIT blocks execution: clear RUNNING until dissolve completes.
         self.contexts[self.current_id as usize].set_status(
-            (status | ThreadState::CONTEXT_STATUS_DISSOLVE_WAIT) & !ThreadState::CONTEXT_STATUS_RUNNING,
+            (status | ThreadState::CONTEXT_STATUS_DISSOLVE_WAIT)
+                & !ThreadState::CONTEXT_STATUS_RUNNING,
         );
     }
 
@@ -145,8 +156,9 @@ impl ThreadManager {
 
         let status = self.contexts[self.current_id as usize].get_status();
         // SLEEP blocks execution: clear RUNNING until raised/unblocked.
-        self.contexts[self.current_id as usize]
-            .set_status((status | ThreadState::CONTEXT_STATUS_SLEEP) & !ThreadState::CONTEXT_STATUS_RUNNING);
+        self.contexts[self.current_id as usize].set_status(
+            (status | ThreadState::CONTEXT_STATUS_SLEEP) & !ThreadState::CONTEXT_STATUS_RUNNING,
+        );
     }
 
     pub fn thread_raise(&mut self, time: u32) {
@@ -154,8 +166,13 @@ impl ThreadManager {
             let status = self.contexts[i].get_status();
             // wtf?
             // both sleep and raise are never used
-            if status.contains(ThreadState::CONTEXT_STATUS_SLEEP) && self.contexts[i].get_waiting_time() == time as u64 {
-                self.contexts[i].set_status((status & !ThreadState::CONTEXT_STATUS_SLEEP) | ThreadState::CONTEXT_STATUS_RUNNING);
+            if status.contains(ThreadState::CONTEXT_STATUS_SLEEP)
+                && self.contexts[i].get_waiting_time() == time as u64
+            {
+                self.contexts[i].set_status(
+                    (status & !ThreadState::CONTEXT_STATUS_SLEEP)
+                        | ThreadState::CONTEXT_STATUS_RUNNING,
+                );
             }
         }
     }
@@ -179,7 +196,6 @@ impl ThreadManager {
             }
 
             self.thread_break = true;
-
         } else {
             let mut ctx = Context::new(0, id);
             ctx.set_status(ThreadState::CONTEXT_STATUS_NONE);
@@ -192,36 +208,35 @@ impl ThreadManager {
         self.thread_start(0, entry_point);
     }
 
-pub fn capture_snapshot_v1(&self) -> ThreadManagerSnapshotV1 {
-    let mut contexts = Vec::with_capacity(self.contexts.len());
-    for c in &self.contexts {
-        contexts.push(c.capture_snapshot_v1());
-    }
-    ThreadManagerSnapshotV1 {
-        current_id: self.current_id,
-        thread_break: self.thread_break,
-        contexts,
-    }
-}
-
-pub fn apply_snapshot_v1(&mut self, snap: &ThreadManagerSnapshotV1) {
-    self.current_id = snap.current_id;
-    self.thread_break = snap.thread_break;
-
-    // Preserve the fixed number of contexts (32) used by the VM.
-    if self.contexts.len() != snap.contexts.len() {
-        self.contexts.clear();
-        self.contexts.reserve(snap.contexts.len());
-        for (i, c) in snap.contexts.iter().enumerate() {
-            let mut ctx = Context::new(c.start_addr, i as u32);
-            ctx.apply_snapshot_v1(c);
-            self.contexts.push(ctx);
+    pub fn capture_snapshot_v1(&self) -> ThreadManagerSnapshotV1 {
+        let mut contexts = Vec::with_capacity(self.contexts.len());
+        for c in &self.contexts {
+            contexts.push(c.capture_snapshot_v1());
         }
-    } else {
-        for (ctx, c) in self.contexts.iter_mut().zip(snap.contexts.iter()) {
-            ctx.apply_snapshot_v1(c);
+        ThreadManagerSnapshotV1 {
+            current_id: self.current_id,
+            thread_break: self.thread_break,
+            contexts,
         }
     }
-}
-}
 
+    pub fn apply_snapshot_v1(&mut self, snap: &ThreadManagerSnapshotV1) {
+        self.current_id = snap.current_id;
+        self.thread_break = snap.thread_break;
+
+        // Preserve the fixed number of contexts (32) used by the VM.
+        if self.contexts.len() != snap.contexts.len() {
+            self.contexts.clear();
+            self.contexts.reserve(snap.contexts.len());
+            for (i, c) in snap.contexts.iter().enumerate() {
+                let mut ctx = Context::new(c.start_addr, i as u32);
+                ctx.apply_snapshot_v1(c);
+                self.contexts.push(ctx);
+            }
+        } else {
+            for (ctx, c) in self.contexts.iter_mut().zip(snap.contexts.iter()) {
+                ctx.apply_snapshot_v1(c);
+            }
+        }
+    }
+}

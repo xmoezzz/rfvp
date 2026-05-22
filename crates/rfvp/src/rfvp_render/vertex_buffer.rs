@@ -12,7 +12,11 @@ pub struct VertexBuffer<T> {
 }
 
 impl<T: Pod> VertexBuffer<T> {
-    pub fn new_updatable(resources: &GpuCommonResources, capacity: u32, label: Option<&str>) -> Self {
+    pub fn new_updatable(
+        resources: &GpuCommonResources,
+        capacity: u32,
+        label: Option<&str>,
+    ) -> Self {
         let size_bytes = (capacity as usize).saturating_mul(std::mem::size_of::<T>()) as u64;
         let buffer = resources.device.create_buffer(&wgpu::BufferDescriptor {
             label,
@@ -20,7 +24,11 @@ impl<T: Pod> VertexBuffer<T> {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        Self { buffer, capacity, _marker: PhantomData }
+        Self {
+            buffer,
+            capacity,
+            _marker: PhantomData,
+        }
     }
 
     pub fn capacity(&self) -> u32 {

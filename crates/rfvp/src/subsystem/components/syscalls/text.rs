@@ -1,9 +1,9 @@
 use anyhow::Result;
 
-use crate::subsystem::world::GameData;
-use crate::script::Variant;
 use crate::script::global::GLOBAL;
+use crate::script::Variant;
 use crate::subsystem::resources::input_manager::KeyCode;
+use crate::subsystem::world::GameData;
 
 use super::{get_var, Syscaller};
 
@@ -44,7 +44,10 @@ pub fn text_buff(
         }
     }
 
-    game_data.motion_manager.text_manager.set_text_buff(id, ww, hh);
+    game_data
+        .motion_manager
+        .text_manager
+        .set_text_buff(id, ww, hh);
 
     // Upload the cleared buffer to Graph(4064 + slot) immediately.
     let _ = game_data
@@ -54,14 +57,13 @@ pub fn text_buff(
     Ok(Variant::Nil)
 }
 
-
 pub fn text_clear(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
         _ => {
             log::error!("text_clear: invalid id type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..32).contains(&id) {
@@ -96,14 +98,20 @@ pub fn text_color_legacy_aw(
     if let Variant::Int(cid) = color1_id {
         if (0..256).contains(cid) {
             let color = game_data.motion_manager.color_manager.get_entry(*cid as u8);
-            game_data.motion_manager.text_manager.set_text_color1(id, color);
+            game_data
+                .motion_manager
+                .text_manager
+                .set_text_color1(id, color);
         }
     }
 
     if let Variant::Int(cid) = color2_id {
         if (0..256).contains(cid) {
             let color = game_data.motion_manager.color_manager.get_entry(*cid as u8);
-            game_data.motion_manager.text_manager.set_text_color2(id, color);
+            game_data
+                .motion_manager
+                .text_manager
+                .set_text_color2(id, color);
         }
     }
 
@@ -162,27 +170,35 @@ pub fn text_color(
     if let Variant::Int(cid) = color1_id {
         if (0..256).contains(cid) {
             let color = game_data.motion_manager.color_manager.get_entry(*cid as u8);
-            game_data.motion_manager.text_manager.set_text_color1(id, color);
+            game_data
+                .motion_manager
+                .text_manager
+                .set_text_color1(id, color);
         }
     }
 
     if let Variant::Int(cid) = color2_id {
         if (0..256).contains(cid) {
             let color = game_data.motion_manager.color_manager.get_entry(*cid as u8);
-            game_data.motion_manager.text_manager.set_text_color2(id, color);
+            game_data
+                .motion_manager
+                .text_manager
+                .set_text_color2(id, color);
         }
     }
 
     if let Variant::Int(cid) = color3_id {
         if (0..256).contains(cid) {
             let color = game_data.motion_manager.color_manager.get_entry(*cid as u8);
-            game_data.motion_manager.text_manager.set_text_color3(id, color);
+            game_data
+                .motion_manager
+                .text_manager
+                .set_text_color3(id, color);
         }
     }
 
     Ok(Variant::Nil)
 }
-
 
 // -1 current font
 // -2..-5 built-in Japanese fonts
@@ -230,7 +246,6 @@ pub fn text_font(
     Ok(Variant::Nil)
 }
 
-
 pub fn text_font_count(game_data: &GameData) -> Result<Variant> {
     Ok(Variant::Int(game_data.fontface_manager.get_font_count()))
 }
@@ -247,7 +262,7 @@ pub fn text_font_name(game_data: &GameData, id: &Variant) -> Result<Variant> {
         _ => {
             log::error!("text_font_name: invalid id type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     match game_data.fontface_manager.get_font_name(id) {
@@ -262,7 +277,7 @@ pub fn text_font_set(game_data: &mut GameData, id: &Variant) -> Result<Variant> 
         _ => {
             log::error!("text_set_font: invalid id type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if game_data.fontface_manager.is_valid_fontface_id(id) {
@@ -289,7 +304,7 @@ pub fn text_format(
         _ => {
             log::error!("text_format: invalid id type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..32).contains(&id) {
@@ -334,7 +349,6 @@ pub fn text_format(
 
     Ok(Variant::Nil)
 }
-
 
 pub fn text_function(
     game_data: &mut GameData,
@@ -389,7 +403,6 @@ pub fn text_function(
 
     Ok(Variant::Nil)
 }
-
 
 // AngelWish legacy ABI: TextOutSize(id, outline)
 // - registered with 2 parameters in the early engine
@@ -462,7 +475,6 @@ pub fn text_out_size(
     Ok(Variant::Nil)
 }
 
-
 pub fn text_pause(game_data: &mut GameData, id: &Variant, pause: &Variant) -> Result<Variant> {
     // IDA (TextPause):
     // - If pause is Int and <= 1: set is_suspended
@@ -496,7 +508,6 @@ pub fn text_pause(game_data: &mut GameData, id: &Variant, pause: &Variant) -> Re
         _ => Ok(Variant::Nil),
     }
 }
-
 
 pub fn text_pos(
     game_data: &mut GameData,
@@ -535,14 +546,13 @@ pub fn text_pos(
     Ok(Variant::Nil)
 }
 
-
 pub fn text_print(game_data: &mut GameData, id: &Variant, content: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
         _ => {
             log::error!("text_print: invalid id type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..32).contains(&id) {
@@ -556,12 +566,18 @@ pub fn text_print(game_data: &mut GameData, id: &Variant, content: &Variant) -> 
                 log::error!("text_print: content length >= 512 is not supported");
                 return Ok(Variant::Nil);
             }
-            game_data.motion_manager.text_manager.set_text_content(id, s);
-            super::legacy::on_legacy_text_print(s, id);
-            let _ = game_data
+            game_data
                 .motion_manager
-                .text_upload_slot(id, &game_data.fontface_manager, true);
-            let ctrl_down = (game_data.inputs_manager.get_input_state() & (1u32 << (KeyCode::Ctrl as u32))) != 0;
+                .text_manager
+                .set_text_content(id, s);
+            super::legacy::on_legacy_text_print(s, id);
+            let _ =
+                game_data
+                    .motion_manager
+                    .text_upload_slot(id, &game_data.fontface_manager, true);
+            let ctrl_down = (game_data.inputs_manager.get_input_state()
+                & (1u32 << (KeyCode::Ctrl as u32)))
+                != 0;
             let pulse = game_data.inputs_manager.peek_control_pulse();
             let global0 = GLOBAL.lock().unwrap().get_int_var(0);
             if game_data
@@ -587,12 +603,18 @@ pub fn text_print(game_data: &mut GameData, id: &Variant, content: &Variant) -> 
             // Const-string prints like a normal string AND marks a bitmap by its offset.
             // IMPORTANT: without uploading the updated slot buffer, the visible text stays stale
             // (typically still the cleared TextBuff), which makes the message window appear empty.
-            game_data.motion_manager.text_manager.set_text_content(id, s);
-            super::legacy::on_legacy_text_print(s, id);
-            let _ = game_data
+            game_data
                 .motion_manager
-                .text_upload_slot(id, &game_data.fontface_manager, true);
-            let ctrl_down = (game_data.inputs_manager.get_input_state() & (1u32 << (KeyCode::Ctrl as u32))) != 0;
+                .text_manager
+                .set_text_content(id, s);
+            super::legacy::on_legacy_text_print(s, id);
+            let _ =
+                game_data
+                    .motion_manager
+                    .text_upload_slot(id, &game_data.fontface_manager, true);
+            let ctrl_down = (game_data.inputs_manager.get_input_state()
+                & (1u32 << (KeyCode::Ctrl as u32)))
+                != 0;
             let pulse = game_data.inputs_manager.peek_control_pulse();
             let global0 = GLOBAL.lock().unwrap().get_int_var(0);
             if game_data
@@ -609,7 +631,10 @@ pub fn text_print(game_data: &mut GameData, id: &Variant, content: &Variant) -> 
                 game_data.thread_wrapper.should_break();
             }
 
-            let first = game_data.motion_manager.text_manager.mark_readed_text_first(*addr);
+            let first = game_data
+                .motion_manager
+                .text_manager
+                .mark_readed_text_first(*addr);
             if first {
                 Ok(Variant::True)
             } else {
@@ -624,7 +649,9 @@ pub fn text_print(game_data: &mut GameData, id: &Variant, content: &Variant) -> 
 }
 
 pub fn text_reprint(game_data: &mut GameData) -> Result<Variant> {
-    game_data.motion_manager.text_reprint(&game_data.fontface_manager);
+    game_data
+        .motion_manager
+        .text_reprint(&game_data.fontface_manager);
     Ok(Variant::Nil)
 }
 
@@ -664,7 +691,6 @@ pub fn text_shadow_dist(game_data: &mut GameData, id: &Variant, dist: &Variant) 
 
     Ok(Variant::Nil)
 }
-
 
 // AngelWish legacy ABI: TextSize(id, size)
 // - registered with 2 parameters in the early engine
@@ -737,7 +763,6 @@ pub fn text_size(
     Ok(Variant::Nil)
 }
 
-
 pub fn text_skip(game_data: &mut GameData, id: &Variant, skip: &Variant) -> Result<Variant> {
     // IDA (TextSkip): skip is optional int; only applies when skip < 4.
     let id = match id {
@@ -764,7 +789,6 @@ pub fn text_skip(game_data: &mut GameData, id: &Variant, skip: &Variant) -> Resu
 
     Ok(Variant::Nil)
 }
-
 
 pub fn text_space(
     game_data: &mut GameData,
@@ -809,7 +833,6 @@ pub fn text_space(
     Ok(Variant::Nil)
 }
 
-
 /// set the text speed for the corresponding text id
 /// 0 is for immediate display
 pub fn text_speed(game_data: &mut GameData, id: &Variant, speed: &Variant) -> Result<Variant> {
@@ -829,16 +852,12 @@ pub fn text_speed(game_data: &mut GameData, id: &Variant, speed: &Variant) -> Re
 
     if let Variant::Int(v) = speed {
         if (-1..=300000).contains(v) {
-            game_data
-                .motion_manager
-                .text_manager
-                .set_text_speed(id, *v);
+            game_data.motion_manager.text_manager.set_text_speed(id, *v);
         }
     }
 
     Ok(Variant::Nil)
 }
-
 
 /// set the kinsoku chars (禁则) for the corresponding text id
 pub fn text_suspend_chr(game_data: &mut GameData, id: &Variant, chrs: &Variant) -> Result<Variant> {
@@ -847,7 +866,7 @@ pub fn text_suspend_chr(game_data: &mut GameData, id: &Variant, chrs: &Variant) 
         _ => {
             log::error!("text_suspend_chr: invalid id type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..32).contains(&id) {
@@ -860,7 +879,7 @@ pub fn text_suspend_chr(game_data: &mut GameData, id: &Variant, chrs: &Variant) 
         _ => {
             log::error!("text_suspend_chr: invalid chrs type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     game_data
@@ -879,13 +898,16 @@ pub fn text_test(game_data: &mut GameData, const_string: &Variant) -> Result<Var
     };
 
     // IDA behavior: return True only when the bit transitions 0 -> 1.
-    if game_data.motion_manager.text_manager.mark_readed_text_first(addr) {
+    if game_data
+        .motion_manager
+        .text_manager
+        .mark_readed_text_first(addr)
+    {
         Ok(Variant::True)
     } else {
         Ok(Variant::Nil)
     }
 }
-
 
 pub struct TextBuff;
 impl Syscaller for TextBuff {
@@ -936,16 +958,11 @@ impl Syscaller for TextColor {
 unsafe impl Send for TextColor {}
 unsafe impl Sync for TextColor {}
 
-
 pub struct TextFont;
 impl Syscaller for TextFont {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
         if args.len() == 2 {
-            return text_font_legacy_aw(
-                game_data,
-                get_var!(args, 0),
-                get_var!(args, 1),
-            );
+            return text_font_legacy_aw(game_data, get_var!(args, 0), get_var!(args, 1));
         }
         text_font(
             game_data,
@@ -969,7 +986,6 @@ impl Syscaller for TextFontCount {
 unsafe impl Send for TextFontCount {}
 unsafe impl Sync for TextFontCount {}
 
-
 pub struct TextFontGet;
 impl Syscaller for TextFontGet {
     fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
@@ -979,7 +995,6 @@ impl Syscaller for TextFontGet {
 
 unsafe impl Send for TextFontGet {}
 unsafe impl Sync for TextFontGet {}
-
 
 pub struct TextFontName;
 impl Syscaller for TextFontName {
@@ -991,7 +1006,6 @@ impl Syscaller for TextFontName {
 unsafe impl Send for TextFontName {}
 unsafe impl Sync for TextFontName {}
 
-
 pub struct TextFontSet;
 impl Syscaller for TextFontSet {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -1001,7 +1015,6 @@ impl Syscaller for TextFontSet {
 
 unsafe impl Send for TextFontSet {}
 unsafe impl Sync for TextFontSet {}
-
 
 pub struct TextFormat;
 impl Syscaller for TextFormat {
@@ -1019,10 +1032,8 @@ impl Syscaller for TextFormat {
     }
 }
 
-
 unsafe impl Send for TextFormat {}
 unsafe impl Sync for TextFormat {}
-
 
 pub struct TextFunction;
 impl Syscaller for TextFunction {
@@ -1037,20 +1048,14 @@ impl Syscaller for TextFunction {
     }
 }
 
-
 unsafe impl Send for TextFunction {}
 unsafe impl Sync for TextFunction {}
-
 
 pub struct TextOutSize;
 impl Syscaller for TextOutSize {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
         if args.len() == 2 {
-            return text_out_size_legacy_aw(
-                game_data,
-                get_var!(args, 0),
-                get_var!(args, 1),
-            );
+            return text_out_size_legacy_aw(game_data, get_var!(args, 0), get_var!(args, 1));
         }
         text_out_size(
             game_data,
@@ -1061,10 +1066,8 @@ impl Syscaller for TextOutSize {
     }
 }
 
-
 unsafe impl Send for TextOutSize {}
 unsafe impl Sync for TextOutSize {}
-
 
 pub struct TextPause;
 impl Syscaller for TextPause {
@@ -1075,7 +1078,6 @@ impl Syscaller for TextPause {
 
 unsafe impl Send for TextPause {}
 unsafe impl Sync for TextPause {}
-
 
 pub struct TextPos;
 impl Syscaller for TextPos {
@@ -1092,7 +1094,6 @@ impl Syscaller for TextPos {
 unsafe impl Send for TextPos {}
 unsafe impl Sync for TextPos {}
 
-
 pub struct TextPrint;
 impl Syscaller for TextPrint {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -1102,7 +1103,6 @@ impl Syscaller for TextPrint {
 
 unsafe impl Send for TextPrint {}
 unsafe impl Sync for TextPrint {}
-
 
 pub struct TextReprint;
 impl Syscaller for TextReprint {
@@ -1114,32 +1114,21 @@ impl Syscaller for TextReprint {
 unsafe impl Send for TextReprint {}
 unsafe impl Sync for TextReprint {}
 
-
 pub struct TextShadowDist;
 impl Syscaller for TextShadowDist {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
-        text_shadow_dist(
-            game_data,
-            get_var!(args, 0),
-            get_var!(args, 1),
-        )
+        text_shadow_dist(game_data, get_var!(args, 0), get_var!(args, 1))
     }
 }
 
-
 unsafe impl Send for TextShadowDist {}
 unsafe impl Sync for TextShadowDist {}
-
 
 pub struct TextSize;
 impl Syscaller for TextSize {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
         if args.len() == 2 {
-            return text_size_legacy_aw(
-                game_data,
-                get_var!(args, 0),
-                get_var!(args, 1),
-            );
+            return text_size_legacy_aw(game_data, get_var!(args, 0), get_var!(args, 1));
         }
         text_size(
             game_data,
@@ -1153,21 +1142,15 @@ impl Syscaller for TextSize {
 unsafe impl Send for TextSize {}
 unsafe impl Sync for TextSize {}
 
-
 pub struct TextSkip;
 impl Syscaller for TextSkip {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
-        text_skip(
-            game_data,
-            get_var!(args, 0),
-            get_var!(args, 1),
-        )
+        text_skip(game_data, get_var!(args, 0), get_var!(args, 1))
     }
 }
 
 unsafe impl Send for TextSkip {}
 unsafe impl Sync for TextSkip {}
-
 
 pub struct TextSpace;
 impl Syscaller for TextSpace {
@@ -1184,36 +1167,25 @@ impl Syscaller for TextSpace {
 unsafe impl Send for TextSpace {}
 unsafe impl Sync for TextSpace {}
 
-
 pub struct TextSpeed;
 impl Syscaller for TextSpeed {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
-        text_speed(
-            game_data,
-            get_var!(args, 0),
-            get_var!(args, 1),
-        )
+        text_speed(game_data, get_var!(args, 0), get_var!(args, 1))
     }
 }
 
 unsafe impl Send for TextSpeed {}
 unsafe impl Sync for TextSpeed {}
 
-
 pub struct TextSuspendChr;
 impl Syscaller for TextSuspendChr {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
-        text_suspend_chr(
-            game_data,
-            get_var!(args, 0),
-            get_var!(args, 1),
-        )
+        text_suspend_chr(game_data, get_var!(args, 0), get_var!(args, 1))
     }
 }
 
 unsafe impl Send for TextSuspendChr {}
 unsafe impl Sync for TextSuspendChr {}
-
 
 pub struct TextTest;
 impl Syscaller for TextTest {
@@ -1225,15 +1197,15 @@ impl Syscaller for TextTest {
 unsafe impl Send for TextTest {}
 unsafe impl Sync for TextTest {}
 
-
-
 /// TextRepaint()
 /// IDA SYSCALL_SPECS: argc=0
 pub struct TextRepaint;
 impl super::Syscaller for TextRepaint {
     fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
         // Re-upload all text slots (GPU textures) without changing content.
-        game_data.motion_manager.text_reprint(&game_data.fontface_manager);
+        game_data
+            .motion_manager
+            .text_reprint(&game_data.fontface_manager);
         Ok(Variant::Nil)
     }
 }

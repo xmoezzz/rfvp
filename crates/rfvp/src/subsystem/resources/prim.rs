@@ -1,8 +1,6 @@
 use atomic_refcell::{AtomicRef, AtomicRefCell, AtomicRefMut};
 use serde::{Deserialize, Serialize};
 
-
-
 pub const INVAILD_PRIM_HANDLE: i16 = -1;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -371,7 +369,9 @@ impl PrimManager {
     }
 
     pub fn unlink_prim(&self, id: i16) {
-        if id < 0 { return; }
+        if id < 0 {
+            return;
+        }
 
         let parent = self.get_prim(id).get_parent();
         if parent == INVAILD_PRIM_HANDLE {
@@ -430,7 +430,6 @@ impl PrimManager {
         self.get_prim(id).apply_attr(0x40);
     }
 
-
     pub fn set_prim_group_in(&mut self, new_root: i32, id: i32) {
         let new_root = new_root as i16;
         let id = id as i16;
@@ -482,7 +481,6 @@ impl PrimManager {
 
         self.get_prim(id).apply_attr(0x40);
     }
-
 
     pub fn prim_set_op(&mut self, id: i32, opx: i32, opy: i32) {
         let mut prim = self.get_prim(id as i16);
@@ -615,7 +613,6 @@ impl PrimManager {
     }
 }
 
-
 use std::collections::HashSet;
 
 impl PrimManager {
@@ -626,10 +623,7 @@ impl PrimManager {
         let mut out = String::new();
         out.push_str(&format!(
             "PrimTree(root={}, custom_root={}, max_nodes={}, max_depth={})\n",
-            root,
-            self.custom_root_prim_id,
-            max_nodes,
-            max_depth
+            root, self.custom_root_prim_id, max_nodes, max_depth
         ));
 
         if root < 0 || root as usize >= self.prims.len() {
@@ -640,22 +634,44 @@ impl PrimManager {
         let mut visited: HashSet<i16> = HashSet::new();
         let mut count: usize = 0;
 
-        fn dump_node(pm: &PrimManager, id: i16, depth: usize, max_nodes: usize, max_depth: usize,
-                     visited: &mut HashSet<i16>, count: &mut usize, out: &mut String) {
+        fn dump_node(
+            pm: &PrimManager,
+            id: i16,
+            depth: usize,
+            max_nodes: usize,
+            max_depth: usize,
+            visited: &mut HashSet<i16>,
+            count: &mut usize,
+            out: &mut String,
+        ) {
             if *count >= max_nodes {
                 out.push_str("  <truncated: max_nodes reached>\n");
                 return;
             }
             if depth > max_depth {
-                out.push_str(&format!("{:indent$}<truncated: max_depth reached>\n", "", indent=depth*2));
+                out.push_str(&format!(
+                    "{:indent$}<truncated: max_depth reached>\n",
+                    "",
+                    indent = depth * 2
+                ));
                 return;
             }
             if id < 0 || id as usize >= pm.prims.len() {
-                out.push_str(&format!("{:indent$}<invalid prim id {}>\n", "", id, indent=depth*2));
+                out.push_str(&format!(
+                    "{:indent$}<invalid prim id {}>\n",
+                    "",
+                    id,
+                    indent = depth * 2
+                ));
                 return;
             }
             if !visited.insert(id) {
-                out.push_str(&format!("{:indent$}<cycle detected at {}>\n", "", id, indent=depth*2));
+                out.push_str(&format!(
+                    "{:indent$}<cycle detected at {}>\n",
+                    "",
+                    id,
+                    indent = depth * 2
+                ));
                 return;
             }
 
@@ -704,10 +720,23 @@ x={} y={} z={} w={} h={} u={} v={} op=({}, {}) angle={} factor=({}, {}) tile={} 
             // Walk the sibling chain from first_child via next_sibling_idx.
             while child != INVAILD_PRIM_HANDLE {
                 if *count >= max_nodes {
-                    out.push_str(&format!("{:indent$}<truncated children: max_nodes reached>\n", "", indent=(depth+1)*2));
+                    out.push_str(&format!(
+                        "{:indent$}<truncated children: max_nodes reached>\n",
+                        "",
+                        indent = (depth + 1) * 2
+                    ));
                     break;
                 }
-                dump_node(pm, child, depth + 1, max_nodes, max_depth, visited, count, out);
+                dump_node(
+                    pm,
+                    child,
+                    depth + 1,
+                    max_nodes,
+                    max_depth,
+                    visited,
+                    count,
+                    out,
+                );
 
                 let c = pm.get_prim_immutable(child);
                 let next = c.get_next_sibling_idx();
@@ -716,7 +745,16 @@ x={} y={} z={} w={} h={} u={} v={} op=({}, {}) angle={} factor=({}, {}) tile={} 
             }
         }
 
-        dump_node(self, root, 0, max_nodes, max_depth, &mut visited, &mut count, &mut out);
+        dump_node(
+            self,
+            root,
+            0,
+            max_nodes,
+            max_depth,
+            &mut visited,
+            &mut count,
+            &mut out,
+        );
         out
     }
 }

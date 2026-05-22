@@ -1,4 +1,4 @@
-use anyhow::{Result};
+use anyhow::Result;
 
 use crate::script::Variant;
 use crate::subsystem::resources::motion_manager::AlphaMotionType;
@@ -34,7 +34,7 @@ pub fn motion_alpha(
         _ => {
             log::error!("Invalid alpha motion id");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..4096).contains(&id) {
@@ -65,7 +65,7 @@ pub fn motion_alpha(
         _ => {
             log::error!("Invalid duration");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if duration <= 0 || duration > 300000 {
@@ -101,7 +101,7 @@ pub fn motion_alpha_stop(game_data: &mut GameData, id: &Variant) -> Result<Varia
         _ => {
             log::error!("Invalid alpha motion id");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..4096).contains(&id) {
@@ -120,7 +120,7 @@ pub fn motion_alpha_test(game_data: &GameData, id: &Variant) -> Result<Variant> 
         _ => {
             log::error!("Invalid id");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..4096).contains(&id) {
@@ -154,7 +154,7 @@ pub fn motion_move(
         _ => {
             log::error!("Invalid id");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..4096).contains(&id) {
@@ -187,7 +187,7 @@ pub fn motion_move(
         _ => {
             log::error!("Invalid duration");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if duration <= 0 || duration > 300000 {
@@ -228,7 +228,7 @@ pub fn motion_move_stop(game_data: &mut GameData, id: &Variant) -> Result<Varian
         _ => {
             log::error!("Invalid id");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..4096).contains(&id) {
@@ -247,7 +247,7 @@ pub fn motion_move_test(game_data: &GameData, id: &Variant) -> Result<Variant> {
         _ => {
             log::error!("Invalid id");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..4096).contains(&id) {
@@ -278,7 +278,7 @@ pub fn motion_move_r(
         _ => {
             log::error!("Invalid id");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..4096).contains(&id) {
@@ -288,12 +288,20 @@ pub fn motion_move_r(
 
     let src_r = match src_r {
         Variant::Int(x) => *x as i16,
-        _ => game_data.motion_manager.prim_manager.get_prim(id).get_rotation(),
+        _ => game_data
+            .motion_manager
+            .prim_manager
+            .get_prim(id)
+            .get_rotation(),
     };
 
     let dst_r = match dst_r {
         Variant::Int(y) => *y as i16,
-        _ => game_data.motion_manager.prim_manager.get_prim(id).get_rotation(),
+        _ => game_data
+            .motion_manager
+            .prim_manager
+            .get_prim(id)
+            .get_rotation(),
     };
 
     let duration = match duration {
@@ -301,7 +309,7 @@ pub fn motion_move_r(
         _ => {
             log::error!("Invalid duration");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if duration <= 0 || duration > 300000 {
@@ -340,7 +348,7 @@ pub fn motion_move_r_stop(game_data: &mut GameData, id: &Variant) -> Result<Vari
         _ => {
             log::error!("Invalid id");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..4096).contains(&id) {
@@ -359,7 +367,7 @@ pub fn motion_move_r_test(game_data: &GameData, id: &Variant) -> Result<Variant>
         _ => {
             log::error!("Invalid id");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..4096).contains(&id) {
@@ -393,7 +401,7 @@ pub fn motion_move_s2(
         _ => {
             log::error!("Invalid id");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..4096).contains(&id) {
@@ -446,7 +454,7 @@ pub fn motion_move_s2(
         _ => {
             log::error!("Invalid duration");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if duration <= 0 || duration > 300000 {
@@ -487,7 +495,7 @@ pub fn motion_move_s2_stop(game_data: &mut GameData, id: &Variant) -> Result<Var
         _ => {
             log::error!("Invalid id");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..4096).contains(&id) {
@@ -506,7 +514,7 @@ pub fn motion_move_s2_test(game_data: &GameData, id: &Variant) -> Result<Variant
         _ => {
             log::error!("Invalid id");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..4096).contains(&id) {
@@ -537,7 +545,7 @@ pub fn motion_move_z(
         _ => {
             log::error!("Invalid id");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..4096).contains(&id) {
@@ -570,7 +578,7 @@ pub fn motion_move_z(
         _ => {
             log::error!("Invalid duration");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if duration <= 0 || duration > 300000 {
@@ -609,7 +617,7 @@ pub fn motion_move_z_stop(game_data: &mut GameData, id: &Variant) -> Result<Vari
         _ => {
             log::error!("Invalid id");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..4096).contains(&id) {
@@ -628,7 +636,7 @@ pub fn motion_move_z_test(game_data: &GameData, id: &Variant) -> Result<Variant>
         _ => {
             log::error!("Invalid id");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..4096).contains(&id) {
@@ -651,7 +659,7 @@ pub fn motion_pause(game_data: &mut GameData, id: &Variant, pause: &Variant) -> 
         _ => {
             log::error!("Invalid id");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..=4096).contains(&id) {
@@ -674,7 +682,7 @@ pub fn motion_pause(game_data: &mut GameData, id: &Variant, pause: &Variant) -> 
         _ => {
             log::error!("Invalid pause value");
             return Ok(Variant::Nil);
-        },
+        }
     }
 
     Ok(Variant::Nil)
@@ -741,14 +749,9 @@ pub fn v3d_motion(
     // (Nil => not set, non-Nil => set).
     let reverse_flag = !matches!(reverse, Variant::Nil);
 
-    game_data.motion_manager.set_v3d_motion(
-        dest_x,
-        dest_y,
-        dest_z,
-        duration,
-        typ,
-        reverse_flag,
-    )?;
+    game_data
+        .motion_manager
+        .set_v3d_motion(dest_x, dest_y, dest_z, duration, typ, reverse_flag)?;
 
     Ok(Variant::Nil)
 }
@@ -770,7 +773,7 @@ pub fn v3d_motion_pause(game_data: &mut GameData, pause: &Variant) -> Result<Var
         _ => {
             log::error!("Invalid pause value");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     Ok(Variant::Nil)
@@ -869,7 +872,7 @@ unsafe impl Send for MotionAlpha {}
 unsafe impl Sync for MotionAlpha {}
 
 /// Stop the alpha animation with a primitive index
-/// 
+///
 /// Arg1: primitive index (1–4095)
 /// Behavior:
 /// - The function has no return value
@@ -1167,7 +1170,6 @@ impl Syscaller for V3DSet {
 unsafe impl Send for V3DSet {}
 unsafe impl Sync for V3DSet {}
 
-
 /// MotionAnim(prim_id, sprt_prim_id, time, mode_or_nil)
 /// IDA SYSCALL_SPECS: argc=4
 pub struct MotionAnim;
@@ -1179,12 +1181,16 @@ impl Syscaller for MotionAnim {
         let mode = get_var!(args, 3);
 
         let _ = match mode {
-            Variant::Int(v) if *v <= 1 => game_data
-                .motion_manager
-                .set_anim_motion(prim_id, sprt_prim_id, time, 1),
-            Variant::Int(v) if *v <= 2 => game_data
-                .motion_manager
-                .set_anim_motion(prim_id, sprt_prim_id, time, 2),
+            Variant::Int(v) if *v <= 1 => {
+                game_data
+                    .motion_manager
+                    .set_anim_motion(prim_id, sprt_prim_id, time, 1)
+            }
+            Variant::Int(v) if *v <= 2 => {
+                game_data
+                    .motion_manager
+                    .set_anim_motion(prim_id, sprt_prim_id, time, 2)
+            }
             _ => game_data
                 .motion_manager
                 .append_anim_motion(prim_id, sprt_prim_id, time),
@@ -1210,7 +1216,11 @@ pub struct MotionAnimTest;
 impl Syscaller for MotionAnimTest {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
         let prim_id = get_var!(args, 0).as_int().unwrap_or(0) as u32;
-        let v = if game_data.motion_manager.test_anim_motion(prim_id) { 1 } else { 0 };
+        let v = if game_data.motion_manager.test_anim_motion(prim_id) {
+            1
+        } else {
+            0
+        };
         Ok(Variant::Int(v))
     }
 }

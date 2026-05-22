@@ -1,5 +1,5 @@
-use crate::script::opcode::OpcodeBase;
 use crate::script::opcode::Opcode;
+use crate::script::opcode::OpcodeBase;
 
 pub struct InitStackInst {
     address: u32,
@@ -39,6 +39,11 @@ impl OpcodeBase for InitStackInst {
     }
 
     fn disassemble(&self) -> String {
-        format!("{:8} {:2} {:2}", self.mnemonic(), self.arg_count, self.local_count)
+        format!(
+            "{:8} {:2} {:2}",
+            self.mnemonic(),
+            self.arg_count,
+            self.local_count
+        )
     }
 }

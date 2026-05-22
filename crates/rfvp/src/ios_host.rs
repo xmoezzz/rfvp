@@ -37,7 +37,14 @@ fn cstr_to_string(ptr: *const c_char) -> Result<String> {
     Ok(s.to_string())
 }
 
-fn build_app(view: NonNull<c_void>, surface_w: u32, surface_h: u32, native_scale_factor: f64, game_root: &str, nls: Nls) -> Result<Box<App>> {
+fn build_app(
+    view: NonNull<c_void>,
+    surface_w: u32,
+    surface_h: u32,
+    native_scale_factor: f64,
+    game_root: &str,
+    nls: Nls,
+) -> Result<Box<App>> {
     set_base_path(game_root);
     let parser = load_script(nls)?;
     let title = parser.get_title();
@@ -52,7 +59,11 @@ fn build_app(view: NonNull<c_void>, surface_w: u32, surface_h: u32, native_scale
         .with_parser(parser)
         .with_vfs(nls)?;
 
-    builder.build_ios(view, (surface_w.max(1), surface_h.max(1)), native_scale_factor)
+    builder.build_ios(
+        view,
+        (surface_w.max(1), surface_h.max(1)),
+        native_scale_factor,
+    )
 }
 
 /// Create an iOS host-mode instance bound to a UIKit view.
@@ -106,7 +117,14 @@ pub unsafe extern "C" fn rfvp_ios_create(
         }
     };
 
-    match build_app(view, surface_width, surface_height, native_scale_factor, &root, nls) {
+    match build_app(
+        view,
+        surface_width,
+        surface_height,
+        native_scale_factor,
+        &root,
+        nls,
+    ) {
         Ok(app) => {
             let inst = Box::new(IosInstance { app });
             Box::into_raw(inst) as *mut c_void
@@ -128,14 +146,22 @@ pub unsafe extern "C" fn rfvp_ios_step(handle: *mut c_void, dt_ms: u32) -> i32 {
     }
     let inst = &mut *(handle as *mut IosInstance);
     let should_exit = inst.app.host_step(dt_ms);
-    if should_exit { 1 } else { 0 }
+    if should_exit {
+        1
+    } else {
+        0
+    }
 }
 
 /// Resize the presentation surface.
 ///
 /// `surface_width` and `surface_height` are physical drawable pixels, not UIKit points.
 #[no_mangle]
-pub unsafe extern "C" fn rfvp_ios_resize(handle: *mut c_void, surface_width: u32, surface_height: u32) {
+pub unsafe extern "C" fn rfvp_ios_resize(
+    handle: *mut c_void,
+    surface_width: u32,
+    surface_height: u32,
+) {
     if handle.is_null() {
         return;
     }
@@ -148,7 +174,12 @@ pub unsafe extern "C" fn rfvp_ios_resize(handle: *mut c_void, surface_width: u32
 /// `phase`: 0=began, 1=moved, 2=ended, 3=cancelled.
 /// Coordinates are in UIKit points relative to the view.
 #[no_mangle]
-pub unsafe extern "C" fn rfvp_ios_touch(handle: *mut c_void, phase: i32, x_points: f64, y_points: f64) {
+pub unsafe extern "C" fn rfvp_ios_touch(
+    handle: *mut c_void,
+    phase: i32,
+    x_points: f64,
+    y_points: f64,
+) {
     if handle.is_null() {
         return;
     }
@@ -173,7 +204,8 @@ pub unsafe extern "C" fn rfvp_ios_mouse_button(
         return;
     }
     let inst = &mut *(handle as *mut IosInstance);
-    inst.app.host_mouse_button_ios(button, phase, x_points, y_points);
+    inst.app
+        .host_mouse_button_ios(button, phase, x_points, y_points);
 }
 
 /// Deliver a mouse-wheel event from the iOS host.

@@ -55,7 +55,8 @@ struct WmvPlayback {
 
 impl WmvPlayback {
     fn open_from_bytes(bytes: Vec<u8>, screen_w: u32, screen_h: u32) -> Result<Self> {
-        let dec = AsfWmv2Decoder::open(Cursor::new(bytes)).context("wasm WMV AsfWmv2Decoder::open")?;
+        let dec =
+            AsfWmv2Decoder::open(Cursor::new(bytes)).context("wasm WMV AsfWmv2Decoder::open")?;
         Ok(Self {
             dec,
             stash: VecDeque::new(),
@@ -74,7 +75,10 @@ impl WmvPlayback {
                 Some(frame) => {
                     let mut rgba = Vec::new();
                     yuv420_to_rgba_scaled(&frame.frame, self.screen_w, self.screen_h, &mut rgba);
-                    self.stash.push_back(WmvRgbaFrame { pts_ms: frame.pts_ms, rgba });
+                    self.stash.push_back(WmvRgbaFrame {
+                        pts_ms: frame.pts_ms,
+                        rgba,
+                    });
                 }
                 None => {
                     self.eof = true;
@@ -169,10 +173,20 @@ impl MpegPlayback {
                 v.rgba
             } else {
                 let mut out = Vec::new();
-                rgba_scale_nearest(&v.rgba, v.width, v.height, self.screen_w, self.screen_h, &mut out);
+                rgba_scale_nearest(
+                    &v.rgba,
+                    v.width,
+                    v.height,
+                    self.screen_w,
+                    self.screen_h,
+                    &mut out,
+                );
                 out
             };
-            self.stash.push_back(MpegRgbaFrame { pts_ms: v.pts_ms, rgba });
+            self.stash.push_back(MpegRgbaFrame {
+                pts_ms: v.pts_ms,
+                rgba,
+            });
         }
     }
 
@@ -182,12 +196,17 @@ impl MpegPlayback {
                 self.eof = true;
                 break;
             }
-            let end = self.pos.saturating_add(MPEG_CHUNK_SIZE).min(self.data.len());
+            let end = self
+                .pos
+                .saturating_add(MPEG_CHUNK_SIZE)
+                .min(self.data.len());
             let chunk = self.data[self.pos..end].to_vec();
             self.pos = end;
 
             let mut events = Vec::new();
-            self.pipe.push_with(&chunk, None, |ev| events.push(ev)).context("wasm MPEG push")?;
+            self.pipe
+                .push_with(&chunk, None, |ev| events.push(ev))
+                .context("wasm MPEG push")?;
             for ev in events {
                 self.push_video_event(ev);
             }
@@ -196,7 +215,9 @@ impl MpegPlayback {
         if self.eof && !self.flushed {
             self.flushed = true;
             let mut events = Vec::new();
-            self.pipe.flush_with(|ev| events.push(ev)).context("wasm MPEG flush")?;
+            self.pipe
+                .flush_with(|ev| events.push(ev))
+                .context("wasm MPEG flush")?;
             for ev in events {
                 self.push_video_event(ev);
             }
@@ -259,10 +280,18 @@ impl std::fmt::Debug for VideoPlayerManager {
 }
 
 impl VideoPlayerManager {
-    pub fn new() -> Self { Self::default() }
-    pub fn is_playing(&self) -> bool { self.playing }
-    pub fn is_loaded(&self) -> bool { self.playback.is_some() }
-    pub fn is_modal_active(&self) -> bool { self.playing && self.modal }
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn is_playing(&self) -> bool {
+        self.playing
+    }
+    pub fn is_loaded(&self) -> bool {
+        self.playback.is_some()
+    }
+    pub fn is_modal_active(&self) -> bool {
+        self.playing && self.modal
+    }
 
     pub fn start(
         &mut self,
@@ -299,7 +328,10 @@ impl VideoPlayerManager {
 
         let playback = if ext == "wmv" || ext == "asf" {
             Playback::Wmv(WmvPlayback::open_from_bytes(bytes, screen_w, screen_h)?)
-        } else if matches!(ext.as_str(), "mpg" | "mpeg" | "m2v" | "ts" | "ps" | "vob" | "dat") {
+        } else if matches!(
+            ext.as_str(),
+            "mpg" | "mpeg" | "m2v" | "ts" | "ps" | "vob" | "dat"
+        ) {
             Playback::Mpeg(MpegPlayback::open_from_bytes(bytes, screen_w, screen_h)?)
         } else {
             return Err(anyhow!("unsupported wasm movie format: {movie_name}"));
@@ -318,7 +350,9 @@ impl VideoPlayerManager {
     }
 
     pub fn tick(&mut self, motion: &mut MotionManager) -> Result<()> {
-        if !self.playing { return Ok(()); }
+        if !self.playing {
+            return Ok(());
+        }
         let Some(pb) = self.playback.as_mut() else {
             self.playing = false;
             self.modal = false;
@@ -330,21 +364,35 @@ impl VideoPlayerManager {
                 if let Some(frame) = wmv.next_due_frame()? {
                     if frame.pts_ms != wmv.last_presented_pts_ms {
                         wmv.last_presented_pts_ms = frame.pts_ms;
-                        motion.load_texture_from_buff(MOVIE_GRAPH_ID, frame.rgba, wmv.screen_w, wmv.screen_h)?;
+                        motion.load_texture_from_buff(
+                            MOVIE_GRAPH_ID,
+                            frame.rgba,
+                            wmv.screen_w,
+                            wmv.screen_h,
+                        )?;
                         motion.refresh_prims(MOVIE_GRAPH_ID);
                     }
                 }
-                if wmv.is_finished()? { self.stop(motion); }
+                if wmv.is_finished()? {
+                    self.stop(motion);
+                }
             }
             Playback::Mpeg(mpeg) => {
                 if let Some(frame) = mpeg.next_due_frame()? {
                     if frame.pts_ms != mpeg.last_presented_pts_ms {
                         mpeg.last_presented_pts_ms = frame.pts_ms;
-                        motion.load_texture_from_buff(MOVIE_GRAPH_ID, frame.rgba, mpeg.screen_w, mpeg.screen_h)?;
+                        motion.load_texture_from_buff(
+                            MOVIE_GRAPH_ID,
+                            frame.rgba,
+                            mpeg.screen_w,
+                            mpeg.screen_h,
+                        )?;
                         motion.refresh_prims(MOVIE_GRAPH_ID);
                     }
                 }
-                if mpeg.is_finished()? { self.stop(motion); }
+                if mpeg.is_finished()? {
+                    self.stop(motion);
+                }
             }
         }
         Ok(())
@@ -394,7 +442,13 @@ impl VideoPlayerManager {
 
 #[inline]
 fn clamp_u8(v: i32) -> u8 {
-    if v < 0 { 0 } else if v > 255 { 255 } else { v as u8 }
+    if v < 0 {
+        0
+    } else if v > 255 {
+        255
+    } else {
+        v as u8
+    }
 }
 
 fn yuv420_to_rgba_scaled(src: &wmv_decoder::YuvFrame, dst_w: u32, dst_h: u32, out: &mut Vec<u8>) {
@@ -403,7 +457,10 @@ fn yuv420_to_rgba_scaled(src: &wmv_decoder::YuvFrame, dst_w: u32, dst_h: u32, ou
     let dw = dst_w.max(1);
     let dh = dst_h.max(1);
     out.clear();
-    out.resize((dw as usize).saturating_mul(dh as usize).saturating_mul(4), 0);
+    out.resize(
+        (dw as usize).saturating_mul(dh as usize).saturating_mul(4),
+        0,
+    );
 
     let uv_w = (sw / 2).max(1);
     let uv_h = (sh / 2).max(1);
@@ -438,13 +495,23 @@ fn yuv420_to_rgba_scaled(src: &wmv_decoder::YuvFrame, dst_w: u32, dst_h: u32, ou
     }
 }
 
-fn rgba_scale_nearest(src: &[u8], src_w: u32, src_h: u32, dst_w: u32, dst_h: u32, out: &mut Vec<u8>) {
+fn rgba_scale_nearest(
+    src: &[u8],
+    src_w: u32,
+    src_h: u32,
+    dst_w: u32,
+    dst_h: u32,
+    out: &mut Vec<u8>,
+) {
     let sw = src_w.max(1);
     let sh = src_h.max(1);
     let dw = dst_w.max(1);
     let dh = dst_h.max(1);
     out.clear();
-    out.resize((dw as usize).saturating_mul(dh as usize).saturating_mul(4), 0);
+    out.resize(
+        (dw as usize).saturating_mul(dh as usize).saturating_mul(4),
+        0,
+    );
 
     for dy in 0..dh {
         let sy = ((dy as u64 * sh as u64) / dh as u64) as u32;

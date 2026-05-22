@@ -50,7 +50,10 @@ pub extern "C" fn wmv2_decoder_create(
     };
 
     let dec = Wmv2Decoder::new(width, height, extra);
-    let opaque = Box::new(Opaque { dec, has_frame: false });
+    let opaque = Box::new(Opaque {
+        dec,
+        has_frame: false,
+    });
     Box::into_raw(opaque) as *mut c_void
 }
 

@@ -220,12 +220,20 @@ fn pack_command(args: PackArgs) -> Result<()> {
     }
 
     let compressed_payload = compress_payload(&payload, args.compression_level)?;
-    let bytes = build_file_bytes(&args, width, height, entry_count, &payload, &compressed_payload)?;
+    let bytes = build_file_bytes(
+        &args,
+        width,
+        height,
+        entry_count,
+        &payload,
+        &compressed_payload,
+    )?;
 
     if let Some(parent) = args.output.parent() {
         if !parent.as_os_str().is_empty() {
-            fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create output directory {}", parent.display()))?;
+            fs::create_dir_all(parent).with_context(|| {
+                format!("failed to create output directory {}", parent.display())
+            })?;
         }
     }
     fs::write(&args.output, &bytes)
@@ -261,7 +269,10 @@ fn inspect_command(args: InspectArgs) -> Result<()> {
     println!("unknown3: {}", file.header.unknown3);
     println!("unknown4: {}", file.header.unknown4);
     println!("original_length: {}", file.original_length);
-    println!("compressed_payload_length: {}", file.compressed_payload.len());
+    println!(
+        "compressed_payload_length: {}",
+        file.compressed_payload.len()
+    );
     Ok(())
 }
 
@@ -276,7 +287,8 @@ fn unpack_command(args: UnpackArgs) -> Result<()> {
         for (index, frame) in file.frames.iter().enumerate() {
             let image = decode_frame_to_image(&file.header, frame)?;
             let output = args.output.join(format!("frame_{index:04}.png"));
-            image.save(&output)
+            image
+                .save(&output)
                 .with_context(|| format!("failed to write {}", output.display()))?;
         }
     } else {
@@ -286,9 +298,13 @@ fn unpack_command(args: UnpackArgs) -> Result<()> {
                     .with_context(|| format!("failed to create {}", parent.display()))?;
             }
         }
-        let frame = file.frames.first().ok_or_else(|| anyhow!("decoded file has no frames"))?;
+        let frame = file
+            .frames
+            .first()
+            .ok_or_else(|| anyhow!("decoded file has no frames"))?;
         let image = decode_frame_to_image(&file.header, frame)?;
-        image.save(&args.output)
+        image
+            .save(&args.output)
             .with_context(|| format!("failed to write {}", args.output.display()))?;
     }
     Ok(())
@@ -314,7 +330,9 @@ fn validate_pack_args(args: &PackArgs) -> Result<()> {
 fn load_images(paths: &[PathBuf]) -> Result<Vec<DynamicImage>> {
     paths
         .iter()
-        .map(|path| image::open(path).with_context(|| format!("failed to read image {}", path.display())))
+        .map(|path| {
+            image::open(path).with_context(|| format!("failed to read image {}", path.display()))
+        })
         .collect()
 }
 
@@ -325,12 +343,20 @@ fn common_dimensions(images: &[DynamicImage]) -> Result<(u16, u16)> {
         bail!("image dimensions must be non-zero");
     }
     if width > u16::MAX as u32 || height > u16::MAX as u32 {
-        bail!("image dimensions exceed NVSG u16 limits: {}x{}", width, height);
+        bail!(
+            "image dimensions exceed NVSG u16 limits: {}x{}",
+            width,
+            height
+        );
     }
     for image in &images[1..] {
         let dims = image.dimensions();
         if dims != (width, height) {
-            bail!("all frames must have identical dimensions, got {:?} vs {:?}", dims, (width, height));
+            bail!(
+                "all frames must have identical dimensions, got {:?} vs {:?}",
+                dims,
+                (width, height)
+            );
         }
     }
     Ok((width as u16, height as u16))
@@ -365,7 +391,11 @@ fn encode_frame(payload: &mut Vec<u8>, image: &DynamicImage, args: &PackArgs) ->
         NvsgTypeArg::Single1 => {
             for pixel in image.to_rgba8().pixels() {
                 let value = mask_value(pixel.0, args.mask_source);
-                payload.push(if value >= args.one_bit_threshold { 1 } else { 0 });
+                payload.push(if value >= args.one_bit_threshold {
+                    1
+                } else {
+                    0
+                });
             }
         }
     }
@@ -464,7 +494,11 @@ fn decode_nvsg(bytes: &[u8]) -> Result<NvsgFile> {
         v: u16::from_le_bytes(header_bytes[18..20].try_into().unwrap()),
         entry_count: {
             let count = u32::from_le_bytes(header_bytes[20..24].try_into().unwrap());
-            if count == 0 { 1 } else { count }
+            if count == 0 {
+                1
+            } else {
+                count
+            }
         },
         unknown3: u32::from_le_bytes(header_bytes[24..28].try_into().unwrap()),
         unknown4: u32::from_le_bytes(header_bytes[28..32].try_into().unwrap()),

@@ -21,36 +21,33 @@ pub fn history_set(game_data: &mut GameData, fnid: &Variant, value: &Variant) ->
     };
 
     match id.try_into() {
-        Ok(HistoryFunction::Name) => {
-            match value.as_string() {
-                Some(value) => {
-                    game_data.history_manager.set_name(value.to_owned());
-                }
-                _ => {
-                    log::error!("history_set: unexpected value for set_name : {:?}", value);
-                }
+        Ok(HistoryFunction::Name) => match value.as_string() {
+            Some(value) => {
+                game_data.history_manager.set_name(value.to_owned());
             }
-        }
-        Ok(HistoryFunction::Content) => {
-            match value.as_string() {
-                Some(value) => {
-                    game_data.history_manager.set_content(value.to_owned());
-                }
-                _ => {
-                    log::error!("history_set: unexpected value for set_content : {:?}", value);
-                }
+            _ => {
+                log::error!("history_set: unexpected value for set_name : {:?}", value);
             }
-        }
-        Ok(HistoryFunction::Voice) => {
-            match value.as_int() {
-                Some(value) => {
-                    game_data.history_manager.set_voice(value);
-                }
-                _ => {
-                    log::error!("history_set: unexpected value for set_voice : {:?}", value);
-                }
+        },
+        Ok(HistoryFunction::Content) => match value.as_string() {
+            Some(value) => {
+                game_data.history_manager.set_content(value.to_owned());
             }
-        }
+            _ => {
+                log::error!(
+                    "history_set: unexpected value for set_content : {:?}",
+                    value
+                );
+            }
+        },
+        Ok(HistoryFunction::Voice) => match value.as_int() {
+            Some(value) => {
+                game_data.history_manager.set_voice(value);
+            }
+            _ => {
+                log::error!("history_set: unexpected value for set_voice : {:?}", value);
+            }
+        },
         _ => {
             log::error!("history_set: unexpected fnid value: {:?}", id);
         }
@@ -109,13 +106,12 @@ pub fn history_get(game_data: &mut GameData, kind: &Variant, idx: &Variant) -> R
     Ok(value)
 }
 
-
 ///
 /// Retrieves a value from the history manager.
 /// Arguments:
 /// Arg1: kind (int or nil) - 0=name, 1=content, 2=voice. If nil, returns the history count.
 /// Arg2: idx (int) - 0 means the most recent entry, 1 the one before that, etc.
-/// 
+///
 pub struct HistoryGet;
 impl Syscaller for HistoryGet {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -135,7 +131,7 @@ unsafe impl Sync for HistoryGet {}
 /// Arguments:
 /// Arg1: fnid (int or nil) - The kind of value to set.
 /// Arg2: The value
-/// 
+///
 pub struct HistorySet;
 impl Syscaller for HistorySet {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {

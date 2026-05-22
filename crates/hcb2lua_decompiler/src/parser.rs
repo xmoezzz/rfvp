@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::Read;
@@ -5,7 +6,6 @@ use std::mem::size_of;
 use std::path::Path;
 use std::rc::Rc;
 use std::str::FromStr;
-use serde::{Serialize, Deserialize};
 
 use anyhow::{anyhow, Result};
 
@@ -106,7 +106,10 @@ impl Parser {
     }
 
     pub fn read_u8(&self, offset: usize) -> Result<u8> {
-        self.buffer.get(offset).copied().ok_or_else(|| anyhow!("offset out of bounds"))
+        self.buffer
+            .get(offset)
+            .copied()
+            .ok_or_else(|| anyhow!("offset out of bounds"))
     }
 
     pub fn read_i8(&self, offset: usize) -> Result<i8> {
@@ -117,7 +120,10 @@ impl Parser {
         if offset + 1 >= self.buffer.len() {
             return Err(anyhow!("offset out of bounds"));
         }
-        Ok(u16::from_le_bytes([self.buffer[offset], self.buffer[offset + 1]]))
+        Ok(u16::from_le_bytes([
+            self.buffer[offset],
+            self.buffer[offset + 1],
+        ]))
     }
 
     pub fn read_i16(&self, offset: usize) -> Result<i16> {
@@ -259,7 +265,13 @@ impl Parser {
     pub fn export_yaml(&self, path: impl AsRef<Path>) -> Result<()> {
         let mut syscalls = BTreeMap::new();
         for (id, sc) in &self.syscalls {
-            syscalls.insert(*id, YamlSyscall { args: sc.args, name: sc.name.clone() });
+            syscalls.insert(
+                *id,
+                YamlSyscall {
+                    args: sc.args,
+                    name: sc.name.clone(),
+                },
+            );
         }
 
         let export = YamlExport {
@@ -310,7 +322,10 @@ impl Parser {
             14 => (1920, 1080),
             15 => (1920, 1200),
             _ => {
-                log::warn!("unknown resolution: {}, defaulting to 640x480", self.game_mode);
+                log::warn!(
+                    "unknown resolution: {}, defaulting to 640x480",
+                    self.game_mode
+                );
                 (640, 480)
             }
         }

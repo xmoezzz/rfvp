@@ -69,11 +69,10 @@ impl ColorItem {
     }
 }
 
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ColorManager {
     // 256 entries in total
-    colors: Vec<ColorItem>
+    colors: Vec<ColorItem>,
 }
 
 impl ColorManager {
@@ -90,7 +89,7 @@ impl ColorManager {
     pub fn get_entry_mut(&mut self, id: u8) -> &mut ColorItem {
         &mut self.colors[id as usize]
     }
-    
+
     pub fn get_entry(&self, id: u8) -> &ColorItem {
         &self.colors[id as usize]
     }
@@ -101,5 +100,3 @@ impl Default for ColorManager {
         Self::new()
     }
 }
-
-

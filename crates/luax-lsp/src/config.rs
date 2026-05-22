@@ -41,7 +41,10 @@ impl<'de> Deserialize<'de> for Nls {
             "ShiftJIS" | "SJIS" | "sjis" => Ok(Self::ShiftJIS),
             "GBK" | "gbk" => Ok(Self::Gbk),
             "UTF8" | "utf8" | "UTF-8" | "utf-8" => Ok(Self::Utf8),
-            _ => Err(serde::de::Error::custom(format!("unsupported nls '{}': expected ShiftJIS, GBK, or UTF8", raw))),
+            _ => Err(serde::de::Error::custom(format!(
+                "unsupported nls '{}': expected ShiftJIS, GBK, or UTF8",
+                raw
+            ))),
         }
     }
 }

@@ -1,10 +1,10 @@
 use anyhow::{Context, Result};
 
-use std::path::PathBuf;
+use crate::platform_time::{SystemTime, UNIX_EPOCH};
 use std::fs;
 use std::io;
 use std::path::Component;
-use crate::platform_time::{SystemTime, UNIX_EPOCH};
+use std::path::PathBuf;
 
 use directories::ProjectDirs;
 
@@ -151,7 +151,6 @@ pub fn movie_stop(game_data: &mut GameData) -> Result<Variant> {
     Ok(Variant::Nil)
 }
 
-
 fn normalize_vfs_path(p: &str) -> String {
     // Scripts usually use forward slashes, but some ports may pass backslashes.
     // Normalize to forward slashes for VFS resolution.
@@ -183,16 +182,23 @@ fn safe_rel_path_from_vfs(path: &str) -> anyhow::Result<PathBuf> {
 fn video_cache_root_dir() -> PathBuf {
     // Preferred: `<game_root>/.rfvp_cache/video`.
     // Fallback: OS-specific cache dir (writable on mobile).
-    let preferred = app_base_path().join(".rfvp_cache").join("video").get_path().clone();
+    let preferred = app_base_path()
+        .join(".rfvp_cache")
+        .join("video")
+        .get_path()
+        .clone();
     if fs::create_dir_all(&preferred).is_ok() {
         return preferred;
     }
 
     let fallback = ProjectDirs::from("com", "xmoezzz", "rfvp")
         .map(|d| d.cache_dir().join("video"))
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-            .join(".rfvp_cache")
-            .join("video"));
+        .unwrap_or_else(|| {
+            std::env::current_dir()
+                .unwrap_or_else(|_| PathBuf::from("."))
+                .join(".rfvp_cache")
+                .join("video")
+        });
     let _ = fs::create_dir_all(&fallback);
     fallback
 }
@@ -220,7 +226,10 @@ fn resolve_movie_real_path(game_data: &GameData, mapped: &str) -> anyhow::Result
     }
 
     let pid = std::process::id();
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_nanos();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
     let tmp_name = match cache_path.file_name().and_then(|s| s.to_str()) {
         Some(name) => format!("{name}.part_{pid}_{now}"),
         None => format!("movie.part_{pid}_{now}"),
@@ -228,7 +237,9 @@ fn resolve_movie_real_path(game_data: &GameData, mapped: &str) -> anyhow::Result
     let tmp_path = cache_path.with_file_name(tmp_name);
 
     {
-        let mut src = game_data.vfs.open_stream(mapped)
+        let mut src = game_data
+            .vfs
+            .open_stream(mapped)
             .with_context(|| format!("vfs.open_stream({mapped})"))?;
         let mut dst = fs::File::create(&tmp_path)
             .with_context(|| format!("create cache tmp {}", tmp_path.display()))?;
@@ -243,11 +254,18 @@ fn resolve_movie_real_path(game_data: &GameData, mapped: &str) -> anyhow::Result
         Err(e) if cache_path.exists() => {
             // Another thread/process may have populated the cache.
             let _ = fs::remove_file(&tmp_path);
-            log::debug!("Movie cache race: {} already exists ({e:?})", cache_path.display());
+            log::debug!(
+                "Movie cache race: {} already exists ({e:?})",
+                cache_path.display()
+            );
         }
         Err(e) => {
             let _ = fs::remove_file(&tmp_path);
-            return Err(anyhow::anyhow!("rename cache tmp {} -> {}: {e}", tmp_path.display(), cache_path.display()));
+            return Err(anyhow::anyhow!(
+                "rename cache tmp {} -> {}: {e}",
+                tmp_path.display(),
+                cache_path.display()
+            ));
         }
     }
 
@@ -294,7 +312,11 @@ fn movie_path_candidates(path: &str) -> Vec<String> {
 pub struct Movie;
 impl Syscaller for Movie {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
-        movie_play(game_data, super::get_var!(args, 0), super::get_var!(args, 1))
+        movie_play(
+            game_data,
+            super::get_var!(args, 0),
+            super::get_var!(args, 1),
+        )
     }
 }
 

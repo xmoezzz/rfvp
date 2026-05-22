@@ -1,5 +1,5 @@
-use crate::subsystem::world::GameData;
 use crate::app::AppBuilder;
+use crate::subsystem::world::GameData;
 
 pub trait Package {
     fn prepare(&self, _data: &mut GameData) {}

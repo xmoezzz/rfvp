@@ -6,7 +6,6 @@
 //! - WMAv2 (format tag 0x0161)
 //!
 
-
 pub mod bitstream;
 pub mod common;
 pub mod mdct;

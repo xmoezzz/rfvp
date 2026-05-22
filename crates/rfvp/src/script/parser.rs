@@ -1,8 +1,8 @@
 use std::collections::HashMap;
+use std::fs::File;
 use std::io::Read;
 use std::mem::size_of;
 use std::path::Path;
-use std::fs::File;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -16,7 +16,6 @@ pub enum Nls {
     UTF8 = 2,
 }
 
-
 impl FromStr for Nls {
     type Err = anyhow::Error;
 
@@ -25,7 +24,10 @@ impl FromStr for Nls {
             "sjis" | "shiftjis" | "shift_jis" | "shift-jis" => Ok(Nls::ShiftJIS),
             "gbk" | "gb2312" | "gb18030" => Ok(Nls::GBK),
             "utf8" | "utf-8" => Ok(Nls::UTF8),
-            _ => Err(anyhow::anyhow!("unknown NLS '{}', valid values: sjis, gbk, utf8", s)),
+            _ => Err(anyhow::anyhow!(
+                "unknown NLS '{}', valid values: sjis, gbk, utf8",
+                s
+            )),
         }
     }
 }
@@ -99,7 +101,10 @@ impl Parser {
         if offset + 1 >= self.buffer.len() {
             return Err(anyhow::anyhow!("offset out of bounds"));
         }
-        Ok(u16::from_le_bytes([self.buffer[offset], self.buffer[offset + 1]]))
+        Ok(u16::from_le_bytes([
+            self.buffer[offset],
+            self.buffer[offset + 1],
+        ]))
     }
 
     /// safely read a little-endian u32 from the buffer
@@ -128,7 +133,10 @@ impl Parser {
         if offset + 1 >= self.buffer.len() {
             return Err(anyhow::anyhow!("offset out of bounds"));
         }
-        Ok(i16::from_le_bytes([self.buffer[offset], self.buffer[offset + 1]]))
+        Ok(i16::from_le_bytes([
+            self.buffer[offset],
+            self.buffer[offset + 1],
+        ]))
     }
 
     /// safely read a little-endian i32 from the buffer
@@ -175,7 +183,7 @@ impl Parser {
         if string.ends_with(&[0]) {
             string.pop();
         }
-        
+
         let s = match self.nls {
             Nls::ShiftJIS => {
                 let (s, _, e) = encoding_rs::SHIFT_JIS.decode(&string);
@@ -296,7 +304,10 @@ impl Parser {
             14 => (1920, 1080),
             15 => (1920, 1200),
             _ => {
-                log::error!("unknown resolution: {}, use 640x480 as defualt", self.game_mode);
+                log::error!(
+                    "unknown resolution: {}, use 640x480 as defualt",
+                    self.game_mode
+                );
                 (640, 480)
             }
         }

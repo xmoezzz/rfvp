@@ -33,7 +33,6 @@ pub struct HudSnapshot {
     pub prim_tiles: Vec<DebugPrimTile>,
 }
 
-
 pub struct DebugHud {
     ring: Arc<LogRing>,
     egui_ctx: egui::Context,
@@ -58,7 +57,11 @@ pub struct DebugHud {
 }
 
 impl DebugHud {
-    pub fn new(device: &wgpu::Device, surface_format: wgpu::TextureFormat, ring: Arc<LogRing>) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        surface_format: wgpu::TextureFormat,
+        ring: Arc<LogRing>,
+    ) -> Self {
         let egui_ctx = egui::Context::default();
         let renderer = egui_wgpu::Renderer::new(device, surface_format, None, 1);
 
@@ -83,7 +86,6 @@ impl DebugHud {
     pub fn set_max_console_lines(&mut self, n: usize) {
         self.max_console_lines = n.max(50);
     }
-
 
     pub fn sync_prim_tile_textures(
         &mut self,
@@ -132,9 +134,9 @@ impl DebugHud {
             }
 
             // Register a native wgpu texture view for egui.
-            let tex_id = self
-                .renderer
-                .register_native_texture(device, view, wgpu::FilterMode::Nearest);
+            let tex_id =
+                self.renderer
+                    .register_native_texture(device, view, wgpu::FilterMode::Nearest);
 
             self.prim_tile_textures.insert(gid, (gen, tex_id, size));
         }
@@ -181,7 +183,10 @@ impl DebugHud {
                     modifiers: egui::Modifiers::default(),
                 });
                 if inp.scroll_delta_y.abs() > 0.0 {
-                    raw_input.events.push(egui::Event::Scroll(egui::Vec2::new(0.0, inp.scroll_delta_y)));
+                    raw_input.events.push(egui::Event::Scroll(egui::Vec2::new(
+                        0.0,
+                        inp.scroll_delta_y,
+                    )));
                 }
             }
         }
@@ -208,7 +213,8 @@ impl DebugHud {
             self.renderer.update_texture(device, queue, *id, delta);
         }
 
-        self.renderer.update_buffers(device, queue, encoder, &self.paint_jobs, &self.screen_desc);
+        self.renderer
+            .update_buffers(device, queue, encoder, &self.paint_jobs, &self.screen_desc);
 
         {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -225,7 +231,8 @@ impl DebugHud {
                 occlusion_query_set: None,
                 timestamp_writes: None,
             });
-            self.renderer.render(&mut rpass, &self.paint_jobs, &self.screen_desc);
+            self.renderer
+                .render(&mut rpass, &self.paint_jobs, &self.screen_desc);
         }
 
         for id in &self.textures_delta.free {
@@ -238,11 +245,19 @@ impl DebugHud {
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                 ui.heading("rfvp debug");
                 ui.separator();
-                let fps = if snap.dt_ms > 0.0 { 1000.0 / snap.dt_ms } else { 0.0 };
-                ui.label(format!("frame={}  dt={:.2}ms  fps={:.1}", snap.frame_no, snap.dt_ms, fps));
+                let fps = if snap.dt_ms > 0.0 {
+                    1000.0 / snap.dt_ms
+                } else {
+                    0.0
+                };
+                ui.label(format!(
+                    "frame={}  dt={:.2}ms  fps={:.1}",
+                    snap.frame_no, snap.dt_ms, fps
+                ));
                 ui.label(&snap.input_line);
                 ui.separator();
-                ui.label(format!("render: quads={} verts={} draws={} textures={}",
+                ui.label(format!(
+                    "render: quads={} verts={} draws={} textures={}",
                     snap.render.quad_count,
                     snap.render.vertex_count,
                     snap.render.draw_calls,
@@ -403,8 +418,6 @@ impl DebugHud {
                         });
                 });
 
-                
-
                 cols[0].add_space(8.0);
 
                 cols[0].group(|ui| {
@@ -503,7 +516,6 @@ cols[1].group(|ui| {
             });
         });
     }
-
 }
 
 fn format_thread_state(bits: u32) -> String {

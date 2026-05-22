@@ -66,7 +66,8 @@ impl PartsItem {
             return;
         }
         for index in 0..self.texture.get_entry_count() as usize {
-            let _ = self.texture
+            let _ = self
+                .texture
                 .texture_color_tone_32(index, r as i32, g as i32, b as i32);
         }
 
@@ -239,7 +240,9 @@ impl PartsManager {
     /// We model it as a stack of free slot IDs (`allocation_pool`) plus a handle count (`current_id`).
     fn unload_motion_for_parts(&mut self, parts_id: u8) {
         for i in 0..self.parts_motions.len() {
-            if self.parts_motions[i].get_running() && self.parts_motions[i].get_parts_id() == parts_id {
+            if self.parts_motions[i].get_running()
+                && self.parts_motions[i].get_parts_id() == parts_id
+            {
                 let slot_id = self.parts_motions[i].get_id();
                 self.parts_motions[i].set_running(false);
                 // Recycle slot id.
@@ -325,7 +328,9 @@ impl PartsManager {
                 continue;
             }
 
-            let elapsed = self.parts_motions[i].get_elapsed().saturating_add(elapsed_ms);
+            let elapsed = self.parts_motions[i]
+                .get_elapsed()
+                .saturating_add(elapsed_ms);
             self.parts_motions[i].set_elapsed(elapsed);
 
             let duration = self.parts_motions[i].get_duration();

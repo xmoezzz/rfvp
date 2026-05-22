@@ -4,76 +4,69 @@ use std::sync::Arc;
 use crate::audio_player::{BgmPlayer, SePlayer};
 use crate::script::parser::Nls;
 use crate::subsystem::components::syscalls::cursor::{CursorChange, CursorMove, CursorShow};
-use crate::subsystem::components::syscalls::utils::{Debmess, DissolveWait, ExitDialog, TitleMenu, UnimplementedNamed, nullsub_2};
 use crate::subsystem::components::syscalls::generated::SYSCALL_SPECS;
 use crate::subsystem::components::syscalls::legacy::{
-    ChrAdd, ChrGetRGB, ChrGetVol, ConfigDisplay, ConfigEtc, ConfigSet, ConfigSound,
-    LoadFile, LoadQuick, LoadTitle, MoviePlay, PrimSetClip, QuickCopy, QuickState,
-    SaveFile, SaveLoadMenu, SaveName, SaveQuick, SaveTitle, SoundPan, TextDataGet,
-    TextDataSet, TextHistory, TextHyphenation,
+    ChrAdd, ChrGetRGB, ChrGetVol, ConfigDisplay, ConfigEtc, ConfigSet, ConfigSound, LoadFile,
+    LoadQuick, LoadTitle, MoviePlay, PrimSetClip, QuickCopy, QuickState, SaveFile, SaveLoadMenu,
+    SaveName, SaveQuick, SaveTitle, SoundPan, TextDataGet, TextDataSet, TextHistory,
+    TextHyphenation,
+};
+use crate::subsystem::components::syscalls::utils::{
+    nullsub_2, Debmess, DissolveWait, ExitDialog, TitleMenu, UnimplementedNamed,
 };
 
 use crate::script::{Variant, VmSyscall};
+use crate::subsystem::components::syscalls::color::ColorSet;
+use crate::subsystem::components::syscalls::flag::{FlagGet, FlagSet};
 use crate::subsystem::components::syscalls::graph::{
-    PrimExitGroup, PrimGroupIn, PrimGroupMove, PrimGroupOut, PrimSetAlpha, PrimSetBlend,
-    PrimSetDraw, PrimSetNull, PrimSetOP, PrimSetRS, PrimSetRS2, PrimSetSnow, PrimSetSprt,
-    PrimSetText, PrimSetTile, PrimSetUV, PrimSetWH, PrimSetXY, PrimSetZ, PrimHit,
-    GraphLoad, GraphRGB, GaijiLoad,
+    GaijiLoad, GraphLoad, GraphRGB, PrimExitGroup, PrimGroupIn, PrimGroupMove, PrimGroupOut,
+    PrimHit, PrimSetAlpha, PrimSetBlend, PrimSetDraw, PrimSetNull, PrimSetOP, PrimSetRS,
+    PrimSetRS2, PrimSetSnow, PrimSetSprt, PrimSetText, PrimSetTile, PrimSetUV, PrimSetWH,
+    PrimSetXY, PrimSetZ,
 };
-use crate::subsystem::components::syscalls::history::{
-    HistoryGet, HistorySet
-};
-use crate::subsystem::components::syscalls::flag::{
-    FlagSet, FlagGet
-};
-use crate::subsystem::components::syscalls::utils::{
-    IntToText, Rand, SysProjFolder, SysAtSkipName, DebugMessage,
-    BreakPoint, FloatToInt
-};
-use crate::subsystem::components::syscalls::thread::{
-    ThreadExit, ThreadNext, ThreadRaise, ThreadSleep,
-    ThreadStart, ThreadWait
-};
-use crate::subsystem::components::syscalls::sound::{
-    AudioLoad, AudioPlay, AudioSilentOn, AudioSlientOn, AudioState, AudioStop, AudioType, AudioVol, SoundLoad, SoundMasterVol, SoundPlay, SoundSilentOn, SoundSlientOn, SoundStop, SoundType, SoundTypeVol, SoundVol, SoundVolume
+use crate::subsystem::components::syscalls::history::{HistoryGet, HistorySet};
+use crate::subsystem::components::syscalls::input::{
+    ControlMask, ControlPulse, InputFlash, InputGetCursIn, InputGetCursX, InputGetCursY,
+    InputGetDown, InputGetEvent, InputGetRepeat, InputGetState, InputGetUp, InputGetWheel,
+    InputSetClick,
 };
 use crate::subsystem::components::syscalls::motion::{
-    MotionAlpha, MotionAlphaStop, MotionAlphaTest, MotionAnim, MotionAnimStop, MotionAnimTest, MotionMove, MotionMoveR, MotionMoveRStop, MotionMoveRTest, MotionMoveS2, MotionMoveS2Stop, MotionMoveS2Test, MotionMoveStop, MotionMoveTest, MotionMoveZ, MotionMoveZStop, MotionMoveZTest, MotionPause, V3DMotion, V3DMotionPause, V3DMotionStop, V3DMotionTest, V3DSet
+    MotionAlpha, MotionAlphaStop, MotionAlphaTest, MotionAnim, MotionAnimStop, MotionAnimTest,
+    MotionMove, MotionMoveR, MotionMoveRStop, MotionMoveRTest, MotionMoveS2, MotionMoveS2Stop,
+    MotionMoveS2Test, MotionMoveStop, MotionMoveTest, MotionMoveZ, MotionMoveZStop,
+    MotionMoveZTest, MotionPause, V3DMotion, V3DMotionPause, V3DMotionStop, V3DMotionTest, V3DSet,
 };
-use crate::subsystem::components::syscalls::color::ColorSet;
-use crate::subsystem::components::syscalls::input::{
-    InputFlash, InputGetCursIn, InputGetCursX, InputGetCursY,
-    InputGetDown, InputGetEvent, InputGetRepeat, InputGetState,
-    InputGetUp, InputGetWheel, InputSetClick,
-    ControlMask, ControlPulse
-};
-use crate::subsystem::components::syscalls::timer::{
-    TimerSet, TimerGet, TimerSuspend
-};
-use crate::subsystem::components::syscalls::movie::{
-    Movie, MovieState, MovieStop
+use crate::subsystem::components::syscalls::movie::{Movie, MovieState, MovieStop};
+use crate::subsystem::components::syscalls::other_anm::{
+    Dissolve, LipAnim, LipSync, Snow, SnowStart, SnowStop,
 };
 use crate::subsystem::components::syscalls::parts::{
-    PartsLoad, PartsRGB, PartsMotion, PartsMotionTest, 
-    PartsMotionStop, PartsMotionPause, PartsAssign, PartsSelect
-};
-use crate::subsystem::components::syscalls::text::{
-    TextBuff, TextClear, TextColor, TextFont, TextFontCount,
-    TextFontGet, TextFontName, TextFontSet, TextFormat,
-    TextFunction, TextOutSize, TextPause, TextPos, TextPrint,
-    TextReprint, TextShadowDist, TextSize, TextSkip, TextSpace,
-    TextSpeed, TextSuspendChr, TextTest
+    PartsAssign, PartsLoad, PartsMotion, PartsMotionPause, PartsMotionStop, PartsMotionTest,
+    PartsRGB, PartsSelect,
 };
 use crate::subsystem::components::syscalls::saveload::{
-    SaveCreate, SaveThumbSize, SaveWrite, SaveData, Load,
+    Load, SaveCreate, SaveData, SaveThumbSize, SaveWrite,
 };
-use crate::subsystem::components::syscalls::other_anm::{
-    LipAnim, LipSync, Dissolve, Snow, SnowStart, SnowStop,
+use crate::subsystem::components::syscalls::sound::{
+    AudioLoad, AudioPlay, AudioSilentOn, AudioSlientOn, AudioState, AudioStop, AudioType, AudioVol,
+    SoundLoad, SoundMasterVol, SoundPlay, SoundSilentOn, SoundSlientOn, SoundStop, SoundType,
+    SoundTypeVol, SoundVol, SoundVolume,
 };
+use crate::subsystem::components::syscalls::text::{
+    TextBuff, TextClear, TextColor, TextFont, TextFontCount, TextFontGet, TextFontName,
+    TextFontSet, TextFormat, TextFunction, TextOutSize, TextPause, TextPos, TextPrint, TextReprint,
+    TextShadowDist, TextSize, TextSkip, TextSpace, TextSpeed, TextSuspendChr, TextTest,
+};
+use crate::subsystem::components::syscalls::thread::{
+    ThreadExit, ThreadNext, ThreadRaise, ThreadSleep, ThreadStart, ThreadWait,
+};
+use crate::subsystem::components::syscalls::timer::{TimerGet, TimerSet, TimerSuspend};
 use crate::subsystem::components::syscalls::utils::{
-    WindowMode, ExitMode
+    BreakPoint, DebugMessage, FloatToInt, IntToText, Rand, SysAtSkipName, SysProjFolder,
 };
+use crate::subsystem::components::syscalls::utils::{ExitMode, WindowMode};
 
+use crate::rfvp_audio::AudioManager;
 use crate::subsystem::resources::motion_manager::MotionManager;
 use crate::subsystem::resources::time::Time;
 use crate::subsystem::resources::window::Window;
@@ -84,9 +77,7 @@ use hecs::{
     Component, ComponentError, DynamicBundle, Entity, NoSuchEntity, Query, QueryBorrow, QueryMut,
     QueryOne, QueryOneError,
 };
-use crate::rfvp_audio::AudioManager;
 use winit::window::CustomCursor;
-
 
 use super::resources::flag_manager::FlagManager;
 use super::resources::history_manager::HistoryManager;
@@ -94,14 +85,14 @@ use super::resources::input_manager::InputManager;
 use super::resources::save_manager::SaveManager;
 use super::resources::text_manager::FontEnumerator;
 
+use super::resources::color_manager::ColorManager;
 use super::resources::thread_wrapper::ThreadWrapper;
 use super::resources::timer_manager::TimerManager;
 use super::resources::vfs::Vfs;
-use super::resources::color_manager::ColorManager;
 use super::resources::videoplayer::VideoPlayerManager;
 
-use crate::subsystem::components::syscalls::Syscaller;
 use crate::subsystem::components::syscalls::generated;
+use crate::subsystem::components::syscalls::Syscaller;
 
 pub trait World {
     fn entities(&self) -> HashSet<Entity>;
@@ -120,7 +111,6 @@ pub trait World {
     fn entry_mut<Q: Query>(&mut self, entity: Entity) -> Result<Q::Item<'_>, QueryOneError>;
     fn contains(&self, entity: Entity) -> bool;
 }
-
 
 pub struct GameData {
     pub(crate) vfs: Vfs,
@@ -163,9 +153,6 @@ pub struct GameData {
 
     pub(crate) debug_vm: crate::debug_ui::vm_snapshot::VmSnapshot,
 }
-
-
-
 
 impl GameData {
     /// Initialize a `GameData` at `dst` with the same values as `GameData::default()`,
@@ -216,7 +203,6 @@ impl GameData {
         ptr::addr_of_mut!((*dst).debug_vm).write(Default::default());
     }
 }
-
 
 impl Default for GameData {
     fn default() -> Self {
@@ -392,7 +378,7 @@ impl GameData {
     pub fn get_current_thread(&self) -> u32 {
         self.current_thread
     }
-    
+
     pub fn set_current_thread(&mut self, id: u32) {
         self.current_thread = id;
     }
@@ -400,7 +386,7 @@ impl GameData {
     pub fn get_last_current_thread(&self) -> u32 {
         self.last_current_thread
     }
-    
+
     pub fn set_last_current_thread(&mut self, id: u32) {
         self.last_current_thread = id;
     }
@@ -730,7 +716,7 @@ lazy_static::lazy_static! {
                 .or_insert_with(|| Box::new(UnimplementedNamed::new(spec.name)));
         }
         // Any syscall already inserted above keeps precedence.
-        
+
         // Added to align with IDA syscall names (we.sqlite / generated.rs)
         m.insert("CursorShow".into(), Box::new(CursorShow));
         m.insert("CursorMove".into(), Box::new(CursorMove));

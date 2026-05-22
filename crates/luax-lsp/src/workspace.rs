@@ -49,7 +49,10 @@ impl WorkspaceState {
                 continue;
             }
             let path = entry.path();
-            if !matches!(path.extension().and_then(|x| x.to_str()), Some("luax") | Some("lua")) {
+            if !matches!(
+                path.extension().and_then(|x| x.to_str()),
+                Some("luax") | Some("lua")
+            ) {
                 continue;
             }
             let Ok(text) = fs::read_to_string(path) else {
@@ -59,7 +62,10 @@ impl WorkspaceState {
                 continue;
             };
             let version = self.docs.get(&uri).map(|d| d.version).unwrap_or(0);
-            loaded.insert(uri.clone(), self.make_doc(uri, Some(path.to_path_buf()), text, version));
+            loaded.insert(
+                uri.clone(),
+                self.make_doc(uri, Some(path.to_path_buf()), text, version),
+            );
         }
         for (uri, doc) in loaded {
             self.docs.insert(uri, doc);
@@ -80,7 +86,13 @@ impl WorkspaceState {
         self.reanalyze_all();
     }
 
-    fn make_doc(&self, uri: Url, path: Option<PathBuf>, text: String, version: i32) -> DocumentData {
+    fn make_doc(
+        &self,
+        uri: Url,
+        path: Option<PathBuf>,
+        text: String,
+        version: i32,
+    ) -> DocumentData {
         let module_name = self.compute_module_name(path.as_deref());
         let source = SourceMap::new(text.clone());
         let resolution = self.resolve_project_config(path.as_deref());
@@ -127,7 +139,9 @@ impl WorkspaceState {
             return ProjectConfigResolution {
                 config: None,
                 path: None,
-                diagnostics: vec!["missing project yaml in the same directory as this script".to_string()],
+                diagnostics: vec![
+                    "missing project yaml in the same directory as this script".to_string()
+                ],
             };
         };
 
@@ -138,7 +152,10 @@ impl WorkspaceState {
                 return ProjectConfigResolution {
                     config: None,
                     path: None,
-                    diagnostics: vec![format!("failed to inspect script directory for project yaml: {}", err)],
+                    diagnostics: vec![format!(
+                        "failed to inspect script directory for project yaml: {}",
+                        err
+                    )],
                 }
             }
         };
@@ -148,7 +165,10 @@ impl WorkspaceState {
             if !candidate.is_file() {
                 continue;
             }
-            if matches!(candidate.extension().and_then(|ext| ext.to_str()), Some("yaml") | Some("yml")) {
+            if matches!(
+                candidate.extension().and_then(|ext| ext.to_str()),
+                Some("yaml") | Some("yml")
+            ) {
                 yaml_files.push(candidate);
             }
         }
@@ -158,7 +178,9 @@ impl WorkspaceState {
             0 => ProjectConfigResolution {
                 config: None,
                 path: None,
-                diagnostics: vec!["missing project yaml in the same directory as this script".to_string()],
+                diagnostics: vec![
+                    "missing project yaml in the same directory as this script".to_string()
+                ],
             },
             1 => {
                 let yaml_path = yaml_files.into_iter().next().unwrap();
@@ -247,7 +269,12 @@ impl WorkspaceState {
                 let Some(module_doc) = self.module_doc(&current_module) else {
                     return ChainResolution::Module(current_module);
                 };
-                if let Some(def) = module_doc.analysis.defs.iter().find(|d| d.parent.is_none() && d.name == part) {
+                if let Some(def) = module_doc
+                    .analysis
+                    .defs
+                    .iter()
+                    .find(|d| d.parent.is_none() && d.name == part)
+                {
                     last = Some((module_doc, def));
                     current_module = format!("{}.{}", current_module, part);
                 } else {
@@ -263,11 +290,13 @@ impl WorkspaceState {
             return ChainResolution::None;
         };
         for part in parts {
-            let Some(next_id) = current
-                .children
-                .iter()
-                .find_map(|id| doc.analysis.defs.iter().find(|d| d.id == *id && d.name == part).map(|d| d.id))
-            else {
+            let Some(next_id) = current.children.iter().find_map(|id| {
+                doc.analysis
+                    .defs
+                    .iter()
+                    .find(|d| d.id == *id && d.name == part)
+                    .map(|d| d.id)
+            }) else {
                 return ChainResolution::Symbol(current);
             };
             current = doc.analysis.defs.iter().find(|d| d.id == next_id).unwrap();

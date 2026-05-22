@@ -86,7 +86,9 @@ impl GlobalSaveDataV1 {
         }
 
         // Non-critical engine state.
-        game_data.save_manager.set_thumb_size(self.thumb_width, self.thumb_height);
+        game_data
+            .save_manager
+            .set_thumb_size(self.thumb_width, self.thumb_height);
         game_data.set_current_cursor_index(self.current_cursor_index);
         game_data.set_render_flag_local(self.render_flag);
         game_data.set_is_first_frame(self.is_first_frame);

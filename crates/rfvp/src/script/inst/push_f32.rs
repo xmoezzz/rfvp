@@ -1,5 +1,5 @@
-use crate::script::opcode::OpcodeBase;
 use crate::script::opcode::Opcode;
+use crate::script::opcode::OpcodeBase;
 
 pub struct PushF32Inst {
     address: u32,
@@ -8,10 +8,7 @@ pub struct PushF32Inst {
 
 impl PushF32Inst {
     pub fn new(address: u32, value: f32) -> Self {
-        Self {
-            address,
-            value,
-        }
+        Self { address, value }
     }
 
     pub fn get_value(&self) -> f32 {
@@ -36,5 +33,3 @@ impl OpcodeBase for PushF32Inst {
         format!("{:8} {}", self.mnemonic(), self.value)
     }
 }
-
-

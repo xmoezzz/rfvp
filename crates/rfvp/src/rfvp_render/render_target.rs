@@ -1,10 +1,8 @@
 use glam::{mat4, vec4, Mat4, Vec4};
 use wgpu::util::DeviceExt;
 
-use super::{GpuCommonResources, TextureBindGroup};
 use super::vertices::{PosColTexVertex, VertexSource};
-
-
+use super::{GpuCommonResources, TextureBindGroup};
 
 #[derive(Debug)]
 pub struct RenderTargetReadback {
@@ -17,7 +15,7 @@ pub struct RenderTargetReadback {
 
 impl RenderTargetReadback {
     // get pixels as RGBA8 slice
-pub fn map_to_rgba8(&self, device: &wgpu::Device) -> Vec<u8> {
+    pub fn map_to_rgba8(&self, device: &wgpu::Device) -> Vec<u8> {
         let height = self.height as usize;
         let dst_bpr = self.bytes_per_row as usize;
         let src_bpr = self.padded_bytes_per_row as usize;
@@ -38,7 +36,9 @@ pub fn map_to_rgba8(&self, device: &wgpu::Device) -> Vec<u8> {
         device.poll(wgpu::Maintain::Wait);
 
         // Propagate mapping failure loudly (you can change to Result if preferred).
-        rx.recv().expect("map_async callback dropped").expect("buffer map failed");
+        rx.recv()
+            .expect("map_async callback dropped")
+            .expect("buffer map failed");
 
         let mapped = slice.get_mapped_range();
 
@@ -73,16 +73,28 @@ pub struct RenderTarget {
 impl RenderTarget {
     pub const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 
-    pub fn new(resources: &GpuCommonResources, logical_size: (u32, u32), backing_size: (u32, u32), label: Option<&str>) -> Self {
+    pub fn new(
+        resources: &GpuCommonResources,
+        logical_size: (u32, u32),
+        backing_size: (u32, u32),
+        label: Option<&str>,
+    ) -> Self {
         let (w, h) = (backing_size.0.max(1), backing_size.1.max(1));
         let texture = resources.device.create_texture(&wgpu::TextureDescriptor {
             label,
-            size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: Self::FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::COPY_SRC,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
 
@@ -98,14 +110,22 @@ impl RenderTarget {
             ..Default::default()
         });
 
-        let bind_group = resources.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("rfvp_render.rendertarget_bind_group"),
-            layout: &resources.bind_group_layouts.texture,
-            entries: &[
-                wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) },
-                wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) },
-            ],
-        });
+        let bind_group = resources
+            .device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("rfvp_render.rendertarget_bind_group"),
+                layout: &resources.bind_group_layouts.texture,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                ],
+            });
 
         // Fullscreen quad in virtual pixel space.
         // Coordinate system: origin at top-left, x right, y down.
@@ -119,19 +139,45 @@ impl RenderTarget {
         let white = Vec4::ONE;
         let v = [
             // Two triangles (0,1,2) (2,1,3)
-            PosColTexVertex { position: glam::vec3(x0, y1, 0.0), color: white, texture_coordinate: glam::vec2(0.0, 1.0) },
-            PosColTexVertex { position: glam::vec3(x0, y0, 0.0), color: white, texture_coordinate: glam::vec2(0.0, 0.0) },
-            PosColTexVertex { position: glam::vec3(x1, y1, 0.0), color: white, texture_coordinate: glam::vec2(1.0, 1.0) },
-            PosColTexVertex { position: glam::vec3(x1, y1, 0.0), color: white, texture_coordinate: glam::vec2(1.0, 1.0) },
-            PosColTexVertex { position: glam::vec3(x0, y0, 0.0), color: white, texture_coordinate: glam::vec2(0.0, 0.0) },
-            PosColTexVertex { position: glam::vec3(x1, y0, 0.0), color: white, texture_coordinate: glam::vec2(1.0, 0.0) },
+            PosColTexVertex {
+                position: glam::vec3(x0, y1, 0.0),
+                color: white,
+                texture_coordinate: glam::vec2(0.0, 1.0),
+            },
+            PosColTexVertex {
+                position: glam::vec3(x0, y0, 0.0),
+                color: white,
+                texture_coordinate: glam::vec2(0.0, 0.0),
+            },
+            PosColTexVertex {
+                position: glam::vec3(x1, y1, 0.0),
+                color: white,
+                texture_coordinate: glam::vec2(1.0, 1.0),
+            },
+            PosColTexVertex {
+                position: glam::vec3(x1, y1, 0.0),
+                color: white,
+                texture_coordinate: glam::vec2(1.0, 1.0),
+            },
+            PosColTexVertex {
+                position: glam::vec3(x0, y0, 0.0),
+                color: white,
+                texture_coordinate: glam::vec2(0.0, 0.0),
+            },
+            PosColTexVertex {
+                position: glam::vec3(x1, y0, 0.0),
+                color: white,
+                texture_coordinate: glam::vec2(1.0, 0.0),
+            },
         ];
 
-        let quad_vb = resources.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("rfvp_render.rendertarget_quad_vb"),
-            contents: bytemuck::cast_slice(&v),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        let quad_vb = resources
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("rfvp_render.rendertarget_quad_vb"),
+                contents: bytemuck::cast_slice(&v),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
 
         Self {
             texture,
@@ -148,7 +194,10 @@ impl RenderTarget {
     pub fn projection_matrix(&self) -> Mat4 {
         // Virtual space: origin at top-left, x right, y down.
         // Maps pixel coordinates (0..w, 0..h) into NDC (-1..1, 1..-1).
-        let (w, h) = (self.logical_size.0.max(1) as f32, self.logical_size.1.max(1) as f32);
+        let (w, h) = (
+            self.logical_size.0.max(1) as f32,
+            self.logical_size.1.max(1) as f32,
+        );
         mat4(
             vec4(2.0 / w, 0.0, 0.0, 0.0),
             vec4(0.0, -2.0 / h, 0.0, 0.0),
@@ -193,7 +242,6 @@ impl RenderTarget {
             occlusion_query_set: None,
         })
     }
-
 
     /// Encode a GPU -> CPU readback of the full render target into an internal buffer.
     /// The returned buffer is MAP_READ and must be mapped after submission.

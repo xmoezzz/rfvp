@@ -1,20 +1,21 @@
 mod alpha;
-mod normal_move;
-mod rotation_move;
-mod s2_move;
-mod v3d;
-mod z_move;
-pub(crate) mod snow;
 mod anim;
 mod dissolve2;
 mod lip;
+mod normal_move;
+mod rotation_move;
+mod s2_move;
+pub(crate) mod snow;
+mod v3d;
+mod z_move;
 
-use self::snow::SnowMotionContainer;
 use self::anim::SpriteAnimContainer;
 use self::dissolve2::Dissolve2State;
 use self::lip::LipMotionContainer;
+use self::snow::SnowMotionContainer;
 
 use super::gaiji_manager::GaijiManager;
+use super::gaiji_manager::GaijiManagerSnapshotV1;
 use super::graph_buff::{copy_rect, copy_rect_clipped, GraphBuff, GraphBuffSnapshotV1};
 pub use super::motion_manager::alpha::{AlphaMotionContainer, AlphaMotionType};
 pub use super::motion_manager::normal_move::{MoveMotionContainer, MoveMotionType};
@@ -22,19 +23,18 @@ pub use super::motion_manager::rotation_move::{RotationMotionContainer, Rotation
 pub use super::motion_manager::s2_move::{ScaleMotionContainer, ScaleMotionType};
 pub use super::motion_manager::v3d::{V3dMotionContainer, V3dMotionType};
 pub use super::motion_manager::z_move::{ZMotionContainer, ZMotionType};
-use super::text_manager::TextManager;
-use crate::subsystem::resources::color_manager::ColorManager;
-use crate::subsystem::resources::prim::{PrimType, Prim};
 use super::parts_manager::PartsManager;
+use super::parts_manager::PartsManagerSnapshotV1;
 use super::prim::{PrimManager, INVAILD_PRIM_HANDLE};
 use super::prim::{PrimManagerSnapshotV1, PrimSnapshotV1};
-use super::parts_manager::PartsManagerSnapshotV1;
-use super::gaiji_manager::GaijiManagerSnapshotV1;
+use super::text_manager::TextManager;
 use super::text_manager::TextManagerSnapshotV1;
-use serde::{Deserialize, Serialize};
+use crate::subsystem::resources::color_manager::ColorManager;
+use crate::subsystem::resources::prim::{Prim, PrimType};
 use anyhow::{bail, Result};
 use atomic_refcell::{AtomicRefCell, AtomicRefMut};
 use image::GenericImageView;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum DissolveType {
@@ -82,25 +82,24 @@ impl Default for MotionManager {
 }
 
 impl MotionManager {
+    /// Read-only access for renderers.
+    pub fn prim_manager(&self) -> &PrimManager {
+        &self.prim_manager
+    }
 
-/// Read-only access for renderers.
-pub fn prim_manager(&self) -> &PrimManager {
-    &self.prim_manager
-}
+    /// Read-only access for renderers.
+    pub fn graphs(&self) -> &[GraphBuff] {
+        &self.textures
+    }
 
-/// Read-only access for renderers.
-pub fn graphs(&self) -> &[GraphBuff] {
-    &self.textures
-}
+    pub fn take_pending_gpu_graph_unloads(&mut self) -> Vec<u16> {
+        std::mem::take(&mut self.pending_gpu_graph_unloads)
+    }
 
-pub fn take_pending_gpu_graph_unloads(&mut self) -> Vec<u16> {
-    std::mem::take(&mut self.pending_gpu_graph_unloads)
-}
-
-/// Read-only access for snow renderer.
-pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
-    self.snow_motion_container.motions()
-}
+    /// Read-only access for snow renderer.
+    pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
+        self.snow_motion_container.motions()
+    }
 
     pub fn new() -> MotionManager {
         let parts_manager = AtomicRefCell::new(PartsManager::new());
@@ -134,21 +133,21 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
     }
 
     pub fn update_anim_motions(&mut self, elapsed: i64) {
-        self.sprite_anim_container.update(&self.prim_manager, elapsed as i32);
+        self.sprite_anim_container
+            .update(&self.prim_manager, elapsed as i32);
     }
 
     /// Tick lip animation (LipAnim/LipSync).
     ///
     /// In the original engine, lip animation is driven by a BGM slot (0..3). When that slot is
     /// playing, the target sprite's texture id is cycled through configured frames.
-    pub fn update_lip_motions(
-        &mut self,
-        elapsed: i64,
-        freeze: bool,
-        bgm_playing_slots: &[bool],
-    ) {
-        self.lip_motion_container
-            .tick(&mut self.prim_manager, bgm_playing_slots, elapsed as i32, freeze);
+    pub fn update_lip_motions(&mut self, elapsed: i64, freeze: bool, bgm_playing_slots: &[bool]) {
+        self.lip_motion_container.tick(
+            &mut self.prim_manager,
+            bgm_playing_slots,
+            elapsed as i32,
+            freeze,
+        );
     }
 
     pub fn set_lip_motion(
@@ -183,7 +182,11 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
             return;
         }
 
-        let elapsed_ms: u32 = if elapsed < 0 { u32::MAX } else { elapsed as u32 };
+        let elapsed_ms: u32 = if elapsed < 0 {
+            u32::MAX
+        } else {
+            elapsed as u32
+        };
 
         let mut completed: Vec<(u8, u8)> = Vec::new();
         {
@@ -193,21 +196,35 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
 
         for (parts_id, entry_id) in completed {
             if let Err(e) = self.draw_parts_to_texture(parts_id, entry_id as u32) {
-                log::warn!("update_parts_motions: failed to apply parts_id={} entry_id={}: {}", parts_id, entry_id, e);
+                log::warn!(
+                    "update_parts_motions: failed to apply parts_id={} entry_id={}: {}",
+                    parts_id,
+                    entry_id,
+                    e
+                );
             }
         }
     }
 
     pub fn update_snow_motions(&mut self, elapsed: i64, screen_w: i32, screen_h: i32) {
-        self.snow_motion_container.exec_snow_motion(elapsed as i32, screen_w, screen_h);
+        self.snow_motion_container
+            .exec_snow_motion(elapsed as i32, screen_w, screen_h);
     }
 
-    pub fn set_anim_motion(&mut self, prim_id: u32, sprt_prim_id: i32, time: i32, typ: i32) -> Result<()> {
-        self.sprite_anim_container.set_motion(prim_id, sprt_prim_id, time, typ)
+    pub fn set_anim_motion(
+        &mut self,
+        prim_id: u32,
+        sprt_prim_id: i32,
+        time: i32,
+        typ: i32,
+    ) -> Result<()> {
+        self.sprite_anim_container
+            .set_motion(prim_id, sprt_prim_id, time, typ)
     }
 
     pub fn append_anim_motion(&mut self, prim_id: u32, sprt_prim_id: i32, time: i32) -> Result<()> {
-        self.sprite_anim_container.append_motion(prim_id, sprt_prim_id, time)
+        self.sprite_anim_container
+            .append_motion(prim_id, sprt_prim_id, time)
     }
 
     pub fn stop_anim_motion(&mut self, prim_id: u32) -> Result<()> {
@@ -231,58 +248,44 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
         if elapsed < 0 {
             self.text_manager.force_reveal_all_non_suspended();
         } else {
-            self.text_manager.tick(elapsed as u32, global_speed_var0, release_special_wait);
+            self.text_manager
+                .tick(elapsed as u32, global_speed_var0, release_special_wait);
         }
         self.text_reprint(fonts);
         self.text_manager.collect_completed_sync_print_waiters()
     }
 
-    pub fn update_alpha_motions(
-        &mut self,
-        elapsed: i64,
-        flag: bool,
-    ) {
-        self.alpha_motion_container.exec_alpha_motion(&self.prim_manager, flag, elapsed as i32);
+    pub fn update_alpha_motions(&mut self, elapsed: i64, flag: bool) {
+        self.alpha_motion_container
+            .exec_alpha_motion(&self.prim_manager, flag, elapsed as i32);
     }
 
-    pub fn update_move_motions(
-        &mut self,
-        elapsed: i64,
-        flag: bool,
-    ) {
-        self.move_motion_container.exec_move_motion(&self.prim_manager, flag, elapsed as i32);
+    pub fn update_move_motions(&mut self, elapsed: i64, flag: bool) {
+        self.move_motion_container
+            .exec_move_motion(&self.prim_manager, flag, elapsed as i32);
     }
 
-    pub fn update_s2_move_motions(
-        &mut self,
-        elapsed: i64,
-        flag: bool,
-    ) {
-        self.scale_motion_container.exec_scale_motion(&self.prim_manager, flag, elapsed as i32);
+    pub fn update_s2_move_motions(&mut self, elapsed: i64, flag: bool) {
+        self.scale_motion_container
+            .exec_scale_motion(&self.prim_manager, flag, elapsed as i32);
     }
 
-    pub fn update_rotation_motions(
-        &mut self,
-        elapsed: i64,
-        flag: bool,
-    ) {
-        self.rotation_motion_container.exec_rotation_motion(&self.prim_manager, flag, elapsed as i32);
+    pub fn update_rotation_motions(&mut self, elapsed: i64, flag: bool) {
+        self.rotation_motion_container.exec_rotation_motion(
+            &self.prim_manager,
+            flag,
+            elapsed as i32,
+        );
     }
 
-    pub fn update_z_motions(
-        &mut self,
-        elapsed: i64,
-        flag: bool,
-    ) {
-        self.z_motion_container.exec_z_motion(&self.prim_manager, flag, elapsed as i32);
+    pub fn update_z_motions(&mut self, elapsed: i64, flag: bool) {
+        self.z_motion_container
+            .exec_z_motion(&self.prim_manager, flag, elapsed as i32);
     }
 
-    pub fn update_v3d_motions(
-        &mut self,
-        elapsed: i64,
-        flag: bool,
-    ) {
-        self.v3d_motion_container.exec_v3d_update(&self.prim_manager, flag, elapsed as i32);
+    pub fn update_v3d_motions(&mut self, elapsed: i64, flag: bool) {
+        self.v3d_motion_container
+            .exec_v3d_update(&self.prim_manager, flag, elapsed as i32);
     }
 
     pub fn set_alpha_motion(
@@ -409,8 +412,26 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
         screen_height: u32,
     ) {
         self.snow_motion_container.push_motion(
-            id, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18,
-            screen_width as i32, screen_height as i32,
+            id,
+            a2,
+            a3,
+            a4,
+            a5,
+            a6,
+            a7,
+            a8,
+            a9,
+            a10,
+            a11,
+            a12,
+            a13,
+            a14,
+            a15,
+            a16,
+            a17,
+            a18,
+            screen_width as i32,
+            screen_height as i32,
         )
     }
 
@@ -498,17 +519,10 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
         self.v3d_motion_container.get_z()
     }
 
-    pub fn set_parts_motion(
-        &mut self,
-        parts_id: u8,
-        entry_id: u8,
-        duration: u32,
-    ) -> Result<()> {
-        self.parts_manager.get_mut().set_motion(
-            parts_id,
-            entry_id,
-            duration
-        )
+    pub fn set_parts_motion(&mut self, parts_id: u8, entry_id: u8, duration: u32) -> Result<()> {
+        self.parts_manager
+            .get_mut()
+            .set_motion(parts_id, entry_id, duration)
     }
 
     pub fn stop_parts_motion(&mut self, parts_id: u8) -> Result<()> {
@@ -567,16 +581,7 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
             let src_w = parts.get_width() as u32;
             let src_h = parts.get_height() as u32;
 
-            let _ = copy_rect_clipped(
-                &parts_texture,
-                src_x,
-                src_y,
-                src_w,
-                src_h,
-                dest,
-                dx,
-                dy,
-            );
+            let _ = copy_rect_clipped(&parts_texture, src_x, src_y, src_w, src_h, dest, dx, dy);
         }
 
         // The destination GraphBuff pixels changed; bump generation so GPU cache can refresh.
@@ -584,7 +589,6 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
 
         Ok(())
     }
-
 
     fn prim_hit_priv(
         &self,
@@ -678,7 +682,9 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
 
                 let adjusted_x = cursor_x + u - total_x;
                 let adjusted_y = cursor_y + v - total_y;
-                if adjusted_x >= texture.get_width() as i32 || adjusted_y >= texture.get_height() as i32 {
+                if adjusted_x >= texture.get_width() as i32
+                    || adjusted_y >= texture.get_height() as i32
+                {
                     return false;
                 }
 
@@ -766,7 +772,10 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
             }
             let mut walker = prim_id;
             loop {
-                if self.alpha_motion_container.has_running_fadeout_motion(walker as u32) {
+                if self
+                    .alpha_motion_container
+                    .has_running_fadeout_motion(walker as u32)
+                {
                     return true;
                 }
                 let parent = {
@@ -807,7 +816,13 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
         }
     }
 
-    pub fn set_gaiji(&mut self, key: String, size: u8, filename: &str, buff: Vec<u8>) -> Result<()> {
+    pub fn set_gaiji(
+        &mut self,
+        key: String,
+        size: u8,
+        filename: &str,
+        buff: Vec<u8>,
+    ) -> Result<()> {
         let mut texture = GraphBuff::new();
         texture.load_gaiji_fontface_glyph(filename, buff)?;
         self.gaiji_manager.set_gaiji(key, size, texture);
@@ -853,7 +868,11 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
         crate::trace::motion(format_args!("tick_dissolve: elapsed_ms={}", elapsed_ms));
         let typ = self.dissolve_type;
         if typ == DissolveType::None || typ == DissolveType::Static {
-            self.dissolve_alpha = if typ == DissolveType::Static { 1.0 } else { 0.0 };
+            self.dissolve_alpha = if typ == DissolveType::Static {
+                1.0
+            } else {
+                0.0
+            };
             return;
         }
 
@@ -870,7 +889,9 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
 
         if self.dissolve_elapsed_ms >= dur {
             match typ {
-                DissolveType::ColoredFadeIn | DissolveType::MaskFadeIn | DissolveType::MaskFadeInOut => {
+                DissolveType::ColoredFadeIn
+                | DissolveType::MaskFadeIn
+                | DissolveType::MaskFadeInOut => {
                     self.dissolve_type = DissolveType::None;
                     self.dissolve_alpha = 0.0;
                 }
@@ -935,20 +956,36 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
         self.dissolve2.is_transitioning()
     }
 
-    pub fn load_texture_from_buff(&mut self, id: u16, buff: Vec<u8>, width: u32, height: u32) -> Result<()> {
+    pub fn load_texture_from_buff(
+        &mut self,
+        id: u16,
+        buff: Vec<u8>,
+        width: u32,
+        height: u32,
+    ) -> Result<()> {
         let graph = &mut self.textures[id as usize];
         graph.load_from_buff(buff, width, height)
     }
 
-    pub fn text_reprint(&mut self, fonts: &crate::subsystem::resources::text_manager::FontEnumerator) {
+    pub fn text_reprint(
+        &mut self,
+        fonts: &crate::subsystem::resources::text_manager::FontEnumerator,
+    ) {
         self.text_reprint_impl(fonts, false);
     }
 
-    pub fn text_reprint_force(&mut self, fonts: &crate::subsystem::resources::text_manager::FontEnumerator) {
+    pub fn text_reprint_force(
+        &mut self,
+        fonts: &crate::subsystem::resources::text_manager::FontEnumerator,
+    ) {
         self.text_reprint_impl(fonts, true);
     }
 
-    fn text_reprint_impl(&mut self, fonts: &crate::subsystem::resources::text_manager::FontEnumerator, force: bool) {
+    fn text_reprint_impl(
+        &mut self,
+        fonts: &crate::subsystem::resources::text_manager::FontEnumerator,
+        force: bool,
+    ) {
         for slot in 0..32 {
             let _ = self.text_upload_slot(slot, fonts, force);
         }
@@ -968,10 +1005,17 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
         }
         let graph_id: u16 = 4064u16 + slot as u16;
         let uploaded = {
-            let (text_manager, gaiji_manager, textures) = (&mut self.text_manager, &self.gaiji_manager, &mut self.textures);
-            if let Some((w, h, display_w, display_h)) = text_manager.rasterize_slot_if_needed(slot, fonts, gaiji_manager, force_render)? {
+            let (text_manager, gaiji_manager, textures) = (
+                &mut self.text_manager,
+                &self.gaiji_manager,
+                &mut self.textures,
+            );
+            if let Some((w, h, display_w, display_h)) =
+                text_manager.rasterize_slot_if_needed(slot, fonts, gaiji_manager, force_render)?
+            {
                 if let Some(rgba) = text_manager.slot_rgba_bytes(slot) {
-                    textures[graph_id as usize].load_from_buff_ref_with_display_size(rgba, w, h, display_w, display_h)?;
+                    textures[graph_id as usize]
+                        .load_from_buff_ref_with_display_size(rgba, w, h, display_w, display_h)?;
                     true
                 } else {
                     false
@@ -986,7 +1030,6 @@ pub(crate) fn snow_motions(&self) -> &[snow::SnowMotion] {
         Ok(())
     }
 }
-
 
 impl MotionManager {
     /// Dump motion-related state for debugging (counts and a small sample of running motions).
@@ -1034,7 +1077,8 @@ impl MotionManager {
 
     pub fn debug_dump_prim_tree(&self, max_nodes: usize, max_depth: usize) -> String {
         let root = self.prim_manager.get_custom_root_prim_id() as i16;
-        self.prim_manager.debug_dump_tree(root, max_nodes, max_depth)
+        self.prim_manager
+            .debug_dump_tree(root, max_nodes, max_depth)
     }
 }
 
@@ -1118,7 +1162,11 @@ impl MotionManager {
         }
     }
 
-    pub fn apply_snapshot_v1(&mut self, snap: &MotionManagerSnapshotV1, vfs: &super::vfs::Vfs) -> Result<()> {
+    pub fn apply_snapshot_v1(
+        &mut self,
+        snap: &MotionManagerSnapshotV1,
+        vfs: &super::vfs::Vfs,
+    ) -> Result<()> {
         self.color_manager = snap.color_manager.clone();
         self.prim_manager.apply_snapshot_v1(&snap.prim_manager);
 
@@ -1141,7 +1189,8 @@ impl MotionManager {
             let mut pm = self.parts_manager.borrow_mut();
             pm.apply_snapshot_v1(&snap.parts_manager, vfs)?;
         }
-        self.gaiji_manager.apply_snapshot_v1(&snap.gaiji_manager, vfs)?;
+        self.gaiji_manager
+            .apply_snapshot_v1(&snap.gaiji_manager, vfs)?;
 
         // Dissolve 1
         self.dissolve_type = match snap.dissolve1.dissolve_type {
@@ -1155,17 +1204,19 @@ impl MotionManager {
         self.dissolve_elapsed_ms = snap.dissolve1.dissolve_elapsed_ms;
         self.dissolve_alpha = snap.dissolve1.dissolve_alpha;
         self.mask_prim.apply_snapshot_v1(&snap.dissolve1.mask_prim);
-        self.dissolve_mask_graph.apply_snapshot_v1(&snap.dissolve1.dissolve_mask_graph, vfs)?;
+        self.dissolve_mask_graph
+            .apply_snapshot_v1(&snap.dissolve1.dissolve_mask_graph, vfs)?;
 
         // Dissolve 2
-        self.dissolve2.apply_snapshot_v1(&dissolve2::Dissolve2SnapshotV1 {
-            mode: snap.dissolve2.mode,
-            color_id: snap.dissolve2.color_id,
-            duration_ms: snap.dissolve2.duration_ms,
-            elapsed_ms: snap.dissolve2.elapsed_ms,
-            alpha: snap.dissolve2.alpha,
-            pending_fade_out: snap.dissolve2.pending_fade_out,
-        });
+        self.dissolve2
+            .apply_snapshot_v1(&dissolve2::Dissolve2SnapshotV1 {
+                mode: snap.dissolve2.mode,
+                color_id: snap.dissolve2.color_id,
+                duration_ms: snap.dissolve2.duration_ms,
+                elapsed_ms: snap.dissolve2.elapsed_ms,
+                alpha: snap.dissolve2.alpha,
+                pending_fade_out: snap.dissolve2.pending_fade_out,
+            });
 
         // Stop time-based motions on load. Scene state (prims/textures/text) is already restored,
         // but resuming in-flight motions without accurate timestamps causes more harm than good.

@@ -1,12 +1,12 @@
 use std::fmt::Debug;
 use std::sync::Mutex;
 
-use kira::{AudioManager as KiraAudioManager, AudioManagerSettings, Tween};
 use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle};
 #[cfg(not(target_arch = "wasm32"))]
 use kira::sound::streaming::{StreamingSoundData, StreamingSoundHandle};
 #[cfg(not(target_arch = "wasm32"))]
 use kira::sound::FromFileError;
+use kira::{AudioManager as KiraAudioManager, AudioManagerSettings, Tween};
 
 pub struct AudioManager {
     manager: Mutex<KiraAudioManager>,
@@ -27,8 +27,7 @@ impl AudioManager {
         let mut settings = AudioManagerSettings::default();
         settings.capacities.sub_track_capacity = 512;
 
-        let mgr = KiraAudioManager::new(settings)
-            .expect("failed to create Kira AudioManager");
+        let mgr = KiraAudioManager::new(settings).expect("failed to create Kira AudioManager");
         Self {
             manager: Mutex::new(mgr),
         }

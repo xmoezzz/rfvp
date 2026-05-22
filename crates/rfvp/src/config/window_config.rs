@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-use winit::window::WindowAttributes;
 use winit::dpi::LogicalSize;
+use winit::window::WindowAttributes;
 use winit::window::WindowLevel;
 
 use crate::config::app_config::AppConfig;
@@ -57,22 +57,36 @@ impl WindowConfig {
     pub(crate) fn into(self, config: &AppConfig) -> WindowAttributes {
         let mut builder = WindowAttributes::default();
 
-        builder = builder.with_title(config.app_name.clone())
+        builder = builder
+            .with_title(config.app_name.clone())
             .with_fullscreen(None);
         if self.dimensions.is_some() {
-            builder = builder.with_inner_size(self.dimensions.map(|d| LogicalSize::new(d.0, d.1)).unwrap())
+            builder = builder
+                .with_inner_size(self.dimensions.map(|d| LogicalSize::new(d.0, d.1)).unwrap())
         }
         if self.min_dimensions.is_some() {
-            builder = builder.with_min_inner_size(self.min_dimensions.map(|d| LogicalSize::new(d.0, d.1)).unwrap())
+            builder = builder.with_min_inner_size(
+                self.min_dimensions
+                    .map(|d| LogicalSize::new(d.0, d.1))
+                    .unwrap(),
+            )
         }
         if self.max_dimensions.is_some() {
-            builder = builder.with_max_inner_size(self.max_dimensions.map(|d| LogicalSize::new(d.0, d.1)).unwrap())
+            builder = builder.with_max_inner_size(
+                self.max_dimensions
+                    .map(|d| LogicalSize::new(d.0, d.1))
+                    .unwrap(),
+            )
         }
 
         builder
             .with_visible(self.visibility)
             .with_window_icon(None)
-            .with_window_level(if self.always_on_top { WindowLevel::AlwaysOnTop } else { WindowLevel::Normal })
+            .with_window_level(if self.always_on_top {
+                WindowLevel::AlwaysOnTop
+            } else {
+                WindowLevel::Normal
+            })
             .with_decorations(self.decorations)
             .with_maximized(self.maximized)
             .with_resizable(self.resizable)
@@ -88,7 +102,9 @@ pub struct WindowConfigBuilder {
 impl WindowConfigBuilder {
     /// Create a new `WindowConfigBuilder` builder
     pub fn new() -> Self {
-        Self { config: Default::default() }
+        Self {
+            config: Default::default(),
+        }
     }
 
     /// Dimension of the window

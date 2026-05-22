@@ -167,9 +167,13 @@ pub fn lip_sync(game_data: &mut GameData, id: &Variant, sync: &Variant) -> Resul
     // When disabling, the original engine resets the animation to the first frame.
     if !enable {
         let bgm_playing_slots = game_data.bgm_player.get_playing_slots();
-        game_data.motion_manager.update_lip_motions(-1, false, &bgm_playing_slots);
+        game_data
+            .motion_manager
+            .update_lip_motions(-1, false, &bgm_playing_slots);
     }
-    game_data.motion_manager.set_lip_sync(prim_id as i16, enable);
+    game_data
+        .motion_manager
+        .set_lip_sync(prim_id as i16, enable);
     Ok(Variant::Nil)
 }
 
@@ -189,7 +193,7 @@ pub fn dissolve(
         _ => {
             log::error!("dissolve: invalid duration type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..=300000).contains(&duration) {
@@ -211,9 +215,13 @@ pub fn dissolve(
             //   dis_wait = (args[2].Type == Nil) + 4  => 4 or 5
             // i.e. Nil triggers the in-out variant (5), otherwise the single-phase variant (4).
             if matches!(inout, Variant::Nil) {
-                game_data.motion_manager.start_dissolve(duration as u32, DissolveType::MaskFadeInOut);
+                game_data
+                    .motion_manager
+                    .start_dissolve(duration as u32, DissolveType::MaskFadeInOut);
             } else {
-                game_data.motion_manager.start_dissolve(duration as u32, DissolveType::MaskFadeIn);
+                game_data
+                    .motion_manager
+                    .start_dissolve(duration as u32, DissolveType::MaskFadeIn);
             }
         }
         Variant::Int(color_id) => {
@@ -253,7 +261,6 @@ pub fn dissolve(
     Ok(Variant::Nil)
 }
 
-
 #[allow(clippy::too_many_arguments)]
 pub fn snow(
     game_data: &mut GameData,
@@ -281,7 +288,7 @@ pub fn snow(
         _ => {
             log::warn!("snow: invalid id type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..=1).contains(&id) {
@@ -294,7 +301,7 @@ pub fn snow(
         _ => {
             log::error!("snow: invalid width type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..=4096).contains(&width) {
@@ -307,7 +314,7 @@ pub fn snow(
         _ => {
             log::error!("snow: invalid height type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..=4096).contains(&height) {
@@ -320,7 +327,7 @@ pub fn snow(
         _ => {
             log::error!("snow: invalid arg3 type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..=4095).contains(&arg3) {
@@ -333,7 +340,7 @@ pub fn snow(
         _ => {
             log::error!("snow: invalid arg4 type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(2..=64).contains(&arg4) {
@@ -346,7 +353,7 @@ pub fn snow(
         _ => {
             log::error!("snow: invalid speed type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(2..=64).contains(&arg5) {
@@ -359,7 +366,7 @@ pub fn snow(
         _ => {
             log::error!("snow: invalid arg6 type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..=16).contains(&arg6) {
@@ -372,7 +379,7 @@ pub fn snow(
         _ => {
             log::error!("snow: invalid arg7 type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(10..=10000).contains(&arg7) {
@@ -385,7 +392,7 @@ pub fn snow(
         _ => {
             log::error!("snow: invalid arg8 type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(10..=10000).contains(&arg8) {
@@ -398,7 +405,7 @@ pub fn snow(
         _ => {
             log::error!("snow: invalid arg9 type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..=1024).contains(&arg9) {
@@ -411,7 +418,7 @@ pub fn snow(
         _ => {
             log::error!("snow: invalid arg10 type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..=1024).contains(&arg10) {
@@ -424,7 +431,7 @@ pub fn snow(
         _ => {
             log::error!("snow: invalid arg11 type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(-4096..=4096).contains(&arg11) {
@@ -437,7 +444,7 @@ pub fn snow(
         _ => {
             log::error!("snow: invalid arg12 type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(-4096..=4096).contains(&arg12) {
@@ -450,7 +457,7 @@ pub fn snow(
         _ => {
             log::error!("snow: invalid arg13 type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..=1024).contains(&arg13) {
@@ -463,7 +470,7 @@ pub fn snow(
         _ => {
             log::error!("snow: invalid arg14 type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..=255).contains(&arg14) {
@@ -476,7 +483,7 @@ pub fn snow(
         _ => {
             log::error!("snow: invalid arg15 type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..=255).contains(&arg15) {
@@ -489,7 +496,7 @@ pub fn snow(
         _ => {
             log::error!("snow: invalid arg16 type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(10..=10000).contains(&arg16) {
@@ -502,7 +509,7 @@ pub fn snow(
         _ => {
             log::error!("snow: invalid arg17 type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..=255).contains(&arg17) {
@@ -514,7 +521,7 @@ pub fn snow(
     let screen_height = game_data.get_height();
 
     game_data.motion_manager.set_snow_motion(
-        id as u32, 
+        id as u32,
         width,
         height,
         arg3 as i32,
@@ -539,14 +546,13 @@ pub fn snow(
     Ok(Variant::Nil)
 }
 
-
 pub fn snow_start(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     let id = match id {
         Variant::Int(id) => *id,
         _ => {
             log::error!("snow_start: invalid id type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..=1).contains(&id) {
@@ -565,7 +571,7 @@ pub fn snow_stop(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
         _ => {
             log::error!("snow_stop: invalid id type");
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..=1).contains(&id) {
@@ -577,7 +583,6 @@ pub fn snow_stop(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
 
     Ok(Variant::Nil)
 }
-
 
 pub struct LipAnim;
 impl Syscaller for LipAnim {
@@ -628,7 +633,6 @@ impl Syscaller for Dissolve {
 unsafe impl Send for Dissolve {}
 unsafe impl Sync for Dissolve {}
 
-
 pub struct Snow;
 impl Syscaller for Snow {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -656,7 +660,6 @@ impl Syscaller for Snow {
     }
 }
 
-
 unsafe impl Send for Snow {}
 unsafe impl Sync for Snow {}
 
@@ -669,7 +672,6 @@ impl Syscaller for SnowStart {
 
 unsafe impl Send for SnowStart {}
 unsafe impl Sync for SnowStart {}
-
 
 pub struct SnowStop;
 impl Syscaller for SnowStop {

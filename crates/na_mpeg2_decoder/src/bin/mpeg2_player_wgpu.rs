@@ -18,7 +18,10 @@ fn main() {
     }
     env_logger::init();
 
-    let path = std::env::args().nth(1).map(PathBuf::from).expect("usage: mpeg2_player_wgpu <file.ts|ps|es>");
+    let path = std::env::args()
+        .nth(1)
+        .map(PathBuf::from)
+        .expect("usage: mpeg2_player_wgpu <file.ts|ps|es>");
 
     let (tx_v, rx_v) = unbounded::<MpegRgbaFrame>();
     let (tx_a, rx_a) = unbounded::<MpegAudioF32>();
@@ -99,7 +102,11 @@ fn audio_thread(rx: Receiver<MpegAudioF32>) {
 async fn run(rx: Receiver<MpegRgbaFrame>) {
     let event_loop = EventLoop::new().unwrap();
     // wgpu 0.19 surface can borrow the window; we keep a 'static window to satisfy lifetimes.
-    let window = WindowBuilder::new().with_title("mpeg2_player_wgpu").with_inner_size(PhysicalSize::new(1280, 720)).build(&event_loop).unwrap();
+    let window = WindowBuilder::new()
+        .with_title("mpeg2_player_wgpu")
+        .with_inner_size(PhysicalSize::new(1280, 720))
+        .build(&event_loop)
+        .unwrap();
     let window: &'static winit::window::Window = Box::leak(Box::new(window));
 
     let instance = wgpu::Instance::default();
@@ -158,7 +165,11 @@ async fn run(rx: Receiver<MpegRgbaFrame>) {
     let mut tex_h: u32 = 1;
     let mut texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("video_tex"),
-        size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+        size: wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        },
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
@@ -194,8 +205,14 @@ async fn run(rx: Receiver<MpegRgbaFrame>) {
         label: Some("bg"),
         layout: &bind_group_layout,
         entries: &[
-            wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&texture_view) },
-            wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&sampler) },
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&texture_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(&sampler),
+            },
         ],
     });
 
@@ -216,7 +233,11 @@ async fn run(rx: Receiver<MpegRgbaFrame>) {
         fragment: Some(wgpu::FragmentState {
             module: &shader,
             entry_point: "fs_main",
-            targets: &[Some(wgpu::ColorTargetState { format: config.format, blend: Some(wgpu::BlendState::REPLACE), write_mask: wgpu::ColorWrites::ALL })],
+            targets: &[Some(wgpu::ColorTargetState {
+                format: config.format,
+                blend: Some(wgpu::BlendState::REPLACE),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
         }),
         primitive: wgpu::PrimitiveState::default(),
         depth_stencil: None,

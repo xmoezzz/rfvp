@@ -16,11 +16,11 @@ use std::sync::Once;
 use anyhow::{Context, Result};
 
 use crate::app::App;
+use crate::boot::{app_config, load_script};
 use crate::script::parser::Nls;
 use crate::subsystem::anzu_scene::AnzuScene;
 use crate::subsystem::resources::thread_manager::ThreadManager;
 use crate::utils::file::set_base_path;
-use crate::boot::{app_config, load_script};
 
 fn cstr_opt(p: *const c_char) -> Option<String> {
     if p.is_null() {
@@ -42,7 +42,6 @@ fn build_android_app(
     game_dir: Option<String>,
     nls: Option<String>,
 ) -> Result<Box<App>> {
-
     let game_root = match game_dir {
         Some(dir) => dir,
         None => {
@@ -55,7 +54,7 @@ fn build_android_app(
         None => {
             log::warn!("NLS not specified, defaulting to ShiftJIS");
             Nls::default()
-        },
+        }
     };
 
     set_base_path(&game_root);
@@ -90,7 +89,10 @@ static ANDROID_CTX_ONCE: Once = Once::new();
 /// - `java_vm_ptr`: `JavaVM*` from JNI.
 /// - `context_ptr`: a JNI GlobalRef to an `android.content.Context` instance.
 #[no_mangle]
-pub unsafe extern "C" fn rfvp_android_init_context(java_vm_ptr: *mut c_void, context_ptr: *mut c_void) {
+pub unsafe extern "C" fn rfvp_android_init_context(
+    java_vm_ptr: *mut c_void,
+    context_ptr: *mut c_void,
+) {
     if java_vm_ptr.is_null() {
         log::error!("rfvp_android_init_context: java_vm_ptr is null");
         return;
@@ -136,7 +138,13 @@ pub unsafe extern "C" fn rfvp_android_create(
     let game_dir = cstr_opt(game_dir_utf8);
     let nls = cstr_opt(nls_utf8);
 
-    match build_android_app(win, (surface_width_px, surface_height_px), native_scale_factor, game_dir, nls) {
+    match build_android_app(
+        win,
+        (surface_width_px, surface_height_px),
+        native_scale_factor,
+        game_dir,
+        nls,
+    ) {
         Ok(app) => Box::into_raw(app) as *mut c_void,
         Err(e) => {
             log::error!("rfvp_android_create: {e:?}");
@@ -162,7 +170,11 @@ pub unsafe extern "C" fn rfvp_android_step(handle: *mut c_void, dt_ms: u32) -> i
 
 /// Resize the surface (physical pixels).
 #[no_mangle]
-pub unsafe extern "C" fn rfvp_android_resize(handle: *mut c_void, surface_width_px: u32, surface_height_px: u32) {
+pub unsafe extern "C" fn rfvp_android_resize(
+    handle: *mut c_void,
+    surface_width_px: u32,
+    surface_height_px: u32,
+) {
     if handle.is_null() {
         return;
     }
@@ -216,5 +228,4 @@ pub unsafe extern "C" fn rfvp_android_destroy(handle: *mut c_void) {
 
 #[cfg(target_os = "android")]
 #[no_mangle]
-pub unsafe extern "C" fn android_main(_app: *mut core::ffi::c_void) {
-}
+pub unsafe extern "C" fn android_main(_app: *mut core::ffi::c_void) {}

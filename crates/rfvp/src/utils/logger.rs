@@ -34,7 +34,10 @@ impl Logger {
         let mut root = fern::Dispatch::new()
             .format(|out, message, record| {
                 out.finish(format_args!(
-                    "[{}][{}] : \n    -> {}", record.level(), record.target(), message
+                    "[{}][{}] : \n    -> {}",
+                    record.level(),
+                    record.target(),
+                    message
                 ))
             })
             .level(config.level_filter)

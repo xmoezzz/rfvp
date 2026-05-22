@@ -1,5 +1,5 @@
-use crate::script::opcode::OpcodeBase;
 use crate::script::opcode::Opcode;
+use crate::script::opcode::OpcodeBase;
 
 pub struct PushStackInst {
     address: u32,
@@ -8,10 +8,7 @@ pub struct PushStackInst {
 
 impl PushStackInst {
     pub fn new(address: u32, idx: i8) -> Self {
-        Self {
-            address,
-            idx,
-        }
+        Self { address, idx }
     }
 
     pub fn get_idx(&self) -> i8 {

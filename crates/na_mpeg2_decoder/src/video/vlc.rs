@@ -148,7 +148,11 @@ impl Vlc {
             }
             code <<= 32 - len;
             let sym = symbols.map(|s| s[i]).unwrap_or(i as i16);
-            buf.push(VlcCode { bits: len as u8, symbol: sym, code });
+            buf.push(VlcCode {
+                bits: len as u8,
+                symbol: sym,
+                code,
+            });
         }
 
         for i in 0..bits.len() {
@@ -158,7 +162,10 @@ impl Vlc {
         // Sort by full MSB-aligned code (NOT shifted) to avoid collisions.
         buf.sort_by(|a, b| a.code.cmp(&b.code));
 
-        let mut vlc = Vlc { bits: nb_bits, table: Vec::new() };
+        let mut vlc = Vlc {
+            bits: nb_bits,
+            table: Vec::new(),
+        };
         let _ = build_table(&mut vlc, nb_bits, &mut buf).unwrap();
         vlc
     }
@@ -194,7 +201,12 @@ pub fn get_vlc2(gb: &mut GetBits<'_>, table: &[VlcElem], bits: i32, max_depth: i
 
 /// Equivalent to `GET_RL_VLC` macro for run/level VLC tables.
 #[inline]
-pub fn get_rl_vlc(gb: &mut GetBits<'_>, table: &[RlVlcElem], bits: i32, max_depth: i32) -> (i16, u8) {
+pub fn get_rl_vlc(
+    gb: &mut GetBits<'_>,
+    table: &[RlVlcElem],
+    bits: i32,
+    max_depth: i32,
+) -> (i16, u8) {
     let mut index = gb.show_bits(bits as usize) as usize;
     let mut level = table[index].level;
     let mut n = table[index].len8 as i32;

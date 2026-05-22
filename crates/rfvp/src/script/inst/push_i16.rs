@@ -1,5 +1,5 @@
-use crate::script::opcode::OpcodeBase;
 use crate::script::opcode::Opcode;
+use crate::script::opcode::OpcodeBase;
 
 pub struct PushI16Inst {
     address: u32,
@@ -8,10 +8,7 @@ pub struct PushI16Inst {
 
 impl PushI16Inst {
     pub fn new(address: u32, value: i16) -> Self {
-        Self {
-            address,
-            value,
-        }
+        Self { address, value }
     }
 
     pub fn get_value(&self) -> i16 {

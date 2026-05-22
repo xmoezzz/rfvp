@@ -2,6 +2,7 @@
 name = "rfvp"
 version = "0.4.0"
 edition = "2021"
+default-run = "rfvp"
 homepage = "https://github.com/xmoezzz/rfvp"
 description = "A Non-Official Rust cross-platform implementation of the FVP engine"
 repository = "https://github.com/xmoezzz/rfvp"
@@ -23,6 +24,11 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 name = "rfvp"
 path = "src/main.rs"
 
+[[bin]]
+name = "sizecheck"
+path = "src/bin/sizecheck.rs"
+required-features = ["gpu-render"]
+
 [dependencies]
 anyhow = { version = "1.0.79", features = ["backtrace"] }
 encoding_rs = "0.8.33"
@@ -32,7 +38,8 @@ serde_json = "1.0.113"
 bincode = "1.3.3"
 twofloat = "0.7.0"
 winit = {version = "0.30.5", features = ["rwh_05"]}
-wgpu = { version = "0.19.1", features = ["spirv"] }
+wgpu = { version = "0.19.1", features = ["spirv"], optional = true }
+softbuffer = { version = "0.4.8", optional = true }
 glob = "0.3.1"
 atomic_refcell = "0.1.13"
 hecs = "0.10.4"
@@ -89,7 +96,13 @@ regex = "1.11.2"
 
 [features]
 # Keep native movie support enabled by default for backward compatibility.
-default = ["mp4", "native-video"]
+default = ["gpu-render", "mp4", "native-video"]
+
+# Existing wgpu renderer. Enabled by default for backward compatibility.
+gpu-render = ["dep:wgpu", "dep:egui-wgpu"]
+
+# CPU/software rendering backend. Disabled by default.
+soft-render = ["native-video", "dep:softbuffer"]
 
 # WebAssembly build entry. Use this with `--no-default-features --features wasm`.
 wasm = ["native-video"]
@@ -124,14 +137,14 @@ web-sys = { version = "0.3.72", features = [
     "Blob",
     "console",
 ] }
-wgpu = { version = "0.19.1", features = ["webgl"] }
+wgpu = { version = "0.19.1", features = ["webgl"], optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = { version = "0.6", features = ["game-activity"] }
 ndk-context = "0.1.1"
 
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))'.dependencies]
-egui-wgpu = "0.27.2"
+egui-wgpu = { version = "0.27.2", optional = true }
 
 [profile.test]
 inherits = "release"

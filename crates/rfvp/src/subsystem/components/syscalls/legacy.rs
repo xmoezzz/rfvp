@@ -156,9 +156,12 @@ fn sanitize_config_sound_value(arg: Option<&Variant>) -> i32 {
     let Some(v) = arg.and_then(Variant::as_int) else {
         return 0;
     };
-    if (0..=100).contains(&v) { v } else { 0 }
+    if (0..=100).contains(&v) {
+        v
+    } else {
+        0
+    }
 }
-
 
 fn get_quick_slot(arg: &Variant) -> Option<i32> {
     match arg {
@@ -184,7 +187,9 @@ pub(crate) fn on_legacy_text_print(content: &str, text_id: i32) {
     };
     let slot1 = state.pending_slot1.clone();
 
-    state.history.insert(0, LegacyTextHistoryEntry { slot0, slot1 });
+    state
+        .history
+        .insert(0, LegacyTextHistoryEntry { slot0, slot1 });
     if state.history.len() > 100 {
         state.history.truncate(100);
     }
@@ -218,7 +223,11 @@ pub fn chr_add(
         return Ok(Variant::Nil);
     };
 
-    let color = game_data.motion_manager.color_manager.get_entry(color_slot as u8).clone();
+    let color = game_data
+        .motion_manager
+        .color_manager
+        .get_entry(color_slot as u8)
+        .clone();
     let entry = LegacyChrEntry {
         _name: name,
         _color_slot: color_slot as u8,
@@ -234,7 +243,11 @@ pub fn chr_add(
     Ok(Variant::Nil)
 }
 
-pub fn chr_get_rgb(game_data: &mut GameData, index: &Variant, dst_slot: &Variant) -> Result<Variant> {
+pub fn chr_get_rgb(
+    game_data: &mut GameData,
+    index: &Variant,
+    dst_slot: &Variant,
+) -> Result<Variant> {
     let Some(index) = index.as_int() else {
         return Ok(Variant::Nil);
     };
@@ -250,7 +263,10 @@ pub fn chr_get_rgb(game_data: &mut GameData, index: &Variant, dst_slot: &Variant
         return Ok(Variant::Nil);
     };
 
-    let color = game_data.motion_manager.color_manager.get_entry_mut(dst_slot as u8);
+    let color = game_data
+        .motion_manager
+        .color_manager
+        .get_entry_mut(dst_slot as u8);
     color.set_r(entry.rgba[0]);
     color.set_g(entry.rgba[1]);
     color.set_b(entry.rgba[2]);
@@ -342,7 +358,6 @@ pub fn load_file(game_data: &mut GameData) -> Result<Variant> {
     Ok(Variant::Nil)
 }
 
-
 /// Original SaveFile enters the engine's native save dialog. Reuse the current
 /// two-phase save path by preparing `local_saved`, then yield. Slot selection
 /// remains with the existing save/load consumer layer; no new compatibility flag
@@ -354,7 +369,6 @@ pub fn save_file(game_data: &mut GameData) -> Result<Variant> {
     Ok(Variant::Nil)
 }
 
-
 /// Original LoadTitle is not the file-slot load dialog. Reverse shows it flips
 /// an internal title-state mode and lets the main loop restore an already-cached
 /// title snapshot. Current rfvp does not have that separate title-state cache,
@@ -362,7 +376,6 @@ pub fn save_file(game_data: &mut GameData) -> Result<Variant> {
 pub fn load_title(_game_data: &mut GameData) -> Result<Variant> {
     Ok(Variant::Nil)
 }
-
 
 /// Original SaveTitle is not the file-slot save dialog. Reverse shows it stores
 /// the current state into a title-state cache and updates a native menu item.
@@ -372,8 +385,11 @@ pub fn save_title(_game_data: &mut GameData) -> Result<Variant> {
     Ok(Variant::Nil)
 }
 
-
-pub fn movie_play_legacy(game_data: &mut GameData, path: &Variant, flag: &Variant) -> Result<Variant> {
+pub fn movie_play_legacy(
+    game_data: &mut GameData,
+    path: &Variant,
+    flag: &Variant,
+) -> Result<Variant> {
     movie_play(game_data, path, flag)
 }
 
@@ -390,9 +406,18 @@ pub fn prim_set_clip_legacy(game_data: &mut GameData, prim_id: &Variant) -> Resu
 
     let sw = game_data.get_width() as i32;
     let sh = game_data.get_height() as i32;
-    game_data.motion_manager.prim_manager.prim_set_uv(prim_id, 0, 0);
-    game_data.motion_manager.prim_manager.prim_set_size(prim_id, sw, sh);
-    let mut prim = game_data.motion_manager.prim_manager.get_prim(prim_id as i16);
+    game_data
+        .motion_manager
+        .prim_manager
+        .prim_set_uv(prim_id, 0, 0);
+    game_data
+        .motion_manager
+        .prim_manager
+        .prim_set_size(prim_id, sw, sh);
+    let mut prim = game_data
+        .motion_manager
+        .prim_manager
+        .get_prim(prim_id as i16);
     prim.apply_attr(0x40);
     Ok(Variant::Nil)
 }
@@ -408,7 +433,11 @@ pub fn quick_copy(game_data: &mut GameData, src: &Variant, dst: &Variant) -> Res
         return Ok(Variant::Nil);
     }
     let nls = game_data.get_nls();
-    if game_data.save_manager.load_savedata(src as u32, nls).is_ok() {
+    if game_data
+        .save_manager
+        .load_savedata(src as u32, nls)
+        .is_ok()
+    {
         let _ = game_data.save_manager.copy_savedata(src as u32, dst as u32);
     }
     Ok(Variant::Nil)
@@ -445,7 +474,6 @@ pub fn save_load_menu(_game_data: &mut GameData, _flag: &Variant) -> Result<Vari
     Ok(Variant::Nil)
 }
 
-
 /// SaveName writes the two strings that the original engine later serializes into save metadata.
 /// We therefore mirror it directly onto rfvp's SaveManager current title fields.
 pub fn save_name(game_data: &mut GameData, left: &Variant, right: &Variant) -> Result<Variant> {
@@ -478,7 +506,9 @@ pub fn sound_pan(game_data: &mut GameData, channel: &Variant, pan: &Variant) -> 
         return Ok(Variant::Nil);
     }
     let normalized = (pan as f64 + 100.0) / 200.0;
-    game_data.se_player_mut().set_panning(channel, normalized, kira::Tween::default());
+    game_data
+        .se_player_mut()
+        .set_panning(channel, normalized, kira::Tween::default());
     Ok(Variant::Nil)
 }
 
@@ -533,7 +563,12 @@ pub fn text_data_get(text_id: &Variant, index: &Variant, key: &Variant) -> Resul
     Ok(out)
 }
 
-pub fn text_history(text_id: &Variant, mode: &Variant, prim_a: &Variant, prim_b: &Variant) -> Result<Variant> {
+pub fn text_history(
+    text_id: &Variant,
+    mode: &Variant,
+    prim_a: &Variant,
+    prim_b: &Variant,
+) -> Result<Variant> {
     let Some(text_id) = text_id.as_int() else {
         return Ok(Variant::Nil);
     };
@@ -553,7 +588,11 @@ pub fn text_history(text_id: &Variant, mode: &Variant, prim_a: &Variant, prim_b:
             return Ok(Variant::Nil);
         }
         if v > 0 {
-            return Ok(state.history.get(v as usize).map(|e| e.slot0.clone()).unwrap_or(Variant::Nil));
+            return Ok(state
+                .history
+                .get(v as usize)
+                .map(|e| e.slot0.clone())
+                .unwrap_or(Variant::Nil));
         }
     }
 
@@ -566,7 +605,12 @@ pub fn text_history(text_id: &Variant, mode: &Variant, prim_a: &Variant, prim_b:
     Ok(Variant::Nil)
 }
 
-pub fn text_hyphenation(game_data: &mut GameData, text_id: &Variant, _limit: &Variant, chars: &Variant) -> Result<Variant> {
+pub fn text_hyphenation(
+    game_data: &mut GameData,
+    text_id: &Variant,
+    _limit: &Variant,
+    chars: &Variant,
+) -> Result<Variant> {
     text_suspend_chr(game_data, text_id, chars)
 }
 
@@ -583,27 +627,116 @@ macro_rules! simple_syscaller {
     };
 }
 
-simple_syscaller!(ChrAdd, |game_data: &mut GameData, args: Vec<Variant>| chr_add(game_data, get_var!(args, 0), get_var!(args, 1), get_var!(args, 2), get_var!(args, 3)));
-simple_syscaller!(ChrGetRGB, |game_data: &mut GameData, args: Vec<Variant>| chr_get_rgb(game_data, get_var!(args, 0), get_var!(args, 1)));
-simple_syscaller!(ChrGetVol, |_game_data: &mut GameData, args: Vec<Variant>| chr_get_vol(get_var!(args, 0)));
-simple_syscaller!(ConfigDisplay, |_game_data: &mut GameData, args: Vec<Variant>| config_display(&args));
-simple_syscaller!(ConfigEtc, |_game_data: &mut GameData, args: Vec<Variant>| config_etc(&args));
-simple_syscaller!(ConfigSet, |game_data: &mut GameData, _args: Vec<Variant>| config_set(game_data));
-simple_syscaller!(ConfigSound, |_game_data: &mut GameData, args: Vec<Variant>| config_sound(&args));
-simple_syscaller!(LoadFile, |game_data: &mut GameData, _args: Vec<Variant>| load_file(game_data));
-simple_syscaller!(LoadQuick, |game_data: &mut GameData, args: Vec<Variant>| load_quick(game_data, get_var!(args, 0)));
-simple_syscaller!(LoadTitle, |game_data: &mut GameData, _args: Vec<Variant>| load_title(game_data));
-simple_syscaller!(MoviePlay, |game_data: &mut GameData, args: Vec<Variant>| movie_play_legacy(game_data, get_var!(args, 0), get_var!(args, 1)));
-simple_syscaller!(PrimSetClip, |game_data: &mut GameData, args: Vec<Variant>| prim_set_clip_legacy(game_data, get_var!(args, 0)));
-simple_syscaller!(QuickCopy, |game_data: &mut GameData, args: Vec<Variant>| quick_copy(game_data, get_var!(args, 0), get_var!(args, 1)));
-simple_syscaller!(QuickState, |game_data: &mut GameData, args: Vec<Variant>| quick_state(game_data, get_var!(args, 0)));
-simple_syscaller!(SaveFile, |game_data: &mut GameData, _args: Vec<Variant>| save_file(game_data));
-simple_syscaller!(SaveLoadMenu, |game_data: &mut GameData, args: Vec<Variant>| save_load_menu(game_data, get_var!(args, 0)));
-simple_syscaller!(SaveName, |game_data: &mut GameData, args: Vec<Variant>| save_name(game_data, get_var!(args, 0), get_var!(args, 1)));
-simple_syscaller!(SaveQuick, |game_data: &mut GameData, args: Vec<Variant>| save_quick(game_data, get_var!(args, 0)));
-simple_syscaller!(SaveTitle, |game_data: &mut GameData, _args: Vec<Variant>| save_title(game_data));
-simple_syscaller!(SoundPan, |game_data: &mut GameData, args: Vec<Variant>| sound_pan(game_data, get_var!(args, 0), get_var!(args, 1)));
-simple_syscaller!(TextDataGet, |_game_data: &mut GameData, args: Vec<Variant>| text_data_get(get_var!(args, 0), get_var!(args, 1), get_var!(args, 2)));
-simple_syscaller!(TextDataSet, |_game_data: &mut GameData, args: Vec<Variant>| text_data_set(get_var!(args, 0), get_var!(args, 1), get_var!(args, 2)));
-simple_syscaller!(TextHistory, |_game_data: &mut GameData, args: Vec<Variant>| text_history(get_var!(args, 0), get_var!(args, 1), get_var!(args, 2), get_var!(args, 3)));
-simple_syscaller!(TextHyphenation, |game_data: &mut GameData, args: Vec<Variant>| text_hyphenation(game_data, get_var!(args, 0), get_var!(args, 1), get_var!(args, 2)));
+simple_syscaller!(ChrAdd, |game_data: &mut GameData, args: Vec<Variant>| {
+    chr_add(
+        game_data,
+        get_var!(args, 0),
+        get_var!(args, 1),
+        get_var!(args, 2),
+        get_var!(args, 3),
+    )
+});
+simple_syscaller!(ChrGetRGB, |game_data: &mut GameData, args: Vec<Variant>| {
+    chr_get_rgb(game_data, get_var!(args, 0), get_var!(args, 1))
+});
+simple_syscaller!(
+    ChrGetVol,
+    |_game_data: &mut GameData, args: Vec<Variant>| chr_get_vol(get_var!(args, 0))
+);
+simple_syscaller!(
+    ConfigDisplay,
+    |_game_data: &mut GameData, args: Vec<Variant>| config_display(&args)
+);
+simple_syscaller!(
+    ConfigEtc,
+    |_game_data: &mut GameData, args: Vec<Variant>| config_etc(&args)
+);
+simple_syscaller!(
+    ConfigSet,
+    |game_data: &mut GameData, _args: Vec<Variant>| config_set(game_data)
+);
+simple_syscaller!(
+    ConfigSound,
+    |_game_data: &mut GameData, args: Vec<Variant>| config_sound(&args)
+);
+simple_syscaller!(LoadFile, |game_data: &mut GameData, _args: Vec<Variant>| {
+    load_file(game_data)
+});
+simple_syscaller!(LoadQuick, |game_data: &mut GameData, args: Vec<Variant>| {
+    load_quick(game_data, get_var!(args, 0))
+});
+simple_syscaller!(
+    LoadTitle,
+    |game_data: &mut GameData, _args: Vec<Variant>| load_title(game_data)
+);
+simple_syscaller!(MoviePlay, |game_data: &mut GameData, args: Vec<Variant>| {
+    movie_play_legacy(game_data, get_var!(args, 0), get_var!(args, 1))
+});
+simple_syscaller!(
+    PrimSetClip,
+    |game_data: &mut GameData, args: Vec<Variant>| prim_set_clip_legacy(
+        game_data,
+        get_var!(args, 0)
+    )
+);
+simple_syscaller!(QuickCopy, |game_data: &mut GameData, args: Vec<Variant>| {
+    quick_copy(game_data, get_var!(args, 0), get_var!(args, 1))
+});
+simple_syscaller!(
+    QuickState,
+    |game_data: &mut GameData, args: Vec<Variant>| quick_state(game_data, get_var!(args, 0))
+);
+simple_syscaller!(SaveFile, |game_data: &mut GameData, _args: Vec<Variant>| {
+    save_file(game_data)
+});
+simple_syscaller!(
+    SaveLoadMenu,
+    |game_data: &mut GameData, args: Vec<Variant>| save_load_menu(game_data, get_var!(args, 0))
+);
+simple_syscaller!(SaveName, |game_data: &mut GameData, args: Vec<Variant>| {
+    save_name(game_data, get_var!(args, 0), get_var!(args, 1))
+});
+simple_syscaller!(SaveQuick, |game_data: &mut GameData, args: Vec<Variant>| {
+    save_quick(game_data, get_var!(args, 0))
+});
+simple_syscaller!(
+    SaveTitle,
+    |game_data: &mut GameData, _args: Vec<Variant>| save_title(game_data)
+);
+simple_syscaller!(SoundPan, |game_data: &mut GameData, args: Vec<Variant>| {
+    sound_pan(game_data, get_var!(args, 0), get_var!(args, 1))
+});
+simple_syscaller!(
+    TextDataGet,
+    |_game_data: &mut GameData, args: Vec<Variant>| text_data_get(
+        get_var!(args, 0),
+        get_var!(args, 1),
+        get_var!(args, 2)
+    )
+);
+simple_syscaller!(
+    TextDataSet,
+    |_game_data: &mut GameData, args: Vec<Variant>| text_data_set(
+        get_var!(args, 0),
+        get_var!(args, 1),
+        get_var!(args, 2)
+    )
+);
+simple_syscaller!(
+    TextHistory,
+    |_game_data: &mut GameData, args: Vec<Variant>| text_history(
+        get_var!(args, 0),
+        get_var!(args, 1),
+        get_var!(args, 2),
+        get_var!(args, 3)
+    )
+);
+simple_syscaller!(
+    TextHyphenation,
+    |game_data: &mut GameData, args: Vec<Variant>| text_hyphenation(
+        game_data,
+        get_var!(args, 0),
+        get_var!(args, 1),
+        get_var!(args, 2)
+    )
+);

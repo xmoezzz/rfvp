@@ -38,9 +38,7 @@ impl LogRing {
 static LOG_RING: OnceLock<Arc<LogRing>> = OnceLock::new();
 
 pub fn init(cap: usize) -> Arc<LogRing> {
-    LOG_RING
-        .get_or_init(|| Arc::new(LogRing::new(cap)))
-        .clone()
+    LOG_RING.get_or_init(|| Arc::new(LogRing::new(cap))).clone()
 }
 
 pub fn get() -> Option<Arc<LogRing>> {

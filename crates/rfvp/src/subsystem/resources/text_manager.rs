@@ -1,13 +1,14 @@
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
+use super::gaiji_manager::GaijiManager;
 use crate::{
-    font::Font,
-    subsystem::resources::color_manager::ColorItem,
-    utils::file::app_base_path,
+    font::Font, subsystem::resources::color_manager::ColorItem, utils::file::app_base_path,
 };
 use anyhow::{anyhow, bail, Result};
 use serde::{Deserialize, Serialize};
-use super::gaiji_manager::GaijiManager;
 
 // Current font (reverse-engineered special id used by TextFont(..., -1, ...)).
 pub const FONTFACE_CURRENT: i32 = -1;
@@ -34,7 +35,12 @@ fn push_literal(items: &mut Vec<FontItem>, chars: &[char]) {
     }
 }
 
-fn tokenize_content_text(content_text: &str, special_unit_mode: u8, ruby_text_mode: u8, wait_control_mode: u8) -> Vec<FontItem> {
+fn tokenize_content_text(
+    content_text: &str,
+    special_unit_mode: u8,
+    ruby_text_mode: u8,
+    wait_control_mode: u8,
+) -> Vec<FontItem> {
     let chrs = content_text.chars().collect::<Vec<_>>();
     let mut items: Vec<FontItem> = Vec::new();
     let mut i: usize = 0;
@@ -144,16 +150,66 @@ fn fontitem_char_count(it: &FontItem) -> usize {
 fn is_builtin_line_start_prohibited(ch: char) -> bool {
     matches!(
         ch,
-        ')' | ']' | '}'
-            | '）' | '］' | '｝'
-            | '〉' | '》' | '」' | '』' | '】' | '〕' | '〗' | '〙' | '〛'
-            | '﹂' | '﹄' | '｠' | '»'
-            | '、' | '。' | '，' | '．' | '・' | '：' | '；'
-            | '！' | '？' | '!' | '?'
-            | 'ヽ' | 'ヾ' | 'ゝ' | 'ゞ' | '々' | '〻'
-            | 'ー' | '〜' | '゠'
-            | 'ぁ' | 'ぃ' | 'ぅ' | 'ぇ' | 'ぉ' | 'っ' | 'ゃ' | 'ゅ' | 'ょ' | 'ゎ'
-            | 'ァ' | 'ィ' | 'ゥ' | 'ェ' | 'ォ' | 'ッ' | 'ャ' | 'ュ' | 'ョ' | 'ヮ' | 'ヵ' | 'ヶ'
+        ')' | ']'
+            | '}'
+            | '）'
+            | '］'
+            | '｝'
+            | '〉'
+            | '》'
+            | '」'
+            | '』'
+            | '】'
+            | '〕'
+            | '〗'
+            | '〙'
+            | '〛'
+            | '﹂'
+            | '﹄'
+            | '｠'
+            | '»'
+            | '、'
+            | '。'
+            | '，'
+            | '．'
+            | '・'
+            | '：'
+            | '；'
+            | '！'
+            | '？'
+            | '!'
+            | '?'
+            | 'ヽ'
+            | 'ヾ'
+            | 'ゝ'
+            | 'ゞ'
+            | '々'
+            | '〻'
+            | 'ー'
+            | '〜'
+            | '゠'
+            | 'ぁ'
+            | 'ぃ'
+            | 'ぅ'
+            | 'ぇ'
+            | 'ぉ'
+            | 'っ'
+            | 'ゃ'
+            | 'ゅ'
+            | 'ょ'
+            | 'ゎ'
+            | 'ァ'
+            | 'ィ'
+            | 'ゥ'
+            | 'ェ'
+            | 'ォ'
+            | 'ッ'
+            | 'ャ'
+            | 'ュ'
+            | 'ョ'
+            | 'ヮ'
+            | 'ヵ'
+            | 'ヶ'
     )
 }
 
@@ -197,7 +253,12 @@ impl RectI32 {
         let y0 = self.y.min(other.y);
         let x1 = self.right().max(other.right());
         let y1 = self.bottom().max(other.bottom());
-        RectI32 { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }
+        RectI32 {
+            x: x0,
+            y: y0,
+            w: x1 - x0,
+            h: y1 - y0,
+        }
     }
 
     fn clamp_to_buffer(self, bw: u32, bh: u32) -> RectI32 {
@@ -210,7 +271,12 @@ impl RectI32 {
         let y0 = self.y.clamp(0, bh);
         let x1 = self.right().clamp(0, bw);
         let y1 = self.bottom().clamp(0, bh);
-        RectI32 { x: x0, y: y0, w: (x1 - x0).max(0), h: (y1 - y0).max(0) }
+        RectI32 {
+            x: x0,
+            y: y0,
+            w: (x1 - x0).max(0),
+            h: (y1 - y0).max(0),
+        }
     }
 }
 
@@ -219,7 +285,6 @@ struct RevealQueueItem {
     rect: RectI32,
     logical_cols: i32,
 }
-
 
 #[derive(Clone)]
 struct LoadedFont {
@@ -250,7 +315,11 @@ struct FontFallbackSet {
 
 impl FontFallbackSet {
     fn new(primary: Font, preferred_cjk: Vec<Font>, fallbacks: Vec<Font>) -> Self {
-        Self { primary, preferred_cjk, fallbacks }
+        Self {
+            primary,
+            preferred_cjk,
+            fallbacks,
+        }
     }
 
     fn primary(&self) -> &Font {
@@ -296,7 +365,11 @@ fn is_cjk_text_char(ch: char) -> bool {
 }
 
 fn is_font_file(path: &Path) -> bool {
-    let ext = path.extension().and_then(|x| x.to_str()).unwrap_or("").to_ascii_lowercase();
+    let ext = path
+        .extension()
+        .and_then(|x| x.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
     ext == "ttf" || ext == "otf" || ext == "ttc"
 }
 
@@ -319,7 +392,11 @@ fn load_font_file(path: &Path) -> Result<Option<LoadedFont>> {
         .map(|s| s.to_string())
         .unwrap_or_else(|| path.to_string_lossy().to_string());
     let name = extract_font_face_name(&buf)
-        .or_else(|| path.file_stem().and_then(|x| x.to_str()).map(|s| s.to_string()))
+        .or_else(|| {
+            path.file_stem()
+                .and_then(|x| x.to_str())
+                .map(|s| s.to_string())
+        })
         .unwrap_or_else(|| file_name.clone());
     let font = match Font::from_vec(buf) {
         Ok(f) => f,
@@ -329,7 +406,11 @@ fn load_font_file(path: &Path) -> Result<Option<LoadedFont>> {
         }
     };
 
-    Ok(Some(LoadedFont { name, file_name, font }))
+    Ok(Some(LoadedFont {
+        name,
+        file_name,
+        font,
+    }))
 }
 
 fn normalized_font_file_name(path: &Path) -> String {
@@ -432,7 +513,10 @@ fn decode_utf16be(bytes: &[u8]) -> Option<String> {
         units.push(u16::from_be_bytes([bytes[i], bytes[i + 1]]));
         i += 2;
     }
-    String::from_utf16(&units).ok().map(|s| s.trim_matches('\0').trim().to_string()).filter(|s| !s.is_empty())
+    String::from_utf16(&units)
+        .ok()
+        .map(|s| s.trim_matches('\0').trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn decode_mac_roman_ascii_subset(bytes: &[u8]) -> Option<String> {
@@ -441,7 +525,11 @@ fn decode_mac_roman_ascii_subset(bytes: &[u8]) -> Option<String> {
         .map(|&b| if b < 0x80 { b as char } else { '?' })
         .collect();
     let s = s.trim_matches('\0').trim().to_string();
-    if s.is_empty() { None } else { Some(s) }
+    if s.is_empty() {
+        None
+    } else {
+        Some(s)
+    }
 }
 
 fn font_face_table_offset(bytes: &[u8]) -> Option<usize> {
@@ -475,7 +563,12 @@ fn find_sfnt_table(bytes: &[u8], face_off: usize, tag: &[u8; 4]) -> Option<(usiz
     None
 }
 
-fn font_name_record_score(name_id: u16, platform_id: u16, encoding_id: u16, language_id: u16) -> i32 {
+fn font_name_record_score(
+    name_id: u16,
+    platform_id: u16,
+    encoding_id: u16,
+    language_id: u16,
+) -> i32 {
     let mut score = match name_id {
         16 => 300, // typographic family
         1 => 200,  // family
@@ -506,7 +599,8 @@ fn extract_font_face_name(bytes: &[u8]) -> Option<String> {
     let (name_off, name_len) = find_sfnt_table(bytes, face_off, b"name")?;
     let name_end = name_off.checked_add(name_len)?;
     let count = read_be_u16(bytes, name_off.checked_add(2)?)? as usize;
-    let string_base = name_off.checked_add(read_be_u16(bytes, name_off.checked_add(4)?)? as usize)?;
+    let string_base =
+        name_off.checked_add(read_be_u16(bytes, name_off.checked_add(4)?)? as usize)?;
 
     let mut best_score = -1;
     let mut best_name: Option<String> = None;
@@ -582,8 +676,7 @@ impl FontEnumerator {
         let mspgothic_b = include_bytes!("./fonts/MS-PGothic.ttf") as &[u8];
         let mspmincho_b = include_bytes!("./fonts/MS-PMincho-2.ttf") as &[u8];
 
-        let msgothic = Font::from_static(msgothic_b)
-            .expect("MSGOTHIC.TTF must be valid");
+        let msgothic = Font::from_static(msgothic_b).expect("MSGOTHIC.TTF must be valid");
         // Cloning a `Font` is a refcount bump, not a deep copy.
         let msmincho = Font::from_static(msmincho_b).unwrap_or_else(|_| msgothic.clone());
         let mspgothic = Font::from_static(mspgothic_b).unwrap_or_else(|_| msgothic.clone());
@@ -643,7 +736,10 @@ impl FontEnumerator {
                     path.get_path().display()
                 );
             } else {
-                log::info!("Font scan skipped: no font dir under {}", app_base_path().get_path().display());
+                log::info!(
+                    "Font scan skipped: no font dir under {}",
+                    app_base_path().get_path().display()
+                );
             }
         }
 
@@ -734,13 +830,15 @@ impl FontEnumerator {
 
     fn resolve_current_font(&self) -> Font {
         let cur = self.current_font_name.as_str();
-        if cur.eq_ignore_ascii_case("MS Gothic") || cur.eq_ignore_ascii_case("ＭＳ ゴシック") {
+        if cur.eq_ignore_ascii_case("MS Gothic") || cur.eq_ignore_ascii_case("ＭＳ ゴシック")
+        {
             return self.sys_ms_gothic.clone();
         }
         if cur.eq_ignore_ascii_case("MS Mincho") || cur.eq_ignore_ascii_case("ＭＳ 明朝") {
             return self.sys_ms_mincho.clone();
         }
-        if cur.eq_ignore_ascii_case("MS PGothic") || cur.eq_ignore_ascii_case("ＭＳ Ｐゴシック") {
+        if cur.eq_ignore_ascii_case("MS PGothic") || cur.eq_ignore_ascii_case("ＭＳ Ｐゴシック")
+        {
             return self.sys_ms_pgothic.clone();
         }
         if cur.eq_ignore_ascii_case("MS PMincho") || cur.eq_ignore_ascii_case("ＭＳ Ｐ明朝") {
@@ -794,7 +892,9 @@ impl FontEnumerator {
     fn get_font_fallback_set(&self, id: i32) -> FontFallbackSet {
         let primary = self.get_font(id);
         let prefer_game_cjk = match id {
-            FONTFACE_MS_GOTHIC | FONTFACE_MS_MINCHO | FONTFACE_MS_PGOTHIC | FONTFACE_MS_PMINCHO => true,
+            FONTFACE_MS_GOTHIC | FONTFACE_MS_MINCHO | FONTFACE_MS_PGOTHIC | FONTFACE_MS_PMINCHO => {
+                true
+            }
             FONTFACE_CURRENT => !self.current_font_is_user_loaded(),
             _ => false,
         };
@@ -803,7 +903,8 @@ impl FontEnumerator {
         } else {
             Vec::new()
         };
-        let mut fallbacks = Vec::with_capacity(self.fonts.len() + self.system_fallback_fonts.len() + 4);
+        let mut fallbacks =
+            Vec::with_capacity(self.fonts.len() + self.system_fallback_fonts.len() + 4);
 
         // Chinese localizations often ship a CJK font but still request one of
         // the original MS Gothic faces in script. For built-in/default faces,
@@ -832,7 +933,11 @@ impl FontEnumerator {
     pub fn get_font_name(&self, id: i32) -> Option<String> {
         match id {
             FONTFACE_CURRENT => {
-                if self.current_font_name.is_empty() { None } else { Some(self.current_font_name.clone()) }
+                if self.current_font_name.is_empty() {
+                    None
+                } else {
+                    Some(self.current_font_name.clone())
+                }
             }
             FONTFACE_MS_GOTHIC => Some("MS Gothic".to_string()),
             FONTFACE_MS_MINCHO => Some("MS Mincho".to_string()),
@@ -856,10 +961,7 @@ impl FontEnumerator {
 
     pub fn is_valid_fontface_id(&self, id: i32) -> bool {
         match id {
-            FONTFACE_CURRENT
-            | FONTFACE_MS_GOTHIC
-            | FONTFACE_MS_MINCHO
-            | FONTFACE_MS_PGOTHIC
+            FONTFACE_CURRENT | FONTFACE_MS_GOTHIC | FONTFACE_MS_MINCHO | FONTFACE_MS_PGOTHIC
             | FONTFACE_MS_PMINCHO => true,
             _ if id >= 0 => (id as usize) < self.fonts.len(),
             _ => false,
@@ -915,7 +1017,6 @@ pub struct TextItem {
     // IDA: ruby_gap_x (TextFormat arg5) and ruby_extra_y (arg6) are signed in [-16,16]
     ruby_extra_y: i16,
     ruby_gap_x: i16,
-
 
     skip_mode: u8,
     is_suspended: bool,
@@ -1052,8 +1153,14 @@ impl TextItem {
 
     fn raster_dimensions(&self) -> (u32, u32) {
         let scale = self.effective_render_scale();
-        let w = ((self.w as f32) * scale).round().max(self.w as f32).max(0.0) as u32;
-        let h = ((self.h as f32) * scale).round().max(self.h as f32).max(0.0) as u32;
+        let w = ((self.w as f32) * scale)
+            .round()
+            .max(self.w as f32)
+            .max(0.0) as u32;
+        let h = ((self.h as f32) * scale)
+            .round()
+            .max(self.h as f32)
+            .max(0.0) as u32;
         (w, h)
     }
 
@@ -1334,15 +1441,17 @@ impl TextItem {
         item: &FontItem,
     ) -> i32 {
         match item {
-            FontItem::Font(ch) => self.measure_char_advance(
-                main_fonts,
-                main_size,
-                gaiji,
-                main_slot,
-                *ch,
-                self.outline_size1,
-                self.shadow_distance,
-            ) + self.main_gap_x as i32,
+            FontItem::Font(ch) => {
+                self.measure_char_advance(
+                    main_fonts,
+                    main_size,
+                    gaiji,
+                    main_slot,
+                    *ch,
+                    self.outline_size1,
+                    self.shadow_distance,
+                ) + self.main_gap_x as i32
+            }
             FontItem::RubyFont(ruby, base) => {
                 let mut base_adv = 0i32;
                 for ch in base {
@@ -1399,7 +1508,9 @@ impl TextItem {
         if !line_has_any || item_adv <= 0 {
             return false;
         }
-        let limit = first_char.map(|ch| self.wrap_limit_px(ch)).unwrap_or(self.w as i32);
+        let limit = first_char
+            .map(|ch| self.wrap_limit_px(ch))
+            .unwrap_or(self.w as i32);
         if limit <= 0 {
             return false;
         }
@@ -1407,7 +1518,12 @@ impl TextItem {
     }
 
     fn parse_content_text(&mut self, content_text: &str) {
-        let items = tokenize_content_text(content_text, self.special_unit_mode, self.ruby_text_mode, self.wait_control_mode);
+        let items = tokenize_content_text(
+            content_text,
+            self.special_unit_mode,
+            self.ruby_text_mode,
+            self.wait_control_mode,
+        );
 
         self.text_content = content_text.to_string();
         self.content_text = content_text.to_string();
@@ -1520,14 +1636,19 @@ impl TextItem {
         }
 
         self.elapsed = self.elapsed.saturating_add(delta_ms);
-        self.reveal_carry = self.reveal_carry.saturating_add(1000i64.saturating_mul(delta_ms as i64));
+        self.reveal_carry = self
+            .reveal_carry
+            .saturating_add(1000i64.saturating_mul(delta_ms as i64));
         let step: i64 = self.reveal_carry / eff_speed;
         self.reveal_carry %= eff_speed;
         if step <= 0 {
             return;
         }
 
-        let mut new_units = self.visible_chars.saturating_add(step as usize).min(self.total_chars);
+        let mut new_units = self
+            .visible_chars
+            .saturating_add(step as usize)
+            .min(self.total_chars);
         if self.next_wait_index < self.wait_points.len() {
             let (wait_pos, wait_ms) = self.wait_points[self.next_wait_index];
             if self.visible_chars < wait_pos && new_units >= wait_pos {
@@ -1598,8 +1719,6 @@ impl TextItem {
         buf[idx + 3] = out_a.min(255) as u8;
     }
 
-
-
     fn draw_glyph_mask(
         buf: &mut [u8],
         bw: u32,
@@ -1644,11 +1763,21 @@ impl TextItem {
         let mut rect = RectI32 { x, y, w, h };
         let r = outline as i32;
         if r > 0 {
-            rect = RectI32 { x: rect.x - r, y: rect.y - r, w: rect.w + r * 2, h: rect.h + r * 2 };
+            rect = RectI32 {
+                x: rect.x - r,
+                y: rect.y - r,
+                w: rect.w + r * 2,
+                h: rect.h + r * 2,
+            };
         }
         if shadow_dist != 0 {
             let d = shadow_dist as i32;
-            rect = rect.union(RectI32 { x: x + d, y: y + d, w, h });
+            rect = rect.union(RectI32 {
+                x: x + d,
+                y: y + d,
+                w,
+                h,
+            });
         }
         rect
     }
@@ -1668,7 +1797,14 @@ impl TextItem {
         let (metrics, _) = font.rasterize(ch, eff_size);
         let gx = x + metrics.xmin;
         let gy = y - (metrics.ymin + metrics.height as i32);
-        Self::glyph_bounds(gx, gy, metrics.width as i32, metrics.height as i32, outline, shadow_dist)
+        Self::glyph_bounds(
+            gx,
+            gy,
+            metrics.width as i32,
+            metrics.height as i32,
+            outline,
+            shadow_dist,
+        )
     }
 
     fn gaiji_draw_bounds(
@@ -1684,7 +1820,12 @@ impl TextItem {
         };
         let gx = x + ox as i32;
         let gy = y + oy as i32;
-        RectI32 { x: gx, y: gy, w: mw as i32, h: mh as i32 }
+        RectI32 {
+            x: gx,
+            y: gy,
+            w: mw as i32,
+            h: mh as i32,
+        }
     }
 
     fn gaiji_draw_bounds_scaled(
@@ -1747,7 +1888,14 @@ impl TextItem {
                             continue;
                         }
                         let a = ((color.get_a() as u16 * cov as u16) / 255) as u8;
-                        Self::put_pixel_blend(buf, bw, bh, px, py, (color.get_r(), color.get_g(), color.get_b(), a));
+                        Self::put_pixel_blend(
+                            buf,
+                            bw,
+                            bh,
+                            px,
+                            py,
+                            (color.get_r(), color.get_g(), color.get_b(), a),
+                        );
                     }
                 }
             }
@@ -1781,7 +1929,8 @@ impl TextItem {
         let gx = x + metrics.xmin;
         let gy = y - (metrics.ymin + metrics.height as i32);
 
-        let adv = self.draw_char_advance_px(metrics.advance_width.ceil() as i32, outline, shadow_dist);
+        let adv =
+            self.draw_char_advance_px(metrics.advance_width.ceil() as i32, outline, shadow_dist);
 
         if !do_draw {
             return adv;
@@ -1833,7 +1982,18 @@ impl TextItem {
             }
         }
 
-        Self::draw_glyph_mask(buf, bw, bh, gx, gy, &bitmap, metrics.width, metrics.height, color, clip_max_x);
+        Self::draw_glyph_mask(
+            buf,
+            bw,
+            bh,
+            gx,
+            gy,
+            &bitmap,
+            metrics.width,
+            metrics.height,
+            color,
+            clip_max_x,
+        );
 
         adv
     }
@@ -1868,11 +2028,11 @@ impl TextItem {
             return adv;
         }
 
-        Self::draw_glyph_mask(buf, bw, bh, gx, gy, &mask, mw_usize, mh_usize, color, clip_max_x);
+        Self::draw_glyph_mask(
+            buf, bw, bh, gx, gy, &mask, mw_usize, mh_usize, color, clip_max_x,
+        );
         adv
     }
-
-
 
     fn draw_string_unit(
         &self,
@@ -1897,8 +2057,23 @@ impl TextItem {
         let mut pen_x = x;
         for ch in s.chars() {
             let adv = self.draw_char(
-                buf, bw, bh, fonts, size, gaiji, size_slot, pen_x, y, ch,
-                color, outline, outline_color, shadow_dist, shadow_color, clip_max_x, do_draw,
+                buf,
+                bw,
+                bh,
+                fonts,
+                size,
+                gaiji,
+                size_slot,
+                pen_x,
+                y,
+                ch,
+                color,
+                outline,
+                outline_color,
+                shadow_dist,
+                shadow_color,
+                clip_max_x,
+                do_draw,
             );
             pen_x += adv;
         }
@@ -1983,7 +2158,10 @@ impl TextItem {
         let actual_start = ((logical_start as f32) * scale).floor() as i32;
         let actual_end = ((logical_end as f32) * scale).ceil() as i32;
         let skip_cols = actual_start.max(0).min(rect.w);
-        let copy_w = (actual_end - actual_start).max(0).min(rect.w - skip_cols).max(0) as usize;
+        let copy_w = (actual_end - actual_start)
+            .max(0)
+            .min(rect.w - skip_cols)
+            .max(0) as usize;
         if copy_w == 0 {
             return;
         }
@@ -2068,26 +2246,47 @@ impl TextItem {
         let render_scale = self.effective_render_scale();
         let (bw, bh) = self.raster_dimensions();
 
-        let main_size = if self.text_size1 == 0 { 16.0 } else { self.text_size1 as f32 };
-        let ruby_size = if self.text_size2 == 0 { (main_size * 0.6).max(8.0) } else { self.text_size2 as f32 };
+        let main_size = if self.text_size1 == 0 {
+            16.0
+        } else {
+            self.text_size1 as f32
+        };
+        let ruby_size = if self.text_size2 == 0 {
+            (main_size * 0.6).max(8.0)
+        } else {
+            self.text_size2 as f32
+        };
         let main_draw_size = main_size * render_scale;
         let ruby_draw_size = ruby_size * render_scale;
         let draw_outline1 = Self::scale_len_u8(self.outline_size1, render_scale);
         let draw_outline2 = Self::scale_len_u8(self.outline_size2, render_scale);
         let draw_shadow = Self::scale_len_u8(self.shadow_distance, render_scale);
-        let main_layout_size = Self::effective_gdi_font_size(main_size, self.outline_size1, self.shadow_distance);
-        let ruby_layout_size = Self::effective_gdi_font_size(ruby_size, self.outline_size2, self.shadow_distance);
+        let main_layout_size =
+            Self::effective_gdi_font_size(main_size, self.outline_size1, self.shadow_distance);
+        let ruby_layout_size =
+            Self::effective_gdi_font_size(ruby_size, self.outline_size2, self.shadow_distance);
 
-        let main_slot: u8 = if self.text_size1 == 0 { 16 } else { self.text_size1 };
-        let ruby_slot: u8 = if self.text_size2 == 0 { (main_slot as f32 * 0.6).round().clamp(8.0, 64.0) as u8 } else { self.text_size2 };
+        let main_slot: u8 = if self.text_size1 == 0 {
+            16
+        } else {
+            self.text_size1
+        };
+        let ruby_slot: u8 = if self.text_size2 == 0 {
+            (main_slot as f32 * 0.6).round().clamp(8.0, 64.0) as u8
+        } else {
+            self.text_size2
+        };
 
-        let lm = main_fonts.primary().horizontal_line_metrics(main_layout_size);
+        let lm = main_fonts
+            .primary()
+            .horizontal_line_metrics(main_layout_size);
         let ascent_f = lm.map(|m| m.ascent).unwrap_or(main_layout_size);
         let descent_f = lm.map(|m| m.descent).unwrap_or(-main_layout_size * 0.25);
         let line_gap_f = lm.map(|m| m.line_gap).unwrap_or(0.0);
 
         let main_top_reserve = ascent_f.ceil() as i32 + self.outline_size1 as i32;
-        let main_bottom_reserve = (-descent_f).ceil() as i32 + self.outline_size1 as i32 + self.shadow_distance as i32;
+        let main_bottom_reserve =
+            (-descent_f).ceil() as i32 + self.outline_size1 as i32 + self.shadow_distance as i32;
 
         // Ruby must participate in vertical layout.
         // Keep the current baseline-up policy, but derive line height from the combined
@@ -2098,11 +2297,15 @@ impl TextItem {
             0
         };
         let (line_top_reserve, line_bottom_reserve) = if self.ruby_text_mode == 2 {
-            let rlm = ruby_fonts.primary().horizontal_line_metrics(ruby_layout_size);
+            let rlm = ruby_fonts
+                .primary()
+                .horizontal_line_metrics(ruby_layout_size);
             let ruby_ascent_f = rlm.map(|m| m.ascent).unwrap_or(ruby_layout_size);
             let ruby_descent_f = rlm.map(|m| m.descent).unwrap_or(-ruby_layout_size * 0.25);
             let ruby_top_reserve = ruby_ascent_f.ceil() as i32 + self.outline_size2 as i32;
-            let ruby_bottom_reserve = (-ruby_descent_f).ceil() as i32 + self.outline_size2 as i32 + self.shadow_distance as i32;
+            let ruby_bottom_reserve = (-ruby_descent_f).ceil() as i32
+                + self.outline_size2 as i32
+                + self.shadow_distance as i32;
             (
                 main_top_reserve.max(ruby_baseline_up + ruby_top_reserve),
                 main_bottom_reserve.max((ruby_bottom_reserve - ruby_baseline_up).max(0)),
@@ -2110,7 +2313,10 @@ impl TextItem {
         } else {
             (main_top_reserve, main_bottom_reserve)
         };
-        let line_h = line_top_reserve + line_bottom_reserve + line_gap_f.ceil() as i32 + self.line_gap_y as i32;
+        let line_h = line_top_reserve
+            + line_bottom_reserve
+            + line_gap_f.ceil() as i32
+            + self.line_gap_y as i32;
 
         let mut pen_x = (self.x as i32).max(self.line_start_x as i32);
         let mut pen_y = self.y as i32 + line_top_reserve;
@@ -2123,7 +2329,10 @@ impl TextItem {
         self.wait_points.clear();
         self.next_wait_index = 0;
 
-        let queue_reveal_rect = |queue: &mut Vec<RevealQueueItem>, total_required_units: &mut i64, bounds: RectI32, src: &[u8]| {
+        let queue_reveal_rect = |queue: &mut Vec<RevealQueueItem>,
+                                 total_required_units: &mut i64,
+                                 bounds: RectI32,
+                                 src: &[u8]| {
             let rect = Self::trim_reveal_rect_to_alpha(src, bw, bh, bounds);
             if rect.is_empty() {
                 return;
@@ -2136,7 +2345,8 @@ impl TextItem {
         for item in self.content_items.clone() {
             match item {
                 FontItem::Wait(ms) => {
-                    self.wait_points.push((total_required_units.max(0) as usize, ms));
+                    self.wait_points
+                        .push((total_required_units.max(0) as usize, ms));
                     continue;
                 }
                 FontItem::SpecialUnit(s) => {
@@ -2162,28 +2372,81 @@ impl TextItem {
                         let draw_x = Self::scale_pos_i32(pen_x, render_scale);
                         let draw_y = Self::scale_pos_i32(pen_y, render_scale);
                         self.draw_gaiji_unit_scaled(
-                            &mut full_buffer, bw, bh, gb, draw_x, draw_y, &self.color1,
-                            i32::MAX, true, render_scale,
+                            &mut full_buffer,
+                            bw,
+                            bh,
+                            gb,
+                            draw_x,
+                            draw_y,
+                            &self.color1,
+                            i32::MAX,
+                            true,
+                            render_scale,
                         );
-                        item_bounds = self.gaiji_draw_bounds_scaled(gb, draw_x, draw_y, render_scale);
-                        let adv = self.measure_special_unit_advance(&main_fonts, main_size, gaiji, main_slot, &s, self.outline_size1, self.shadow_distance);
+                        item_bounds =
+                            self.gaiji_draw_bounds_scaled(gb, draw_x, draw_y, render_scale);
+                        let adv = self.measure_special_unit_advance(
+                            &main_fonts,
+                            main_size,
+                            gaiji,
+                            main_slot,
+                            &s,
+                            self.outline_size1,
+                            self.shadow_distance,
+                        );
                         pen_x += adv + self.main_gap_x as i32;
                     } else {
                         let mut unit_x = pen_x;
                         for ch in s.chars() {
-                            let logical_adv = self.measure_char_advance(&main_fonts, main_size, gaiji, main_slot, ch, self.outline_size1, self.shadow_distance);
+                            let logical_adv = self.measure_char_advance(
+                                &main_fonts,
+                                main_size,
+                                gaiji,
+                                main_slot,
+                                ch,
+                                self.outline_size1,
+                                self.shadow_distance,
+                            );
                             let draw_x = Self::scale_pos_i32(unit_x, render_scale);
                             let draw_y = Self::scale_pos_i32(pen_y, render_scale);
                             self.draw_char(
-                                &mut full_buffer, bw, bh, &main_fonts, main_draw_size, gaiji, main_slot, draw_x, draw_y, ch,
-                                &self.color1, draw_outline1, &self.color2, draw_shadow, &self.color3, i32::MAX, true,
+                                &mut full_buffer,
+                                bw,
+                                bh,
+                                &main_fonts,
+                                main_draw_size,
+                                gaiji,
+                                main_slot,
+                                draw_x,
+                                draw_y,
+                                ch,
+                                &self.color1,
+                                draw_outline1,
+                                &self.color2,
+                                draw_shadow,
+                                &self.color3,
+                                i32::MAX,
+                                true,
                             );
-                            item_bounds = item_bounds.union(self.char_draw_bounds(&main_fonts, main_draw_size, draw_x, draw_y, ch, draw_outline1, draw_shadow));
+                            item_bounds = item_bounds.union(self.char_draw_bounds(
+                                &main_fonts,
+                                main_draw_size,
+                                draw_x,
+                                draw_y,
+                                ch,
+                                draw_outline1,
+                                draw_shadow,
+                            ));
                             unit_x += logical_adv;
                         }
                         pen_x = unit_x + self.main_gap_x as i32;
                     }
-                    queue_reveal_rect(&mut reveal_queue, &mut total_required_units, item_bounds, &full_buffer);
+                    queue_reveal_rect(
+                        &mut reveal_queue,
+                        &mut total_required_units,
+                        item_bounds,
+                        &full_buffer,
+                    );
                     line_has_any = true;
                 }
                 FontItem::Font(ch) => {
@@ -2211,16 +2474,52 @@ impl TextItem {
                         pen_y += line_h;
                     }
 
-                    let logical_adv = self.measure_char_advance(&main_fonts, main_size, gaiji, main_slot, ch, self.outline_size1, self.shadow_distance);
+                    let logical_adv = self.measure_char_advance(
+                        &main_fonts,
+                        main_size,
+                        gaiji,
+                        main_slot,
+                        ch,
+                        self.outline_size1,
+                        self.shadow_distance,
+                    );
                     let draw_x = Self::scale_pos_i32(pen_x, render_scale);
                     let draw_y = Self::scale_pos_i32(pen_y, render_scale);
                     self.draw_char(
-                        &mut full_buffer, bw, bh, &main_fonts, main_draw_size, gaiji, main_slot, draw_x, draw_y, ch,
-                        &self.color1, draw_outline1, &self.color2, draw_shadow, &self.color3, i32::MAX, true,
+                        &mut full_buffer,
+                        bw,
+                        bh,
+                        &main_fonts,
+                        main_draw_size,
+                        gaiji,
+                        main_slot,
+                        draw_x,
+                        draw_y,
+                        ch,
+                        &self.color1,
+                        draw_outline1,
+                        &self.color2,
+                        draw_shadow,
+                        &self.color3,
+                        i32::MAX,
+                        true,
                     );
-                    let bounds = self.char_draw_bounds(&main_fonts, main_draw_size, draw_x, draw_y, ch, draw_outline1, draw_shadow);
+                    let bounds = self.char_draw_bounds(
+                        &main_fonts,
+                        main_draw_size,
+                        draw_x,
+                        draw_y,
+                        ch,
+                        draw_outline1,
+                        draw_shadow,
+                    );
                     pen_x += logical_adv + self.main_gap_x as i32;
-                    queue_reveal_rect(&mut reveal_queue, &mut total_required_units, bounds, &full_buffer);
+                    queue_reveal_rect(
+                        &mut reveal_queue,
+                        &mut total_required_units,
+                        bounds,
+                        &full_buffer,
+                    );
                     line_has_any = true;
                 }
                 FontItem::RubyFont(ruby, base) => {
@@ -2251,14 +2550,45 @@ impl TextItem {
                     let mut base_total_adv = 0i32;
 
                     for ch in base.iter() {
-                        let logical_adv = self.measure_char_advance(&main_fonts, main_size, gaiji, main_slot, *ch, self.outline_size1, self.shadow_distance);
+                        let logical_adv = self.measure_char_advance(
+                            &main_fonts,
+                            main_size,
+                            gaiji,
+                            main_slot,
+                            *ch,
+                            self.outline_size1,
+                            self.shadow_distance,
+                        );
                         let draw_x = Self::scale_pos_i32(pen_x, render_scale);
                         let draw_y = Self::scale_pos_i32(pen_y, render_scale);
                         self.draw_char(
-                            &mut full_buffer, bw, bh, &main_fonts, main_draw_size, gaiji, main_slot, draw_x, draw_y, *ch,
-                            &self.color1, draw_outline1, &self.color2, draw_shadow, &self.color3, i32::MAX, true,
+                            &mut full_buffer,
+                            bw,
+                            bh,
+                            &main_fonts,
+                            main_draw_size,
+                            gaiji,
+                            main_slot,
+                            draw_x,
+                            draw_y,
+                            *ch,
+                            &self.color1,
+                            draw_outline1,
+                            &self.color2,
+                            draw_shadow,
+                            &self.color3,
+                            i32::MAX,
+                            true,
                         );
-                        item_bounds = item_bounds.union(self.char_draw_bounds(&main_fonts, main_draw_size, draw_x, draw_y, *ch, draw_outline1, draw_shadow));
+                        item_bounds = item_bounds.union(self.char_draw_bounds(
+                            &main_fonts,
+                            main_draw_size,
+                            draw_x,
+                            draw_y,
+                            *ch,
+                            draw_outline1,
+                            draw_shadow,
+                        ));
                         pen_x += logical_adv + self.main_gap_x as i32;
                         base_total_adv += logical_adv + self.main_gap_x as i32;
                     }
@@ -2266,24 +2596,67 @@ impl TextItem {
                     let ruby_y = pen_y - ruby_baseline_up;
                     let mut ruby_width = 0i32;
                     for rch in ruby.iter() {
-                        ruby_width += self.measure_char_advance(&ruby_fonts, ruby_size, gaiji, ruby_slot, *rch, self.outline_size2, self.shadow_distance)
-                            + self.ruby_gap_x as i32;
+                        ruby_width += self.measure_char_advance(
+                            &ruby_fonts,
+                            ruby_size,
+                            gaiji,
+                            ruby_slot,
+                            *rch,
+                            self.outline_size2,
+                            self.shadow_distance,
+                        ) + self.ruby_gap_x as i32;
                     }
                     let mut ruby_x = base_start_x + (base_total_adv - ruby_width) / 2;
 
                     for rch in ruby {
-                        let logical_adv = self.measure_char_advance(&ruby_fonts, ruby_size, gaiji, ruby_slot, rch, self.outline_size2, self.shadow_distance);
+                        let logical_adv = self.measure_char_advance(
+                            &ruby_fonts,
+                            ruby_size,
+                            gaiji,
+                            ruby_slot,
+                            rch,
+                            self.outline_size2,
+                            self.shadow_distance,
+                        );
                         let draw_x = Self::scale_pos_i32(ruby_x, render_scale);
                         let draw_y = Self::scale_pos_i32(ruby_y, render_scale);
                         self.draw_char(
-                            &mut full_buffer, bw, bh, &ruby_fonts, ruby_draw_size, gaiji, ruby_slot, draw_x, draw_y, rch,
-                            &self.color1, draw_outline2, &self.color2, draw_shadow, &self.color3, i32::MAX, true,
+                            &mut full_buffer,
+                            bw,
+                            bh,
+                            &ruby_fonts,
+                            ruby_draw_size,
+                            gaiji,
+                            ruby_slot,
+                            draw_x,
+                            draw_y,
+                            rch,
+                            &self.color1,
+                            draw_outline2,
+                            &self.color2,
+                            draw_shadow,
+                            &self.color3,
+                            i32::MAX,
+                            true,
                         );
-                        item_bounds = item_bounds.union(self.char_draw_bounds(&ruby_fonts, ruby_draw_size, draw_x, draw_y, rch, draw_outline2, draw_shadow));
+                        item_bounds = item_bounds.union(self.char_draw_bounds(
+                            &ruby_fonts,
+                            ruby_draw_size,
+                            draw_x,
+                            draw_y,
+                            rch,
+                            draw_outline2,
+                            draw_shadow,
+                        ));
                         ruby_x += logical_adv + self.ruby_gap_x as i32;
                     }
 
-                    queue_reveal_rect(&mut reveal_queue, &mut total_required_units, item_bounds, &full_buffer);
+                    queue_reveal_rect(
+                        &mut reveal_queue,
+                        &mut total_required_units,
+                        item_bounds,
+                        &full_buffer,
+                    );
                     line_has_any = true;
                 }
             }
@@ -2304,7 +2677,6 @@ impl TextItem {
         self.layout_dirty = false;
         Ok(())
     }
-
 }
 
 impl Default for TextItem {
@@ -2350,7 +2722,13 @@ impl TextManager {
         }
     }
 
-    pub fn should_block_on_print(&self, id: i32, global_var0: i32, ctrl_down: bool, pulse: bool) -> bool {
+    pub fn should_block_on_print(
+        &self,
+        id: i32,
+        global_var0: i32,
+        ctrl_down: bool,
+        pulse: bool,
+    ) -> bool {
         if !(0..32).contains(&id) {
             return false;
         }
@@ -2420,7 +2798,6 @@ impl TextManager {
             }
         }
     }
-
 
     /// Debug helper for HUD: one-line summary per text slot.
     pub fn debug_lines(&self) -> Vec<String> {
@@ -2677,7 +3054,6 @@ impl TextManager {
         self.items[id as usize].set_line_head_forbidden_chars(chrs);
     }
 
-
     pub fn get_text_suspend(&self, id: i32) -> bool {
         self.items[id as usize].get_suspend()
     }
@@ -2901,7 +3277,12 @@ impl TextItem {
         self.layout_dirty = true;
 
         // Rebuild derived token list to keep future incremental rendering functional.
-        self.content_items = tokenize_content_text(&self.content_text, self.special_unit_mode, self.ruby_text_mode, self.wait_control_mode);
+        self.content_items = tokenize_content_text(
+            &self.content_text,
+            self.special_unit_mode,
+            self.ruby_text_mode,
+            self.wait_control_mode,
+        );
         if self.total_chars > 0 && self.visible_chars > self.total_chars {
             self.visible_chars = self.total_chars;
         }

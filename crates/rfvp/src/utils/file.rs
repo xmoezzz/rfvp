@@ -18,7 +18,9 @@ pub fn read_file(path: &Path) -> Result<Vec<u8>, FileReaderError> {
     let read_result = file.read_to_end(&mut buffer);
     match read_result {
         Ok(_) => Ok(buffer),
-        Err(e) => Err(FileReaderError { _msg: e.to_string() }),
+        Err(e) => Err(FileReaderError {
+            _msg: e.to_string(),
+        }),
     }
 }
 
@@ -26,17 +28,20 @@ pub fn read_file_modification_time(path: &Path) -> Result<SystemTime, FileReader
     let file = open_file(path)?;
     match file.metadata() {
         Ok(metadata) => Ok(metadata.modified().unwrap()),
-        Err(e) => Err(FileReaderError { _msg: e.to_string() }),
+        Err(e) => Err(FileReaderError {
+            _msg: e.to_string(),
+        }),
     }
 }
 
 pub fn open_file(path: &Path) -> Result<File, FileReaderError> {
     match File::open(path) {
         Ok(file) => Ok(file),
-        Err(e) => Err(FileReaderError { _msg: e.to_string() }),
+        Err(e) => Err(FileReaderError {
+            _msg: e.to_string(),
+        }),
     }
 }
-
 
 pub fn set_base_path(path: &str) {
     env::set_var("FVP_BASE_PATH", path);
@@ -58,17 +63,24 @@ pub fn app_base_path() -> PathBuilder {
     }
 
     if let Ok(base_path) = env::var("FVP_BASE_PATH") {
-        return PathBuilder { path_buff: PathBuf::from(base_path) };
+        return PathBuilder {
+            path_buff: PathBuf::from(base_path),
+        };
     }
 
     match env::current_exe() {
         Ok(mut path) => {
             path.pop();
             PathBuilder { path_buff: path }
-        },
+        }
         Err(e) => {
-            log::error!("Error while creating the app base_path {:?}, will use default.", e);
-            PathBuilder { path_buff: Default::default() }
+            log::error!(
+                "Error while creating the app base_path {:?}, will use default.",
+                e
+            );
+            PathBuilder {
+                path_buff: Default::default(),
+            }
         }
     }
 }

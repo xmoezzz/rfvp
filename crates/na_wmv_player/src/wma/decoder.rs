@@ -161,7 +161,6 @@ fn sine_window_init(n: usize) -> Vec<f32> {
     w
 }
 
-
 fn vector_fmul_reverse(dst: &mut [f32], src0: &[f32], win: &[f32]) {
     let len = dst.len();
     for i in 0..len {
@@ -176,7 +175,6 @@ fn butterflies_float(v1: &mut [f32], v2: &mut [f32]) {
         v2[i] = t;
     }
 }
-
 
 fn pow_m1_4_tables(
     x: f32,
@@ -228,9 +226,6 @@ fn wma_lsp_to_curve_tables(
     val_max
 }
 
-
-
-
 fn wma_window_apply(
     out: &mut [f32],
     output: &[f32],
@@ -260,7 +255,8 @@ fn wma_window_apply(
             let idx = n + i;
             out[idx] = in_buf[idx] * win[i] + out[idx];
         }
-        out[n + prev_len..n + prev_len + n].copy_from_slice(&in_buf[n + prev_len..n + prev_len + n]);
+        out[n + prev_len..n + prev_len + n]
+            .copy_from_slice(&in_buf[n + prev_len..n + prev_len + n]);
     }
 
     // Right part.
@@ -269,24 +265,36 @@ fn wma_window_apply(
 
     if block_len_bits <= next_block_len_bits {
         let bsize = (frame_len_bits - block_len_bits) as usize;
-        vector_fmul_reverse(&mut out2[..block_len], &in_buf[..block_len], &windows[bsize]);
+        vector_fmul_reverse(
+            &mut out2[..block_len],
+            &in_buf[..block_len],
+            &windows[bsize],
+        );
     } else {
         let next_len = 1usize << next_block_len_bits;
         let n = (block_len - next_len) / 2;
         let bsize = (frame_len_bits - next_block_len_bits) as usize;
-        out2[n + next_len..n + next_len + n].copy_from_slice(&in_buf[n + next_len..n + next_len + n]);
-        vector_fmul_reverse(&mut out2[n..n + next_len], &in_buf[n..n + next_len], &windows[bsize]);
+        out2[n + next_len..n + next_len + n]
+            .copy_from_slice(&in_buf[n + next_len..n + next_len + n]);
+        vector_fmul_reverse(
+            &mut out2[n..n + next_len],
+            &in_buf[n..n + next_len],
+            &windows[bsize],
+        );
     }
 }
-
-
 
 impl WmaDecoder {
     pub fn new(info: &AudioStreamInfo) -> Result<Self> {
         let version = match info.format_tag {
             0x0160 => WmaVersion::V1,
             0x0161 => WmaVersion::V2,
-            _ => return Err(DecoderError::Unsupported(format!("unsupported WMA format tag: 0x{:04x}", info.format_tag))),
+            _ => {
+                return Err(DecoderError::Unsupported(format!(
+                    "unsupported WMA format tag: 0x{:04x}",
+                    info.format_tag
+                )))
+            }
         };
 
         if info.block_align == 0 {
@@ -295,7 +303,9 @@ impl WmaDecoder {
 
         let channels = info.channels as usize;
         if channels == 0 || channels > MAX_CHANNELS {
-            return Err(DecoderError::Unsupported("only mono/stereo supported".into()));
+            return Err(DecoderError::Unsupported(
+                "only mono/stereo supported".into(),
+            ));
         }
 
         // Extract flags2 like upstream.
@@ -384,7 +394,10 @@ impl WmaDecoder {
             mdct: Vec::new(),
             windows: Vec::new(),
             output: vec![0f32; BLOCK_MAX_SIZE * 2],
-            frame_out: [vec![0f32; BLOCK_MAX_SIZE * 2], vec![0f32; BLOCK_MAX_SIZE * 2]],
+            frame_out: [
+                vec![0f32; BLOCK_MAX_SIZE * 2],
+                vec![0f32; BLOCK_MAX_SIZE * 2],
+            ],
 
             last_superframe: vec![0u8; MAX_CODED_SUPERFRAME_SIZE + 64],
             last_bitoffset: 0,
@@ -504,7 +517,9 @@ impl WmaDecoder {
         if self.use_bit_reservoir {
             let bit_offset = gb.get_bits((self.byte_offset_bits + 3) as usize)? as usize;
             if bit_offset as isize > gb.bits_left() {
-                return Err(DecoderError::InvalidData("Invalid last frame bit offset".into()));
+                return Err(DecoderError::InvalidData(
+                    "Invalid last frame bit offset".into(),
+                ));
             }
 
             if self.last_superframe_len > 0 {
@@ -561,7 +576,8 @@ impl WmaDecoder {
 
             // Copy end of frame into last frame buffer.
             let consumed_bits = gb3.bits_read();
-            let mut pos2 = consumed_bits + ((bit_offset + 4 + 4 + (self.byte_offset_bits as usize) + 3) & !7);
+            let mut pos2 =
+                consumed_bits + ((bit_offset + 4 + 4 + (self.byte_offset_bits as usize) + 3) & !7);
             self.last_bitoffset = pos2 & 7;
             pos2 >>= 3;
             let len = buf.len().saturating_sub(pos2);
@@ -828,7 +844,8 @@ impl WmaDecoder {
             }
 
             self.coefs_end[k] = (self.frame_len - ((self.frame_len * 9) / 100)) >> k;
-            self.high_band_start[k] = (((block_len as f32) * 2.0 * high_freq) / (self.sample_rate as f32) + 0.5) as usize;
+            self.high_band_start[k] =
+                (((block_len as f32) * 2.0 * high_freq) / (self.sample_rate as f32) + 0.5) as usize;
 
             let n = self.exponent_sizes[k];
             let mut j = 0usize;
@@ -1006,7 +1023,9 @@ impl WmaDecoder {
                     if gb.get_bits1()? != 0 {
                         if gb.get_bits1()? != 0 {
                             if gb.get_bits1()? != 0 {
-                                return Err(DecoderError::InvalidData("broken escape sequence".into()));
+                                return Err(DecoderError::InvalidData(
+                                    "broken escape sequence".into(),
+                                ));
                             } else {
                                 offset += gb.get_bits(frame_len_bits as usize)? as i32 + 4;
                             }
@@ -1106,7 +1125,9 @@ impl WmaDecoder {
             let code = get_vlc2(gb, &self.exp_vlc.table, EXPVLCBITS, EXPMAX)?;
             last_exp += code - 60;
             if (last_exp as i32 + 60) as usize >= tables::POW_TAB.len() {
-                return Err(DecoderError::InvalidData(format!("Exponent out of range: {last_exp}")));
+                return Err(DecoderError::InvalidData(format!(
+                    "Exponent out of range: {last_exp}"
+                )));
             }
             let v = ptab[last_exp as usize];
             if v > max_scale {
@@ -1124,7 +1145,6 @@ impl WmaDecoder {
         Ok(())
     }
 
-
     fn wma_decode_block(&mut self, gb: &mut GetBitContext<'_>) -> Result<bool> {
         // Returns Ok(true) if last block of frame.
         // Translated from wma_decode_block.
@@ -1136,12 +1156,16 @@ impl WmaDecoder {
                 self.reset_block_lengths = false;
                 let v = gb.get_bits(n as usize)? as usize;
                 if v >= self.nb_block_sizes {
-                    return Err(DecoderError::InvalidData("prev_block_len_bits out of range".into()));
+                    return Err(DecoderError::InvalidData(
+                        "prev_block_len_bits out of range".into(),
+                    ));
                 }
                 self.prev_block_len_bits = self.frame_len_bits - v as i32;
                 let v = gb.get_bits(n as usize)? as usize;
                 if v >= self.nb_block_sizes {
-                    return Err(DecoderError::InvalidData("block_len_bits out of range".into()));
+                    return Err(DecoderError::InvalidData(
+                        "block_len_bits out of range".into(),
+                    ));
                 }
                 self.block_len_bits = self.frame_len_bits - v as i32;
             } else {
@@ -1150,7 +1174,9 @@ impl WmaDecoder {
             }
             let v = gb.get_bits(n as usize)? as usize;
             if v >= self.nb_block_sizes {
-                return Err(DecoderError::InvalidData("next_block_len_bits out of range".into()));
+                return Err(DecoderError::InvalidData(
+                    "next_block_len_bits out of range".into(),
+                ));
             }
             self.next_block_len_bits = self.frame_len_bits - v as i32;
         } else {
@@ -1161,7 +1187,9 @@ impl WmaDecoder {
 
         let bsize = (self.frame_len_bits - self.block_len_bits) as usize;
         if (self.frame_len_bits - self.block_len_bits) as usize >= self.nb_block_sizes {
-            return Err(DecoderError::InvalidData("block_len_bits not initialized".into()));
+            return Err(DecoderError::InvalidData(
+                "block_len_bits not initialized".into(),
+            ));
         }
 
         self.block_len = 1usize << self.block_len_bits;
@@ -1256,7 +1284,9 @@ impl WmaDecoder {
 
         for ch in 0..self.channels {
             if self.channel_coded[ch] && !self.exponents_initialized[ch] {
-                return Err(DecoderError::InvalidData("exponents not initialized".into()));
+                return Err(DecoderError::InvalidData(
+                    "exponents not initialized".into(),
+                ));
             }
         }
 
@@ -1376,7 +1406,8 @@ impl WmaDecoder {
 
                 // very high freqs: noise
                 let n = self.block_len - self.coefs_end[bsize];
-                let exp_last = self.exponents[ch][((exponents_ptr as i32 - (1 << bsize)) >> esize) as usize];
+                let exp_last =
+                    self.exponents[ch][((exponents_ptr as i32 - (1 << bsize)) >> esize) as usize];
                 let mult1 = mult * exp_last;
                 for _ in 0..n {
                     let noise = self.noise_table[self.noise_index];
@@ -1426,7 +1457,10 @@ impl WmaDecoder {
         for ch in 0..self.channels {
             let n4 = self.block_len / 2;
             if self.channel_coded[ch] {
-                self.mdct[bsize].imdct_full(&mut self.output[..self.block_len * 2], &self.coefs[ch][..self.block_len]);
+                self.mdct[bsize].imdct_full(
+                    &mut self.output[..self.block_len * 2],
+                    &self.coefs[ch][..self.block_len],
+                );
             } else if !(self.ms_stereo && ch == 1) {
                 for v in &mut self.output[..self.block_len * 2] {
                     *v = 0.0;
@@ -1443,7 +1477,16 @@ impl WmaDecoder {
             let windows = &self.windows;
             let output = &self.output;
             let out_slice = &mut self.frame_out[ch][index..index + block_len * 2];
-            wma_window_apply(out_slice, output, windows, frame_len_bits, block_len_bits, prev_block_len_bits, next_block_len_bits, block_len);
+            wma_window_apply(
+                out_slice,
+                output,
+                windows,
+                frame_len_bits,
+                block_len_bits,
+                prev_block_len_bits,
+                next_block_len_bits,
+                block_len,
+            );
         }
 
         self.block_num += 1;
@@ -1451,7 +1494,12 @@ impl WmaDecoder {
         Ok(self.block_pos >= self.frame_len)
     }
 
-    fn wma_decode_frame(&mut self, gb: &mut GetBitContext<'_>, samples: &mut [Vec<f32>; MAX_CHANNELS], samples_offset: usize) -> Result<()> {
+    fn wma_decode_frame(
+        &mut self,
+        gb: &mut GetBitContext<'_>,
+        samples: &mut [Vec<f32>; MAX_CHANNELS],
+        samples_offset: usize,
+    ) -> Result<()> {
         self.block_num = 0;
         self.block_pos = 0;
         loop {

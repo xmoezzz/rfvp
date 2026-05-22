@@ -1,3 +1,4 @@
+use crate::platform_time::Instant;
 use std::collections::VecDeque;
 use std::io::Read;
 use std::path::Path;
@@ -7,7 +8,6 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use crate::platform_time::Instant;
 
 use anyhow::{anyhow, Context, Result};
 
@@ -59,7 +59,6 @@ pub enum MovieMode {
 /// Cap buffered decoded frames on the main thread.
 /// Each frame is screen-sized RGBA and can be huge; keeping this bounded prevents memory spikes.
 const MAX_MOVIE_STASH_FRAMES: usize = 4;
-
 
 #[cfg(feature = "mp4")]
 #[derive(Debug)]
@@ -452,7 +451,6 @@ impl WmvPlayback {
     }
 }
 
-
 #[derive(Clone)]
 struct MpegRgbaFrame {
     pts_ms: i64,
@@ -580,17 +578,15 @@ impl MpegPlayback {
                             } else {
                                 let mut out = Vec::new();
                                 rgba_scale_nearest(
-                                    &v.rgba,
-                                    v.width,
-                                    v.height,
-                                    screen_w,
-                                    screen_h,
-                                    &mut out,
+                                    &v.rgba, v.width, v.height, screen_w, screen_h, &mut out,
                                 );
                                 out
                             };
 
-                            let _ = tx.send(MpegRgbaFrame { pts_ms: v.pts_ms, rgba });
+                            let _ = tx.send(MpegRgbaFrame {
+                                pts_ms: v.pts_ms,
+                                rgba,
+                            });
                         }
                     });
 
@@ -611,16 +607,14 @@ impl MpegPlayback {
                         } else {
                             let mut out = Vec::new();
                             rgba_scale_nearest(
-                                &v.rgba,
-                                v.width,
-                                v.height,
-                                screen_w,
-                                screen_h,
-                                &mut out,
+                                &v.rgba, v.width, v.height, screen_w, screen_h, &mut out,
                             );
                             out
                         };
-                        let _ = tx.send(MpegRgbaFrame { pts_ms: v.pts_ms, rgba });
+                        let _ = tx.send(MpegRgbaFrame {
+                            pts_ms: v.pts_ms,
+                            rgba,
+                        });
                     }
                 });
             });
@@ -976,9 +970,7 @@ fn yuv420_to_rgba_scaled(src: &wmv_decoder::YuvFrame, dst_w: u32, dst_h: u32, ou
     let dw = dst_w.max(1);
     let dh = dst_h.max(1);
 
-    let out_len = (dw as usize)
-        .saturating_mul(dh as usize)
-        .saturating_mul(4);
+    let out_len = (dw as usize).saturating_mul(dh as usize).saturating_mul(4);
     out.clear();
     out.resize(out_len, 0);
 
@@ -1017,7 +1009,6 @@ fn yuv420_to_rgba_scaled(src: &wmv_decoder::YuvFrame, dst_w: u32, dst_h: u32, ou
     }
 }
 
-
 // ─────────────────────────────────────────────────────────────────────────────
 // MPEG video scaling helper (RGBA -> RGBA)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1036,9 +1027,7 @@ fn rgba_scale_nearest(
     let dw = dst_w.max(1);
     let dh = dst_h.max(1);
 
-    let out_len = (dw as usize)
-        .saturating_mul(dh as usize)
-        .saturating_mul(4);
+    let out_len = (dw as usize).saturating_mul(dh as usize).saturating_mul(4);
     out.clear();
     out.resize(out_len, 0);
 
@@ -1067,7 +1056,10 @@ fn decode_mpeg_audio_to_wav_bytes(mpeg_path: impl AsRef<Path>) -> Result<Option<
     let mut f = match std::fs::File::open(mpeg_path.as_ref()) {
         Ok(f) => f,
         Err(e) => {
-            log::warn!("mpeg audio: open failed: {}: {e:?}", mpeg_path.as_ref().display());
+            log::warn!(
+                "mpeg audio: open failed: {}: {e:?}",
+                mpeg_path.as_ref().display()
+            );
             return Ok(None);
         }
     };
@@ -1085,8 +1077,8 @@ fn decode_mpeg_audio_to_wav_bytes(mpeg_path: impl AsRef<Path>) -> Result<Option<
             Ok(n) => n,
             Err(e) => {
                 log::warn!("mpeg audio: read failed: {e:?}");
-                break
-            },
+                break;
+            }
         };
 
         pipe.push_with(&buf[..n], None, |ev| {
@@ -1222,7 +1214,10 @@ fn decode_wmv_audio_to_wav_bytes(wmv_path: impl AsRef<Path>) -> Result<Option<Ve
     let f = match std::fs::File::open(wmv_path.as_ref()) {
         Ok(f) => f,
         Err(e) => {
-            log::warn!("wmv audio: open failed: {}: {e:?}", wmv_path.as_ref().display());
+            log::warn!(
+                "wmv audio: open failed: {}: {e:?}",
+                wmv_path.as_ref().display()
+            );
             return Ok(None);
         }
     };
@@ -1230,7 +1225,10 @@ fn decode_wmv_audio_to_wav_bytes(wmv_path: impl AsRef<Path>) -> Result<Option<Ve
     let mut dec = match wmv_decoder::AsfWmaDecoder::open(std::io::BufReader::new(f)) {
         Ok(d) => d,
         Err(e) => {
-            log::warn!("wmv audio: decoder open failed: {}: {e:?}", wmv_path.as_ref().display());
+            log::warn!(
+                "wmv audio: decoder open failed: {}: {e:?}",
+                wmv_path.as_ref().display()
+            );
             return Ok(None);
         }
     };

@@ -1,5 +1,5 @@
-use winit::event::{MouseButton, WindowEvent};
 use crate::subsystem::world::GameData;
+use winit::event::{MouseButton, WindowEvent};
 
 use super::resources::input_manager::KeyCode;
 
@@ -20,10 +20,11 @@ pub fn update_input_events(
     virtual_size: (u32, u32),
 ) {
     match window_event {
-        WindowEvent::KeyboardInput { event,.. } => {
+        WindowEvent::KeyboardInput { event, .. } => {
             match event.state {
                 winit::event::ElementState::Pressed => {
-                    data.inputs_manager.notify_keydown(event.logical_key.clone(), event.repeat);
+                    data.inputs_manager
+                        .notify_keydown(event.logical_key.clone(), event.repeat);
                 }
                 winit::event::ElementState::Released => {
                     data.inputs_manager.notify_keyup(event.logical_key.clone());
@@ -32,32 +33,28 @@ pub fn update_input_events(
             // Keep InputGetState/InputGetDown/InputGetUp usable even when the VM is
             // advanced by an input signal (i.e. before the next frame boundary).
         }
-        WindowEvent::MouseInput { state, button, .. } => {
-            match state {
-                winit::event::ElementState::Pressed => {
-                    if *button == MouseButton::Left {
-                        data.inputs_manager.notify_mouse_down(KeyCode::MouseLeft);
-                    } else if *button == MouseButton::Right {
-                        data.inputs_manager.notify_mouse_down(KeyCode::MouseRight);
-                    }
-                }
-                winit::event::ElementState::Released => {
-                    if *button == MouseButton::Left {
-                        data.inputs_manager.notify_mouse_up(KeyCode::MouseLeft);
-                    } else if *button == MouseButton::Right {
-                        data.inputs_manager.notify_mouse_up(KeyCode::MouseRight);
-                    }
+        WindowEvent::MouseInput { state, button, .. } => match state {
+            winit::event::ElementState::Pressed => {
+                if *button == MouseButton::Left {
+                    data.inputs_manager.notify_mouse_down(KeyCode::MouseLeft);
+                } else if *button == MouseButton::Right {
+                    data.inputs_manager.notify_mouse_down(KeyCode::MouseRight);
                 }
             }
-        }
-        WindowEvent::MouseWheel { delta, .. } => {
-            match delta {
-                winit::event::MouseScrollDelta::LineDelta(_, y) => {
-                    data.inputs_manager.notify_mouse_wheel(*y as i32);
+            winit::event::ElementState::Released => {
+                if *button == MouseButton::Left {
+                    data.inputs_manager.notify_mouse_up(KeyCode::MouseLeft);
+                } else if *button == MouseButton::Right {
+                    data.inputs_manager.notify_mouse_up(KeyCode::MouseRight);
                 }
-                winit::event::MouseScrollDelta::PixelDelta(_) => {}
             }
-        }
+        },
+        WindowEvent::MouseWheel { delta, .. } => match delta {
+            winit::event::MouseScrollDelta::LineDelta(_, y) => {
+                data.inputs_manager.notify_mouse_wheel(*y as i32);
+            }
+            winit::event::MouseScrollDelta::PixelDelta(_) => {}
+        },
         WindowEvent::CursorMoved { position, .. } => {
             // Map from window physical pixels -> virtual game pixels using the presented
             // content rectangle. WindowMode does not assign a special host presentation path
@@ -81,10 +78,8 @@ pub fn update_input_events(
             let off_x = (sw - dst_w) * 0.5;
             let off_y = (sh - dst_h) * 0.5;
 
-            let in_content = px >= off_x
-                && px < (off_x + dst_w)
-                && py >= off_y
-                && py < (off_y + dst_h);
+            let in_content =
+                px >= off_x && px < (off_x + dst_w) && py >= off_y && py < (off_y + dst_h);
 
             // Convert to virtual coordinates (clamped to the virtual bounds when inside).
             let mut vx = ((px - off_x) / scale) as i32;
@@ -101,10 +96,10 @@ pub fn update_input_events(
             // virtual content area (exclude letterboxed regions).
             data.inputs_manager.set_mouse_in(in_content);
         }
-        WindowEvent::CursorEntered {..} => {
+        WindowEvent::CursorEntered { .. } => {
             data.inputs_manager.set_mouse_in(true);
         }
-        WindowEvent::CursorLeft {..} => {
+        WindowEvent::CursorLeft { .. } => {
             data.inputs_manager.set_mouse_in(false);
         }
         WindowEvent::Focused(focused) => {

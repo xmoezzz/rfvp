@@ -42,7 +42,9 @@ fn alloc_table(vlc: &mut Vlc, size: i32, use_static: bool) -> Result<i32> {
     vlc.table_size += size;
     if vlc.table_size > vlc.table_allocated {
         if use_static {
-            return Err(DecoderError::InvalidData("static VLC table too small".into()));
+            return Err(DecoderError::InvalidData(
+                "static VLC table too small".into(),
+            ));
         }
         vlc.table_allocated += 1 << vlc.bits;
         let new_len = vlc.table_allocated as usize;
@@ -53,7 +55,13 @@ fn alloc_table(vlc: &mut Vlc, size: i32, use_static: bool) -> Result<i32> {
     Ok(index)
 }
 
-fn build_table(vlc: &mut Vlc, table_nb_bits: i32, nb_codes: usize, codes: &mut [VlcCode], flags: i32) -> Result<i32> {
+fn build_table(
+    vlc: &mut Vlc,
+    table_nb_bits: i32,
+    nb_codes: usize,
+    codes: &mut [VlcCode],
+    flags: i32,
+) -> Result<i32> {
     if table_nb_bits > 30 {
         return Err(DecoderError::InvalidData("table_nb_bits > 30".into()));
     }
@@ -321,7 +329,11 @@ pub fn ff_vlc_init_sparse(
     for pass in 0..2 {
         for i in 0..nb_codes {
             let len = get_data_u32(bits, bits_wrap, i, bits_size) as u32;
-            let cond = if pass == 0 { len > nb_bits as u32 } else { len != 0 && len <= nb_bits as u32 };
+            let cond = if pass == 0 {
+                len > nb_bits as u32
+            } else {
+                len != 0 && len <= nb_bits as u32
+            };
             if !cond {
                 continue;
             }
@@ -330,7 +342,9 @@ pub fn ff_vlc_init_sparse(
             }
             let mut code = get_data_u32(codes, codes_wrap, i, codes_size);
             if code as u64 >= (1u64 << len) {
-                return Err(DecoderError::InvalidData(format!("Invalid code {code:x} for {i}")));
+                return Err(DecoderError::InvalidData(format!(
+                    "Invalid code {code:x} for {i}"
+                )));
             }
             if (flags & VLC_INIT_INPUT_LE) != 0 {
                 code = bitswap_32(code);
@@ -342,7 +356,11 @@ pub fn ff_vlc_init_sparse(
             } else {
                 i as i16
             };
-            buf.push(VlcCode { bits: len as u8, symbol: sym, code });
+            buf.push(VlcCode {
+                bits: len as u8,
+                symbol: sym,
+                code,
+            });
         }
         if pass == 0 {
             buf.sort_by_key(|c| c.code >> 1);
@@ -397,7 +415,9 @@ pub fn ff_vlc_init_from_lengths(
             abs_len = -abs_len;
         }
         if abs_len > len_max || (code & ((1u64 << (32 - abs_len)) - 1)) != 0 {
-            return Err(DecoderError::InvalidData(format!("Invalid VLC (length {abs_len})")));
+            return Err(DecoderError::InvalidData(format!(
+                "Invalid VLC (length {abs_len})"
+            )));
         }
         code += 1u64 << (32 - abs_len);
         if code > (u32::MAX as u64) + 1 {
@@ -410,7 +430,12 @@ pub fn ff_vlc_init_from_lengths(
 
 /// Equivalent to `get_vlc2()`.
 #[inline]
-pub fn get_vlc2(gb: &mut GetBitContext<'_>, table: &[VlcElem], bits: i32, max_depth: i32) -> Result<i32> {
+pub fn get_vlc2(
+    gb: &mut GetBitContext<'_>,
+    table: &[VlcElem],
+    bits: i32,
+    max_depth: i32,
+) -> Result<i32> {
     let mut code: i32;
     let mut index = gb.show_bits(bits as usize)? as usize;
     let mut n = table[index].len as i32;
@@ -434,4 +459,3 @@ pub fn get_vlc2(gb: &mut GetBitContext<'_>, table: &[VlcElem], bits: i32, max_de
     gb.skip_bits(n as usize)?;
     Ok(code)
 }
-

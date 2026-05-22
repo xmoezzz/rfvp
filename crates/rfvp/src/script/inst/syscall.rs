@@ -1,11 +1,10 @@
-use crate::script::opcode::OpcodeBase;
 use crate::script::opcode::Opcode;
+use crate::script::opcode::OpcodeBase;
 
 pub struct SyscallInst {
     address: u32,
     syscall_name: String,
 }
-
 
 impl SyscallInst {
     pub fn new(address: u32, syscall_name: String) -> Self {
@@ -37,6 +36,3 @@ impl OpcodeBase for SyscallInst {
         format!("{:8} {}", self.mnemonic(), self.syscall_name)
     }
 }
-
-
-

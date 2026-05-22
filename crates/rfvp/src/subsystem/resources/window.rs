@@ -1,7 +1,7 @@
 use winit::window::CursorIcon;
 
 #[derive(Default, Debug, Copy, Clone)]
-struct FutureSettings{
+struct FutureSettings {
     new_cursor: Option<CursorIcon>,
     dimensions: Option<(u32, u32)>,
     cursor_visible: Option<bool>,
@@ -15,12 +15,17 @@ pub struct Window {
     width: u32,
     height: u32,
     dpi: f64,
-    future_settings: FutureSettings
+    future_settings: FutureSettings,
 }
 
 impl Window {
     pub(crate) fn new(screen_size: (u32, u32), dpi: f64) -> Self {
-        Self { width: screen_size.0, height: screen_size.1, future_settings: Default::default(), dpi }
+        Self {
+            width: screen_size.0,
+            height: screen_size.1,
+            future_settings: Default::default(),
+            dpi,
+        }
     }
 
     pub(crate) fn set_dimensions(&mut self, width: u32, height: u32) {
@@ -70,7 +75,7 @@ impl Window {
     pub fn new_cursor_pos(&self) -> Option<(i32, i32)> {
         self.future_settings.cursor_pos
     }
-    
+
     // --- Cursor control (used by Cursor* syscalls) ---
     pub fn set_cursor_visible(&mut self, visible: bool) {
         self.future_settings.cursor_visible = Some(visible);
@@ -84,5 +89,4 @@ impl Window {
         // Minimal mapping: treat any id as default cursor for now.
         self.future_settings.new_cursor = Some(CursorIcon::Default);
     }
-
 }

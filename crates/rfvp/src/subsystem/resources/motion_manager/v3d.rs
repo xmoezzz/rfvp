@@ -1,5 +1,5 @@
-use anyhow::Result;
 use crate::subsystem::resources::prim::PrimManager;
+use anyhow::Result;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum V3dMotionType {
@@ -309,18 +309,24 @@ impl V3dMotionContainer {
                         let remain = self.motion.duration as i64 - self.motion.elapsed as i64;
                         let time2 = self.motion.duration as i64 - self.motion.duration as i64 / 2;
 
-                        let x = self.motion.dst_x as i64 - (delta_x - half_delta_x) * (remain * remain) / (time2 * time2);
-                        let y = self.motion.dst_y as i64 - (delta_y - half_delta_y) * (remain * remain) / (time2 * time2);
-                        let z = self.motion.dst_z as i64 - (delta_z - half_delta_z) * (remain * remain) / (time2 * time2);
+                        let x = self.motion.dst_x as i64
+                            - (delta_x - half_delta_x) * (remain * remain) / (time2 * time2);
+                        let y = self.motion.dst_y as i64
+                            - (delta_y - half_delta_y) * (remain * remain) / (time2 * time2);
+                        let z = self.motion.dst_z as i64
+                            - (delta_z - half_delta_z) * (remain * remain) / (time2 * time2);
 
                         self.set_v3d(x as i32, y as i32, z as i32);
-                    }
-                    else {
-                        let square_elapsed = self.motion.elapsed as i64 * self.motion.elapsed as i64;
+                    } else {
+                        let square_elapsed =
+                            self.motion.elapsed as i64 * self.motion.elapsed as i64;
 
-                        let x = self.motion.src_x as i64 + half_delta_x * square_elapsed / (half_duration * half_duration);
-                        let y = self.motion.src_y as i64 + half_delta_y * square_elapsed / (half_duration * half_duration);
-                        let z = self.motion.src_z as i64 + half_delta_z * square_elapsed / (half_duration * half_duration);
+                        let x = self.motion.src_x as i64
+                            + half_delta_x * square_elapsed / (half_duration * half_duration);
+                        let y = self.motion.src_y as i64
+                            + half_delta_y * square_elapsed / (half_duration * half_duration);
+                        let z = self.motion.src_z as i64
+                            + half_delta_z * square_elapsed / (half_duration * half_duration);
 
                         self.set_v3d(x as i32, y as i32, z as i32);
                     }
@@ -332,54 +338,52 @@ impl V3dMotionContainer {
                     let half_delta_z = delta_z / 2;
 
                     if self.motion.elapsed as i64 > half_duration {
-
                         let x = half_delta_x
                             + self.motion.src_x as i64
                             + (delta_x - half_delta_x)
-                            * (self.motion.elapsed as i64 - half_duration)
-                            * (self.motion.elapsed as i64 - half_duration)
-                            / (self.motion.duration as i64 - half_duration)
-                            / (self.motion.duration as i64 - half_duration);
+                                * (self.motion.elapsed as i64 - half_duration)
+                                * (self.motion.elapsed as i64 - half_duration)
+                                / (self.motion.duration as i64 - half_duration)
+                                / (self.motion.duration as i64 - half_duration);
 
                         let y = half_delta_y
                             + self.motion.src_y as i64
                             + (delta_y - half_delta_y)
-                            * (self.motion.elapsed as i64 - half_duration)
-                            * (self.motion.elapsed as i64 - half_duration)
-                            / (self.motion.duration as i64 - half_duration)
-                            / (self.motion.duration as i64 - half_duration);
+                                * (self.motion.elapsed as i64 - half_duration)
+                                * (self.motion.elapsed as i64 - half_duration)
+                                / (self.motion.duration as i64 - half_duration)
+                                / (self.motion.duration as i64 - half_duration);
 
                         let z = half_delta_z
                             + self.motion.src_z as i64
                             + (delta_z - half_delta_z)
-                            * (self.motion.elapsed as i64 - half_duration)
-                            * (self.motion.elapsed as i64 - half_duration)
-                            / (self.motion.duration as i64 - half_duration)
-                            / (self.motion.duration as i64 - half_duration);
+                                * (self.motion.elapsed as i64 - half_duration)
+                                * (self.motion.elapsed as i64 - half_duration)
+                                / (self.motion.duration as i64 - half_duration)
+                                / (self.motion.duration as i64 - half_duration);
 
                         self.set_v3d(x as i32, y as i32, z as i32);
-                    }
-                    else {
+                    } else {
                         let x = half_delta_x + self.motion.src_x as i64
                             - half_delta_x
-                            * (half_duration - self.motion.elapsed as i64)
-                            * (half_duration - self.motion.elapsed as i64)
-                            / half_duration
-                            / half_duration;
+                                * (half_duration - self.motion.elapsed as i64)
+                                * (half_duration - self.motion.elapsed as i64)
+                                / half_duration
+                                / half_duration;
 
                         let y = half_delta_y + self.motion.src_y as i64
                             - half_delta_y
-                            * (half_duration - self.motion.elapsed as i64)
-                            * (half_duration - self.motion.elapsed as i64)
-                            / half_duration
-                            / half_duration;
+                                * (half_duration - self.motion.elapsed as i64)
+                                * (half_duration - self.motion.elapsed as i64)
+                                / half_duration
+                                / half_duration;
 
                         let z = half_delta_z + self.motion.src_z as i64
                             - half_delta_z
-                            * (half_duration - self.motion.elapsed as i64)
-                            * (half_duration - self.motion.elapsed as i64)
-                            / half_duration
-                            / half_duration;
+                                * (half_duration - self.motion.elapsed as i64)
+                                * (half_duration - self.motion.elapsed as i64)
+                                / half_duration
+                                / half_duration;
 
                         self.set_v3d(x as i32, y as i32, z as i32);
                     }
@@ -392,7 +396,6 @@ impl V3dMotionContainer {
         true
     }
 }
-
 
 impl V3dMotionContainer {
     pub fn debug_dump(&self) -> String {

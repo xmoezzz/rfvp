@@ -1,4 +1,3 @@
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Opcode {
     Nop = 0,
@@ -191,7 +190,8 @@ impl ToString for Opcode {
             Opcode::SetL => "set_l",
             // NOTE: opcode 0x27 is misnamed as `SetGE` in code, but its engine behavior is `<=`.
             Opcode::SetGE => "set_le",
-        }.to_string()
+        }
+        .to_string()
     }
 }
 
@@ -201,4 +201,3 @@ pub trait OpcodeBase {
     fn mnemonic(&self) -> &'static str;
     fn disassemble(&self) -> String;
 }
-

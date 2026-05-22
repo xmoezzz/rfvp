@@ -1,12 +1,12 @@
 use anyhow::{bail, Result};
 use clap::Parser as ClapParser;
-use serde::{Deserialize, Serialize};
 use rfvp::script::inst::nop::NopInst;
-use std::mem::size_of;
-use std::path::{PathBuf, Path};
 use rfvp::script::inst::*;
 use rfvp::script::opcode::*;
 use rfvp::script::parser::{Nls, Parser};
+use serde::{Deserialize, Serialize};
+use std::mem::size_of;
+use std::path::{Path, PathBuf};
 
 use std::io::Write;
 
@@ -15,7 +15,7 @@ pub struct Function {
     address: u32,
     args_count: u8,
     locals_count: u8,
-    insts: Vec<Inst>
+    insts: Vec<Inst>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -38,7 +38,10 @@ impl Inst {
         Self {
             address: inst.address(),
             mnemonic: inst.opcode().to_string(),
-            operands: vec![inst.get_arg_count().to_string(), inst.get_local_count().to_string()],
+            operands: vec![
+                inst.get_arg_count().to_string(),
+                inst.get_local_count().to_string(),
+            ],
         }
     }
 
@@ -193,7 +196,7 @@ impl Inst {
             operands: Vec::new(),
         }
     }
-    
+
     pub fn from_pop_global(inst: PopGlobalInst) -> Self {
         Self {
             address: inst.address(),
@@ -345,7 +348,6 @@ impl Inst {
             operands: Vec::new(),
         }
     }
-
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -428,10 +430,9 @@ impl Disassembler {
         let inst = InitStackInst::new(addr, args_count as u8, locals_count as u8);
         let inst = Inst::from_init_stack(inst);
         self.functions.last_mut().unwrap().insts.push(inst);
-        
+
         Ok(())
     }
-
 
     /// 0x02 call instruction
     /// call a routine
@@ -460,7 +461,6 @@ impl Disassembler {
             let inst = SyscallInst::new(addr, syscall.name.clone());
             let inst = Inst::from_syscall(inst);
             self.functions.last_mut().unwrap().insts.push(inst);
-
         } else {
             bail!("syscall not found: {}", id);
         }
@@ -477,7 +477,7 @@ impl Disassembler {
         let inst = RetInst::new(addr);
         let inst = Inst::from_ret(inst);
         self.functions.last_mut().unwrap().insts.push(inst);
-        
+
         Ok(())
     }
 
@@ -490,7 +490,7 @@ impl Disassembler {
         let inst = RetValueInst::new(addr);
         let inst = Inst::from_ret_value(inst);
         self.functions.last_mut().unwrap().insts.push(inst);
-        
+
         Ok(())
     }
 
@@ -577,7 +577,7 @@ impl Disassembler {
         let inst = PushI16Inst::new(addr, value);
         let inst = Inst::from_push_i16(inst);
         self.functions.last_mut().unwrap().insts.push(inst);
-        
+
         Ok(())
     }
 
@@ -661,7 +661,7 @@ impl Disassembler {
 
     /// 0x11 push global table
     /// push a value than stored in the global table by immediate key onto the stack
-    /// we assume that if any failure occurs, such as the key not found, 
+    /// we assume that if any failure occurs, such as the key not found,
     /// we will push a nil value onto the stack for compatibility reasons.
     pub fn push_global_table(&mut self, parser: &mut Parser) -> Result<()> {
         let addr = self.get_pc() as u32;
@@ -762,7 +762,7 @@ impl Disassembler {
         Ok(())
     }
 
-    /// 0x18 pop local table 
+    /// 0x18 pop local table
     /// pop the top of the stack and store it in the local table by key
     pub fn pop_local_table(&mut self, parser: &mut Parser) -> Result<()> {
         let addr = self.get_pc() as u32;
@@ -777,7 +777,7 @@ impl Disassembler {
         Ok(())
     }
 
-    /// 0x19 neg 
+    /// 0x19 neg
     /// negate the top of the stack, only works for integers and floats
     pub fn neg(&mut self) -> Result<()> {
         let addr = self.get_pc() as u32;
@@ -974,7 +974,7 @@ impl Disassembler {
 
     fn disassemble_opcode(&mut self, parser: &mut Parser) -> Result<()> {
         let opcode = parser.read_u8(self.get_pc())? as i32;
-        
+
         match opcode.try_into() {
             Ok(Opcode::Nop) => {
                 self.nop()?;
@@ -1132,13 +1132,16 @@ impl Disassembler {
             game_mode: self.get_parser().get_game_mode(),
             game_mode_reserved: self.get_parser().get_game_mode_reserved(),
             game_title: self.get_parser().get_title(),
-            syscalls: self.get_parser().get_all_syscalls().iter().map(|(id, sys)| {
-                SyscallEntry {
+            syscalls: self
+                .get_parser()
+                .get_all_syscalls()
+                .iter()
+                .map(|(id, sys)| SyscallEntry {
                     id: *id as u32,
                     name: sys.name.clone(),
                     args_count: sys.args,
-                }
-            }).collect(),
+                })
+                .collect(),
             custom_syscall_count: self.get_parser().get_custom_syscall_count(),
         };
 
@@ -1160,7 +1163,6 @@ impl Disassembler {
     }
 }
 
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct FVPProject {
     config_file: PathBuf,
@@ -1180,8 +1182,6 @@ struct Args {
     #[arg(short, long, default_value = "sjis")]
     lang: Nls,
 }
-
-
 
 fn main() -> Result<()> {
     let args = Args::parse();

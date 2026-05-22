@@ -28,7 +28,6 @@ pub struct ThreadWrapper {
     requests: VecDeque<ThreadRequest>,
 }
 
-
 impl ThreadWrapper {
     pub fn new() -> Self {
         Default::default()

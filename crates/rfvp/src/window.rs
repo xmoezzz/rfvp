@@ -15,7 +15,6 @@
 //     window::{Fullscreen, Window, WindowBuilder},
 // };
 
-
 // struct State {
 //     surface: wgpu::Surface,
 //     surface_config: wgpu::SurfaceConfiguration,
@@ -290,7 +289,6 @@
 //         .with_position(LogicalPosition::new(1080, 0))
 //         .build(&event_loop)
 //         .unwrap();
-
 
 //     // State::new uses async code, so we're going to wait for it to finish
 //     let mut state = State::new(&window, &cli)

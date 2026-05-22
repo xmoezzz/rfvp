@@ -56,7 +56,8 @@ fn main() {
 
     // Video decode thread.
     let (video_tx, video_rx) = crossbeam_channel::bounded::<VideoFrame>(3);
-    let _video_join = spawn_wmv2_decode_thread(input_path.clone(), video_tx, stop.clone(), clock.clone());
+    let _video_join =
+        spawn_wmv2_decode_thread(input_path.clone(), video_tx, stop.clone(), clock.clone());
 
     // Audio output + decode thread (optional).
     let (_audio, _audio_join) = match audio_info {
@@ -152,10 +153,7 @@ impl AvStartClock {
             if stop.load(Ordering::Relaxed) {
                 return None;
             }
-            let (ng, _timeout) = self
-                .cv
-                .wait_timeout(g, Duration::from_millis(100))
-                .unwrap();
+            let (ng, _timeout) = self.cv.wait_timeout(g, Duration::from_millis(100)).unwrap();
             g = ng;
         }
     }
@@ -291,10 +289,7 @@ where
         let in_channels = dec.channels() as usize;
         eprintln!(
             "[audio] stream: {} Hz, {} ch (output {} Hz, {} ch)",
-            in_rate,
-            in_channels,
-            out_rate,
-            out_channels
+            in_rate, in_channels, out_rate, out_channels
         );
 
         let mut resampler = LinearResampler::new(in_rate, out_rate, out_channels);
@@ -398,7 +393,9 @@ impl LinearResampler {
 
         // Advance by source frames per output frame.
         let step = (self.in_rate as f64) / (self.out_rate as f64);
-        let mut out = Vec::with_capacity(((in_frames as u64 * self.out_rate as u64) / self.in_rate as u64) as usize * ch + ch);
+        let mut out = Vec::with_capacity(
+            ((in_frames as u64 * self.out_rate as u64) / self.in_rate as u64) as usize * ch + ch,
+        );
 
         while self.pos < (buf_frames - 1) as f64 {
             let i0 = self.pos.floor() as usize;
@@ -773,24 +770,20 @@ impl Renderer {
         let w = self.video_w;
         let h = self.video_h;
 
-        Self::upload_plane_static(
-            &self.queue,
-            &self.tex_y,
-            w, h,
-            &vf.y,
-            &mut self.scratch_y,
-        );
+        Self::upload_plane_static(&self.queue, &self.tex_y, w, h, &vf.y, &mut self.scratch_y);
         Self::upload_plane_static(
             &self.queue,
             &self.tex_u,
-            w / 2, h / 2,
+            w / 2,
+            h / 2,
             &vf.u,
             &mut self.scratch_u,
         );
         Self::upload_plane_static(
             &self.queue,
             &self.tex_v,
-            w / 2, h / 2,
+            w / 2,
+            h / 2,
             &vf.v,
             &mut self.scratch_v,
         );
@@ -821,7 +814,8 @@ impl Renderer {
             for row in 0..(h as usize) {
                 let dst0 = row * (stride as usize);
                 let src0 = row * (w as usize);
-                scratch[dst0..dst0 + (w as usize)].copy_from_slice(&data[src0..src0 + (w as usize)]);
+                scratch[dst0..dst0 + (w as usize)]
+                    .copy_from_slice(&data[src0..src0 + (w as usize)]);
             }
             (&scratch[..needed], stride)
         };

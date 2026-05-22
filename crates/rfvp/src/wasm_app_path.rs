@@ -34,8 +34,8 @@ struct WasmFileMetadata {
 
 impl WasmAppPath {
     pub fn from_metadata_json(files_json: &str) -> Result<Self> {
-        let files: Vec<WasmFileMetadata> = serde_json::from_str(files_json)
-            .context("parse wasm selected-file metadata JSON")?;
+        let files: Vec<WasmFileMetadata> =
+            serde_json::from_str(files_json).context("parse wasm selected-file metadata JSON")?;
 
         let raw: Vec<(String, WasmFileRef)> = files
             .into_iter()
@@ -255,7 +255,12 @@ fn is_root_file(path: &str) -> bool {
 fn common_selected_root(files: &[(String, WasmFileRef)]) -> Option<String> {
     let mut first_components = files
         .iter()
-        .filter_map(|(path, _)| path.replace('\\', "/").split('/').next().map(str::to_string))
+        .filter_map(|(path, _)| {
+            path.replace('\\', "/")
+                .split('/')
+                .next()
+                .map(str::to_string)
+        })
         .filter(|s| !s.is_empty());
 
     let first = first_components.next()?;

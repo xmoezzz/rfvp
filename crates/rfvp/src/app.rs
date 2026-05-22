@@ -1,27 +1,35 @@
 use anyhow::{Context, Result};
 use std::{
-    collections::HashMap, fs::File, path::{Path, PathBuf}, slice::Windows, sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard}
+    collections::HashMap,
+    fs::File,
+    path::{Path, PathBuf},
+    slice::Windows,
+    sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
 use crate::platform_time::{Duration, Instant};
-use glam::{mat4, vec3, vec4, Mat4};
-use image::{imageops::FilterType, RgbaImage};
-use wgpu::util::DeviceExt;
-use regex::Regex;
 use crate::{
     script::{
         global::GLOBAL,
-        parser::{Nls, Parser}, Variant,
+        parser::{Nls, Parser},
+        Variant,
     },
     subsystem::resources::thread_manager::ThreadManager,
     utils::ani::{self, icondir_to_custom_cursor, CursorBundle},
 };
+use glam::{mat4, vec3, vec4, Mat4};
+use image::{imageops::FilterType, RgbaImage};
+use regex::Regex;
+use wgpu::util::DeviceExt;
 
-use winit::{dpi::{PhysicalPosition, PhysicalSize, Size}, window::CustomCursor};
 use winit::{
-    keyboard::{KeyCode, PhysicalKey},
-    event::{Event, WindowEvent, MouseButton, MouseScrollDelta},
+    dpi::{PhysicalPosition, PhysicalSize, Size},
+    window::CustomCursor,
+};
+use winit::{
+    event::{Event, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
+    keyboard::{KeyCode, PhysicalKey},
     window::{Window, WindowAttributes},
 };
 
@@ -34,12 +42,12 @@ use winit::platform::web::WindowAttributesExtWebSys;
 use crate::rendering::render_tree::RenderTree;
 use crate::vm_worker::VmWorker;
 
+use crate::rfvp_render::vertices::{PosVertex, VertexSource};
+use crate::rfvp_render::{BindGroupLayouts, GpuCommonResources, Pipelines, RenderTarget};
 use crate::subsystem::scene::{Scene, SceneAction, SceneMachine};
 use crate::subsystem::scheduler::Scheduler;
 use crate::subsystem::world::GameData;
 use crate::{config::app_config::AppConfig, subsystem::event_handler::update_input_events};
-use crate::rfvp_render::{BindGroupLayouts, GpuCommonResources, Pipelines, RenderTarget};
-use crate::rfvp_render::vertices::{PosVertex, VertexSource};
 
 #[cfg(any(target_os = "ios", target_os = "android"))]
 use std::{ffi::c_void, ptr::NonNull};
@@ -52,8 +60,8 @@ extern "C" {
 
 #[cfg(target_os = "ios")]
 use winit::raw_window_handle::{
-    DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle,
-    UiKitDisplayHandle, UiKitWindowHandle, WindowHandle,
+    DisplayHandle, HandleError, HasDisplayHandle, HasWindowHandle, RawDisplayHandle,
+    RawWindowHandle, UiKitDisplayHandle, UiKitWindowHandle, WindowHandle,
 };
 
 #[cfg(target_os = "android")]
@@ -62,14 +70,19 @@ use winit::raw_window_handle::{
     HasWindowHandle, RawDisplayHandle, RawWindowHandle, WindowHandle,
 };
 
-
-use crate::rendering::gpu_prim::GpuPrimRenderer;
-use crate::debug_ui::{self, hud::{DebugHud, HudInput, HudSnapshot}};
+use crate::debug_ui::log_ring::{self, LogRing};
+use crate::debug_ui::{
+    self,
+    hud::{DebugHud, HudInput, HudSnapshot},
+};
 use crate::exit_confirm_ui::{ExitConfirmOutcome, ExitConfirmUi};
 use crate::legacy_save_load_ui::LegacySaveLoadUi;
-use crate::subsystem::components::syscalls::legacy::{legacy_save_load_menu_visible, set_legacy_save_load_menu_visible, take_pending_save_load_request};
+use crate::rendering::gpu_prim::GpuPrimRenderer;
+use crate::subsystem::components::syscalls::legacy::{
+    legacy_save_load_menu_visible, set_legacy_save_load_menu_visible,
+    take_pending_save_load_request,
+};
 use crate::subsystem::components::syscalls::utils::take_pending_exit_dialog_request;
-use crate::debug_ui::log_ring::{self, LogRing};
 use crate::subsystem::resources::motion_manager::DissolveType;
 
 // ----------------------------
@@ -91,12 +104,15 @@ fn gd_write<'a>(gd: &'a Arc<RwLock<Box<GameData>>>) -> RwLockWriteGuard<'a, Box<
     }
 }
 
-
-
-fn find_exact_game_video_mode(window: &Window, game_size: (u32, u32)) -> Option<winit::monitor::VideoModeHandle> {
+fn find_exact_game_video_mode(
+    window: &Window,
+    game_size: (u32, u32),
+) -> Option<winit::monitor::VideoModeHandle> {
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     {
-        let monitor = window.current_monitor().or_else(|| window.primary_monitor())?;
+        let monitor = window
+            .current_monitor()
+            .or_else(|| window.primary_monitor())?;
         return monitor.video_modes().find(|mode| {
             let size = mode.size();
             size.width == game_size.0 && size.height == game_size.1
@@ -159,7 +175,6 @@ pub struct App {
     dissolve_index_buffer: wgpu::Buffer,
     dissolve_num_indices: u32,
 
-
     // ----------------------------
     // Debug HUD (FVP_TEST=1)
     // ----------------------------
@@ -196,7 +211,10 @@ impl App {
 
         // iOS has a small main-thread stack; avoid formatting the full config with Debug here.
         #[cfg(not(target_os = "ios"))]
-        log::info!("Starting the app, with the following configuration \\n {:?}", app_config);
+        log::info!(
+            "Starting the app, with the following configuration \\n {:?}",
+            app_config
+        );
         #[cfg(target_os = "ios")]
         log::info!("Starting the app");
 
@@ -207,7 +225,8 @@ impl App {
         self.initialize_internal_resources();
         {
             let mut gd = gd_write(&self.game_data);
-            self.layer_machine.apply_scene_action(SceneAction::Start, &mut **gd);
+            self.layer_machine
+                .apply_scene_action(SceneAction::Start, &mut **gd);
             let current = gd.get_current_cursor_index();
             if current != 0 && gd.has_cursor(current) {
                 gd.switch_cursor(current);
@@ -234,7 +253,10 @@ impl App {
             // Keep script-visible window size in the *virtual* coordinate space.
             // Presentation scaling / letterboxing is handled separately in the render pass.
             let (w, h) = (self.virtual_size.0.max(1), self.virtual_size.1.max(1));
-            gd.set_window(crate::subsystem::resources::window::Window::new((w, h), 1.0));
+            gd.set_window(crate::subsystem::resources::window::Window::new(
+                (w, h),
+                1.0,
+            ));
         }
     }
     fn current_hidpi_scale(&self) -> f32 {
@@ -285,7 +307,9 @@ impl App {
         if let Ok(test) = std::env::var("DEBUG") {
             if test == *"1" {
                 let title = format!("{} | {},{} | down {}, up {} | ", title, x, y, down, up);
-                if let Some(w) = self.window.as_mut() { w.set_title(&title); }
+                if let Some(w) = self.window.as_mut() {
+                    w.set_title(&title);
+                }
             }
         }
     }
@@ -299,7 +323,6 @@ impl App {
         let gd = gd_read(&self.game_data);
         gd.inputs_manager.get_hud_up().to_string()
     }
-
 
     fn apply_exit_confirm_outcome(&mut self, outcome: ExitConfirmOutcome) {
         match outcome {
@@ -333,211 +356,214 @@ impl App {
         }
 
         match event {
-                Event::WindowEvent {
-                    ref event,
-                    window_id,
-                } if window_id == self.window.as_mut().unwrap().id() => {
-                    match event {
-                        WindowEvent::CloseRequested => {
-                            self.request_exit_dialog_ui_or_confirm();
+            Event::WindowEvent {
+                ref event,
+                window_id,
+            } if window_id == self.window.as_mut().unwrap().id() => {
+                match event {
+                    WindowEvent::CloseRequested => {
+                        self.request_exit_dialog_ui_or_confirm();
+                    }
+                    WindowEvent::Focused(_focused) => {
+                        // Do not introduce WindowMode side effects on focus changes.
+                        // Input focus transitions are handled in update_input_events().
+                    }
+                    WindowEvent::Resized(physical_size) => {
+                        gd_write(&self.game_data)
+                            .window_mut()
+                            .set_dimensions(physical_size.width, physical_size.height);
+
+                        // Update swapchain configuration.
+                        self.surface_config.width = physical_size.width.max(1);
+                        self.surface_config.height = physical_size.height.max(1);
+                        self.surface
+                            .configure(&self.resources.device, &self.surface_config);
+                    }
+                    WindowEvent::ScaleFactorChanged { .. } => {
+                        // self.renderer.as_mut().unwrap().resize(
+                        //     self.window.as_ref().expect("Missing window").inner_size(),
+                        //     *scale_factor,
+                        // );
+                    }
+                    WindowEvent::RedrawRequested => {
+                        // Drive the simulation from redraws so we do not busy-spin.
+                        // The VM is cooperative and now advances until script/syscall yield points
+                        // such as WAIT/SLEEP/NEXT/ShouldBreak, matching the original engine style.
+                        let (frame_ms, notify_dissolve_done) = self.next_frame();
+
+                        // Wake dissolve waiters before advancing the VM for this frame.
+                        if notify_dissolve_done {
+                            self.vm_worker.send_dissolve_done_sync();
                         }
-                        WindowEvent::Focused(_focused) => {
-                            // Do not introduce WindowMode side effects on focus changes.
-                            // Input focus transitions are handled in update_input_events().
+
+                        // Run the script VM before rendering so scene changes become visible immediately.
+                        let _rep = self.vm_worker.send_frame_ms_sync(frame_ms);
+
+                        // Apply WindowMode/Cursor requests that may have been issued during the VM tick.
+                        self.apply_window_mode_requests();
+                        self.update_cursor();
+
+                        self.pending_vm_frame_ms_valid = false;
+
+                        {
+                            let mut gd = gd_write(&self.game_data);
+                            self.layer_machine
+                                .apply_scene_action(SceneAction::EndFrame, &mut **gd);
                         }
-                        WindowEvent::Resized(physical_size) => {
-                            gd_write(&self.game_data).window_mut().set_dimensions(physical_size.width, physical_size.height);
-
-                            // Update swapchain configuration.
-                            self.surface_config.width = physical_size.width.max(1);
-                            self.surface_config.height = physical_size.height.max(1);
-                            self.surface.configure(&self.resources.device, &self.surface_config);
-
+                        if let Err(e) = self.render_frame() {
+                            log::error!("render_frame: {e:?}");
                         }
-                        WindowEvent::ScaleFactorChanged {  .. } => {
-                            // self.renderer.as_mut().unwrap().resize(
-                            //     self.window.as_ref().expect("Missing window").inner_size(),
-                            //     *scale_factor,
-                            // );
-                        }
-                        WindowEvent::RedrawRequested => {
-                            // Drive the simulation from redraws so we do not busy-spin.
-                            // The VM is cooperative and now advances until script/syscall yield points
-                            // such as WAIT/SLEEP/NEXT/ShouldBreak, matching the original engine style.
-                            let (frame_ms, notify_dissolve_done) = self.next_frame();
 
-                            // Wake dissolve waiters before advancing the VM for this frame.
-                            if notify_dissolve_done {
-                                self.vm_worker.send_dissolve_done_sync();
-                            }
-
-                            // Run the script VM before rendering so scene changes become visible immediately.
-                            let _rep = self.vm_worker.send_frame_ms_sync(frame_ms);
-
-                            // Apply WindowMode/Cursor requests that may have been issued during the VM tick.
-                            self.apply_window_mode_requests();
-                            self.update_cursor();
-
-                            self.pending_vm_frame_ms_valid = false;
-
-                            {
-                                let mut gd = gd_write(&self.game_data);
-                                self.layer_machine.apply_scene_action(SceneAction::EndFrame, &mut **gd);
-                            }
-                            if let Err(e) = self.render_frame() {
-                                log::error!("render_frame: {e:?}");
-                            }
-
-                            // Clear per-frame transient input signals only after the VM had a
-                            // chance to observe them (InputGetDown/InputGetUp/InputGetRepeat/Wheel).
-                            gd_write(&self.game_data).inputs_manager.frame_reset();
-                        }
-                        WindowEvent::KeyboardInput { event, .. } => {
-                            if !self.legacy_save_load_ui.is_active() && !self.exit_confirm_ui.is_active() && event.state == winit::event::ElementState::Pressed && !event.repeat {
-                                match event.physical_key {
-                                    PhysicalKey::Code(KeyCode::F2) => {
-                                        self.toggle_hud_window();
-                                    }
-                                    PhysicalKey::Code(KeyCode::F11) => {
-                                        // Fallback toggler (useful when a title does not expose a UI affordance
-                                        // to return from fullscreen).
-                                        let mut gd = gd_write(&self.game_data);
-                                        let cur = gd.get_render_flag();
-                                        let last = if self.last_fullscreen_flag == 1 || self.last_fullscreen_flag == 2 {
-                                            self.last_fullscreen_flag
-                                        } else {
-                                            1
-                                        };
-                                        let next = if cur == 1 || cur == 2 { 0 } else { last };
-                                        gd.set_render_flag(next);
-                                    }
-                                    _ => {}
+                        // Clear per-frame transient input signals only after the VM had a
+                        // chance to observe them (InputGetDown/InputGetUp/InputGetRepeat/Wheel).
+                        gd_write(&self.game_data).inputs_manager.frame_reset();
+                    }
+                    WindowEvent::KeyboardInput { event, .. } => {
+                        if !self.legacy_save_load_ui.is_active()
+                            && !self.exit_confirm_ui.is_active()
+                            && event.state == winit::event::ElementState::Pressed
+                            && !event.repeat
+                        {
+                            match event.physical_key {
+                                PhysicalKey::Code(KeyCode::F2) => {
+                                    self.toggle_hud_window();
                                 }
+                                PhysicalKey::Code(KeyCode::F11) => {
+                                    // Fallback toggler (useful when a title does not expose a UI affordance
+                                    // to return from fullscreen).
+                                    let mut gd = gd_write(&self.game_data);
+                                    let cur = gd.get_render_flag();
+                                    let last = if self.last_fullscreen_flag == 1
+                                        || self.last_fullscreen_flag == 2
+                                    {
+                                        self.last_fullscreen_flag
+                                    } else {
+                                        1
+                                    };
+                                    let next = if cur == 1 || cur == 2 { 0 } else { last };
+                                    gd.set_render_flag(next);
+                                }
+                                _ => {}
                             }
                         }
+                    }
                     _ => {}
-                    }
-                    let consumed_by_exit_modal = self.exit_confirm_ui.handle_window_event(
-                        event,
-                        (self.surface_config.width, self.surface_config.height),
-                        self.virtual_size,
-                    );
-                    if let Some(outcome) = self.exit_confirm_ui.take_outcome() {
-                        self.apply_exit_confirm_outcome(outcome);
-                    }
-                    if self.exit_confirm_ui.is_active() || consumed_by_exit_modal {
-                        // Exit confirm is modal; do not forward input into the game while it is open.
-                    } else {
-                        let consumed_by_legacy_modal = {
-                            let mut gd = gd_write(&self.game_data);
-                            self.legacy_save_load_ui.handle_window_event(
-                                event,
-                                (self.surface_config.width, self.surface_config.height),
-                                self.virtual_size,
-                                &mut **gd,
-                            )
-                        };
-                        if !consumed_by_legacy_modal {
-                            let mut gd = gd_write(&self.game_data);
-                            update_input_events(
-                                event,
-                                &mut **gd,
-                                (self.surface_config.width, self.surface_config.height),
-                                self.virtual_size,
-                            );
-                        } else if !self.legacy_save_load_ui.is_active() {
-                            set_legacy_save_load_menu_visible(false);
-                        }
-                    }
-
                 }
-                Event::WindowEvent {
-                    ref event,
-                    window_id,
-                } if self
-                    .hud_window
-                    .as_ref()
-                    .map(|w| w.id())
-                    == Some(window_id) => {
-                    match event {
-                        WindowEvent::CloseRequested => {
-                            self.set_hud_visible(false);
-                        }
-                        WindowEvent::CursorMoved { position, .. } => {
-                            self.hud_cursor_pos = Some((position.x, position.y));
-                        }
-                        WindowEvent::CursorLeft { .. } => {
-                            self.hud_cursor_pos = None;
-                        }
-                        WindowEvent::MouseInput { state, button, .. } => {
-                            if *button == MouseButton::Left {
-                                self.hud_pointer_down = state.is_pressed();
-                            }
-                        }
-                        WindowEvent::MouseWheel { delta, .. } => {
-                            // Store a per-frame scroll delta (in points). Roughly match egui's
-                            // usual "line" scroll scale.
-                            match delta {
-                                MouseScrollDelta::LineDelta(_, y) => {
-                                    self.hud_scroll_delta_y += *y * 24.0;
-                                }
-                                MouseScrollDelta::PixelDelta(pos) => {
-                                    let ppp = self
-                                        .hud_window
-                                        .as_ref()
-                                        .map(|w| w.scale_factor() as f32)
-                                        .unwrap_or(1.0);
-                                    self.hud_scroll_delta_y += (pos.y as f32) / ppp.max(0.5);
-                                }
-                            }
-                        }
-                        WindowEvent::Resized(physical_size) => {
-                            if let (Some(surf), Some(cfg)) = (
-                                self.hud_surface.as_ref(),
-                                self.hud_surface_config.as_mut(),
-                            ) {
-                                cfg.width = physical_size.width.max(1);
-                                cfg.height = physical_size.height.max(1);
-                                surf.configure(&self.resources.device, cfg);
-                            }
-                        }
-                        WindowEvent::RedrawRequested => {
-                            if self.hud_visible {
-                                if let Err(e) = self.render_hud_frame() {
-                                    log::error!("render_hud_frame: {e:?}");
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
+                let consumed_by_exit_modal = self.exit_confirm_ui.handle_window_event(
+                    event,
+                    (self.surface_config.width, self.surface_config.height),
+                    self.virtual_size,
+                );
+                if let Some(outcome) = self.exit_confirm_ui.take_outcome() {
+                    self.apply_exit_confirm_outcome(outcome);
                 }
-                Event::AboutToWait => {
-                    if self.pending_app_exit {
-                        loopd.exit();
-                        return;
-                    }
-
-                    // ExitMode(3): after the main script context exits, terminate the host loop.
-                    let (should_exit, main_exited) = {
-                        let gd = gd_read(&self.game_data);
-                        (gd.get_lock_scripter(), gd.get_main_thread_exited())
+                if self.exit_confirm_ui.is_active() || consumed_by_exit_modal {
+                    // Exit confirm is modal; do not forward input into the game while it is open.
+                } else {
+                    let consumed_by_legacy_modal = {
+                        let mut gd = gd_write(&self.game_data);
+                        self.legacy_save_load_ui.handle_window_event(
+                            event,
+                            (self.surface_config.width, self.surface_config.height),
+                            self.virtual_size,
+                            &mut **gd,
+                        )
                     };
-                    if should_exit && main_exited {
-                        loopd.exit();
-                        return;
-                    }
-
-                    // Schedule the next redraw. This keeps the event loop responsive while
-                    // avoiding a hard-coded FPS cap.
-                    self.window.as_mut().unwrap().request_redraw();
-
-                    if self.hud_visible {
-                        if let Some(w) = self.hud_window.as_ref() {
-                            w.request_redraw();
-                        }
+                    if !consumed_by_legacy_modal {
+                        let mut gd = gd_write(&self.game_data);
+                        update_input_events(
+                            event,
+                            &mut **gd,
+                            (self.surface_config.width, self.surface_config.height),
+                            self.virtual_size,
+                        );
+                    } else if !self.legacy_save_load_ui.is_active() {
+                        set_legacy_save_load_menu_visible(false);
                     }
                 }
-                _ => (),
+            }
+            Event::WindowEvent {
+                ref event,
+                window_id,
+            } if self.hud_window.as_ref().map(|w| w.id()) == Some(window_id) => {
+                match event {
+                    WindowEvent::CloseRequested => {
+                        self.set_hud_visible(false);
+                    }
+                    WindowEvent::CursorMoved { position, .. } => {
+                        self.hud_cursor_pos = Some((position.x, position.y));
+                    }
+                    WindowEvent::CursorLeft { .. } => {
+                        self.hud_cursor_pos = None;
+                    }
+                    WindowEvent::MouseInput { state, button, .. } => {
+                        if *button == MouseButton::Left {
+                            self.hud_pointer_down = state.is_pressed();
+                        }
+                    }
+                    WindowEvent::MouseWheel { delta, .. } => {
+                        // Store a per-frame scroll delta (in points). Roughly match egui's
+                        // usual "line" scroll scale.
+                        match delta {
+                            MouseScrollDelta::LineDelta(_, y) => {
+                                self.hud_scroll_delta_y += *y * 24.0;
+                            }
+                            MouseScrollDelta::PixelDelta(pos) => {
+                                let ppp = self
+                                    .hud_window
+                                    .as_ref()
+                                    .map(|w| w.scale_factor() as f32)
+                                    .unwrap_or(1.0);
+                                self.hud_scroll_delta_y += (pos.y as f32) / ppp.max(0.5);
+                            }
+                        }
+                    }
+                    WindowEvent::Resized(physical_size) => {
+                        if let (Some(surf), Some(cfg)) =
+                            (self.hud_surface.as_ref(), self.hud_surface_config.as_mut())
+                        {
+                            cfg.width = physical_size.width.max(1);
+                            cfg.height = physical_size.height.max(1);
+                            surf.configure(&self.resources.device, cfg);
+                        }
+                    }
+                    WindowEvent::RedrawRequested => {
+                        if self.hud_visible {
+                            if let Err(e) = self.render_hud_frame() {
+                                log::error!("render_hud_frame: {e:?}");
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Event::AboutToWait => {
+                if self.pending_app_exit {
+                    loopd.exit();
+                    return;
+                }
+
+                // ExitMode(3): after the main script context exits, terminate the host loop.
+                let (should_exit, main_exited) = {
+                    let gd = gd_read(&self.game_data);
+                    (gd.get_lock_scripter(), gd.get_main_thread_exited())
+                };
+                if should_exit && main_exited {
+                    loopd.exit();
+                    return;
+                }
+
+                // Schedule the next redraw. This keeps the event loop responsive while
+                // avoiding a hard-coded FPS cap.
+                self.window.as_mut().unwrap().request_redraw();
+
+                if self.hud_visible {
+                    if let Some(w) = self.hud_window.as_ref() {
+                        w.request_redraw();
+                    }
+                }
+            }
+            _ => (),
         }
     }
 
@@ -570,7 +596,9 @@ impl App {
             // project through a single &mut GameData binding.
             let mut gd_guard = gd_write(&self.game_data);
             let gd = &mut *gd_guard;
-            gd.motion_manager.text_manager.set_render_scale(text_render_scale);
+            gd.motion_manager
+                .text_manager
+                .set_render_scale(text_render_scale);
 
             let frame_duration = gd.time_mut_ref().frame();
             let frame_us = frame_duration.as_micros() as u64;
@@ -628,7 +656,10 @@ impl App {
 
             let modal_movie = gd.video_manager.is_modal_active();
 
-            if !modal_movie && !self.legacy_save_load_ui.is_active() && !self.exit_confirm_ui.is_active() {
+            if !modal_movie
+                && !self.legacy_save_load_ui.is_active()
+                && !self.exit_confirm_ui.is_active()
+            {
                 self.layer_machine
                     .apply_scene_action(SceneAction::Update, gd);
                 self.scheduler.execute(gd);
@@ -664,7 +695,6 @@ impl App {
                     gd.set_halt(false);
                 }
             }
-
         }
 
         self.last_dt_ms = frame_ms as f32;
@@ -680,7 +710,9 @@ impl App {
             let mut gd = gd_write(&self.game_data);
             gd.take_pending_render_flag()
         };
-        let Some(flag) = requested else { return; };
+        let Some(flag) = requested else {
+            return;
+        };
 
         let Some(w) = self.window.as_ref() else {
             // Host-driven iOS mode can run without a winit window; ignore WindowMode requests.
@@ -740,8 +772,12 @@ impl App {
         }
     }
 
-
-    fn virtual_to_window_cursor_pos(&self, vx: i32, vy: i32, _render_flag: i32) -> PhysicalPosition<f64> {
+    fn virtual_to_window_cursor_pos(
+        &self,
+        vx: i32,
+        vy: i32,
+        _render_flag: i32,
+    ) -> PhysicalPosition<f64> {
         let sw = self.surface_config.width.max(1) as f64;
         let sh = self.surface_config.height.max(1) as f64;
         let vw = self.virtual_size.0.max(1) as f64;
@@ -749,7 +785,6 @@ impl App {
 
         let vx = vx.clamp(0, (vw as i32).saturating_sub(1)) as f64;
         let vy = vy.clamp(0, (vh as i32).saturating_sub(1)) as f64;
-
 
         let scale = (sw / vw).min(sh / vh);
         let dst_w = vw * scale;
@@ -762,7 +797,13 @@ impl App {
     }
 
     fn update_cursor(&mut self) {
-        let (cursor_frame, pending_cursor_kind, pending_cursor_visible, pending_cursor_pos, render_flag) = {
+        let (
+            cursor_frame,
+            pending_cursor_kind,
+            pending_cursor_visible,
+            pending_cursor_pos,
+            render_flag,
+        ) = {
             let mut gd = gd_write(&self.game_data);
             let frame = gd.update_cursor();
             let cursor_kind = *gd.window_ref().new_cursor();
@@ -800,16 +841,16 @@ impl App {
     fn render_frame(&mut self) -> anyhow::Result<()> {
         self.sync_render_target_backing();
 
-// Commit a pending SaveWrite using a prepared in-memory payload (local_saved),
-// without capturing the current frame. This matches the original engine's
-// SaveCreate(fnid=3) + SaveWrite(slot) two-phase save flow.
-{
-    let mut gd = gd_write(&self.game_data);
-    let nls = gd.get_nls();
-    if let Ok(true) = gd.save_manager.try_commit_local_savedata(nls.clone()) {
-        gd.save_manager.consume_save_write_result();
-    }
-}
+        // Commit a pending SaveWrite using a prepared in-memory payload (local_saved),
+        // without capturing the current frame. This matches the original engine's
+        // SaveCreate(fnid=3) + SaveWrite(slot) two-phase save flow.
+        {
+            let mut gd = gd_write(&self.game_data);
+            let nls = gd.get_nls();
+            if let Ok(true) = gd.save_manager.try_commit_local_savedata(nls.clone()) {
+                gd.save_manager.consume_save_write_result();
+            }
+        }
 
         {
             let mut gd = gd_write(&self.game_data);
@@ -817,8 +858,12 @@ impl App {
                 self.prim_renderer.remove_graph_cache(graph_id);
             }
             let surface_size = (self.surface_config.width, self.surface_config.height);
-            self.legacy_save_load_ui
-                .update(&self.resources, &mut **gd, self.virtual_size, surface_size);
+            self.legacy_save_load_ui.update(
+                &self.resources,
+                &mut **gd,
+                self.virtual_size,
+                surface_size,
+            );
             self.exit_confirm_ui
                 .update(&self.resources, self.virtual_size, surface_size);
         }
@@ -829,7 +874,8 @@ impl App {
             let gd = gd_read(&self.game_data);
 
             // Build primitive draw list and upload any modified GraphBuffs to the GPU.
-            self.prim_renderer.rebuild(&self.resources, &gd.motion_manager);
+            self.prim_renderer
+                .rebuild(&self.resources, &gd.motion_manager);
 
             let frame_no = self.debug_frame_no;
             if crate::trace::should_dump_prim_tree(frame_no) {
@@ -837,20 +883,31 @@ impl App {
                     crate::trace::prim_tree_max_nodes(),
                     crate::trace::prim_tree_max_depth(),
                 );
-                crate::trace::dump(crate::trace::TraceKind::PrimTree, &format!("prim_tree frame={}", frame_no), &tree);
+                crate::trace::dump(
+                    crate::trace::TraceKind::PrimTree,
+                    &format!("prim_tree frame={}", frame_no),
+                    &tree,
+                );
             }
             if crate::trace::should_dump_motion(frame_no) {
-                let ms = gd.motion_manager.debug_dump_motion_state(crate::trace::motion_max());
-                crate::trace::dump(crate::trace::TraceKind::Motion, &format!("motion frame={}", frame_no), &ms);
+                let ms = gd
+                    .motion_manager
+                    .debug_dump_motion_state(crate::trace::motion_max());
+                crate::trace::dump(
+                    crate::trace::TraceKind::Motion,
+                    &format!("motion frame={}", frame_no),
+                    &ms,
+                );
             }
-
 
             let dissolve_type = gd.motion_manager.get_dissolve_type();
             dissolve_color = match dissolve_type {
                 DissolveType::None => None,
 
                 // Colored dissolve is a pure full-screen color overlay.
-                DissolveType::Static | DissolveType::ColoredFadeIn | DissolveType::ColoredFadeOut => {
+                DissolveType::Static
+                | DissolveType::ColoredFadeIn
+                | DissolveType::ColoredFadeOut => {
                     let alpha = gd.motion_manager.get_dissolve_alpha();
                     crate::trace::motion(format_args!("Global dissolve alpha: {}", alpha));
                     if alpha > 0.0 {
@@ -871,7 +928,9 @@ impl App {
                 // It uses the 8-bit mask texture with alpha-test / blend states.
                 // Until a dedicated mask dissolve pipeline is implemented, do not draw a solid
                 // overlay here (otherwise it appears as a "white mask" over HUD/text).
-                DissolveType::MaskFadeIn | DissolveType::MaskFadeInOut | DissolveType::MaskFadeOut => None,
+                DissolveType::MaskFadeIn
+                | DissolveType::MaskFadeInOut
+                | DissolveType::MaskFadeOut => None,
             };
 
             // Dissolve2 is a pure full-screen color fade used by engine-internal flows
@@ -891,19 +950,18 @@ impl App {
             };
         }
 
-
         // Save thumbnail capture request (resolved after the virtual pass).
         let save_capture = {
             let gd = gd_read(&self.game_data);
             gd.save_manager.pending_save_capture()
         };
 
-        let mut encoder = self
-            .resources
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("rfvp frame encoder"),
-            });
+        let mut encoder =
+            self.resources
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("rfvp frame encoder"),
+                });
 
         // Pass 1: render primitives into the virtual render target.
         {
@@ -918,7 +976,11 @@ impl App {
             //   2) dissolve (mask/color)
             //   3) dissolve2 (full-screen color fade)
             //   4) overlay/custom root prim tree
-            self.prim_renderer.draw_virtual_root0(&mut pass, &self.resources.pipelines.sprite, proj);
+            self.prim_renderer.draw_virtual_root0(
+                &mut pass,
+                &self.resources.pipelines.sprite,
+                proj,
+            );
 
             let mk_fill_src = || VertexSource::VertexIndexBuffer {
                 vertex_buffer: &self.dissolve_vertex_buffer,
@@ -929,17 +991,26 @@ impl App {
 
             // Global dissolve overlay (rendered in virtual space).
             if let Some(color) = dissolve_color {
-                self.resources.pipelines.fill.draw(&mut pass, mk_fill_src(), proj, color);
+                self.resources
+                    .pipelines
+                    .fill
+                    .draw(&mut pass, mk_fill_src(), proj, color);
             }
 
             // Engine dissolve2 overlay (rendered in virtual space).
             if let Some(color) = dissolve2_color {
-                self.resources.pipelines.fill.draw(&mut pass, mk_fill_src(), proj, color);
+                self.resources
+                    .pipelines
+                    .fill
+                    .draw(&mut pass, mk_fill_src(), proj, color);
             }
 
-            self.prim_renderer.draw_virtual_overlay(&mut pass, &self.resources.pipelines.sprite, proj);
+            self.prim_renderer.draw_virtual_overlay(
+                &mut pass,
+                &self.resources.pipelines.sprite,
+                proj,
+            );
         }
-
 
         // If a SaveWrite is pending, capture the current virtual render target to CPU.
         let save_readback = save_capture.map(|_| {
@@ -952,7 +1023,8 @@ impl App {
             Ok(o) => o,
             Err(wgpu::SurfaceError::Lost) | Err(wgpu::SurfaceError::Outdated) => {
                 // Recreate swapchain.
-                self.surface.configure(&self.resources.device, &self.surface_config);
+                self.surface
+                    .configure(&self.resources.device, &self.surface_config);
 
                 return Ok(());
             }
@@ -1023,68 +1095,78 @@ impl App {
                 self.render_target.bind_group(),
                 present_m,
             );
-            self.legacy_save_load_ui
-                .draw(&mut pass, &self.resources.pipelines.sprite_screen, proj_surface);
-            self.exit_confirm_ui
-                .draw(&mut pass, &self.resources.pipelines.sprite_screen, proj_surface);
+            self.legacy_save_load_ui.draw(
+                &mut pass,
+                &self.resources.pipelines.sprite_screen,
+                proj_surface,
+            );
+            self.exit_confirm_ui.draw(
+                &mut pass,
+                &self.resources.pipelines.sprite_screen,
+                proj_surface,
+            );
         }
 
         self.resources.queue.submit(Some(encoder.finish()));
 
-        
-if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_capture) {
-    let src_w = readback.width.max(1);
-    let src_h = readback.height.max(1);
-    let rgba = readback.map_to_rgba8(&self.resources.device);
+        if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_capture) {
+            let src_w = readback.width.max(1);
+            let src_h = readback.height.max(1);
+            let rgba = readback.map_to_rgba8(&self.resources.device);
 
-    let thumb_rgba = if thumb_w > 0 && thumb_h > 0 && (thumb_w != src_w || thumb_h != src_h) {
-        let expected_len = (src_w as usize)
-            .saturating_mul(src_h as usize)
-            .saturating_mul(4);
-        if rgba.len() == expected_len {
-            let img = RgbaImage::from_raw(src_w, src_h, rgba)
-                .expect("save capture readback length already validated");
-            let resized = image::imageops::resize(&img, thumb_w, thumb_h, FilterType::Triangle);
-            resized.into_raw()
-        } else {
-            rgba
+            let thumb_rgba = if thumb_w > 0 && thumb_h > 0 && (thumb_w != src_w || thumb_h != src_h)
+            {
+                let expected_len = (src_w as usize)
+                    .saturating_mul(src_h as usize)
+                    .saturating_mul(4);
+                if rgba.len() == expected_len {
+                    let img = RgbaImage::from_raw(src_w, src_h, rgba)
+                        .expect("save capture readback length already validated");
+                    let resized =
+                        image::imageops::resize(&img, thumb_w, thumb_h, FilterType::Triangle);
+                    resized.into_raw()
+                } else {
+                    rgba
+                }
+            } else {
+                rgba
+            };
+
+            let mut gd = gd_write(&self.game_data);
+            let nls = gd.get_nls();
+            let state_snap = crate::subsystem::save_state::SaveStateSnapshotV1::capture(&mut gd);
+
+            if slot == u32::MAX {
+                // SaveCreate(3, nil/int): prepare local_saved payload in memory.
+                gd.save_manager.finalize_local_savedata_prepare(
+                    nls.clone(),
+                    thumb_w,
+                    thumb_h,
+                    &thumb_rgba,
+                    Some(&state_snap),
+                )?;
+
+                // If a SaveWrite was already requested (SaveCreate(3, slot) form), commit now.
+                if gd.save_manager.try_commit_local_savedata(nls.clone())? {
+                    gd.save_manager.consume_save_write_result();
+                }
+            } else {
+                // Fallback path: capture the current frame and write immediately.
+                gd.save_manager.finalize_save_write(
+                    nls,
+                    thumb_w,
+                    thumb_h,
+                    &thumb_rgba,
+                    Some(&state_snap),
+                )?;
+                gd.save_manager.consume_save_write_result();
+            }
         }
-    } else {
-        rgba
-    };
-
-    let mut gd = gd_write(&self.game_data);
-    let nls = gd.get_nls();
-    let state_snap = crate::subsystem::save_state::SaveStateSnapshotV1::capture(&mut gd);
-
-    if slot == u32::MAX {
-        // SaveCreate(3, nil/int): prepare local_saved payload in memory.
-        gd.save_manager.finalize_local_savedata_prepare(
-            nls.clone(),
-            thumb_w,
-            thumb_h,
-            &thumb_rgba,
-            Some(&state_snap),
-        )?;
-
-        // If a SaveWrite was already requested (SaveCreate(3, slot) form), commit now.
-        if gd.save_manager.try_commit_local_savedata(nls.clone())? {
-            gd.save_manager.consume_save_write_result();
-        }
-    } else {
-        // Fallback path: capture the current frame and write immediately.
-        gd.save_manager
-            .finalize_save_write(nls, thumb_w, thumb_h, &thumb_rgba, Some(&state_snap))?;
-        gd.save_manager.consume_save_write_result();
-    }
-}
 
         output.present();
 
         Ok(())
     }
-
-
 
     fn set_hud_visible(&mut self, visible: bool) {
         self.hud_visible = visible;
@@ -1127,12 +1209,12 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut encoder = self
-            .resources
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("rfvp hud encoder"),
-            });
+        let mut encoder =
+            self.resources
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("rfvp hud encoder"),
+                });
 
         // Clear HUD window to black.
         {
@@ -1198,14 +1280,19 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
                         cpu += 1;
                     }
 
-                    let interesting = g.texture_ready || g.texture.is_some() || !g.texture_path.is_empty();
+                    let interesting =
+                        g.texture_ready || g.texture.is_some() || !g.texture_path.is_empty();
                     if !list_all && !interesting {
                         continue;
                     }
                     if textures.len() >= list_max {
                         continue;
                     }
-                    let path = if g.texture_path.is_empty() { "<none>" } else { g.texture_path.as_str() };
+                    let path = if g.texture_path.is_empty() {
+                        "<none>"
+                    } else {
+                        g.texture_path.as_str()
+                    };
                     textures.push(format!(
                         "[{:04}] ready={} cpu={} gen={} size={}x{} path={}",
                         i,
@@ -1228,10 +1315,9 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
                 // Input summary (keys/mouse) to quickly diagnose "auto click" and key state.
                 let input_line = {
                     const NAMES: [&str; 26] = [
-                        "Shift", "Ctrl", "LClick", "RClick", "MouseL", "MouseR", "Esc", "Enter", "Space",
-                        "Up", "Down", "Left", "Right",
-                        "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
-                        "Tab",
+                        "Shift", "Ctrl", "LClick", "RClick", "MouseL", "MouseR", "Esc", "Enter",
+                        "Space", "Up", "Down", "Left", "Right", "F1", "F2", "F3", "F4", "F5", "F6",
+                        "F7", "F8", "F9", "F10", "F11", "F12", "Tab",
                     ];
 
                     let fmt_bits = |bits: u32| -> String {
@@ -1290,9 +1376,12 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
             };
 
             if !snap.prim_tiles.is_empty() {
-                hud.sync_prim_tile_textures(&self.resources.device, &self.prim_renderer, &snap.prim_tiles);
+                hud.sync_prim_tile_textures(
+                    &self.resources.device,
+                    &self.prim_renderer,
+                    &snap.prim_tiles,
+                );
             }
-
 
             let ws = hud_window.inner_size();
             let ppp = hud_window.scale_factor() as f32;
@@ -1307,7 +1396,12 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
             // Scroll is a per-frame delta.
             self.hud_scroll_delta_y = 0.0;
             hud.prepare_frame((ws.width, ws.height), ppp, &snap, Some(inp));
-            hud.render(&self.resources.device, &self.resources.queue, &mut encoder, &view);
+            hud.render(
+                &self.resources.device,
+                &self.resources.queue,
+                &mut encoder,
+                &view,
+            );
         }
 
         self.resources.queue.submit(Some(encoder.finish()));
@@ -1323,7 +1417,10 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
         let matches: Vec<_> = glob::glob(&path.to_string_lossy())?.flatten().collect();
 
         if matches.is_empty() {
-            anyhow::bail!("No hcb file found in the game directory: {}", game_path.as_ref().display());
+            anyhow::bail!(
+                "No hcb file found in the game directory: {}",
+                game_path.as_ref().display()
+            );
         }
 
         Ok(matches[0].to_path_buf())
@@ -1375,7 +1472,8 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
 
         {
             let mut gd = gd_write(&self.game_data);
-            self.layer_machine.apply_scene_action(SceneAction::EndFrame, &mut *gd);
+            self.layer_machine
+                .apply_scene_action(SceneAction::EndFrame, &mut *gd);
         }
 
         if let Err(e) = self.render_frame() {
@@ -1399,8 +1497,8 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
 
         self.surface_config.width = w;
         self.surface_config.height = h;
-        self.surface.configure(&self.resources.device, &self.surface_config);
-
+        self.surface
+            .configure(&self.resources.device, &self.surface_config);
 
         // iOS host-mode renders at a fixed virtual resolution and presents into a
         // surface with letterboxing/stretched fullscreen. Script-visible "window"
@@ -1420,8 +1518,8 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
         let h = surface_height_px.max(1);
         self.surface_config.width = w;
         self.surface_config.height = h;
-        self.surface.configure(&self.resources.device, &self.surface_config);
-
+        self.surface
+            .configure(&self.resources.device, &self.surface_config);
     }
 
     #[cfg(target_os = "ios")]
@@ -1430,7 +1528,10 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
         let px = x_points * scale;
         let py = y_points * scale;
 
-        let (sw_u, sh_u) = (self.surface_config.width.max(1), self.surface_config.height.max(1));
+        let (sw_u, sh_u) = (
+            self.surface_config.width.max(1),
+            self.surface_config.height.max(1),
+        );
         let (vw_u, vh_u) = (self.virtual_size.0.max(1), self.virtual_size.1.max(1));
 
         let sw = sw_u as f64;
@@ -1503,7 +1604,10 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
             }
         }
 
-        let (sw_u, sh_u) = (self.surface_config.width.max(1), self.surface_config.height.max(1));
+        let (sw_u, sh_u) = (
+            self.surface_config.width.max(1),
+            self.surface_config.height.max(1),
+        );
         let (vw_u, vh_u) = (self.virtual_size.0.max(1), self.virtual_size.1.max(1));
 
         let sw = sw_u as f64;
@@ -1522,7 +1626,8 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
             let off_x = (sw - dst_w) * 0.5;
             let off_y = (sh - dst_h) * 0.5;
 
-            let in_content = px >= off_x && px < (off_x + dst_w) && py >= off_y && py < (off_y + dst_h);
+            let in_content =
+                px >= off_x && px < (off_x + dst_w) && py >= off_y && py < (off_y + dst_h);
             let mut vx = ((px - off_x) / scale) as i32;
             let mut vy = ((py - off_y) / scale) as i32;
             if in_content {
@@ -1689,7 +1794,10 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
             }
         }
 
-        let (sw_u, sh_u) = (self.surface_config.width.max(1), self.surface_config.height.max(1));
+        let (sw_u, sh_u) = (
+            self.surface_config.width.max(1),
+            self.surface_config.height.max(1),
+        );
         let (vw_u, vh_u) = (self.virtual_size.0.max(1), self.virtual_size.1.max(1));
 
         let sw = sw_u as f64;
@@ -1705,7 +1813,8 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
             let off_x = (sw - dst_w) * 0.5;
             let off_y = (sh - dst_h) * 0.5;
 
-            let in_content = px >= off_x && px < (off_x + dst_w) && py >= off_y && py < (off_y + dst_h);
+            let in_content =
+                px >= off_x && px < (off_x + dst_w) && py >= off_y && py < (off_y + dst_h);
             let mut vx = ((px - off_x) / scale) as i32;
             let mut vy = ((py - off_y) / scale) as i32;
             if in_content {
@@ -1732,7 +1841,12 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
 
     /// Recreate the presentation surface from a new `ANativeWindow*`.
     #[cfg(target_os = "android")]
-    pub fn host_set_surface_android(&mut self, native_window: NonNull<c_void>, width_px: u32, height_px: u32) {
+    pub fn host_set_surface_android(
+        &mut self,
+        native_window: NonNull<c_void>,
+        width_px: u32,
+        height_px: u32,
+    ) {
         let Some(instance) = self.wgpu_instance.as_ref() else {
             log::error!("host_set_surface_android: missing wgpu_instance");
             return;
@@ -1743,7 +1857,9 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
         };
 
         // Hold a reference to the new ANativeWindow for the lifetime of the new wgpu Surface.
-        unsafe { ANativeWindow_acquire(native_window.as_ptr()); }
+        unsafe {
+            ANativeWindow_acquire(native_window.as_ptr());
+        }
 
         struct AndroidSurfaceTarget {
             window: NonNull<c_void>,
@@ -1769,25 +1885,36 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
             }
         }
 
-        let target = AndroidSurfaceTarget { window: native_window };
+        let target = AndroidSurfaceTarget {
+            window: native_window,
+        };
 
         let new_surface = match instance.create_surface(&target) {
             Ok(s) => s,
             Err(e) => {
                 log::error!("host_set_surface_android: create_surface failed: {e:?}");
-                unsafe { ANativeWindow_release(native_window.as_ptr()); }
+                unsafe {
+                    ANativeWindow_release(native_window.as_ptr());
+                }
                 return;
             }
         };
 
-        let new_surface: wgpu::Surface<'static> = unsafe { std::mem::transmute::<wgpu::Surface<'_>, wgpu::Surface<'static>>(new_surface) };
+        let new_surface: wgpu::Surface<'static> = unsafe {
+            std::mem::transmute::<wgpu::Surface<'_>, wgpu::Surface<'static>>(new_surface)
+        };
 
         self.surface = new_surface;
 
         let caps = self.surface.get_capabilities(adapter);
         if !caps.formats.is_empty() {
             let preferred = self.surface_config.format;
-            self.surface_config.format = caps.formats.iter().copied().find(|f| *f == preferred).unwrap_or(caps.formats[0]);
+            self.surface_config.format = caps
+                .formats
+                .iter()
+                .copied()
+                .find(|f| *f == preferred)
+                .unwrap_or(caps.formats[0]);
         }
         if !caps.alpha_modes.is_empty() {
             self.surface_config.alpha_mode = caps.alpha_modes[0];
@@ -1795,14 +1922,16 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
 
         self.surface_config.width = width_px.max(1);
         self.surface_config.height = height_px.max(1);
-        self.surface.configure(&self.resources.device, &self.surface_config);
+        self.surface
+            .configure(&self.resources.device, &self.surface_config);
 
         // Store the window pointer for the lifetime of the Surface and release the previous one.
         let old = self.android_native_window.replace(native_window);
         if let Some(old) = old {
-            unsafe { ANativeWindow_release(old.as_ptr()); }
+            unsafe {
+                ANativeWindow_release(old.as_ptr());
+            }
         }
-
     }
 }
 
@@ -1816,7 +1945,9 @@ impl Drop for App {
             }
         }
         if let Some(w) = self.android_native_window.take() {
-            unsafe { ANativeWindow_release(w.as_ptr()); }
+            unsafe {
+                ANativeWindow_release(w.as_ptr());
+            }
         }
     }
 }
@@ -1830,7 +1961,6 @@ impl Drop for App {
         }
     }
 }
-
 
 pub struct AppBuilder {
     config: AppConfig,
@@ -1879,8 +2009,6 @@ impl AppBuilder {
     pub fn new_boxed(config: AppConfig) -> Box<Self> {
         Box::new(Self::new(config))
     }
-
-
 
     /// Specify a system to add to the scheduler.
     pub fn with_system(mut self, system: fn(&mut GameData)) -> Self {
@@ -1967,12 +2095,9 @@ impl AppBuilder {
             unsafe { std::mem::transmute::<wgpu::Surface<'_>, wgpu::Surface<'static>>(s) }
         });
 
-        let adapter = wgpu::util::initialize_adapter_from_env_or_default(
-            &instance,
-            Some(&surface),
-        )
-        .await
-        .unwrap();
+        let adapter = wgpu::util::initialize_adapter_from_env_or_default(&instance, Some(&surface))
+            .await
+            .unwrap();
 
         let (device, queue) = adapter
             .request_device(
@@ -2045,9 +2170,7 @@ impl AppBuilder {
 
         let queue = Arc::new(queue);
 
-
         let bind_group_layouts = BindGroupLayouts::new(&device);
-
 
         let pipelines = Pipelines::new(&device, &queue, &bind_group_layouts, swapchain_format);
 
@@ -2129,9 +2252,10 @@ impl AppBuilder {
                     required_features: wgpu::Features::PUSH_CONSTANTS,
                     required_limits: wgpu::Limits {
                         max_push_constant_size: 80,
-                       // The renderer uses <= 80 bytes of push constants today.
-                       // Requesting 256 will fail on some Android/Vulkan drivers (including some emulators).
-                        ..wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits())
+                        // The renderer uses <= 80 bytes of push constants today.
+                        // Requesting 256 will fail on some Android/Vulkan drivers (including some emulators).
+                        ..wgpu::Limits::downlevel_webgl2_defaults()
+                            .using_resolution(adapter.limits())
                     },
                 },
                 None,
@@ -2156,9 +2280,7 @@ impl AppBuilder {
 
         let queue = Arc::new(queue);
 
-
         let bind_group_layouts = BindGroupLayouts::new(&device);
-
 
         let pipelines = Pipelines::new(&device, &queue, &bind_group_layouts, swapchain_format);
 
@@ -2170,7 +2292,12 @@ impl AppBuilder {
             pipelines,
         });
 
-        let render_target = RenderTarget::new(&resources, virtual_size, virtual_size, Some("iOS RenderTarget"));
+        let render_target = RenderTarget::new(
+            &resources,
+            virtual_size,
+            virtual_size,
+            Some("iOS RenderTarget"),
+        );
 
         (instance, adapter, resources, render_target, surface, config)
     }
@@ -2211,10 +2338,15 @@ impl AppBuilder {
 
         let (sw, sh) = (surface_size_px.0.max(1), surface_size_px.1.max(1));
         let backends = wgpu::util::backend_bits_from_env().unwrap_or(wgpu::Backends::all());
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor { backends, ..Default::default() });
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends,
+            ..Default::default()
+        });
 
         let surface = {
-            let target = AndroidSurfaceTarget { window: native_window };
+            let target = AndroidSurfaceTarget {
+                window: native_window,
+            };
             let s = instance.create_surface(&target).unwrap();
             unsafe { std::mem::transmute::<wgpu::Surface<'_>, wgpu::Surface<'static>>(s) }
         };
@@ -2230,9 +2362,10 @@ impl AppBuilder {
                     required_features: wgpu::Features::PUSH_CONSTANTS,
                     required_limits: wgpu::Limits {
                         max_push_constant_size: 80,
-                       // The renderer uses <= 80 bytes of push constants today.
-                       // Requesting 256 will fail on some Android/Vulkan drivers (including some emulators).
-                        ..wgpu::Limits::downlevel_webgl2_defaults().using_resolution(adapter.limits())
+                        // The renderer uses <= 80 bytes of push constants today.
+                        // Requesting 256 will fail on some Android/Vulkan drivers (including some emulators).
+                        ..wgpu::Limits::downlevel_webgl2_defaults()
+                            .using_resolution(adapter.limits())
                     },
                 },
                 None,
@@ -2257,9 +2390,7 @@ impl AppBuilder {
 
         let queue = Arc::new(queue);
 
-
         let bind_group_layouts = BindGroupLayouts::new(&device);
-
 
         let pipelines = Pipelines::new(&device, &queue, &bind_group_layouts, swapchain_format);
 
@@ -2271,11 +2402,15 @@ impl AppBuilder {
             pipelines,
         });
 
-        let render_target = RenderTarget::new(&resources, virtual_size, virtual_size, Some("Android RenderTarget"));
+        let render_target = RenderTarget::new(
+            &resources,
+            virtual_size,
+            virtual_size,
+            Some("Android RenderTarget"),
+        );
 
         (instance, adapter, resources, render_target, surface, config)
     }
-
 
     /// Build the application and return an owned event loop + app.
     ///
@@ -2300,23 +2435,28 @@ impl AppBuilder {
 
         // WindowMode(3) in the original engine reflects whether an exact game-resolution
         // exclusive fullscreen mode is available.
-        self.world.set_can_fullscreen(find_exact_game_video_mode(&window, self.size).is_some());
+        self.world
+            .set_can_fullscreen(find_exact_game_video_mode(&window, self.size).is_some());
 
         // Debug HUD window (created hidden, toggled via F2).
-        let hud_window: Option<Arc<Window>> = if debug_ui::enabled() && !cfg!(any(target_os="ios", target_os="android")) {
-            let ms = window.inner_size();
-            let attrs = WindowAttributes::default()
-                .with_title("rfvp HUD")
-                .with_inner_size(Size::Physical(PhysicalSize::new(ms.width.max(1), ms.height.max(1))))
-                .with_resizable(true)
-                .with_visible(false);
-            let w = event_loop
-                .create_window(attrs)
-                .context("An error occured while building the HUD window")?;
-            Some(Arc::new(w))
-        } else {
-            None
-        };
+        let hud_window: Option<Arc<Window>> =
+            if debug_ui::enabled() && !cfg!(any(target_os = "ios", target_os = "android")) {
+                let ms = window.inner_size();
+                let attrs = WindowAttributes::default()
+                    .with_title("rfvp HUD")
+                    .with_inner_size(Size::Physical(PhysicalSize::new(
+                        ms.width.max(1),
+                        ms.height.max(1),
+                    )))
+                    .with_resizable(true)
+                    .with_visible(false);
+                let w = event_loop
+                    .create_window(attrs)
+                    .context("An error occured while building the HUD window")?;
+                Some(Arc::new(w))
+            } else {
+                None
+            };
 
         self.add_late_internal_systems_to_schedule();
 
@@ -2324,7 +2464,11 @@ impl AppBuilder {
         //     futures::executor::block_on(RendererState::new(window.clone()));
 
         let (resources, render_target, surface, surface_config, hud_bundle) =
-            futures::executor::block_on(AppBuilder::init_render(window.clone(), hud_window.clone(), self.size));
+            futures::executor::block_on(AppBuilder::init_render(
+                window.clone(),
+                hud_window.clone(),
+                self.size,
+            ));
 
         let entry_point = self.parser.get_entry_point();
         let non_volatile_global_count = self.parser.get_non_volatile_global_count();
@@ -2336,28 +2480,26 @@ impl AppBuilder {
         if let Err(e) = self.world.fontface_manager.init_fontface() {
             log::error!("Failed to scan font directory: {:#}", e);
         }
-        if let Err(e) = crate::subsystem::global_savedata::try_load_global_savedata_v1(&mut self.world) {
+        if let Err(e) =
+            crate::subsystem::global_savedata::try_load_global_savedata_v1(&mut self.world)
+        {
             log::error!("Failed to load global savedata: {:#}", e);
         }
-        
+
         self.script_engine.start_main(entry_point);
         self.world.nls = self.parser.nls.clone();
-
 
         let mut cursor_table = HashMap::new();
         if let Ok(cursor_paths) = self.world.vfs.find_ani() {
             let re = Regex::new(r"^([a-zA-Z_]+)(\d+)$").unwrap();
             for path in &cursor_paths {
                 // split cursor1.ani into `cursor` and `1`
-                let filename = path
-                    .file_stem()
-                    .unwrap_or_default() 
-                    .to_string_lossy();
+                let filename = path.file_stem().unwrap_or_default().to_string_lossy();
 
                 if let Some(caps) = re.captures(&filename) {
                     let prefix = caps[1].to_string();
                     let number = caps[2].to_string();
-                    
+
                     if let Ok(index) = number.parse::<u32>() {
                         let Ok(file) = File::open(path) else {
                             log::error!("Failed to open cursor : {}", path.display());
@@ -2403,39 +2545,53 @@ impl AppBuilder {
                 } else {
                     continue;
                 }
-
             }
         }
 
         self.world.set_cursor_table(cursor_table);
-
 
         // Fullscreen quad used for dissolve overlays (virtual space, pixel coordinates).
         let (dissolve_vertex_buffer, dissolve_index_buffer, dissolve_num_indices) = {
             let w = self.size.0.max(1) as f32;
             let h = self.size.1.max(1) as f32;
             let vertices: [PosVertex; 4] = [
-                PosVertex { position: vec3(0.0, 0.0, 0.0) },
-                PosVertex { position: vec3(w, 0.0, 0.0) },
-                PosVertex { position: vec3(w, h, 0.0) },
-                PosVertex { position: vec3(0.0, h, 0.0) },
+                PosVertex {
+                    position: vec3(0.0, 0.0, 0.0),
+                },
+                PosVertex {
+                    position: vec3(w, 0.0, 0.0),
+                },
+                PosVertex {
+                    position: vec3(w, h, 0.0),
+                },
+                PosVertex {
+                    position: vec3(0.0, h, 0.0),
+                },
             ];
             let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
 
-            let vb = resources.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("rfvp dissolve quad VB"),
-                contents: bytemuck::cast_slice(&vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-            let ib = resources.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("rfvp dissolve quad IB"),
-                contents: bytemuck::cast_slice(&indices),
-                usage: wgpu::BufferUsages::INDEX,
-            });
+            let vb = resources
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("rfvp dissolve quad VB"),
+                    contents: bytemuck::cast_slice(&vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+            let ib = resources
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("rfvp dissolve quad IB"),
+                    contents: bytemuck::cast_slice(&indices),
+                    usage: wgpu::BufferUsages::INDEX,
+                });
             (vb, ib, indices.len() as u32)
         };
 
-        let builtin_exit_ui_enabled = self.parser.get_all_syscalls().values().any(|syscall| syscall.name == "ConfigEtc");
+        let builtin_exit_ui_enabled = self
+            .parser
+            .get_all_syscalls()
+            .values()
+            .any(|syscall| syscall.name == "ConfigEtc");
         let game_data = Arc::new(RwLock::new(self.world));
         let debug_ring = log_ring::get().unwrap_or_else(|| log_ring::init(4096));
         let vm_worker = VmWorker::spawn(game_data.clone(), self.parser, self.script_engine);
@@ -2465,21 +2621,25 @@ impl AppBuilder {
         };
         let render_tree = RenderTree::new();
         let debug_hud = if debug_ui::enabled() {
-            Some(DebugHud::new(&resources.device, hud_surface_format, debug_ring.clone()))
+            Some(DebugHud::new(
+                &resources.device,
+                hud_surface_format,
+                debug_ring.clone(),
+            ))
         } else {
             None
         };
 
-		let mut app: Box<App> = {
-		    use std::mem::MaybeUninit;
-		    use std::ptr;
+        let mut app: Box<App> = {
+            use std::mem::MaybeUninit;
+            use std::ptr;
 
-		    // Build the `App` directly on the heap to avoid a large stack frame.
-		    // (iOS main-thread stack is ~1MB; a large struct literal can overflow it.)
-		    let mut boxed = Box::<MaybeUninit<App>>::new_uninit();
-		    unsafe {
-		        // `MaybeUninit<T>` is `repr(transparent)`, so this cast is sound.
-		        let p: *mut App = boxed.as_mut_ptr().cast();
+            // Build the `App` directly on the heap to avoid a large stack frame.
+            // (iOS main-thread stack is ~1MB; a large struct literal can overflow it.)
+            let mut boxed = Box::<MaybeUninit<App>>::new_uninit();
+            unsafe {
+                // `MaybeUninit<T>` is `repr(transparent)`, so this cast is sound.
+                let p: *mut App = boxed.as_mut_ptr().cast();
 
                 ptr::addr_of_mut!((*p).config).write(self.config);
                 ptr::addr_of_mut!((*p).game_data).write(game_data);
@@ -2533,10 +2693,10 @@ impl AppBuilder {
                 ptr::addr_of_mut!((*p).hud_pointer_down).write(false);
                 ptr::addr_of_mut!((*p).hud_scroll_delta_y).write(0.0);
 
-		        // Convert `Box<MaybeUninit<App>>` into `Box<App>` without relying on
-		        // `Box::assume_init()` (may be unavailable on older toolchains).
-		        let raw: *mut App = Box::into_raw(boxed).cast();
-		        Box::from_raw(raw)
+                // Convert `Box<MaybeUninit<App>>` into `Box<App>` without relying on
+                // `Box::assume_init()` (may be unavailable on older toolchains).
+                let raw: *mut App = Box::into_raw(boxed).cast();
+                Box::from_raw(raw)
             }
         };
 
@@ -2549,7 +2709,6 @@ impl AppBuilder {
 
         Ok(Box::new(BuiltApp { event_loop, app }))
     }
-
 
     #[cfg(target_arch = "wasm32")]
     pub async fn build_web(mut self, canvas_id: &str) -> anyhow::Result<Box<BuiltApp>> {
@@ -2609,27 +2768,43 @@ impl AppBuilder {
             let w = self.size.0.max(1) as f32;
             let h = self.size.1.max(1) as f32;
             let vertices: [PosVertex; 4] = [
-                PosVertex { position: vec3(0.0, 0.0, 0.0) },
-                PosVertex { position: vec3(w, 0.0, 0.0) },
-                PosVertex { position: vec3(w, h, 0.0) },
-                PosVertex { position: vec3(0.0, h, 0.0) },
+                PosVertex {
+                    position: vec3(0.0, 0.0, 0.0),
+                },
+                PosVertex {
+                    position: vec3(w, 0.0, 0.0),
+                },
+                PosVertex {
+                    position: vec3(w, h, 0.0),
+                },
+                PosVertex {
+                    position: vec3(0.0, h, 0.0),
+                },
             ];
             let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
 
-            let vb = resources.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("rfvp dissolve quad VB"),
-                contents: bytemuck::cast_slice(&vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-            let ib = resources.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("rfvp dissolve quad IB"),
-                contents: bytemuck::cast_slice(&indices),
-                usage: wgpu::BufferUsages::INDEX,
-            });
+            let vb = resources
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("rfvp dissolve quad VB"),
+                    contents: bytemuck::cast_slice(&vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+            let ib = resources
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("rfvp dissolve quad IB"),
+                    contents: bytemuck::cast_slice(&indices),
+                    usage: wgpu::BufferUsages::INDEX,
+                });
             (vb, ib, indices.len() as u32)
         };
 
-        let builtin_exit_ui_enabled = self.parser.get_all_syscalls().values().any(|syscall| syscall.name == "ConfigEtc");
+        let builtin_exit_ui_enabled = self
+            .parser
+            .get_all_syscalls()
+            .values()
+            .any(|syscall| syscall.name == "ConfigEtc");
         let game_data = Arc::new(RwLock::new(self.world));
         let debug_ring = log_ring::get().unwrap_or_else(|| log_ring::init(4096));
         let vm_worker = VmWorker::spawn(game_data.clone(), self.parser, self.script_engine);
@@ -2740,7 +2915,12 @@ impl AppBuilder {
     /// The host (SwiftUI/UIKit) owns the platform main loop and provides a UIKit view that is
     /// backed by a CAMetalLayer.
     #[cfg(target_os = "ios")]
-    pub fn build_ios(mut self, ui_view: NonNull<c_void>, surface_size: (u32, u32), native_scale_factor: f64) -> anyhow::Result<Box<App>> {
+    pub fn build_ios(
+        mut self,
+        ui_view: NonNull<c_void>,
+        surface_size: (u32, u32),
+        native_scale_factor: f64,
+    ) -> anyhow::Result<Box<App>> {
         // Mobile is always fullscreen.
         self.world.set_can_fullscreen(true);
         self.world.set_render_flag_local(1);
@@ -2755,16 +2935,25 @@ impl AppBuilder {
         let surface_size_px = (surface_size.0.max(1), surface_size.1.max(1));
 
         let (instance, adapter, resources, render_target, surface, surface_config) =
-            futures::executor::block_on(AppBuilder::init_render_ios(ui_view, surface_size_px, self.size));
+            futures::executor::block_on(AppBuilder::init_render_ios(
+                ui_view,
+                surface_size_px,
+                self.size,
+            ));
 
         let entry_point = self.parser.get_entry_point();
         let non_volatile_global_count = self.parser.get_non_volatile_global_count();
         let volatile_global_count = self.parser.get_volatile_global_count();
-        GLOBAL.lock().unwrap().init_with(non_volatile_global_count, volatile_global_count);
+        GLOBAL
+            .lock()
+            .unwrap()
+            .init_with(non_volatile_global_count, volatile_global_count);
         if let Err(e) = self.world.fontface_manager.init_fontface() {
             log::error!("Failed to scan font directory: {:#}", e);
         }
-        if let Err(e) = crate::subsystem::global_savedata::try_load_global_savedata_v1(&mut self.world) {
+        if let Err(e) =
+            crate::subsystem::global_savedata::try_load_global_savedata_v1(&mut self.world)
+        {
             log::error!("Failed to load global savedata: {:#}", e);
         }
 
@@ -2779,27 +2968,43 @@ impl AppBuilder {
             let w = self.size.0.max(1) as f32;
             let h = self.size.1.max(1) as f32;
             let vertices: [PosVertex; 4] = [
-                PosVertex { position: vec3(0.0, 0.0, 0.0) },
-                PosVertex { position: vec3(w, 0.0, 0.0) },
-                PosVertex { position: vec3(w, h, 0.0) },
-                PosVertex { position: vec3(0.0, h, 0.0) },
+                PosVertex {
+                    position: vec3(0.0, 0.0, 0.0),
+                },
+                PosVertex {
+                    position: vec3(w, 0.0, 0.0),
+                },
+                PosVertex {
+                    position: vec3(w, h, 0.0),
+                },
+                PosVertex {
+                    position: vec3(0.0, h, 0.0),
+                },
             ];
             let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
 
-            let vb = resources.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("rfvp dissolve quad VB"),
-                contents: bytemuck::cast_slice(&vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-            let ib = resources.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("rfvp dissolve quad IB"),
-                contents: bytemuck::cast_slice(&indices),
-                usage: wgpu::BufferUsages::INDEX,
-            });
+            let vb = resources
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("rfvp dissolve quad VB"),
+                    contents: bytemuck::cast_slice(&vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+            let ib = resources
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("rfvp dissolve quad IB"),
+                    contents: bytemuck::cast_slice(&indices),
+                    usage: wgpu::BufferUsages::INDEX,
+                });
             (vb, ib, indices.len() as u32)
         };
 
-        let builtin_exit_ui_enabled = self.parser.get_all_syscalls().values().any(|syscall| syscall.name == "ConfigEtc");
+        let builtin_exit_ui_enabled = self
+            .parser
+            .get_all_syscalls()
+            .values()
+            .any(|syscall| syscall.name == "ConfigEtc");
         let game_data = Arc::new(RwLock::new(self.world));
         let debug_ring = log_ring::get().unwrap_or_else(|| log_ring::init(4096));
         let vm_worker = VmWorker::spawn(game_data.clone(), self.parser, self.script_engine);
@@ -2919,19 +3124,30 @@ impl AppBuilder {
         // Keep a strong reference to the ANativeWindow across the wgpu Surface lifetime.
         // Android may destroy/recreate the Java Surface/ANativeWindow asynchronously; if we don't
         // acquire/release explicitly, wgpu can end up using a freed window (tagged-pointer abort).
-        unsafe { ANativeWindow_acquire(native_window.as_ptr()); }
+        unsafe {
+            ANativeWindow_acquire(native_window.as_ptr());
+        }
 
         let (instance, adapter, resources, render_target, surface, surface_config) =
-            futures::executor::block_on(AppBuilder::init_render_android(native_window, surface_size_px, self.size));
+            futures::executor::block_on(AppBuilder::init_render_android(
+                native_window,
+                surface_size_px,
+                self.size,
+            ));
 
         let entry_point = self.parser.get_entry_point();
         let non_volatile_global_count = self.parser.get_non_volatile_global_count();
         let volatile_global_count = self.parser.get_volatile_global_count();
-        GLOBAL.lock().unwrap().init_with(non_volatile_global_count, volatile_global_count);
+        GLOBAL
+            .lock()
+            .unwrap()
+            .init_with(non_volatile_global_count, volatile_global_count);
         if let Err(e) = self.world.fontface_manager.init_fontface() {
             log::error!("Failed to scan font directory: {:#}", e);
         }
-        if let Err(e) = crate::subsystem::global_savedata::try_load_global_savedata_v1(&mut self.world) {
+        if let Err(e) =
+            crate::subsystem::global_savedata::try_load_global_savedata_v1(&mut self.world)
+        {
             log::error!("Failed to load global savedata: {:#}", e);
         }
 
@@ -2946,27 +3162,43 @@ impl AppBuilder {
             let w = self.size.0.max(1) as f32;
             let h = self.size.1.max(1) as f32;
             let vertices: [PosVertex; 4] = [
-                PosVertex { position: vec3(0.0, 0.0, 0.0) },
-                PosVertex { position: vec3(w, 0.0, 0.0) },
-                PosVertex { position: vec3(w, h, 0.0) },
-                PosVertex { position: vec3(0.0, h, 0.0) },
+                PosVertex {
+                    position: vec3(0.0, 0.0, 0.0),
+                },
+                PosVertex {
+                    position: vec3(w, 0.0, 0.0),
+                },
+                PosVertex {
+                    position: vec3(w, h, 0.0),
+                },
+                PosVertex {
+                    position: vec3(0.0, h, 0.0),
+                },
             ];
             let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
 
-            let vb = resources.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("rfvp dissolve quad VB"),
-                contents: bytemuck::cast_slice(&vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-            let ib = resources.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("rfvp dissolve quad IB"),
-                contents: bytemuck::cast_slice(&indices),
-                usage: wgpu::BufferUsages::INDEX,
-            });
+            let vb = resources
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("rfvp dissolve quad VB"),
+                    contents: bytemuck::cast_slice(&vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+            let ib = resources
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("rfvp dissolve quad IB"),
+                    contents: bytemuck::cast_slice(&indices),
+                    usage: wgpu::BufferUsages::INDEX,
+                });
             (vb, ib, indices.len() as u32)
         };
 
-        let builtin_exit_ui_enabled = self.parser.get_all_syscalls().values().any(|syscall| syscall.name == "ConfigEtc");
+        let builtin_exit_ui_enabled = self
+            .parser
+            .get_all_syscalls()
+            .values()
+            .any(|syscall| syscall.name == "ConfigEtc");
         let game_data = Arc::new(RwLock::new(self.world));
         let debug_ring = log_ring::get().unwrap_or_else(|| log_ring::init(4096));
         let vm_worker = VmWorker::spawn(game_data.clone(), self.parser, self.script_engine);
@@ -3077,7 +3309,10 @@ impl BuiltApp {
 
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     pub fn into_pump(self) -> PumpInstance {
-        let BuiltApp { event_loop, mut app } = self;
+        let BuiltApp {
+            event_loop,
+            mut app,
+        } = self;
         app.pump_mode = true;
         PumpInstance { event_loop, app }
     }

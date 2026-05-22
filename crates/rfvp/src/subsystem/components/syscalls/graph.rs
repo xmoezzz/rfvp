@@ -1,4 +1,4 @@
-use anyhow::{Result};
+use anyhow::Result;
 
 use crate::script::Variant;
 use crate::subsystem::resources::prim::PrimType;
@@ -28,7 +28,6 @@ pub fn prim_exit_group(game_data: &mut GameData, id: &Variant) -> Result<Variant
 
     Ok(Variant::Nil)
 }
-
 
 pub fn prim_group_in(game_data: &mut GameData, id: &Variant, id2: &Variant) -> Result<Variant> {
     // Original engine behavior (IDA decompilation):
@@ -102,7 +101,7 @@ pub fn prim_set_alpha(game_data: &mut GameData, id: &Variant, alpha: &Variant) -
         None => {
             log::error!("prim_set_alpha: invalid id : {:?}", id);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..=4095).contains(&id) {
@@ -115,7 +114,7 @@ pub fn prim_set_alpha(game_data: &mut GameData, id: &Variant, alpha: &Variant) -
         None => {
             log::error!("prim_set_alpha: invalid alpha : {:?}", alpha);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..=255).contains(&alpha) {
@@ -137,7 +136,7 @@ pub fn prim_set_blend(game_data: &mut GameData, id: &Variant, blend: &Variant) -
         None => {
             log::error!("prim_set_blend: invalid id : {:?}", id);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..=4095).contains(&id) {
@@ -150,7 +149,7 @@ pub fn prim_set_blend(game_data: &mut GameData, id: &Variant, blend: &Variant) -
         None => {
             log::error!("prim_set_blend: invalid blend : {:?}", blend);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..=1).contains(&blend) {
@@ -172,7 +171,7 @@ pub fn prim_set_draw(game_data: &mut GameData, id: &Variant, draw: &Variant) -> 
         None => {
             log::error!("prim_set_draw: invalid id : {:?}", id);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..=4095).contains(&id) {
@@ -185,7 +184,7 @@ pub fn prim_set_draw(game_data: &mut GameData, id: &Variant, draw: &Variant) -> 
         None => {
             log::error!("prim_set_draw: invalid draw : {:?}", draw);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..=1).contains(&draw) {
@@ -242,7 +241,6 @@ pub fn prim_set_op(
     Ok(Variant::Nil)
 }
 
-
 /// set the primitive's rotation and scale, and the scale value is the same in x and y
 pub fn prim_set_rs(
     game_data: &mut GameData,
@@ -255,7 +253,7 @@ pub fn prim_set_rs(
         None => {
             log::error!("prim_set_rs: invalid id : {:?}", id);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..=4095).contains(&id) {
@@ -276,7 +274,11 @@ pub fn prim_set_rs(
     let rotation = match rotation.as_int() {
         Some(r) => {
             let r2 = r % 3600;
-            if r2 < 0 { r2 + 3600 } else { r2 }
+            if r2 < 0 {
+                r2 + 3600
+            } else {
+                r2
+            }
         }
         None => cur_rot,
     };
@@ -286,7 +288,11 @@ pub fn prim_set_rs(
         None => cur_fx,
     };
 
-    let scale = if !(0..=10000).contains(&scale) { 1000 } else { scale };
+    let scale = if !(0..=10000).contains(&scale) {
+        1000
+    } else {
+        scale
+    };
 
     game_data
         .motion_manager
@@ -317,7 +323,7 @@ pub fn prim_set_rs2(
         None => {
             log::error!("prim_set_rs2: invalid id : {:?}", id);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..=4095).contains(&id) {
@@ -341,7 +347,11 @@ pub fn prim_set_rs2(
     let rotation = match rotation.as_int() {
         Some(r) => {
             let r2 = r % 3600;
-            if r2 < 0 { r2 + 3600 } else { r2 }
+            if r2 < 0 {
+                r2 + 3600
+            } else {
+                r2
+            }
         }
         None => cur_rot,
     };
@@ -356,8 +366,16 @@ pub fn prim_set_rs2(
         None => cur_fy,
     };
 
-    let scale_x = if !(0..=10000).contains(&scale_x) { 1000 } else { scale_x };
-    let scale_y = if !(0..=10000).contains(&scale_y) { 1000 } else { scale_y };
+    let scale_x = if !(0..=10000).contains(&scale_x) {
+        1000
+    } else {
+        scale_x
+    };
+    let scale_y = if !(0..=10000).contains(&scale_y) {
+        1000
+    } else {
+        scale_y
+    };
 
     game_data
         .motion_manager
@@ -387,7 +405,7 @@ pub fn prim_set_snow(
         None => {
             log::error!("prim_set_snow: invalid id : {:?}", id);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..=4095).contains(&id) {
@@ -400,7 +418,7 @@ pub fn prim_set_snow(
         None => {
             log::error!("prim_set_snow: invalid mode : {:?}", mode);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..=1).contains(&mode) {
@@ -453,7 +471,7 @@ pub fn prim_set_sprt(
         None => {
             log::error!("prim_set_snow: invalid id : {:?}", id);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..=4095).contains(&id) {
@@ -466,7 +484,7 @@ pub fn prim_set_sprt(
         None => {
             log::error!("prim_set_snow: invalid src_id : {:?}", src_id);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(-2..=4095).contains(&src_id) {
@@ -524,7 +542,7 @@ pub fn prim_set_text(
         None => {
             log::error!("prim_set_text: invalid id : {:?}", id);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..=4095).contains(&id) {
@@ -537,7 +555,7 @@ pub fn prim_set_text(
         None => {
             log::error!("prim_set_text: invalid text_id : {:?}", text_id);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..=31).contains(&text_id) {
@@ -558,7 +576,10 @@ pub fn prim_set_text(
         .prim_set_alpha(id, 255i32);
     game_data.motion_manager.prim_manager.prim_set_blend(id, 0);
     game_data.motion_manager.prim_manager.prim_set_pos(id, x, y);
-    game_data.motion_manager.prim_manager.prim_set_text(id, text_id);
+    game_data
+        .motion_manager
+        .prim_manager
+        .prim_set_text(id, text_id);
     game_data
         .motion_manager
         .prim_manager
@@ -601,16 +622,21 @@ pub fn prim_set_tile(
         .prim_init_with_type(id as i16, PrimType::PrimTypeTile);
 
     // Defaults (IDA): tile=255, alpha=255, blend=0, x/y/w/h=0.
-    game_data.motion_manager.prim_manager.prim_set_alpha(id, 255);
+    game_data
+        .motion_manager
+        .prim_manager
+        .prim_set_alpha(id, 255);
     game_data.motion_manager.prim_manager.prim_set_blend(id, 0);
-    game_data
-        .motion_manager
-        .prim_manager
-        .prim_set_pos(id, x.as_int().unwrap_or(0), y.as_int().unwrap_or(0));
-    game_data
-        .motion_manager
-        .prim_manager
-        .prim_set_size(id, w.as_int().unwrap_or(0), h.as_int().unwrap_or(0));
+    game_data.motion_manager.prim_manager.prim_set_pos(
+        id,
+        x.as_int().unwrap_or(0),
+        y.as_int().unwrap_or(0),
+    );
+    game_data.motion_manager.prim_manager.prim_set_size(
+        id,
+        w.as_int().unwrap_or(0),
+        h.as_int().unwrap_or(0),
+    );
 
     // Default tile id is 255; override only if a valid int is supplied.
     game_data.motion_manager.prim_manager.prim_set_tile(id, 255);
@@ -623,7 +649,6 @@ pub fn prim_set_tile(
     Ok(Variant::Nil)
 }
 
-
 pub fn prim_set_uv(
     game_data: &mut GameData,
     id: &Variant,
@@ -635,7 +660,7 @@ pub fn prim_set_uv(
         None => {
             log::error!("prim_set_uv: invalid id : {:?}", id);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..=4095).contains(&id) {
@@ -648,7 +673,7 @@ pub fn prim_set_uv(
         None => {
             log::error!("prim_set_uv: invalid u : {:?}", u);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     let v = match v.as_int() {
@@ -656,7 +681,7 @@ pub fn prim_set_uv(
         None => {
             log::error!("prim_set_uv: invalid v : {:?}", v);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     game_data.motion_manager.prim_manager.prim_set_uv(id, u, v);
@@ -680,7 +705,7 @@ pub fn prim_set_xy(
         None => {
             log::error!("prim_set_xy: invalid id : {:?}", id);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..=4095).contains(&id) {
@@ -694,10 +719,15 @@ pub fn prim_set_xy(
             None => {
                 log::error!("prim_set_xy: invalid x : {:?}", x);
                 return Ok(Variant::Nil);
-            },
+            }
         }
     } else {
-        game_data.motion_manager.prim_manager.get_prim(id as i16).get_x().into()
+        game_data
+            .motion_manager
+            .prim_manager
+            .get_prim(id as i16)
+            .get_x()
+            .into()
     };
 
     let y = if !y.is_nil() {
@@ -706,10 +736,15 @@ pub fn prim_set_xy(
             None => {
                 log::error!("prim_set_xy: invalid y : {:?}", y);
                 return Ok(Variant::Nil);
-            },
+            }
         }
     } else {
-        game_data.motion_manager.prim_manager.get_prim(id as i16).get_y().into()
+        game_data
+            .motion_manager
+            .prim_manager
+            .get_prim(id as i16)
+            .get_y()
+            .into()
     };
 
     game_data.motion_manager.prim_manager.prim_set_pos(id, x, y);
@@ -732,7 +767,7 @@ pub fn prim_set_wh(
         None => {
             log::error!("prim_set_wh: invalid id : {:?}", id);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..=4095).contains(&id) {
@@ -746,10 +781,15 @@ pub fn prim_set_wh(
             None => {
                 log::error!("prim_set_wh: invalid w : {:?}", w);
                 return Ok(Variant::Nil);
-            },
+            }
         }
     } else {
-        game_data.motion_manager.prim_manager.get_prim(id as i16).get_w().into()
+        game_data
+            .motion_manager
+            .prim_manager
+            .get_prim(id as i16)
+            .get_w()
+            .into()
     };
 
     let h = if !h.is_nil() {
@@ -758,10 +798,15 @@ pub fn prim_set_wh(
             None => {
                 log::error!("prim_set_wh: invalid h : {:?}", h);
                 return Ok(Variant::Nil);
-            },
+            }
         }
     } else {
-        game_data.motion_manager.prim_manager.get_prim(id as i16).get_h().into()
+        game_data
+            .motion_manager
+            .prim_manager
+            .get_prim(id as i16)
+            .get_h()
+            .into()
     };
 
     game_data
@@ -783,7 +828,7 @@ pub fn prim_set_z(game_data: &mut GameData, id: &Variant, z: &Variant) -> Result
         None => {
             log::error!("prim_set_z: invalid id : {:?}", id);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..=4095).contains(&id) {
@@ -800,33 +845,50 @@ pub fn prim_set_z(game_data: &mut GameData, id: &Variant, z: &Variant) -> Result
     if let Some(z_i) = z.as_int() {
         let z_i = z_i.clamp(100, 10000);
         game_data.motion_manager.prim_manager.prim_set_z(id, z_i);
-        game_data.motion_manager.prim_manager.prim_add_attr(id, 0x04);
-        game_data.motion_manager.prim_manager.prim_add_attr(id, 0x40);
+        game_data
+            .motion_manager
+            .prim_manager
+            .prim_add_attr(id, 0x04);
+        game_data
+            .motion_manager
+            .prim_manager
+            .prim_add_attr(id, 0x40);
         return Ok(Variant::Nil);
     }
 
     if z.as_float().is_some() {
-        game_data.motion_manager.prim_manager.prim_add_attr(id, 0x04);
-        game_data.motion_manager.prim_manager.prim_add_attr(id, 0x40);
+        game_data
+            .motion_manager
+            .prim_manager
+            .prim_add_attr(id, 0x04);
+        game_data
+            .motion_manager
+            .prim_manager
+            .prim_add_attr(id, 0x40);
         return Ok(Variant::Nil);
     }
 
     // nil/other types: clear 0x04, keep other bits as-is.
     {
         let attr = {
-            let p = game_data.motion_manager.prim_manager.get_prim_immutable(id as i16);
+            let p = game_data
+                .motion_manager
+                .prim_manager
+                .get_prim_immutable(id as i16);
             p.get_attr()
         };
         game_data
             .motion_manager
             .prim_manager
             .prim_set_attr(id, (attr & !0x04) as i32);
-        game_data.motion_manager.prim_manager.prim_add_attr(id, 0x40);
+        game_data
+            .motion_manager
+            .prim_manager
+            .prim_add_attr(id, 0x40);
     }
 
     Ok(Variant::Nil)
 }
-
 
 pub fn prim_hit(game_data: &mut GameData, id: &Variant, flag: &Variant) -> Result<Variant> {
     let id = match id.as_int() {
@@ -834,7 +896,7 @@ pub fn prim_hit(game_data: &mut GameData, id: &Variant, flag: &Variant) -> Resul
         None => {
             log::error!("prim_hit: invalid id : {:?}", id);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(1..=4095).contains(&id) {
@@ -857,14 +919,13 @@ pub fn prim_hit(game_data: &mut GameData, id: &Variant, flag: &Variant) -> Resul
     Ok(if hit { Variant::True } else { Variant::Nil })
 }
 
-
 pub fn graph_load(game_data: &mut GameData, id: &Variant, path: &Variant) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
         None => {
             log::error!("graph_load: invalid id : {:?}", id);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..4096).contains(&id) {
@@ -875,35 +936,34 @@ pub fn graph_load(game_data: &mut GameData, id: &Variant, path: &Variant) -> Res
     match path {
         Variant::String(path) | Variant::ConstString(path, _) => {
             let buff = game_data.vfs_load_file(path)?;
-            game_data
-                .motion_manager
-                .load_graph(id as u16, path, buff)?;
-            game_data
-                .motion_manager
-                .refresh_prims(id as u16);
+            game_data.motion_manager.load_graph(id as u16, path, buff)?;
+            game_data.motion_manager.refresh_prims(id as u16);
         }
         Variant::Nil => {
-            game_data
-                .motion_manager
-                .unload_graph(id as u16);
+            game_data.motion_manager.unload_graph(id as u16);
         }
         _ => {
             log::error!("graph_load: invalid path : {:?}", path);
             return Ok(Variant::Nil);
-        },
+        }
     }
 
     Ok(Variant::Nil)
 }
 
-
-pub fn graph_rgb(game_data: &mut GameData, id: &Variant, r: &Variant, g: &Variant, b: &Variant) -> Result<Variant> {
+pub fn graph_rgb(
+    game_data: &mut GameData,
+    id: &Variant,
+    r: &Variant,
+    g: &Variant,
+    b: &Variant,
+) -> Result<Variant> {
     let id = match id.as_int() {
         Some(id) => id,
         None => {
             log::error!("graph_rgb: invalid id : {:?}", id);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(0..4096).contains(&id) {
@@ -918,11 +978,11 @@ pub fn graph_rgb(game_data: &mut GameData, id: &Variant, r: &Variant, g: &Varian
             } else {
                 r
             }
-        },
+        }
         None => {
             log::error!("graph_rgb: invalid r : {:?}", r);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     let g = match g.as_int() {
@@ -932,11 +992,11 @@ pub fn graph_rgb(game_data: &mut GameData, id: &Variant, r: &Variant, g: &Varian
             } else {
                 g
             }
-        },
+        }
         None => {
             log::error!("graph_rgb: invalid g : {:?}", g);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     let b = match b.as_int() {
@@ -946,13 +1006,12 @@ pub fn graph_rgb(game_data: &mut GameData, id: &Variant, r: &Variant, g: &Varian
             } else {
                 b
             }
-        },
+        }
         None => {
             log::error!("graph_rgb: invalid b : {:?}", b);
             return Ok(Variant::Nil);
-        },
+        }
     };
-
 
     game_data
         .motion_manager
@@ -961,14 +1020,18 @@ pub fn graph_rgb(game_data: &mut GameData, id: &Variant, r: &Variant, g: &Varian
     Ok(Variant::Nil)
 }
 
-
-pub fn gaiji_load(game_data: &mut GameData, code: &Variant, size: &Variant, fname: &Variant) -> Result<Variant> {
+pub fn gaiji_load(
+    game_data: &mut GameData,
+    code: &Variant,
+    size: &Variant,
+    fname: &Variant,
+) -> Result<Variant> {
     let fname = match fname.as_string() {
         Some(fname) => fname,
         None => {
             log::error!("gaiji_load: invalid fname : {:?}", fname);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     let size = match size.as_int() {
@@ -976,7 +1039,7 @@ pub fn gaiji_load(game_data: &mut GameData, code: &Variant, size: &Variant, fnam
         None => {
             log::error!("gaiji_load: invalid size : {:?}", size);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if !(12..=64).contains(&size) {
@@ -989,7 +1052,7 @@ pub fn gaiji_load(game_data: &mut GameData, code: &Variant, size: &Variant, fnam
         None => {
             log::error!("gaiji_load: invalid code : {:?}", code);
             return Ok(Variant::Nil);
-        },
+        }
     };
 
     if code.is_empty() {
@@ -1006,12 +1069,11 @@ pub fn gaiji_load(game_data: &mut GameData, code: &Variant, size: &Variant, fnam
     Ok(Variant::Nil)
 }
 
-
 ///
 /// Set the root primitive index
 /// The engine will begin rendering from this primitive.
 /// Arg1: the primitive, which should not larger that 0x1000
-/// 
+///
 pub struct PrimExitGroup;
 impl Syscaller for PrimExitGroup {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -1095,7 +1157,6 @@ impl Syscaller for PrimGroupMove {
 unsafe impl Send for PrimGroupMove {}
 unsafe impl Sync for PrimGroupMove {}
 
-
 /// Remove a primitive from the scene hierarchy.
 ///
 /// Arg1: primitive index (1–4095)
@@ -1124,7 +1185,7 @@ unsafe impl Sync for PrimGroupOut {}
 /// This syscall reinitializes the specified primitive to a "null" state.
 /// The primitive is detached from its parent/sibling chain, its attributes
 /// are cleared, and it is ready to be reused.  
-/// 
+///
 /// Typical usage: free an existing primitive before creating a new one
 /// in the same slot.
 ///
@@ -1165,7 +1226,6 @@ impl Syscaller for PrimSetAlpha {
 unsafe impl Send for PrimSetAlpha {}
 unsafe impl Sync for PrimSetAlpha {}
 
-
 ///
 /// Set the blending mode flag of the corresponding primitive
 ///
@@ -1197,7 +1257,7 @@ unsafe impl Sync for PrimSetBlend {}
 /// Set the draw flag of the corresponding primitive
 /// Arg1: primitive index
 /// Arg2: draw flag
-/// 
+///
 pub struct PrimSetDraw;
 impl Syscaller for PrimSetDraw {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
@@ -1211,7 +1271,6 @@ impl Syscaller for PrimSetDraw {
 
 unsafe impl Send for PrimSetDraw {}
 unsafe impl Sync for PrimSetDraw {}
-
 
 ///
 /// Set the operation (position) of the corresponding primitive
@@ -1243,7 +1302,6 @@ impl Syscaller for PrimSetOP {
 
 unsafe impl Send for PrimSetOP {}
 unsafe impl Sync for PrimSetOP {}
-
 
 ///
 /// Set the rotation and scale factor of the corresponding primitive
@@ -1407,7 +1465,6 @@ impl Syscaller for PrimSetText {
 unsafe impl Send for PrimSetText {}
 unsafe impl Sync for PrimSetText {}
 
-
 ///
 /// Initialize a primitive as a solid-color tile
 ///
@@ -1452,7 +1509,6 @@ impl Syscaller for PrimSetTile {
 
 unsafe impl Send for PrimSetTile {}
 unsafe impl Sync for PrimSetTile {}
-
 
 ///
 /// Set the UV sub-rectangle of a primitive
@@ -1506,7 +1562,6 @@ impl Syscaller for PrimSetXY {
 
 unsafe impl Send for PrimSetXY {}
 unsafe impl Sync for PrimSetXY {}
-
 
 ///
 /// Set the width and height of a primitive's texture region
@@ -1737,4 +1792,3 @@ impl Syscaller for GaijiLoad {
 
 unsafe impl Send for GaijiLoad {}
 unsafe impl Sync for GaijiLoad {}
-

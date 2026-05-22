@@ -1,27 +1,27 @@
 use crate::{script::Variant, subsystem::world::GameData};
 
-pub mod sound;
-pub mod utils;
-pub mod thread;
-pub mod graph;
-pub mod cursor;
-pub mod history;
-pub mod flag;
-pub mod motion;
 pub mod color;
-pub mod text;
+pub mod cursor;
+pub mod flag;
+pub mod generated;
+pub mod graph;
+pub mod history;
 pub mod input;
-pub mod timer;
+pub mod legacy;
+pub mod motion;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod movie;
 #[cfg(target_arch = "wasm32")]
 #[path = "movie_wasm.rs"]
 pub mod movie;
-pub mod parts;
 pub mod other_anm;
+pub mod parts;
 pub mod saveload;
-pub mod generated;
-pub mod legacy;
+pub mod sound;
+pub mod text;
+pub mod thread;
+pub mod timer;
+pub mod utils;
 
 pub trait Syscaller {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> anyhow::Result<Variant>;

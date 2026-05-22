@@ -102,7 +102,16 @@ fn idct_cols(col: [i16; 8]) -> [i64; 8] {
         b3 += W3 * c5 - W1 * c7;
     }
 
-    [a0 + b0, a1 + b1, a2 + b2, a3 + b3, a3 - b3, a2 - b2, a1 - b1, a0 - b0]
+    [
+        a0 + b0,
+        a1 + b1,
+        a2 + b2,
+        a3 + b3,
+        a3 - b3,
+        a2 - b2,
+        a1 - b1,
+        a0 - b0,
+    ]
 }
 
 pub fn simple_idct_put(dest: &mut [u8], stride: usize, block: &mut [i16; 64]) {
@@ -173,4 +182,6 @@ pub fn simple_idct_add(dest: &mut [u8], stride: usize, block: &mut [i16; 64]) {
 
 // For completeness; MPEG-2 DC scaling uses (1<<(3-dc_precision)) in the block decode.
 #[allow(dead_code)]
-pub fn dc_shift() -> i64 { DC_SHIFT }
+pub fn dc_shift() -> i64 {
+    DC_SHIFT
+}

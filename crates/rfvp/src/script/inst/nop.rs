@@ -1,5 +1,5 @@
-use crate::script::opcode::OpcodeBase;
 use crate::script::opcode::Opcode;
+use crate::script::opcode::OpcodeBase;
 
 pub struct NopInst {
     address: u32,
@@ -28,5 +28,3 @@ impl OpcodeBase for NopInst {
         format!("{:8}", self.mnemonic())
     }
 }
-
-

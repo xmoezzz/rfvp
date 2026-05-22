@@ -1,6 +1,6 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{sync::Mutex, vec};
 use winit::keyboard::NamedKey;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Debug)]
 pub struct CriticalSection {
@@ -36,7 +36,6 @@ impl<'a> Drop for CriticalGuard<'a> {
     }
 }
 
-
 #[derive(Debug, Clone, Default, Eq, PartialEq)]
 pub struct PressItem {
     keycode: u8,
@@ -63,18 +62,17 @@ impl PressItem {
     }
 }
 
-
 ///
 /// Key codes used by FVP, auctually keycode is just the index of the bit in input_state
 /// input_state |= 1 << keycode
 /// if input_state is zero, then no key is pressed
 /// This term is little confusing, but I keep it for compatibility
-/// 
+///
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum KeyCode {
     Shift = 0,
     Ctrl = 1,
-    LeftClick = 2, // left mouse button & enter, a virtual keycode
+    LeftClick = 2,  // left mouse button & enter, a virtual keycode
     RightClick = 3, // right mouse button, a virtual keycode
     MouseLeft = 4,
     MouseRight = 5,
@@ -100,10 +98,8 @@ pub enum KeyCode {
     Tab = 25,
 }
 
-
 #[derive(Debug)]
 pub struct InputManager {
-
     pub mouse_x: i32,
     pub mouse_y: i32,
 
@@ -111,7 +107,6 @@ pub struct InputManager {
     current_index: u8,
     next_index: u8,
     // char gap2[2];
-    
     new_input_state: u32,
     old_input_state: u32,
     current_event: PressItem,
@@ -342,7 +337,6 @@ impl InputManager {
         }
     }
 
-
     pub fn record_keydown_or_up(&mut self, keycode: KeyCode, x: i32, y: i32) {
         // Ring buffer: next_index is read cursor, current_index is write cursor.
         let next_write = (self.current_index + 1) & 0x3F;
@@ -353,7 +347,10 @@ impl InputManager {
 
         let event = &mut self.press_items[self.current_index as usize];
         event.keycode = keycode.clone() as u8;
-        if matches!(keycode, KeyCode::MouseLeft | KeyCode::MouseRight | KeyCode::LeftClick | KeyCode::RightClick) {
+        if matches!(
+            keycode,
+            KeyCode::MouseLeft | KeyCode::MouseRight | KeyCode::LeftClick | KeyCode::RightClick
+        ) {
             event.in_screen = self.cursor_in;
             event.x = x;
             event.y = y;
@@ -403,7 +400,6 @@ impl InputManager {
             }
         }
     }
-
 
     pub fn notify_keyup(&mut self, key: winit::keyboard::Key) {
         if let Some(keycode) = self.keymap(key) {
@@ -546,18 +542,20 @@ impl InputManager {
         self.control_is_masked = mask;
     }
 
-    pub fn get_hud_down(&self) -> u32 { self.hud_down }
-    pub fn get_hud_up(&self) -> u32 { self.hud_up }
-
-
-    pub fn frame_reset(&mut self) {
+    pub fn get_hud_down(&self) -> u32 {
+        self.hud_down
     }
+    pub fn get_hud_up(&self) -> u32 {
+        self.hud_up
+    }
+
+    pub fn frame_reset(&mut self) {}
 
     pub fn begin_frame(&mut self) {
         let _g = self.cs.enter();
 
         self.hud_down = self.input_down_pending;
-        self.hud_up   = self.input_up_pending;
+        self.hud_up = self.input_up_pending;
 
         // Freeze state for this frame.
         self.old_input_state = self.input_state;
@@ -581,6 +579,4 @@ impl InputManager {
         self.input_repeat_pending = 0;
         self.wheel_pending = 0;
     }
-
-
 }

@@ -1,5 +1,5 @@
-use crate::script::opcode::OpcodeBase;
 use crate::script::opcode::Opcode;
+use crate::script::opcode::OpcodeBase;
 
 pub struct PushLocalTableInst {
     address: u32,
@@ -8,10 +8,7 @@ pub struct PushLocalTableInst {
 
 impl PushLocalTableInst {
     pub fn new(address: u32, idx: i8) -> Self {
-        Self {
-            address,
-            idx,
-        }
+        Self { address, idx }
     }
 
     pub fn get_idx(&self) -> i8 {

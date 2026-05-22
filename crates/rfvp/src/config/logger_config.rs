@@ -10,6 +10,9 @@ pub struct LoggerConfig {
 
 impl Default for LoggerConfig {
     fn default() -> Self {
-        Self { app_level_filter: LevelFilter::Info, level_filter: LevelFilter::Info }
+        Self {
+            app_level_filter: LevelFilter::Info,
+            level_filter: LevelFilter::Info,
+        }
     }
 }

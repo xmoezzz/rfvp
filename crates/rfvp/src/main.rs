@@ -1,35 +1,59 @@
-mod script;
-mod subsystem;
+#[cfg(feature = "gpu-render")]
 mod app;
-mod utils;
-mod rendering;
-mod config;
-mod window;
+#[cfg(feature = "gpu-render")]
 mod audio_player;
-mod debug_ui;
-mod vm_worker;
-mod rfvp_render;
-mod rfvp_audio;
-mod vm_runner;
-mod trace;
-mod font;
+#[cfg(feature = "gpu-render")]
 mod boot;
-mod legacy_save_load_ui;
+#[cfg(feature = "gpu-render")]
+mod config;
+#[cfg(feature = "gpu-render")]
+mod debug_ui;
+#[cfg(feature = "gpu-render")]
 mod exit_confirm_ui;
+#[cfg(feature = "gpu-render")]
+mod font;
+#[cfg(feature = "gpu-render")]
+mod legacy_save_load_ui;
+#[cfg(feature = "gpu-render")]
+mod rendering;
+#[cfg(feature = "gpu-render")]
+mod rfvp_audio;
+#[cfg(feature = "gpu-render")]
+mod rfvp_render;
+#[cfg(feature = "gpu-render")]
+mod script;
+#[cfg(feature = "gpu-render")]
+mod subsystem;
+#[cfg(feature = "gpu-render")]
+mod trace;
+#[cfg(feature = "gpu-render")]
+mod utils;
+#[cfg(feature = "gpu-render")]
+mod vm_runner;
+#[cfg(feature = "gpu-render")]
+mod vm_worker;
+#[cfg(feature = "gpu-render")]
+mod window;
 
+#[cfg(feature = "gpu-render")]
 pub(crate) mod platform_time;
 
-use script::parser::{Nls, Parser};
+#[cfg(feature = "gpu-render")]
+use script::parser::Nls;
+#[cfg(feature = "gpu-render")]
 use subsystem::{anzu_scene::AnzuScene, resources::thread_manager::ThreadManager};
 
-use anyhow::Result;
-use log::LevelFilter;
-use boot::{app_config, load_script};
+#[cfg(feature = "gpu-render")]
 use crate::app::App;
+#[cfg(feature = "gpu-render")]
 use crate::utils::file::set_base_path;
-
+#[cfg(feature = "gpu-render")]
+use anyhow::Result;
+#[cfg(feature = "gpu-render")]
+use boot::{app_config, load_script};
 
 /// Parse `--project-dir <path>` or `--project-dir=<path>` from argv.
+#[cfg(feature = "gpu-render")]
 fn parse_project_dir_arg() -> Option<String> {
     let args: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -52,6 +76,7 @@ fn parse_project_dir_arg() -> Option<String> {
 }
 
 /// Parse `--nls <value>` or `--nls=<value>` from argv, default to ShiftJIS.
+#[cfg(feature = "gpu-render")]
 fn parse_nls_arg() -> Nls {
     let args: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -79,6 +104,7 @@ fn parse_nls_arg() -> Nls {
 }
 
 /// Parse `--system-font`; when present, system-wide CJK fallback fonts are scanned.
+#[cfg(feature = "gpu-render")]
 fn parse_system_font_arg() -> bool {
     std::env::args().skip(1).any(|a| a == "--system-font")
 }
@@ -88,6 +114,7 @@ fn parse_system_font_arg() -> bool {
 // #[global_allocator]
 // static ALLOC: dhat::Alloc = dhat::Alloc;
 
+#[cfg(feature = "gpu-render")]
 fn main() -> Result<()> {
     // let _profiler = dhat::Profiler::new_heap();
     // env_logger::init();
@@ -97,7 +124,7 @@ fn main() -> Result<()> {
     let nls = parse_nls_arg();
     let system_font = parse_system_font_arg();
     let parser = load_script(nls)?;
-    let title  = parser.get_title();
+    let title = parser.get_title();
     let size = parser.get_screen_size();
     let script_engine = ThreadManager::new();
 
@@ -116,25 +143,36 @@ fn main() -> Result<()> {
     app.run();
 
     // handle.shutdown();
-    
+
     Ok(())
 }
 
+#[cfg(all(not(feature = "gpu-render"), feature = "soft-render"))]
+fn main() -> anyhow::Result<()> {
+    rfvp::soft_host::run_from_args()
+}
+
+#[cfg(all(not(feature = "gpu-render"), not(feature = "soft-render")))]
+compile_error!("rfvp binary requires either `gpu-render` or `soft-render`.");
 
 // test
+#[cfg(all(test, feature = "gpu-render"))]
 mod tests {
-    use std::{thread::sleep, time::Duration};
     use super::*;
     use crate::subsystem::world::GameData;
+    use std::{thread::sleep, time::Duration};
 
     #[test]
     fn test_audio_system() {
         std::env::set_var("FVP_TEST", "1");
         let mut world = GameData::default();
-        let vfs=  crate::subsystem::resources::vfs::Vfs::new(Nls::ShiftJIS).unwrap();
+        let vfs = crate::subsystem::resources::vfs::Vfs::new(Nls::ShiftJIS).unwrap();
         let buff = vfs.read_file("bgm/001").unwrap();
         // is oggs?
-        assert!(&buff[0..4] == [0x4fu8, 0x67u8, 0x67u8, 0x53u8].as_slice(), "BGM file is not OGG format");
+        assert!(
+            &buff[0..4] == [0x4fu8, 0x67u8, 0x67u8, 0x53u8].as_slice(),
+            "BGM file is not OGG format"
+        );
         crate::trace::vm(format_args!("BGM data size: {}", buff.len()));
         world.bgm_player_mut().load(0, buff).unwrap();
         let mut fade_in = kira::Tween {
@@ -142,7 +180,10 @@ mod tests {
             ..Default::default()
         };
         fade_in.duration = Duration::from_secs(0);
-        world.bgm_player_mut().play(0, true, 1.0, 0.5, fade_in, &vfs).unwrap();
+        world
+            .bgm_player_mut()
+            .play(0, true, 1.0, 0.5, fade_in, &vfs)
+            .unwrap();
         sleep(Duration::from_secs(20));
     }
 
@@ -150,12 +191,18 @@ mod tests {
     fn test_audio_system_mix() {
         std::env::set_var("FVP_TEST", "1");
         let mut world = GameData::default();
-        let vfs=  crate::subsystem::resources::vfs::Vfs::new(Nls::ShiftJIS).unwrap();
+        let vfs = crate::subsystem::resources::vfs::Vfs::new(Nls::ShiftJIS).unwrap();
         let buff = vfs.read_file("bgm/001").unwrap();
         let buff2 = vfs.read_file("bgm/002").unwrap();
         // is oggs?
-        assert!(&buff[0..4] == [0x4fu8, 0x67u8, 0x67u8, 0x53u8].as_slice(), "BGM file is not OGG format");
-        assert!(&buff2[0..4] == [0x4fu8, 0x67u8, 0x67u8, 0x53u8].as_slice(), "BGM file is not OGG format");
+        assert!(
+            &buff[0..4] == [0x4fu8, 0x67u8, 0x67u8, 0x53u8].as_slice(),
+            "BGM file is not OGG format"
+        );
+        assert!(
+            &buff2[0..4] == [0x4fu8, 0x67u8, 0x67u8, 0x53u8].as_slice(),
+            "BGM file is not OGG format"
+        );
         crate::trace::vm(format_args!("BGM data size: {}", buff.len()));
         world.bgm_player_mut().load(0, buff).unwrap();
         let mut fade_in = kira::Tween {
@@ -164,8 +211,14 @@ mod tests {
         };
         world.bgm_player_mut().load(1, buff2).unwrap();
         fade_in.duration = Duration::from_secs(0);
-        world.bgm_player_mut().play(0, true, 1.0, 0.5, fade_in, &vfs).unwrap();
-        world.bgm_player_mut().play(1, true, 1.0, 0.5, fade_in, &vfs).unwrap();
+        world
+            .bgm_player_mut()
+            .play(0, true, 1.0, 0.5, fade_in, &vfs)
+            .unwrap();
+        world
+            .bgm_player_mut()
+            .play(1, true, 1.0, 0.5, fade_in, &vfs)
+            .unwrap();
         sleep(Duration::from_secs(20));
     }
 }

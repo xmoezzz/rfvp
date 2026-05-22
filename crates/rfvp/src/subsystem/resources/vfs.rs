@@ -7,7 +7,9 @@ use std::mem::size_of;
 use std::path::{Path, PathBuf};
 
 #[cfg(target_arch = "wasm32")]
-use crate::wasm_app_path::{normalize_key as normalize_wasm_key, wasm_read_range, WasmAppPath, WasmFileRef, WasmRangeStream};
+use crate::wasm_app_path::{
+    normalize_key as normalize_wasm_key, wasm_read_range, WasmAppPath, WasmFileRef, WasmRangeStream,
+};
 
 use crate::script::parser::Nls;
 use crate::utils::file::app_base_path;
@@ -19,7 +21,6 @@ impl<T: Read + Seek> ReadSeek for T {}
 /// A VFS-backed stream. This is intentionally a boxed trait object so callers can
 /// treat on-disk files and pack-slices uniformly.
 pub type VfsStream = Box<dyn ReadSeek + Send + Sync>;
-
 
 /// A VFS stream that can be passed directly to Symphonia/Kira streaming audio.
 pub struct VfsMediaSource {
@@ -137,8 +138,8 @@ pub struct VfsFile {
 
 impl VfsFile {
     pub fn new(path: PathBuf, folder_name: String, nls: Nls) -> anyhow::Result<Self> {
-        let (file_count, filename_table_size, entries) = VfsFile::parse(&path, nls)
-            .with_context(|| format!("parse pack {}", path.display()))?;
+        let (file_count, filename_table_size, entries) =
+            VfsFile::parse(&path, nls).with_context(|| format!("parse pack {}", path.display()))?;
 
         Ok(VfsFile {
             path,
@@ -162,9 +163,14 @@ impl VfsFile {
         let header = wasm_read_range(file_ref.id, 0, 8)
             .with_context(|| format!("read wasm pack header {path}"))?;
         let file_count = u32::from_le_bytes([header[0], header[1], header[2], header[3]]) as u64;
-        let filename_table_size = u32::from_le_bytes([header[4], header[5], header[6], header[7]]) as u64;
+        let filename_table_size =
+            u32::from_le_bytes([header[4], header[5], header[6], header[7]]) as u64;
         let metadata_len = 8u64
-            .checked_add(file_count.checked_mul(12).ok_or_else(|| anyhow::anyhow!("pack entry table size overflow"))?)
+            .checked_add(
+                file_count
+                    .checked_mul(12)
+                    .ok_or_else(|| anyhow::anyhow!("pack entry table size overflow"))?,
+            )
             .and_then(|n| n.checked_add(filename_table_size))
             .ok_or_else(|| anyhow::anyhow!("pack metadata size overflow"))?;
 
@@ -243,7 +249,10 @@ impl VfsFile {
     /// - u32 filename_table_size
     /// - file_count entries, each 12 bytes: {u32 name_off, u32 data_off, u32 data_size}
     /// - filename table (NUL-terminated strings)
-    pub fn parse(path: impl AsRef<Path>, nls: Nls) -> Result<(u64, u64, HashMap<String, VfsEntry>)> {
+    pub fn parse(
+        path: impl AsRef<Path>,
+        nls: Nls,
+    ) -> Result<(u64, u64, HashMap<String, VfsEntry>)> {
         let path = path.as_ref();
         if !path.exists() {
             bail!("pack does not exist: {}", path.display());
@@ -301,17 +310,17 @@ impl VfsFile {
         {
             let override_path = app_base_path().join(&self.folder_name).join(name);
             if override_path.get_path().exists() {
-                let f = File::open(override_path.get_path())
-                    .with_context(|| format!("open override file {}", override_path.get_path().display()))?;
+                let f = File::open(override_path.get_path()).with_context(|| {
+                    format!("open override file {}", override_path.get_path().display())
+                })?;
                 let len = f.metadata().ok().map(|m| m.len());
                 return Ok((Box::new(f), len));
             }
         }
 
-        let ent = self
-            .entries
-            .get(name)
-            .ok_or_else(|| anyhow::anyhow!("file not found in pack {}: {}", self.path.display(), name))?;
+        let ent = self.entries.get(name).ok_or_else(|| {
+            anyhow::anyhow!("file not found in pack {}: {}", self.path.display(), name)
+        })?;
 
         #[cfg(target_arch = "wasm32")]
         {
@@ -341,7 +350,8 @@ impl VfsFile {
     /// Legacy convenience: read an entry fully into memory.
     pub fn read_file(&self, name: &str) -> Result<Vec<u8>> {
         let mut r = self.open_stream(name)?;
-        let mut buf = Vec::with_capacity(self.entries.get(name).map(|e| e.size as usize).unwrap_or(0));
+        let mut buf =
+            Vec::with_capacity(self.entries.get(name).map(|e| e.size as usize).unwrap_or(0));
         r.read_to_end(&mut buf)
             .with_context(|| format!("read all bytes for {}", name))?;
         Ok(buf)
@@ -356,8 +366,13 @@ impl VfsFile {
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let mut file = File::create(app_base_path().join(&self.folder_name).join(name).get_path())
-                .with_context(|| format!("create override file for {}", name))?;
+            let mut file = File::create(
+                app_base_path()
+                    .join(&self.folder_name)
+                    .join(name)
+                    .get_path(),
+            )
+            .with_context(|| format!("create override file for {}", name))?;
             file.write_all(&content)
                 .with_context(|| format!("write override file for {}", name))?;
             Ok(())
@@ -515,11 +530,8 @@ impl Vfs {
     /// Legacy convenience: read a path fully into memory.
     pub fn read_file(&self, path: &str) -> Result<Vec<u8>> {
         let (mut r, byte_len) = self.open_stream_with_len(path)?;
-        let mut buf = Vec::with_capacity(
-            byte_len
-                .and_then(|n| usize::try_from(n).ok())
-                .unwrap_or(0),
-        );
+        let mut buf =
+            Vec::with_capacity(byte_len.and_then(|n| usize::try_from(n).ok()).unwrap_or(0));
         r.read_to_end(&mut buf)
             .with_context(|| format!("read all bytes for {}", path))?;
         Ok(buf)

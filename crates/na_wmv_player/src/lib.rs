@@ -1,7 +1,6 @@
 //! WMV (ASF) container parsing and WMV2 decoding library.
 //!
 
-
 pub mod asf;
 pub mod bitreader;
 pub mod decoder;

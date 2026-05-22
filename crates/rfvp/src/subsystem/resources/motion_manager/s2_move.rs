@@ -233,7 +233,9 @@ impl ScaleMotionContainer {
         reverse: bool,
     ) -> Result<()> {
         let _ = self.stop_motion(prim_id);
-        let Some(id) = self.free_ids.pop() else { return Ok(()); };
+        let Some(id) = self.free_ids.pop() else {
+            return Ok(());
+        };
         let m = &mut self.motions[id as usize];
         m.prim_id = prim_id;
         m.running = true;
@@ -290,7 +292,15 @@ impl ScaleMotionContainer {
             out.push_str(&format!(
                 "  [rot] prim={} src={}:{} dst={}:{} elapsed={} dur={} type={:?} rev={}
 ",
-                m.prim_id, m.src_fx, m.src_fy, m.dst_fx, m.dst_fy, m.elapsed, m.duration, m.typ, m.reverse
+                m.prim_id,
+                m.src_fx,
+                m.src_fy,
+                m.dst_fx,
+                m.dst_fy,
+                m.elapsed,
+                m.duration,
+                m.typ,
+                m.reverse
             ));
             n += 1;
         }

@@ -80,14 +80,27 @@ impl FillPipeline {
         pc[0..64].copy_from_slice(bytemuck::bytes_of(&m));
         let c = color.to_array();
         pc[64..80].copy_from_slice(bytemuck::bytes_of(&c));
-        pass.set_push_constants(wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT, 0, &pc);
+        pass.set_push_constants(
+            wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+            0,
+            &pc,
+        );
 
         match src {
-            VertexSource::VertexBuffer { vertex_buffer, vertices, instances } => {
+            VertexSource::VertexBuffer {
+                vertex_buffer,
+                vertices,
+                instances,
+            } => {
                 pass.set_vertex_buffer(0, vertex_buffer.slice(..));
                 pass.draw(vertices, instances);
             }
-            VertexSource::VertexIndexBuffer { vertex_buffer, index_buffer, indices, instances } => {
+            VertexSource::VertexIndexBuffer {
+                vertex_buffer,
+                index_buffer,
+                indices,
+                instances,
+            } => {
                 pass.set_vertex_buffer(0, vertex_buffer.slice(..));
                 pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
                 pass.draw_indexed(indices, 0, instances);

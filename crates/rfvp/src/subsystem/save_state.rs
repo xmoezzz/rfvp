@@ -3,8 +3,8 @@ use bincode::Options;
 use serde::{Deserialize, Serialize};
 
 use crate::audio_player::{BgmPlayerSnapshotV1, SePlayerSnapshotV1};
-use crate::script::Variant;
 use crate::script::global::GLOBAL;
+use crate::script::Variant;
 use crate::subsystem::resources::motion_manager::MotionManagerSnapshotV1;
 use crate::subsystem::resources::thread_manager::{ThreadManager, ThreadManagerSnapshotV1};
 use crate::subsystem::world::GameData;
@@ -105,7 +105,10 @@ pub fn append_state_chunk_v1(out: &mut Vec<u8>, snap: &SaveStateSnapshotV1) -> R
         );
     }
 
-    let len_u32: u32 = payload.len().try_into().context("payload length overflow")?;
+    let len_u32: u32 = payload
+        .len()
+        .try_into()
+        .context("payload length overflow")?;
     out.extend_from_slice(&payload);
     out.extend_from_slice(&len_u32.to_le_bytes());
     out.extend_from_slice(&SAVE_STATE_MAGIC);

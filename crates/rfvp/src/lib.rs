@@ -1,24 +1,34 @@
 #![cfg_attr(target_arch = "wasm32", allow(dead_code))]
 
-pub mod script;
-pub mod subsystem;
+#[cfg(feature = "gpu-render")]
 pub mod app;
+pub mod audio_player;
+#[cfg(feature = "gpu-render")]
+pub mod boot;
+pub mod config;
+pub mod debug_ui;
+#[cfg(feature = "gpu-render")]
+pub mod exit_confirm_ui;
+pub mod font;
+#[cfg(feature = "gpu-render")]
+pub mod legacy_save_load_ui;
+pub(crate) mod platform_time;
+#[cfg(feature = "gpu-render")]
+pub mod rendering;
+pub mod rfvp_audio;
+#[cfg(feature = "gpu-render")]
+pub mod rfvp_render;
+pub mod script;
+#[cfg(feature = "soft-render")]
+pub mod soft_host;
+#[cfg(feature = "soft-render")]
+pub mod soft_render;
+pub mod subsystem;
+pub mod trace;
 pub mod utils;
 pub mod vm_runner;
-pub mod rendering;
-pub mod config;
-pub mod audio_player;
-pub mod window;
-pub mod rfvp_render;
-pub mod rfvp_audio;
 pub mod vm_worker;
-pub mod debug_ui;
-pub mod trace;
-pub mod boot;
-pub mod font;
-pub mod legacy_save_load_ui;
-pub mod exit_confirm_ui;
-pub(crate) mod platform_time;
+pub mod window;
 
 #[cfg(all(target_arch = "wasm32", feature = "mp4"))]
 compile_error!("rfvp wasm build must use --no-default-features --features wasm");
@@ -35,27 +45,43 @@ mod ios_host;
 #[cfg(target_os = "android")]
 mod android_host;
 
-use std::ffi::{CStr, CString};
-use std::os::raw::c_char;
-use std::ptr::null_mut;
+#[cfg(feature = "gpu-render")]
 use crate::platform_time::Duration;
+#[cfg(feature = "gpu-render")]
+use std::ffi::{CStr, CString};
+#[cfg(feature = "gpu-render")]
+use std::os::raw::c_char;
+#[cfg(feature = "gpu-render")]
+use std::ptr::null_mut;
 
-use anyhow::Result;
-use log::LevelFilter;
-use boot::{app_config, load_script};
+#[cfg(feature = "gpu-render")]
 use crate::app::App;
-use crate::subsystem::resources::thread_manager::ThreadManager;
-use crate::utils::file::set_base_path;
+#[cfg(feature = "gpu-render")]
 use crate::script::parser::Nls;
+#[cfg(feature = "gpu-render")]
 use crate::subsystem::anzu_scene::AnzuScene;
+#[cfg(feature = "gpu-render")]
+use crate::subsystem::resources::thread_manager::ThreadManager;
+#[cfg(feature = "gpu-render")]
+use crate::utils::file::set_base_path;
+#[cfg(feature = "gpu-render")]
+use anyhow::Result;
+#[cfg(feature = "gpu-render")]
+use boot::{app_config, load_script};
+#[cfg(feature = "gpu-render")]
+use log::LevelFilter;
 
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(all(
+    feature = "gpu-render",
+    any(target_os = "macos", target_os = "windows", target_os = "linux")
+))]
 use winit::platform::pump_events::PumpStatus;
 
+#[cfg(feature = "gpu-render")]
 fn run_rfvp(game_root: &str, nls: Nls) -> Result<()> {
     set_base_path(game_root);
     let parser = load_script(nls)?;
-    let title  = parser.get_title();
+    let title = parser.get_title();
     let size = parser.get_screen_size();
     let script_engine = ThreadManager::new();
 
@@ -73,14 +99,19 @@ fn run_rfvp(game_root: &str, nls: Nls) -> Result<()> {
 
 /// Opaque pump handle for GUI hosts (e.g. SwiftUI launcher) that already own the platform main loop.
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(feature = "gpu-render")]
 pub struct RfvpPumpHandle {
     inst: crate::app::PumpInstance,
 }
 
 /// Create a pump-driven instance. Returns NULL on error.
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(feature = "gpu-render")]
 #[no_mangle]
-pub unsafe extern "C" fn rfvp_pump_create(game_root_utf8: *const c_char, nls_utf8: *const c_char) -> *mut RfvpPumpHandle {
+pub unsafe extern "C" fn rfvp_pump_create(
+    game_root_utf8: *const c_char,
+    nls_utf8: *const c_char,
+) -> *mut RfvpPumpHandle {
     if game_root_utf8.is_null() || nls_utf8.is_null() {
         return null_mut();
     }
@@ -149,13 +180,17 @@ pub unsafe extern "C" fn rfvp_pump_create(game_root_utf8: *const c_char, nls_utf
 /// - 1: app requested exit
 /// - 2: invalid handle
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(feature = "gpu-render")]
 #[no_mangle]
 pub unsafe extern "C" fn rfvp_pump_step(handle: *mut RfvpPumpHandle, timeout_ms: u32) -> i32 {
     if handle.is_null() {
         return 2;
     }
     let h = &mut *handle;
-    match h.inst.pump(Duration::from_millis(std::cmp::max(timeout_ms as u64, 1))) {
+    match h
+        .inst
+        .pump(Duration::from_millis(std::cmp::max(timeout_ms as u64, 1)))
+    {
         PumpStatus::Continue => 0,
         _ => 1,
     }
@@ -163,6 +198,7 @@ pub unsafe extern "C" fn rfvp_pump_step(handle: *mut RfvpPumpHandle, timeout_ms:
 
 /// Destroy a pump-driven instance created by `rfvp_pump_create`.
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+#[cfg(feature = "gpu-render")]
 #[no_mangle]
 pub unsafe extern "C" fn rfvp_pump_destroy(handle: *mut RfvpPumpHandle) {
     if handle.is_null() {
@@ -171,8 +207,12 @@ pub unsafe extern "C" fn rfvp_pump_destroy(handle: *mut RfvpPumpHandle) {
     drop(Box::from_raw(handle));
 }
 
+#[cfg(feature = "gpu-render")]
 #[no_mangle]
-pub unsafe extern "C" fn rfvp_run_entry(game_root_utf8: *const c_char, nls_utf8: *const c_char) -> i32 {
+pub unsafe extern "C" fn rfvp_run_entry(
+    game_root_utf8: *const c_char,
+    nls_utf8: *const c_char,
+) -> i32 {
     if game_root_utf8.is_null() || nls_utf8.is_null() {
         return 2;
     }
@@ -208,4 +248,3 @@ pub unsafe extern "C" fn rfvp_run_entry(game_root_utf8: *const c_char, nls_utf8:
         }
     }
 }
-

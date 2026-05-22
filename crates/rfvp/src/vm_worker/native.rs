@@ -1,7 +1,6 @@
-
-use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
+use std::sync::{Arc, RwLock};
 use std::thread;
 
 use crate::script::parser::Parser;
@@ -16,7 +15,10 @@ pub enum EngineEvent {
     Frame { frame_ms: u64 },
 
     /// Same as `Frame`, but the sender waits until the VM tick completes.
-    FrameSync { frame_ms: u64, done: Sender<VmTickReport> },
+    FrameSync {
+        frame_ms: u64,
+        done: Sender<VmTickReport>,
+    },
 
     /// Notify the VM that a global dissolve has finished.
     ///
@@ -178,7 +180,10 @@ impl VmWorker {
     #[inline]
     pub fn send_frame_ms_sync(&self, frame_ms: u64) -> VmTickReport {
         let (done_tx, done_rx) = mpsc::channel::<VmTickReport>();
-        let _ = self.tx.send(EngineEvent::FrameSync { frame_ms, done: done_tx });
+        let _ = self.tx.send(EngineEvent::FrameSync {
+            frame_ms,
+            done: done_tx,
+        });
         // If the VM thread is gone, treat it as a no-op.
         done_rx.recv().unwrap_or_default()
     }
@@ -186,8 +191,9 @@ impl VmWorker {
     #[inline]
     pub fn send_dissolve_done_sync(&self) {
         let (done_tx, done_rx) = mpsc::channel::<()>();
-        let _ = self.tx.send(EngineEvent::DissolveDoneSync { done: done_tx });
+        let _ = self
+            .tx
+            .send(EngineEvent::DissolveDoneSync { done: done_tx });
         let _ = done_rx.recv();
     }
-
 }

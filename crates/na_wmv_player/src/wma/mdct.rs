@@ -1,7 +1,6 @@
 //! MDCT/IMDCT implementation.
 //!
 
-
 use std::f64::consts::PI;
 
 pub struct MdctNaive {

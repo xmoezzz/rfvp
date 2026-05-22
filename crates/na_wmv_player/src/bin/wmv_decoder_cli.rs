@@ -30,7 +30,10 @@ fn main() {
                     output_dir = Some(PathBuf::from(arg));
                 } else {
                     eprintln!("Unexpected argument: {arg}");
-                    eprintln!("Usage: {} <input.wmv> [output_dir] [--yuv] [--png]", args[0]);
+                    eprintln!(
+                        "Usage: {} <input.wmv> [output_dir] [--yuv] [--png]",
+                        args[0]
+                    );
                     std::process::exit(1);
                 }
             }
@@ -38,7 +41,10 @@ fn main() {
     }
 
     let Some(input_path) = input_path else {
-        eprintln!("Usage: {} <input.wmv> [output_dir] [--yuv] [--png]", args[0]);
+        eprintln!(
+            "Usage: {} <input.wmv> [output_dir] [--yuv] [--png]",
+            args[0]
+        );
         std::process::exit(1);
     };
 
@@ -128,7 +134,9 @@ fn write_png_frame(path: &Path, frame: &YuvFrame) -> Result<()> {
     let mut enc = png::Encoder::new(file, frame.width, frame.height);
     enc.set_color(png::ColorType::Rgb);
     enc.set_depth(png::BitDepth::Eight);
-    let mut writer = enc.write_header().map_err(|e| DecoderError::InvalidData(format!("PNG header error: {e}")))?;
+    let mut writer = enc
+        .write_header()
+        .map_err(|e| DecoderError::InvalidData(format!("PNG header error: {e}")))?;
     writer
         .write_image_data(&rgb)
         .map_err(|e| DecoderError::InvalidData(format!("PNG write error: {e}")))?;
