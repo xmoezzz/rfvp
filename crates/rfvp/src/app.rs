@@ -1424,6 +1424,39 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
 
     }
 
+    #[cfg(target_os = "ios")]
+    fn ios_points_to_virtual_cursor(&self, x_points: f64, y_points: f64) -> (i32, i32, bool) {
+        let scale = self.native_scale_factor.max(0.5);
+        let px = x_points * scale;
+        let py = y_points * scale;
+
+        let (sw_u, sh_u) = (self.surface_config.width.max(1), self.surface_config.height.max(1));
+        let (vw_u, vh_u) = (self.virtual_size.0.max(1), self.virtual_size.1.max(1));
+
+        let sw = sw_u as f64;
+        let sh = sh_u as f64;
+        let vw = vw_u as f64;
+        let vh = vh_u as f64;
+
+        let scale = (sw / vw).min(sh / vh);
+        let dst_w = vw * scale;
+        let dst_h = vh * scale;
+        let off_x = (sw - dst_w) * 0.5;
+        let off_y = (sh - dst_h) * 0.5;
+
+        let in_content = px >= off_x && px < (off_x + dst_w) && py >= off_y && py < (off_y + dst_h);
+        let mut vx = ((px - off_x) / scale) as i32;
+        let mut vy = ((py - off_y) / scale) as i32;
+        if in_content {
+            let max_x = (vw as i32).saturating_sub(1);
+            let max_y = (vh as i32).saturating_sub(1);
+            vx = vx.clamp(0, max_x);
+            vy = vy.clamp(0, max_y);
+        }
+
+        (vx, vy, in_content)
+    }
+
     /// Inject a single-finger touch event from an iOS host.
     ///
     /// `phase`:
@@ -1511,6 +1544,101 @@ if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_c
 
         // Wake the VM for touch edges only. Move events are coalesced by the per-frame path;
         // waking the VM for every move floods Android/iOS during drags.
+        if matches!(phase, 0 | 2 | 3) {
+            self.vm_worker.send_input_signal();
+        }
+    }
+
+    /// Inject a mouse-button event from an iOS host.
+    ///
+    /// `button`: 0 = left, 1 = right.
+    /// `phase`: 0 = down, 1 = move, 2 = up, 3 = cancel/up.
+    #[cfg(target_os = "ios")]
+    pub fn host_mouse_button_ios(&mut self, button: i32, phase: i32, x_points: f64, y_points: f64) {
+        use crate::subsystem::resources::input_manager::KeyCode;
+
+        if button == 0 {
+            self.host_touch(phase, x_points, y_points);
+            return;
+        }
+
+        let keycode = match button {
+            1 => KeyCode::MouseRight,
+            _ => return,
+        };
+
+        if self.exit_confirm_ui.is_active() || self.legacy_save_load_ui.is_active() {
+            return;
+        }
+
+        let (vx, vy, in_content) = self.ios_points_to_virtual_cursor(x_points, y_points);
+        {
+            let mut gd = gd_write(&self.game_data);
+            gd.inputs_manager.notify_mouse_move(vx, vy);
+            gd.inputs_manager.set_mouse_in(in_content);
+
+            match phase {
+                0 => gd.inputs_manager.notify_mouse_down(keycode.clone()),
+                2 | 3 => gd.inputs_manager.notify_mouse_up(keycode.clone()),
+                _ => {}
+            }
+        }
+
+        if matches!(phase, 0 | 2 | 3) {
+            self.vm_worker.send_input_signal();
+        }
+    }
+
+    /// Inject a mouse-wheel event from an iOS host.
+    ///
+    /// `delta` uses the same sign convention as InputManager::notify_mouse_wheel.
+    #[cfg(target_os = "ios")]
+    pub fn host_mouse_wheel_ios(&mut self, delta: i32, x_points: f64, y_points: f64) {
+        if delta == 0 {
+            return;
+        }
+
+        if self.exit_confirm_ui.is_active() || self.legacy_save_load_ui.is_active() {
+            return;
+        }
+
+        let (vx, vy, in_content) = self.ios_points_to_virtual_cursor(x_points, y_points);
+        {
+            let mut gd = gd_write(&self.game_data);
+            gd.inputs_manager.notify_mouse_move(vx, vy);
+            gd.inputs_manager.set_mouse_in(in_content);
+            gd.inputs_manager.notify_mouse_wheel(delta);
+        }
+
+        self.vm_worker.send_input_signal();
+    }
+
+    /// Inject a key event from an iOS host.
+    ///
+    /// `key`: 0 = Escape.
+    /// `phase`: 0 = down, 2 = up, 3 = cancel/up.
+    #[cfg(target_os = "ios")]
+    pub fn host_key_ios(&mut self, key: i32, phase: i32) {
+        use winit::keyboard::{Key, NamedKey};
+
+        let key_value = match key {
+            0 => Key::Named(NamedKey::Escape),
+            _ => return,
+        };
+
+        if self.exit_confirm_ui.is_active() || self.legacy_save_load_ui.is_active() {
+            return;
+        }
+
+        {
+            let mut gd = gd_write(&self.game_data);
+            match phase {
+                0 => gd.inputs_manager.notify_keydown(key_value.clone(), false),
+                2 | 3 => gd.inputs_manager.notify_keyup(key_value.clone()),
+                _ => {}
+            }
+        }
+
         if matches!(phase, 0 | 2 | 3) {
             self.vm_worker.send_input_signal();
         }

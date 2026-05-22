@@ -81,7 +81,10 @@ xcrun simctl bootstatus "$TARGET_UDID" -b
 
 BOOTED_INFO="$(xcrun simctl list devices | awk -v u="$TARGET_UDID" '
   $0 ~ /^--/ { rt=$0 }
-  index($0, u) { print rt " " $0; exit }
+  index($0, u) && !found {
+    print rt " " $0
+    found=1
+  }
 ')"
 echo "[ios-sim] Target simulator info: $BOOTED_INFO"
 

@@ -156,6 +156,57 @@ pub unsafe extern "C" fn rfvp_ios_touch(handle: *mut c_void, phase: i32, x_point
     inst.app.host_touch(phase, x_points, y_points);
 }
 
+/// Deliver a mouse-button event from the iOS host.
+///
+/// `button`: 0=left, 1=right.
+/// `phase`: 0=down, 1=move, 2=up, 3=cancel/up.
+/// Coordinates are in UIKit points relative to the view.
+#[no_mangle]
+pub unsafe extern "C" fn rfvp_ios_mouse_button(
+    handle: *mut c_void,
+    button: i32,
+    phase: i32,
+    x_points: f64,
+    y_points: f64,
+) {
+    if handle.is_null() {
+        return;
+    }
+    let inst = &mut *(handle as *mut IosInstance);
+    inst.app.host_mouse_button_ios(button, phase, x_points, y_points);
+}
+
+/// Deliver a mouse-wheel event from the iOS host.
+///
+/// `delta` is forwarded to the engine wheel accumulator.
+/// Coordinates are in UIKit points relative to the view.
+#[no_mangle]
+pub unsafe extern "C" fn rfvp_ios_mouse_wheel(
+    handle: *mut c_void,
+    delta: i32,
+    x_points: f64,
+    y_points: f64,
+) {
+    if handle.is_null() {
+        return;
+    }
+    let inst = &mut *(handle as *mut IosInstance);
+    inst.app.host_mouse_wheel_ios(delta, x_points, y_points);
+}
+
+/// Deliver a key event from the iOS host.
+///
+/// `key`: 0=Escape.
+/// `phase`: 0=down, 2=up, 3=cancel/up.
+#[no_mangle]
+pub unsafe extern "C" fn rfvp_ios_key(handle: *mut c_void, key: i32, phase: i32) {
+    if handle.is_null() {
+        return;
+    }
+    let inst = &mut *(handle as *mut IosInstance);
+    inst.app.host_key_ios(key, phase);
+}
+
 /// Destroy the iOS host-mode instance.
 #[no_mangle]
 pub unsafe extern "C" fn rfvp_ios_destroy(handle: *mut c_void) {

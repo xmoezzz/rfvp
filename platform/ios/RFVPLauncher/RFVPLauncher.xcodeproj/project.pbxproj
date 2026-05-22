@@ -174,7 +174,6 @@
 				};
 			};
 			buildConfigurationList = 044C3CAA4B5095FFE17282FC /* Build configuration list for PBXProject "RFVPLauncher" */;
-			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -184,6 +183,7 @@
 			mainGroup = ABC4A715DCE23DCFC823E387;
 			minimizedProjectReferenceProxies = 1;
 			preferredProjectObjectVersion = 77;
+			productRefGroup = F7185C75DFED00D447BDB608 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (

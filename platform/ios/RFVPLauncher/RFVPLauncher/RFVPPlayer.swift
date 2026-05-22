@@ -26,27 +26,72 @@ private func rfvp_ios_destroy(_ handle: UnsafeMutableRawPointer?) -> Void
 @_silgen_name("rfvp_ios_touch")
 private func rfvp_ios_touch(_ handle: UnsafeMutableRawPointer?, _ phase: Int32, _ xPoints: Double, _ yPoints: Double) -> Void
 
+@_silgen_name("rfvp_ios_mouse_button")
+private func rfvp_ios_mouse_button(
+    _ handle: UnsafeMutableRawPointer?,
+    _ button: Int32,
+    _ phase: Int32,
+    _ xPoints: Double,
+    _ yPoints: Double
+) -> Void
+
+@_silgen_name("rfvp_ios_mouse_wheel")
+private func rfvp_ios_mouse_wheel(
+    _ handle: UnsafeMutableRawPointer?,
+    _ delta: Int32,
+    _ xPoints: Double,
+    _ yPoints: Double
+) -> Void
+
 // MARK: - Metal-backed UIView for wgpu
 
 final class RFVPMetalView: UIView {
     override class var layerClass: AnyClass { CAMetalLayer.self }
 
-    // phase: 0 began, 1 moved, 2 ended, 3 cancelled
+    private enum MouseButton {
+        static let right: Int32 = 1
+    }
+
+    private let wheelStepPoints: CGFloat = 40.0
+
+    // phase: 0 began/down, 1 moved, 2 ended/up, 3 cancelled/up
     var onTouch: ((Int32, Double, Double) -> Void)?
+    var onMouseButton: ((Int32, Int32, Double, Double) -> Void)?
+    var onMouseWheel: ((Int32, Double, Double) -> Void)?
+
+    private var activeSingleTouch: UITouch?
+    private var wheelRemainderPoints: CGFloat = 0.0
+
     override init(frame: CGRect) {
         super.init(frame: frame)
-        isOpaque = true
-        backgroundColor = .black
-        isUserInteractionEnabled = true
-        isMultipleTouchEnabled = false
+        configureView()
     }
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
+        configureView()
+    }
+
+    private func configureView() {
         isOpaque = true
         backgroundColor = .black
         isUserInteractionEnabled = true
-        isMultipleTouchEnabled = false
+        isMultipleTouchEnabled = true
+        installGestureRecognizers()
+    }
+
+    private func installGestureRecognizers() {
+        let twoFingerTap = UITapGestureRecognizer(target: self, action: #selector(handleTwoFingerTap(_:)))
+        twoFingerTap.numberOfTapsRequired = 1
+        twoFingerTap.numberOfTouchesRequired = 2
+        twoFingerTap.cancelsTouchesInView = true
+        addGestureRecognizer(twoFingerTap)
+
+        let twoFingerPan = UIPanGestureRecognizer(target: self, action: #selector(handleTwoFingerPan(_:)))
+        twoFingerPan.minimumNumberOfTouches = 2
+        twoFingerPan.maximumNumberOfTouches = 2
+        twoFingerPan.cancelsTouchesInView = true
+        addGestureRecognizer(twoFingerPan)
     }
 
     func configureScale(_ scale: CGFloat) {
@@ -56,16 +101,93 @@ final class RFVPMetalView: UIView {
         }
     }
 
-    private func send(_ phase: Int32, _ touches: Set<UITouch>) {
-        guard let t = touches.first else { return }
-        let p = t.location(in: self) // points
+    private func activeTouchCount(_ event: UIEvent?, fallback touches: Set<UITouch>) -> Int {
+        event?.allTouches?.count ?? touches.count
+    }
+
+    private func send(_ phase: Int32, _ touch: UITouch) {
+        let p = touch.location(in: self) // points
         onTouch?(phase, Double(p.x), Double(p.y))
     }
 
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) { send(0, touches) }
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) { send(1, touches) }
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) { send(2, touches) }
-    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) { send(3, touches) }
+    private func cancelActiveSingleTouch() {
+        guard let activeSingleTouch else { return }
+        send(3, activeSingleTouch)
+        self.activeSingleTouch = nil
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        let count = activeTouchCount(event, fallback: touches)
+        if count == 1, activeSingleTouch == nil, let t = touches.first {
+            activeSingleTouch = t
+            send(0, t)
+        } else if activeSingleTouch != nil {
+            cancelActiveSingleTouch()
+        }
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let activeSingleTouch else { return }
+        if activeTouchCount(event, fallback: touches) != 1 {
+            cancelActiveSingleTouch()
+            return
+        }
+        if touches.contains(where: { $0 === activeSingleTouch }) {
+            send(1, activeSingleTouch)
+        }
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let activeSingleTouch else { return }
+        if touches.contains(where: { $0 === activeSingleTouch }) {
+            send(2, activeSingleTouch)
+            self.activeSingleTouch = nil
+        }
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        guard let activeSingleTouch else { return }
+        if touches.contains(where: { $0 === activeSingleTouch }) {
+            send(3, activeSingleTouch)
+            self.activeSingleTouch = nil
+        }
+    }
+
+    @objc private func handleTwoFingerTap(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended else { return }
+        cancelActiveSingleTouch()
+        let p = recognizer.location(in: self)
+        onMouseButton?(MouseButton.right, 0, Double(p.x), Double(p.y))
+        onMouseButton?(MouseButton.right, 2, Double(p.x), Double(p.y))
+    }
+
+    @objc private func handleTwoFingerPan(_ recognizer: UIPanGestureRecognizer) {
+        switch recognizer.state {
+        case .began:
+            cancelActiveSingleTouch()
+            wheelRemainderPoints = 0.0
+            recognizer.setTranslation(.zero, in: self)
+        case .changed:
+            let translation = recognizer.translation(in: self)
+            recognizer.setTranslation(.zero, in: self)
+
+            if abs(translation.y) < abs(translation.x) {
+                return
+            }
+
+            wheelRemainderPoints += translation.y
+            let steps = Int(wheelRemainderPoints / wheelStepPoints)
+            if steps == 0 { return }
+
+            wheelRemainderPoints -= CGFloat(steps) * wheelStepPoints
+            let p = recognizer.location(in: self)
+            onMouseWheel?(Int32(-steps), Double(p.x), Double(p.y))
+        case .ended, .cancelled, .failed:
+            wheelRemainderPoints = 0.0
+        default:
+            break
+        }
+    }
 }
 
 // MARK: - UIViewController that owns the engine + CADisplayLink
@@ -108,6 +230,18 @@ final class RFVPPlayerViewController: UIViewController {
             guard let self = self else { return }
             guard let h = self.handle else { return }
             rfvp_ios_touch(h, phase, x, y)
+        }
+
+        metalView.onMouseButton = { [weak self] button, phase, x, y in
+            guard let self = self else { return }
+            guard let h = self.handle else { return }
+            rfvp_ios_mouse_button(h, button, phase, x, y)
+        }
+
+        metalView.onMouseWheel = { [weak self] delta, x, y in
+            guard let self = self else { return }
+            guard let h = self.handle else { return }
+            rfvp_ios_mouse_wheel(h, delta, x, y)
         }
     }
 
