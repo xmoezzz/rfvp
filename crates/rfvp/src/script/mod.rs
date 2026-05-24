@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use twofloat::TwoFloat;
+
+use crate::utils::stable_hash::StableHashMap;
 
 pub mod context;
 pub mod global;
@@ -18,7 +19,7 @@ struct SavedStackInfo {
 
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Table {
-    table: HashMap<u32, Variant>,
+    table: StableHashMap<u32, Variant>,
     count: u32,
     next_index: u32,
 }
@@ -26,7 +27,7 @@ pub struct Table {
 impl Table {
     pub fn new() -> Self {
         Table {
-            table: HashMap::new(),
+            table: StableHashMap::default(),
             count: 0,
             next_index: 0,
         }

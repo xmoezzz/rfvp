@@ -2539,6 +2539,7 @@ impl AppBuilder {
                                 last_update: Instant::now(),
                             };
 
+                            log::info!("loaded ANI cursor slot {} from {}", index, path.display());
                             cursor_table.insert(index, cb);
                         }
                     }
@@ -2548,6 +2549,7 @@ impl AppBuilder {
             }
         }
 
+        log::info!("ANI cursor table size: {}", cursor_table.len());
         self.world.set_cursor_table(cursor_table);
 
         // Fullscreen quad used for dissolve overlays (virtual space, pixel coordinates).
@@ -2701,6 +2703,7 @@ impl AppBuilder {
         };
 
         app.setup();
+        app.update_cursor();
 
         // Kick the first frame for pump-mode hosts.
         if let Some(w) = app.window.as_ref() {

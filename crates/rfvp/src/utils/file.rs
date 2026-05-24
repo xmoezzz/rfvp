@@ -1,11 +1,12 @@
 use std::{
-    env,
     fs::File,
     io::Read,
-    path,
     path::{Path, PathBuf},
     time::SystemTime,
 };
+
+#[cfg(not(target_os = "uefi"))]
+use std::{env, path};
 
 pub struct FileReaderError {
     _msg: String,
@@ -43,11 +44,34 @@ pub fn open_file(path: &Path) -> Result<File, FileReaderError> {
     }
 }
 
+#[cfg(not(target_os = "uefi"))]
 pub fn set_base_path(path: &str) {
     env::set_var("FVP_BASE_PATH", path);
 }
 
+#[cfg(target_os = "uefi")]
+pub fn set_base_path(_path: &str) {}
+
+#[cfg(not(target_os = "uefi"))]
+pub fn set_hcb_root_path(path: &str) {
+    env::set_var("FVP_HCB_ROOT", path);
+}
+
+#[cfg(target_os = "uefi")]
+pub fn set_hcb_root_path(_path: &str) {}
+
+#[cfg(not(target_os = "uefi"))]
+pub fn hcb_root_path() -> Option<PathBuf> {
+    env::var("FVP_HCB_ROOT").ok().filter(|s| !s.is_empty()).map(PathBuf::from)
+}
+
+#[cfg(target_os = "uefi")]
+pub fn hcb_root_path() -> Option<PathBuf> {
+    None
+}
+
 /// This will give you the path to the executable (when in build mode) or to the root of the current project.
+#[cfg(not(target_os = "uefi"))]
 pub fn app_base_path() -> PathBuilder {
     if env::var_os("FVP_TEST").is_some() {
         let mut testcase_path = "testcase".to_string();
@@ -82,6 +106,15 @@ pub fn app_base_path() -> PathBuilder {
                 path_buff: Default::default(),
             }
         }
+    }
+}
+
+/// UEFI hosts do not have process environment variables. The UEFI app mounts
+/// game data under the same default project directory it passes to the runtime.
+#[cfg(target_os = "uefi")]
+pub fn app_base_path() -> PathBuilder {
+    PathBuilder {
+        path_buff: PathBuf::from(r"\rfvp"),
     }
 }
 

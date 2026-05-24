@@ -1,7 +1,9 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
+
+use crate::utils::stable_hash::StableHashMap;
 
 use super::graph_buff::{GraphBuff, GraphBuffSnapshotV1};
 use super::vfs::Vfs;
@@ -40,7 +42,7 @@ impl GaijiItem {
 }
 
 pub struct GaijiManager {
-    item: HashMap<String, BTreeMap<u8, GaijiItem>>,
+    item: StableHashMap<String, BTreeMap<u8, GaijiItem>>,
 }
 
 impl Default for GaijiManager {
@@ -52,7 +54,7 @@ impl Default for GaijiManager {
 impl GaijiManager {
     pub fn new() -> Self {
         Self {
-            item: HashMap::new(),
+            item: StableHashMap::default(),
         }
     }
 

@@ -9,9 +9,9 @@ pub mod history;
 pub mod input;
 pub mod legacy;
 pub mod motion;
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_os = "uefi"), not(target_arch = "wasm32")))]
 pub mod movie;
-#[cfg(target_arch = "wasm32")]
+#[cfg(any(target_os = "uefi", target_arch = "wasm32"))]
 #[path = "movie_wasm.rs"]
 pub mod movie;
 pub mod other_anm;

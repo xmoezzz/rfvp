@@ -1,10 +1,12 @@
-use std::collections::HashMap;
 use std::sync::Mutex;
 
 use anyhow::Result;
 
+use crate::rfvp_audio::Tween;
+
 use crate::script::Variant;
 use crate::subsystem::world::GameData;
+use crate::utils::stable_hash::StableHashMap;
 
 use super::movie::movie_play;
 use super::saveload::{load, save_write};
@@ -13,7 +15,7 @@ use super::{get_var, Syscaller};
 
 lazy_static::lazy_static! {
     static ref LEGACY_CHR_TABLE: Mutex<Vec<LegacyChrEntry>> = Mutex::new(Vec::new());
-    static ref LEGACY_TEXT_STATE: Mutex<HashMap<i32, LegacyTextState>> = Mutex::new(HashMap::new());
+    static ref LEGACY_TEXT_STATE: Mutex<StableHashMap<i32, LegacyTextState>> = Mutex::new(StableHashMap::default());
     static ref LEGACY_CONFIG_STATE: Mutex<LegacyConfigState> = Mutex::new(LegacyConfigState::default());
     static ref LEGACY_UI_STATE: Mutex<LegacyUiState> = Mutex::new(LegacyUiState::default());
 }
@@ -340,10 +342,10 @@ pub fn config_set(game_data: &mut GameData) -> Result<Variant> {
         let vol = vol_i as f32 / 100.0;
         game_data
             .bgm_player_mut()
-            .set_type_volume(kind as i32, vol, kira::Tween::default());
+            .set_type_volume(kind as i32, vol, Tween::default());
         game_data
             .se_player_mut()
-            .set_type_volume(kind as i32, vol, kira::Tween::default());
+            .set_type_volume(kind as i32, vol, Tween::default());
     }
 
     Ok(Variant::Nil)
@@ -508,7 +510,7 @@ pub fn sound_pan(game_data: &mut GameData, channel: &Variant, pan: &Variant) -> 
     let normalized = (pan as f64 + 100.0) / 200.0;
     game_data
         .se_player_mut()
-        .set_panning(channel, normalized, kira::Tween::default());
+        .set_panning(channel, normalized, Tween::default());
     Ok(Variant::Nil)
 }
 

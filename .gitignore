@@ -37,3 +37,4 @@ platform/ios/RFVPLauncher/Vendor/*
 platform/wasm/pkg/*
 
 .metals/
+*.efi

@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{sync::Mutex, vec};
+#[cfg(any(feature = "gpu-render", feature = "soft-render-desktop"))]
 use winit::keyboard::NamedKey;
 
 #[derive(Debug)]
@@ -260,6 +261,7 @@ impl InputManager {
         self.cursor_in = in_screen;
     }
 
+    #[cfg(any(feature = "gpu-render", feature = "soft-render-desktop"))]
     pub fn keymap(&self, key: winit::keyboard::Key) -> Option<KeyCode> {
         match key {
             winit::keyboard::Key::Named(NamedKey::Shift) => Some(KeyCode::Shift),
@@ -289,6 +291,7 @@ impl InputManager {
             _ => None,
         }
     }
+
     #[inline]
     fn bit_for(k: KeyCode) -> u32 {
         1u32 << (k as u32)
@@ -363,64 +366,67 @@ impl InputManager {
         self.current_index = next_write;
     }
 
-    // see https://wiki.winehq.org/List_Of_Windows_Messages
-    pub fn notify_keydown(&mut self, key: winit::keyboard::Key, repeat: bool) {
-        if let Some(keycode) = self.keymap(key) {
-            let mut enqueue = false;
-            let mut prev_bits = 0u32;
-            {
-                let _g = self.cs.enter();
+    pub fn notify_keycode_down(&mut self, keycode: KeyCode, repeat: bool) {
+        let mut enqueue = false;
+        let prev_bits;
+        {
+            let _g = self.cs.enter();
 
-                // When masked, ignore both Shift and Ctrl entirely (state + edges + events).
-                if self.control_is_masked && matches!(keycode, KeyCode::Shift | KeyCode::Ctrl) {
-                    return;
-                }
-
-                prev_bits = self.new_input_state;
-                let mask = Self::bit_for(keycode.clone());
-
-                // Latch edge on a true 0->1 transition.
-                if (self.new_input_state & mask) == 0 {
-                    self.new_input_state |= mask;
-                    self.input_down_pending |= mask;
-                }
-
-                // Repeat bookkeeping is per-frame.
-                self.input_repeat_pending |= mask;
-                // IDA: key events are only enqueued for keycode >= 2 (Shift/Ctrl excluded)
-                // and only for non-repeat keydown.
-                enqueue = !repeat && (keycode.clone() as u8) >= 2;
+            if self.control_is_masked && matches!(keycode, KeyCode::Shift | KeyCode::Ctrl) {
+                return;
             }
 
-            // Virtual click edges depend on the composite state.
-            self.latch_virtual_click_edges(prev_bits, self.new_input_state);
+            prev_bits = self.new_input_state;
+            let mask = Self::bit_for(keycode.clone());
 
-            if enqueue {
-                self.record_keydown_or_up(keycode, 0, 0);
+            if (self.new_input_state & mask) == 0 {
+                self.new_input_state |= mask;
+                self.input_down_pending |= mask;
             }
+
+            self.input_repeat_pending |= mask;
+            enqueue = !repeat && (keycode.clone() as u8) >= 2;
+        }
+
+        self.latch_virtual_click_edges(prev_bits, self.new_input_state);
+
+        if enqueue {
+            self.record_keydown_or_up(keycode, 0, 0);
         }
     }
 
-    pub fn notify_keyup(&mut self, key: winit::keyboard::Key) {
-        if let Some(keycode) = self.keymap(key) {
-            let prev_bits;
-            {
-                let _g = self.cs.enter();
+    pub fn notify_keycode_up(&mut self, keycode: KeyCode) {
+        let prev_bits;
+        {
+            let _g = self.cs.enter();
 
-                if self.control_is_masked && matches!(keycode, KeyCode::Shift | KeyCode::Ctrl) {
-                    return;
-                }
-
-                prev_bits = self.new_input_state;
-                let mask = Self::bit_for(keycode);
-
-                if (self.new_input_state & mask) != 0 {
-                    self.new_input_state &= !mask;
-                    self.input_up_pending |= mask;
-                }
+            if self.control_is_masked && matches!(keycode, KeyCode::Shift | KeyCode::Ctrl) {
+                return;
             }
 
-            self.latch_virtual_click_edges(prev_bits, self.new_input_state);
+            prev_bits = self.new_input_state;
+            let mask = Self::bit_for(keycode.clone());
+
+            if (self.new_input_state & mask) != 0 {
+                self.new_input_state &= !mask;
+                self.input_up_pending |= mask;
+            }
+        }
+
+        self.latch_virtual_click_edges(prev_bits, self.new_input_state);
+    }
+
+    #[cfg(any(feature = "gpu-render", feature = "soft-render-desktop"))]
+    pub fn notify_keydown(&mut self, key: winit::keyboard::Key, repeat: bool) {
+        if let Some(keycode) = self.keymap(key) {
+            self.notify_keycode_down(keycode, repeat);
+        }
+    }
+
+    #[cfg(any(feature = "gpu-render", feature = "soft-render-desktop"))]
+    pub fn notify_keyup(&mut self, key: winit::keyboard::Key) {
+        if let Some(keycode) = self.keymap(key) {
+            self.notify_keycode_up(keycode);
         }
     }
 

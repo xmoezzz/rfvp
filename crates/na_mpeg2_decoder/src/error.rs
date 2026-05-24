@@ -8,6 +8,7 @@ pub enum AvError {
     #[error("audio decode error: {0}")]
     Audio(String),
 
+    #[cfg(feature = "audio")]
     #[error("symphonia error: {0}")]
     Symphonia(#[from] symphonia::core::errors::Error),
 }

@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+#[cfg(feature = "audio")]
 use crate::audio::{MpaAudioChunk, MpaAudioDecoder};
 use crate::convert::frame_to_rgba_bt601_limited;
 use crate::demux::{Demuxer, Packet, StreamType};
@@ -15,6 +16,9 @@ pub struct MpegRgbaFrame {
     pub rgba: Vec<u8>,
 }
 
+// Always present: the struct itself has no symphonia dependencies.
+// In video-only builds (no "audio" feature) this type is defined but the
+// MpegAvEvent::Audio variant is never emitted by MpegAvPipeline.
 #[derive(Clone)]
 pub struct MpegAudioF32 {
     pub pts_ms: i64,
@@ -33,6 +37,7 @@ pub enum MpegAvEvent {
 pub struct MpegAvPipeline {
     demux: Demuxer,
     vdec: VideoDecoder,
+    #[cfg(feature = "audio")]
     adec: MpaAudioDecoder,
 
     pkts: Vec<Packet>,
@@ -44,6 +49,7 @@ impl MpegAvPipeline {
         Self {
             demux: Demuxer::new_auto(),
             vdec: VideoDecoder::new(),
+            #[cfg(feature = "audio")]
             adec: MpaAudioDecoder::new(),
             pkts: Vec::new(),
             stash: VecDeque::new(),
@@ -60,6 +66,7 @@ impl MpegAvPipeline {
         &mut self.vdec
     }
 
+    #[cfg(feature = "audio")]
     #[inline]
     pub fn audio_decoder_mut(&mut self) -> &mut MpaAudioDecoder {
         &mut self.adec
@@ -79,7 +86,10 @@ impl MpegAvPipeline {
         for pkt in local_pkts.drain(..) {
             match pkt.stream_type {
                 StreamType::MpegVideo => self.handle_video_pkt(&pkt, &mut on_event)?,
-                StreamType::MpegAudio => self.handle_audio_pkt(&pkt, &mut on_event)?,
+                StreamType::MpegAudio => {
+                    #[cfg(feature = "audio")]
+                    self.handle_audio_pkt(&pkt, &mut on_event)?;
+                }
                 StreamType::Unknown => {}
             }
         }
@@ -149,6 +159,7 @@ impl MpegAvPipeline {
         Ok(())
     }
 
+    #[cfg(feature = "audio")]
     fn handle_audio_pkt<F>(&mut self, pkt: &Packet, on_event: &mut F) -> Result<()>
     where
         F: FnMut(MpegAvEvent),

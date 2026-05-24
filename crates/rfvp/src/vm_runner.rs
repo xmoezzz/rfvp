@@ -10,6 +10,16 @@ use crate::subsystem::resources::{
 use crate::subsystem::save_state::try_decode_state_chunk_v1;
 use crate::subsystem::world::GameData;
 
+#[cfg(target_os = "uefi")]
+macro_rules! uefi_vm_stage {
+    ($($arg:tt)*) => {};
+}
+
+#[cfg(not(target_os = "uefi"))]
+macro_rules! uefi_vm_stage {
+    ($($arg:tt)*) => {};
+}
+
 /// Drives the script VM (which is coroutine-based, not OS-thread based).
 ///
 /// Design goal: isolate context-switching and opcode execution from the rest of the engine loop,
@@ -54,10 +64,14 @@ impl VmRunner {
         parser: &mut Parser,
         frame_time_ms: u64,
     ) -> Result<VmTickReport> {
+        uefi_vm_stage!("[UEFI] VmRunner::tick entered");
+        uefi_vm_stage!("[UEFI] VmRunner::tick before process_deferred_text_requests");
         self.process_deferred_text_requests(game);
+        uefi_vm_stage!("[UEFI] VmRunner::tick after process_deferred_text_requests");
         // The VM itself is cooperative; the engine decides when to advance contexts.
         // If the game is halted (e.g. waiting for IO / modal UI), we do not advance contexts.
         if game.get_halt() {
+            uefi_vm_stage!("[UEFI] VmRunner::tick game halted");
             if debug_ui::enabled() {
                 game.debug_vm_mut().update_from_thread_manager(&self.tm);
             }
@@ -69,11 +83,14 @@ impl VmRunner {
         if game.save_manager.wants_vm_snapshot_capture()
             && !game.save_manager.has_pending_vm_snapshot()
         {
+            uefi_vm_stage!("[UEFI] VmRunner::tick before capture_snapshot_v1 pre");
             let snap = self.tm.capture_snapshot_v1();
             game.save_manager.set_pending_vm_snapshot(snap);
+            uefi_vm_stage!("[UEFI] VmRunner::tick after capture_snapshot_v1 pre");
         }
 
         // Process deferred load requests at a safe point (between VM ticks).
+        uefi_vm_stage!("[UEFI] VmRunner::tick before take_load_request");
         if let Some(slot) = game.save_manager.take_load_request() {
             let path = SaveItem::resolve_save_path_for_read(slot);
             match fs::read(&path) {
@@ -128,15 +145,20 @@ impl VmRunner {
             }
             return Ok(VmTickReport::default());
         }
+        uefi_vm_stage!("[UEFI] VmRunner::tick after take_load_request");
 
         // In the original engine, dissolve is a global visual state that can unblock VM waits.
+        uefi_vm_stage!("[UEFI] VmRunner::tick before dissolve state");
         let dissolve_type = game.motion_manager.get_dissolve_type();
         let dissolve2_transitioning = game.motion_manager.is_dissolve2_transitioning();
+        uefi_vm_stage!("[UEFI] VmRunner::tick after dissolve state");
 
         let report = VmTickReport::default();
 
         let total = self.tm.total_contexts() as u32;
+        uefi_vm_stage!("[UEFI] VmRunner::tick total_contexts={}", total);
         for tid in 0..total {
+            uefi_vm_stage!("[UEFI] VmRunner::tick loop tid={}", tid);
             if game.get_halt() {
                 break;
             }
@@ -146,21 +168,30 @@ impl VmRunner {
                 continue;
             }
 
+            uefi_vm_stage!("[UEFI] VmRunner::tick before advance_timers tid={}", tid);
             self.advance_timers_and_state(
                 tid,
                 dissolve_type,
                 dissolve2_transitioning,
                 frame_time_ms,
             );
+            uefi_vm_stage!("[UEFI] VmRunner::tick after advance_timers tid={}", tid);
 
             let status = self.tm.get_context_status(tid);
+            uefi_vm_stage!(
+                "[UEFI] VmRunner::tick status tid={} bits={}",
+                tid,
+                status.bits()
+            );
             if status.contains(ThreadState::CONTEXT_STATUS_RUNNING)
                 && !status.contains(ThreadState::CONTEXT_STATUS_WAIT)
                 && !status.contains(ThreadState::CONTEXT_STATUS_SLEEP)
                 && !status.contains(ThreadState::CONTEXT_STATUS_TEXT)
                 && !status.contains(ThreadState::CONTEXT_STATUS_DISSOLVE_WAIT)
             {
+                uefi_vm_stage!("[UEFI] VmRunner::tick before run_one_context tid={}", tid);
                 self.run_one_context(tid, game, parser)?;
+                uefi_vm_stage!("[UEFI] VmRunner::tick after run_one_context tid={}", tid);
             }
         }
 
@@ -276,13 +307,28 @@ impl VmRunner {
         game: &mut GameData,
         parser: &mut Parser,
     ) -> Result<()> {
+        uefi_vm_stage!("[UEFI] run_one_context entered tid={}", tid);
         // Keep the VM's notion of current thread aligned with GameData.
+        uefi_vm_stage!("[UEFI] run_one_context before set_current_id tid={}", tid);
         self.tm.set_current_id(tid);
+        uefi_vm_stage!("[UEFI] run_one_context after set_current_id tid={}", tid);
+        uefi_vm_stage!("[UEFI] run_one_context before set_current_thread tid={}", tid);
         game.set_current_thread(tid);
+        uefi_vm_stage!("[UEFI] run_one_context after set_current_thread tid={}", tid);
 
+        uefi_vm_stage!(
+            "[UEFI] run_one_context before set_context_should_break false tid={}",
+            tid
+        );
         self.tm.set_context_should_break(tid, false);
+        uefi_vm_stage!(
+            "[UEFI] run_one_context after set_context_should_break false tid={}",
+            tid
+        );
         while !self.tm.get_context_should_break(tid) {
+            uefi_vm_stage!("[UEFI] run_one_context before dispatch tid={}", tid);
             let result = self.tm.context_dispatch_opcode(tid, game, parser);
+            uefi_vm_stage!("[UEFI] run_one_context after dispatch tid={}", tid);
 
             if self.tm.get_contexct_should_exit(tid) {
                 self.tm.thread_exit(Some(tid));

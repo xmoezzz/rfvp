@@ -1,0 +1,19 @@
+[package]
+name = "anzu-hal"
+version = "0.1.0"
+edition = "2021"
+license = "MPL-2.0"
+description = "Bare-metal audio HAL for rfvp: AC97/HDA driver + software mixer"
+
+[dependencies]
+anyhow = { version = "1.0", features = ["backtrace"] }
+log = "0.4"
+
+# OGG Vorbis decoding – pure Rust, works on UEFI targets.
+lewton = "0.10"
+
+[features]
+# Enable AC97 hardware driver (x86_64). On other arches a null driver is used.
+ac97 = []
+
+default = ["ac97"]

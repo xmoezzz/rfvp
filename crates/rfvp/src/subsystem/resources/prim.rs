@@ -613,7 +613,7 @@ impl PrimManager {
     }
 }
 
-use std::collections::HashSet;
+use crate::utils::stable_hash::StableHashSet;
 
 impl PrimManager {
     /// Dump the current primitive tree starting from `root`.
@@ -631,7 +631,7 @@ impl PrimManager {
             return out;
         }
 
-        let mut visited: HashSet<i16> = HashSet::new();
+        let mut visited: StableHashSet<i16> = StableHashSet::default();
         let mut count: usize = 0;
 
         fn dump_node(
@@ -640,7 +640,7 @@ impl PrimManager {
             depth: usize,
             max_nodes: usize,
             max_depth: usize,
-            visited: &mut HashSet<i16>,
+            visited: &mut StableHashSet<i16>,
             count: &mut usize,
             out: &mut String,
         ) {

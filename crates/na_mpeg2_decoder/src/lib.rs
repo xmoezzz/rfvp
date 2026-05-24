@@ -5,6 +5,7 @@ pub mod demux;
 pub mod pipeline;
 pub mod video;
 
+#[cfg(feature = "audio")]
 pub mod audio;
 pub mod av;
 pub mod error;
@@ -14,6 +15,7 @@ pub use demux::{Demuxer, Packet, StreamType};
 pub use pipeline::MpegVideoPipeline;
 pub use video::{Decoder, Frame, PixelFormat};
 
+#[cfg(feature = "audio")]
 pub use audio::{MpaAudioChunk, MpaAudioDecoder};
 pub use av::{MpegAudioF32, MpegAvEvent, MpegAvPipeline, MpegRgbaFrame};
 pub use error::{AvError, Result as AvResult};

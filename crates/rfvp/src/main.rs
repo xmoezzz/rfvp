@@ -37,6 +37,8 @@ mod window;
 
 #[cfg(feature = "gpu-render")]
 pub(crate) mod platform_time;
+#[cfg(feature = "gpu-render")]
+pub(crate) mod platform_random;
 
 #[cfg(feature = "gpu-render")]
 use script::parser::Nls;
@@ -147,16 +149,66 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-#[cfg(all(not(feature = "gpu-render"), feature = "soft-render"))]
+#[cfg(all(not(feature = "gpu-render"), feature = "rfvp-os"))]
+fn main() -> anyhow::Result<()> {
+    rfvp::rfvp_os_host::run_from_args()
+}
+
+#[cfg(all(
+    not(feature = "gpu-render"),
+    not(feature = "rfvp-os"),
+    feature = "soft-render-desktop"
+))]
 fn main() -> anyhow::Result<()> {
     rfvp::soft_host::run_from_args()
 }
 
-#[cfg(all(not(feature = "gpu-render"), not(feature = "soft-render")))]
-compile_error!("rfvp binary requires either `gpu-render` or `soft-render`.");
+#[cfg(all(
+    not(feature = "gpu-render"),
+    not(feature = "rfvp-os"),
+    feature = "soft-render-core",
+    not(feature = "soft-render-desktop")
+))]
+fn main() -> anyhow::Result<()> {
+    let renderer = rfvp::soft_render::create_soft_renderer(
+        320,
+        240,
+        rfvp::soft_render::PixelFormat::Rgba8,
+    )?;
+    let fb = renderer.framebuffer();
+    println!(
+        "rfvp soft-render-core initialized: {}x{} stride={} format={:?} bytes={}",
+        fb.width(),
+        fb.height(),
+        fb.stride(),
+        fb.format(),
+        fb.pixels().len()
+    );
+    println!("No platform presentation loop is wired for soft-render-core. Use soft-render/soft-render-desktop or rfvp-os.");
+    Ok(())
+}
+
+#[cfg(all(
+    not(feature = "gpu-render"),
+    not(feature = "soft-render"),
+    not(feature = "soft-render-core"),
+    feature = "no-audio"
+))]
+fn main() -> anyhow::Result<()> {
+    println!("rfvp no-audio feature check path initialized; enable gpu-render, soft-render-desktop, or rfvp-os to run an engine host.");
+    Ok(())
+}
+
+#[cfg(all(
+    not(feature = "gpu-render"),
+    not(feature = "soft-render"),
+    not(feature = "soft-render-core"),
+    not(feature = "no-audio")
+))]
+compile_error!("rfvp binary requires `gpu-render`, `soft-render`, `soft-render-core`, or `no-audio` for feature-check builds.");
 
 // test
-#[cfg(all(test, feature = "gpu-render"))]
+#[cfg(all(test, feature = "gpu-render", feature = "audio"))]
 mod tests {
     use super::*;
     use crate::subsystem::world::GameData;
@@ -175,7 +227,7 @@ mod tests {
         );
         crate::trace::vm(format_args!("BGM data size: {}", buff.len()));
         world.bgm_player_mut().load(0, buff).unwrap();
-        let mut fade_in = kira::Tween {
+        let mut fade_in = crate::rfvp_audio::Tween {
             duration: Duration::from_secs(0),
             ..Default::default()
         };
@@ -205,7 +257,7 @@ mod tests {
         );
         crate::trace::vm(format_args!("BGM data size: {}", buff.len()));
         world.bgm_player_mut().load(0, buff).unwrap();
-        let mut fade_in = kira::Tween {
+        let mut fade_in = crate::rfvp_audio::Tween {
             duration: Duration::from_secs(0),
             ..Default::default()
         };

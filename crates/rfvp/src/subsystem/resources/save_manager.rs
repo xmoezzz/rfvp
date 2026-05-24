@@ -470,7 +470,14 @@ impl SaveManager {
         if let Some(Some(_)) = self.slots.get(slot as usize) {
             return true;
         }
-        SaveItem::get_save_path(slot).exists()
+        #[cfg(target_os = "uefi")]
+        {
+            false
+        }
+        #[cfg(not(target_os = "uefi"))]
+        {
+            SaveItem::get_save_path(slot).exists()
+        }
     }
 
     pub fn get_save_title(&self, slot: u32) -> String {
@@ -582,6 +589,13 @@ impl SaveManager {
     }
 
     pub fn get_save_thumb(&self, slot: u32, width: u32, height: u32) -> Result<Vec<u8>> {
+        #[cfg(target_os = "uefi")]
+        {
+            let _ = (slot, width, height);
+            bail!("UEFI save thumbnails are not available without a UEFI save filesystem backend");
+        }
+
+        #[cfg(not(target_os = "uefi"))]
         SaveItem::read_thumb_texture(slot, width, height)
     }
 
@@ -590,25 +604,53 @@ impl SaveManager {
             return;
         }
         self.slots[slot as usize] = None;
-        let path = SaveItem::resolve_save_path_for_read(slot);
-        let _ = std::fs::remove_file(&path);
+        #[cfg(target_os = "uefi")]
+        {
+            return;
+        }
+        #[cfg(not(target_os = "uefi"))]
+        {
+            let path = SaveItem::resolve_save_path_for_read(slot);
+            let _ = std::fs::remove_file(&path);
+        }
     }
 
     pub fn copy_savedata(&mut self, src: u32, dst: u32) -> Result<()> {
-        if let Some(save_item) = self.slots.get(src as usize) {
-            if let Some(save_item) = save_item {
-                self.slots[dst as usize] = Some(save_item.clone());
-                let src_data = SaveItem::resolve_save_path_for_read(src);
-
-                let dst_data = SaveItem::get_save_path(dst);
-
-                let _ = std::fs::copy(src_data, dst_data)?;
-            }
+        #[cfg(target_os = "uefi")]
+        {
+            let _ = (src, dst);
+            return Ok(());
         }
-        Ok(())
+
+        #[cfg(not(target_os = "uefi"))]
+        {
+            if let Some(save_item) = self.slots.get(src as usize) {
+                if let Some(save_item) = save_item {
+                    self.slots[dst as usize] = Some(save_item.clone());
+                    let src_data = SaveItem::resolve_save_path_for_read(src);
+
+                    let dst_data = SaveItem::get_save_path(dst);
+
+                    let _ = std::fs::copy(src_data, dst_data)?;
+                }
+            }
+            Ok(())
+        }
     }
 
     pub fn refresh_all_savedata(&mut self, nls: Nls) -> Result<()> {
+        #[cfg(target_os = "uefi")]
+        {
+            let _ = nls;
+            for slot in self.slots.iter_mut() {
+                *slot = None;
+            }
+            log::info!("[UEFI] refresh_all_savedata skipped: no UEFI save filesystem backend");
+            return Ok(());
+        }
+
+        #[cfg(not(target_os = "uefi"))]
+        {
         // Clear the slot table then scan existing save files.
         for slot in self.slots.iter_mut() {
             *slot = None;
@@ -666,9 +708,21 @@ impl SaveManager {
         }
 
         Ok(())
+        }
     }
 
     pub fn load_savedata(&mut self, slot: u32, nls: Nls) -> Result<()> {
+        #[cfg(target_os = "uefi")]
+        {
+            let _ = nls;
+            if slot < 1000 {
+                self.slots[slot as usize] = None;
+            }
+            return Ok(());
+        }
+
+        #[cfg(not(target_os = "uefi"))]
+        {
         let path = SaveItem::resolve_save_path_for_read(slot);
 
         // Missing save slots are not fatal for callers that enumerate all slots.
@@ -684,6 +738,7 @@ impl SaveManager {
             self.slots[slot as usize] = Some(save_item);
         }
         Ok(())
+        }
     }
 
     pub fn load_save_buff(&mut self, slot: u32, nls: Nls, cache: &Vec<u8>) -> Result<()> {
@@ -772,6 +827,18 @@ impl SaveManager {
     ///
     /// Returns `true` if a file was written.
     pub fn try_commit_local_savedata(&mut self, nls: Nls) -> Result<bool> {
+        #[cfg(target_os = "uefi")]
+        {
+            let _ = nls;
+            if self.save_requested && !self.savedata_prepared {
+                log::warn!("[UEFI] SaveWrite skipped: no UEFI save filesystem backend");
+                self.savedata_prepared = true;
+            }
+            return Ok(false);
+        }
+
+        #[cfg(not(target_os = "uefi"))]
+        {
         if !self.save_requested || self.savedata_prepared {
             return Ok(false);
         }
@@ -797,6 +864,7 @@ impl SaveManager {
 
         self.savedata_prepared = true;
         Ok(true)
+        }
     }
 
     /// Finalize a pending save by writing out the save slot file.
@@ -810,6 +878,18 @@ impl SaveManager {
         thumb_rgba: &[u8],
         state: Option<&crate::subsystem::save_state::SaveStateSnapshotV1>,
     ) -> Result<()> {
+        #[cfg(target_os = "uefi")]
+        {
+            let _ = (nls, thumb_w, thumb_h, thumb_rgba, state);
+            if self.save_requested {
+                log::warn!("[UEFI] finalize_save_write skipped: no UEFI save filesystem backend");
+                self.savedata_prepared = true;
+            }
+            return Ok(());
+        }
+
+        #[cfg(not(target_os = "uefi"))]
+        {
         if !self.save_requested || self.current_save_slot == u32::MAX {
             return Ok(());
         }
@@ -843,6 +923,7 @@ impl SaveManager {
 
         self.savedata_prepared = true;
         Ok(())
+        }
     }
 
     /// Called by the SaveWrite syscall once it has observed completion.
@@ -873,9 +954,22 @@ impl SaveManager {
     /// using the loaded fields (title/scene/script content). This mirrors the original
     /// engine behavior where the save payload is interpreted at a higher layer.
     pub fn load_slot_into_current(&mut self, slot: u32, nls: Nls) -> Result<()> {
+        #[cfg(target_os = "uefi")]
+        {
+            let _ = nls;
+            self.current_save_slot = slot;
+            if slot < 1000 {
+                self.slots[slot as usize] = None;
+            }
+            return Ok(());
+        }
+
+        #[cfg(not(target_os = "uefi"))]
+        {
         let path = SaveItem::resolve_save_path_for_read(slot);
         let bytes = std::fs::read(&path)?;
         self.load_slot_into_current_from_bytes(slot, nls, &bytes)
+        }
     }
 
     pub fn load_slot_into_current_from_bytes(

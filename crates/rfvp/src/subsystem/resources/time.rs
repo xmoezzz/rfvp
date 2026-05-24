@@ -62,11 +62,10 @@ mod time {
 }
 
 mod timer {
-    use std::collections::HashMap;
-
     use crate::platform_time::Duration;
 
     use crate::subsystem::resources::time::Error;
+    use crate::utils::stable_hash::StableHashMap;
 
     /// Different types of timer that car be used
     pub enum TimerType {
@@ -170,7 +169,7 @@ mod timer {
     /// in order to help users to create timers in their systems/layers
     #[derive(Default)]
     pub struct Timers {
-        timers: HashMap<String, Timer>,
+        timers: StableHashMap<String, Timer>,
     }
 
     impl Timers {

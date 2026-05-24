@@ -10,6 +10,16 @@ use serde::{Deserialize, Serialize};
 
 use anyhow::{bail, Result};
 
+#[cfg(target_os = "uefi")]
+macro_rules! uefi_context_stage {
+    ($($arg:tt)*) => {};
+}
+
+#[cfg(not(target_os = "uefi"))]
+macro_rules! uefi_context_stage {
+    ($($arg:tt)*) => {};
+}
+
 static MAX_STACK_SIZE: usize = 0x100;
 
 #[derive(Debug, Clone, Default)]
@@ -374,17 +384,28 @@ impl Context {
     /// call a system call
     pub fn syscall(&mut self, sys: &mut impl VmSyscall, parser: &mut Parser) -> Result<()> {
         self.cursor += 1;
+        uefi_context_stage!("[UEFI] Context::syscall before read id pc={}", self.cursor);
         let id = parser.read_u16(self.cursor)?;
+        uefi_context_stage!("[UEFI] Context::syscall after read id={}", id);
         self.cursor += size_of::<u16>();
 
         if let Some(syscall) = parser.get_syscall(id) {
+            uefi_context_stage!(
+                "[UEFI] Context::syscall resolved id={} name={} args={}",
+                id,
+                syscall.name,
+                syscall.args
+            );
             let mut args = Vec::new();
             for _ in 0..syscall.args {
+                uefi_context_stage!("[UEFI] Context::syscall before pop arg");
                 args.push(self.pop()?);
+                uefi_context_stage!("[UEFI] Context::syscall after pop arg");
             }
 
             // reverse the arguments
             args.reverse();
+            uefi_context_stage!("[UEFI] Context::syscall before do_syscall name={}", syscall.name);
 
             crate::trace::syscall(format_args!("syscall: {} {:?}", &syscall.name, &args));
             let result = match sys.do_syscall(syscall.name.as_str(), args) {
@@ -394,6 +415,7 @@ impl Context {
                     Variant::Nil
                 }
             };
+            uefi_context_stage!("[UEFI] Context::syscall after do_syscall name={}", syscall.name);
             self.return_value = result;
             crate::trace::syscall(format_args!(
                 "syscall_ret: {} -> {:?}",
@@ -1041,7 +1063,13 @@ impl Context {
         syscaller: &mut impl VmSyscall,
         parser: &mut Parser,
     ) -> Result<()> {
+        uefi_context_stage!("[UEFI] Context::dispatch_opcode before read pc={}", self.get_pc());
         let opcode = parser.read_u8(self.get_pc())? as i32;
+        uefi_context_stage!(
+            "[UEFI] Context::dispatch_opcode after read pc={} opcode={}",
+            self.get_pc(),
+            opcode
+        );
 
         match opcode.try_into() {
             Ok(Opcode::Nop) => {

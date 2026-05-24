@@ -22,6 +22,9 @@ pub fn movie_play(game_data: &mut GameData, path: &Variant, flag: &Variant) -> R
     };
 
     let (w, h) = (game_data.get_width() as u32, game_data.get_height() as u32);
+    #[cfg(target_os = "uefi")]
+    let audio_manager = None;
+    #[cfg(not(target_os = "uefi"))]
     let audio_manager = if matches!(mode, MovieMode::ModalWithAudio) {
         Some(game_data.audio_manager())
     } else {

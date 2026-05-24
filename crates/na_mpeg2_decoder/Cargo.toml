@@ -13,8 +13,9 @@ thiserror = "1"
 log = "0.4"
 byteorder = "1"
 
-# Audio decode is delegated to Symphonia (MP1/2/3).
-symphonia = { version = "0.5.5", features = ["mpa"] }
+# Audio decode is delegated to Symphonia (MP1/2/3). Optional: only compiled
+# when the "audio" feature is enabled. Excluded from UEFI video-only builds.
+symphonia = { version = "0.5.5", features = ["mpa"], optional = true }
 
 crossbeam-channel = { version = "0.5", optional = true }
 pollster = { version = "0.3", optional = true }
@@ -26,9 +27,17 @@ env_logger = { version = "0.11", optional = true }
 png = { version = "0.17", optional = true }
 
 [features]
-default = []
+default = ["audio"]
+
+# Audio decoding via Symphonia (MP1/2/3). Enabled by default for desktop.
+audio = ["dep:symphonia"]
+
+# Marker feature: video decode only, no audio, no symphonia dependency.
+# Used by UEFI builds via rfvp's uefi-native-video feature.
+video-only = []
 
 desktop-bins = [
+  "audio",
   "dep:crossbeam-channel",
   "dep:pollster",
   "dep:winit",

@@ -1,4 +1,3 @@
-use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::audio_player::{BgmPlayer, SePlayer};
@@ -71,13 +70,13 @@ use crate::subsystem::resources::motion_manager::MotionManager;
 use crate::subsystem::resources::time::Time;
 use crate::subsystem::resources::window::Window;
 use crate::subsystem::scene::SceneController;
-use crate::utils::ani::CursorBundle;
+use crate::utils::ani::{CursorBundle, CustomCursor};
+use crate::utils::stable_hash::{StableHashMap, StableHashSet};
 use atomic_refcell::AtomicRefCell;
 use hecs::{
     Component, ComponentError, DynamicBundle, Entity, NoSuchEntity, Query, QueryBorrow, QueryMut,
     QueryOne, QueryOneError,
 };
-use winit::window::CustomCursor;
 
 use super::resources::flag_manager::FlagManager;
 use super::resources::history_manager::HistoryManager;
@@ -94,8 +93,20 @@ use super::resources::videoplayer::VideoPlayerManager;
 use crate::subsystem::components::syscalls::generated;
 use crate::subsystem::components::syscalls::Syscaller;
 
+#[cfg(target_os = "uefi")]
+macro_rules! uefi_game_data_stage {
+    ($($arg:tt)*) => {
+        log::info!($($arg)*);
+    };
+}
+
+#[cfg(not(target_os = "uefi"))]
+macro_rules! uefi_game_data_stage {
+    ($($arg:tt)*) => {};
+}
+
 pub trait World {
-    fn entities(&self) -> HashSet<Entity>;
+    fn entities(&self) -> StableHashSet<Entity>;
     fn clear(&mut self);
     fn push(&mut self, components: impl DynamicBundle) -> Entity;
     fn remove(&mut self, entity: Entity) -> Result<(), NoSuchEntity>;
@@ -147,7 +158,7 @@ pub struct GameData {
     current_thread: u32,
     main_thread_exited: bool,
     game_should_exit: bool,
-    cursor_table: HashMap<u32, CursorBundle>,
+    cursor_table: StableHashMap<u32, CursorBundle>,
     current_cursor_index: u32,
     halt: bool,
 
@@ -163,18 +174,40 @@ impl GameData {
     pub unsafe fn init_default_in_place(dst: *mut GameData) {
         use std::ptr;
 
+        uefi_game_data_stage!("[UEFI] GameData init before AudioManager");
         let audio_manager = Arc::new(AudioManager::new());
+        uefi_game_data_stage!("[UEFI] GameData init after AudioManager");
 
+        uefi_game_data_stage!("[UEFI] GameData init before vfs");
         ptr::addr_of_mut!((*dst).vfs).write(Vfs::default());
+        uefi_game_data_stage!("[UEFI] GameData init after vfs");
+        uefi_game_data_stage!("[UEFI] GameData init before thread_wrapper");
         ptr::addr_of_mut!((*dst).thread_wrapper).write(ThreadWrapper::default());
+        uefi_game_data_stage!("[UEFI] GameData init after thread_wrapper");
+        uefi_game_data_stage!("[UEFI] GameData init before history_manager");
         ptr::addr_of_mut!((*dst).history_manager).write(HistoryManager::default());
+        uefi_game_data_stage!("[UEFI] GameData init after history_manager");
+        uefi_game_data_stage!("[UEFI] GameData init before flag_manager");
         ptr::addr_of_mut!((*dst).flag_manager).write(FlagManager::default());
+        uefi_game_data_stage!("[UEFI] GameData init after flag_manager");
+        uefi_game_data_stage!("[UEFI] GameData init before motion_manager");
         ptr::addr_of_mut!((*dst).motion_manager).write(MotionManager::default());
+        uefi_game_data_stage!("[UEFI] GameData init after motion_manager");
+        uefi_game_data_stage!("[UEFI] GameData init before fontface_manager");
         ptr::addr_of_mut!((*dst).fontface_manager).write(FontEnumerator::default());
+        uefi_game_data_stage!("[UEFI] GameData init after fontface_manager");
+        uefi_game_data_stage!("[UEFI] GameData init before inputs_manager");
         ptr::addr_of_mut!((*dst).inputs_manager).write(InputManager::default());
+        uefi_game_data_stage!("[UEFI] GameData init after inputs_manager");
+        uefi_game_data_stage!("[UEFI] GameData init before timer_manager");
         ptr::addr_of_mut!((*dst).timer_manager).write(TimerManager::default());
+        uefi_game_data_stage!("[UEFI] GameData init after timer_manager");
+        uefi_game_data_stage!("[UEFI] GameData init before video_manager");
         ptr::addr_of_mut!((*dst).video_manager).write(VideoPlayerManager::default());
+        uefi_game_data_stage!("[UEFI] GameData init after video_manager");
+        uefi_game_data_stage!("[UEFI] GameData init before save_manager");
         ptr::addr_of_mut!((*dst).save_manager).write(SaveManager::default());
+        uefi_game_data_stage!("[UEFI] GameData init after save_manager");
         ptr::addr_of_mut!((*dst).nls).write(Nls::default());
         ptr::addr_of_mut!((*dst).memory_cache).write(Vec::new());
         ptr::addr_of_mut!((*dst).time).write(Time::default());
@@ -197,10 +230,11 @@ impl GameData {
         ptr::addr_of_mut!((*dst).current_thread).write(0);
         ptr::addr_of_mut!((*dst).main_thread_exited).write(false);
         ptr::addr_of_mut!((*dst).game_should_exit).write(false);
-        ptr::addr_of_mut!((*dst).cursor_table).write(HashMap::new());
+        ptr::addr_of_mut!((*dst).cursor_table).write(StableHashMap::default());
         ptr::addr_of_mut!((*dst).current_cursor_index).write(0);
         ptr::addr_of_mut!((*dst).halt).write(false);
         ptr::addr_of_mut!((*dst).debug_vm).write(Default::default());
+        uefi_game_data_stage!("[UEFI] GameData init complete");
     }
 }
 
@@ -241,7 +275,7 @@ impl Default for GameData {
             current_thread: 0,
             main_thread_exited: false,
             game_should_exit: false,
-            cursor_table: HashMap::new(),
+            cursor_table: StableHashMap::default(),
             current_cursor_index: 0, // means use the defualt cursor
             halt: false,
             debug_vm: Default::default(),
@@ -306,7 +340,7 @@ impl GameData {
         self.pending_render_flag.take()
     }
 
-    pub fn set_cursor_table(&mut self, table: HashMap<u32, CursorBundle>) {
+    pub fn set_cursor_table(&mut self, table: StableHashMap<u32, CursorBundle>) {
         self.cursor_table = table;
     }
 
@@ -502,8 +536,8 @@ impl VmSyscall for GameData {
 
 // no one wants to own this:(
 lazy_static::lazy_static! {
-    static ref SYSCALL_TBL : AtomicRefCell<HashMap<String, Box<dyn Syscaller + 'static + Send + Sync>>> = {
-        let mut m: HashMap<String, Box<dyn Syscaller + 'static + Send + Sync>> = HashMap::new();
+    static ref SYSCALL_TBL : AtomicRefCell<StableHashMap<String, Box<dyn Syscaller + 'static + Send + Sync>>> = {
+        let mut m: StableHashMap<String, Box<dyn Syscaller + 'static + Send + Sync>> = StableHashMap::default();
 
         // audio apis
         m.insert("SoundPlay".into(), Box::new(SoundPlay));

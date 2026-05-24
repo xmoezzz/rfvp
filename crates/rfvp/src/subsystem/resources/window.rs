@@ -1,8 +1,16 @@
-use winit::window::CursorIcon;
+#[cfg(any(feature = "gpu-render", feature = "soft-render-desktop"))]
+pub type EngineCursorIcon = winit::window::CursorIcon;
+
+#[cfg(not(any(feature = "gpu-render", feature = "soft-render-desktop")))]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq)]
+pub enum EngineCursorIcon {
+    #[default]
+    Default,
+}
 
 #[derive(Default, Debug, Copy, Clone)]
 struct FutureSettings {
-    new_cursor: Option<CursorIcon>,
+    new_cursor: Option<EngineCursorIcon>,
     dimensions: Option<(u32, u32)>,
     cursor_visible: Option<bool>,
     cursor_pos: Option<(i32, i32)>,
@@ -33,7 +41,7 @@ impl Window {
         self.height = height;
     }
 
-    pub fn set_cursor(&mut self, icon: CursorIcon) {
+    pub fn set_cursor(&mut self, icon: EngineCursorIcon) {
         self.future_settings.new_cursor = Some(icon);
     }
 
@@ -61,7 +69,7 @@ impl Window {
         self.dpi
     }
 
-    pub fn new_cursor(&self) -> &Option<CursorIcon> {
+    pub fn new_cursor(&self) -> &Option<EngineCursorIcon> {
         &self.future_settings.new_cursor
     }
     pub fn new_dimensions(&self) -> &Option<(u32, u32)> {
@@ -87,6 +95,6 @@ impl Window {
 
     pub fn set_cursor_kind(&mut self, _kind_id: i32) {
         // Minimal mapping: treat any id as default cursor for now.
-        self.future_settings.new_cursor = Some(CursorIcon::Default);
+        self.future_settings.new_cursor = Some(EngineCursorIcon::Default);
     }
 }

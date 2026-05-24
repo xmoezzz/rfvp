@@ -1,5 +1,3 @@
-use rand::Rng;
-
 #[derive(Copy, Clone, Debug, Default)]
 pub struct SnowFlake {
     /// dword0 in original: variant index (uint)
@@ -131,7 +129,6 @@ impl SnowMotion {
     /// Original: int __thiscall set_snow_flake(SnowMotion *this, snow_flake *a2)
     /// We pass index instead of pointer.
     fn set_snow_flake(s: &mut SnowMotion, flake_idx: usize, ori_game_w: i32, ori_game_h: i32) {
-        let mut rng = rand::thread_rng();
         if flake_idx >= 1024 {
             return;
         }
@@ -151,8 +148,8 @@ impl SnowMotion {
         let mut period: f32 = period_min as f32;
         if v6 != 0 {
             // v13 = (double)(period_min + rand() % v6); v12 = rand_frac + v13;
-            let r_int: i32 = rng.gen_range(0..v6);
-            let frac = rng.gen_range(0..256) as f32 * 0.00390625_f32; // 1/256
+            let r_int: i32 = crate::platform_random::range_i32(0, v6);
+            let frac = crate::platform_random::range_i32(0, 256) as f32 * 0.00390625_f32; // 1/256
             period = (period_min + r_int) as f32 + frac;
         }
 
@@ -164,11 +161,11 @@ impl SnowMotion {
         let margin_y = (s.flake_h as f32) * 0.5_f32 * inv_p;
 
         // get two random floats (via rng)
-        let rand_f1 = rng.gen::<f32>() * 65535.0_f32; // approximate behavior of (float)rand()
-        let rand_f2 = rng.gen::<f32>() * 65535.0_f32;
+        let rand_f1 = crate::platform_random::next_f32() * 65535.0_f32; // approximate behavior of (float)rand()
+        let rand_f2 = crate::platform_random::next_f32() * 65535.0_f32;
 
         // variant selection:
-        let v7 = rng.gen::<u32>() as usize;
+        let v7 = crate::platform_random::next_u32() as usize;
         let variant_count = s.variant_count.max(1) as usize;
         let variant_idx = (v7 % variant_count) as u32;
 
@@ -201,7 +198,6 @@ impl SnowMotion {
     fn adjust_after_reset(
         s: &mut SnowMotion,
         flake_idx: usize,
-        rng: &mut impl Rng,
         ori_game_w: i32,
         ori_game_h: i32,
     ) {
@@ -358,8 +354,7 @@ impl SnowMotion {
         // if ( self.flake_count > 0 ) { p_period = &self.flakes[0].period; ...
         let flake_count = self.flake_count.max(0) as usize;
         if flake_count > 0 {
-            let mut rng = rand::thread_rng();
-            // We iterate i from 0..flake_count
+                // We iterate i from 0..flake_count
             for i in 0..flake_count {
                 // For convenience, create local mutable references
                 // Equivalent of p_period pointing to flake.period; p_period[1] is x (flake.x), p_period[2] is y
@@ -386,8 +381,8 @@ impl SnowMotion {
                 // if ( jitter_amplitude > 0 ) { add random offset in [-jitter, jitter] to both components }
                 if jitter_amplitude > 0 {
                     let jitter = jitter_amplitude as i32;
-                    let rx: i32 = rng.gen_range(-jitter..=jitter);
-                    let ry: i32 = rng.gen_range(-jitter..=jitter);
+                    let rx: i32 = crate::platform_random::range_i32_inclusive(-jitter, jitter);
+                    let ry: i32 = crate::platform_random::range_i32_inclusive(-jitter, jitter);
                     elapseda = (rx as f32) + elapseda;
                     base_y_per_period = (ry as f32) + base_y_per_period;
                 }
@@ -458,7 +453,7 @@ impl SnowMotion {
                     // set_snow_flake(this, (snow_flake *)(p_period - 1));
                     // sub_4249B0(this, p_period - 1);
                     Self::set_snow_flake(self, i, ori_game_w, ori_game_h);
-                    Self::adjust_after_reset(self, i, &mut rng, ori_game_w, ori_game_h);
+                    Self::adjust_after_reset(self, i, ori_game_w, ori_game_h);
                 }
             } // end for each flake
         } // end if flake_count > 0

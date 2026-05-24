@@ -1,10 +1,17 @@
 use anyhow::{bail, Context, Result};
+#[cfg(not(target_os = "uefi"))]
 use glob::glob;
-use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::mem::size_of;
 use std::path::{Path, PathBuf};
+
+#[cfg(target_os = "uefi")]
+use uefi::boot;
+#[cfg(target_os = "uefi")]
+use uefi::proto::media::file::{File as UefiFile, FileAttribute, FileMode, RegularFile};
+#[cfg(target_os = "uefi")]
+use uefi::CString16;
 
 #[cfg(target_arch = "wasm32")]
 use crate::wasm_app_path::{
@@ -12,7 +19,8 @@ use crate::wasm_app_path::{
 };
 
 use crate::script::parser::Nls;
-use crate::utils::file::app_base_path;
+use crate::utils::file::{app_base_path, hcb_root_path};
+use crate::utils::stable_hash::StableHashMap;
 
 /// A simple trait alias for "readable + seekable" streams.
 pub trait ReadSeek: Read + Seek {}
@@ -20,32 +28,40 @@ impl<T: Read + Seek> ReadSeek for T {}
 
 /// A VFS-backed stream. This is intentionally a boxed trait object so callers can
 /// treat on-disk files and pack-slices uniformly.
+#[cfg(feature = "rfvp-os")]
+pub type VfsStream = Box<dyn ReadSeek>;
+#[cfg(not(feature = "rfvp-os"))]
 pub type VfsStream = Box<dyn ReadSeek + Send + Sync>;
 
+#[cfg(all(feature = "audio", not(target_os = "uefi")))]
 /// A VFS stream that can be passed directly to Symphonia/Kira streaming audio.
 pub struct VfsMediaSource {
     stream: VfsStream,
     byte_len: Option<u64>,
 }
 
+#[cfg(all(feature = "audio", not(target_os = "uefi")))]
 impl VfsMediaSource {
     pub fn new(stream: VfsStream, byte_len: Option<u64>) -> Self {
         Self { stream, byte_len }
     }
 }
 
+#[cfg(all(feature = "audio", not(target_os = "uefi")))]
 impl Read for VfsMediaSource {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.stream.read(buf)
     }
 }
 
+#[cfg(all(feature = "audio", not(target_os = "uefi")))]
 impl Seek for VfsMediaSource {
     fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
         self.stream.seek(pos)
     }
 }
 
+#[cfg(all(feature = "audio", not(target_os = "uefi")))]
 impl symphonia_core::io::MediaSource for VfsMediaSource {
     fn is_seekable(&self) -> bool {
         true
@@ -118,6 +134,142 @@ impl Seek for SubFile {
     }
 }
 
+#[cfg(target_os = "uefi")]
+#[derive(Debug)]
+pub struct UefiFileReader {
+    file: RegularFile,
+    pos: u64,
+}
+
+#[cfg(target_os = "uefi")]
+impl UefiFileReader {
+    fn open(path: &str) -> std::io::Result<Self> {
+        let image_handle = boot::image_handle();
+        let mut fs = boot::get_image_file_system(image_handle)
+            .map_err(|err| uefi_io_error("get_image_file_system", err.status()))?;
+        let mut root = fs
+            .open_volume()
+            .map_err(|err| uefi_io_error("open_volume", err.status()))?;
+        let path = CString16::try_from(path).map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid UEFI path")
+        })?;
+        let handle = root
+            .open(path.as_ref(), FileMode::Read, FileAttribute::empty())
+            .map_err(|err| uefi_io_error("open", err.status()))?;
+        Ok(Self {
+            file: unsafe { RegularFile::new(handle) },
+            pos: 0,
+        })
+    }
+}
+
+#[cfg(target_os = "uefi")]
+impl Read for UefiFileReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = self
+            .file
+            .read(buf)
+            .map_err(|err| uefi_io_error("read", err.status()))?;
+        self.pos = self.pos.saturating_add(n as u64);
+        Ok(n)
+    }
+}
+
+#[cfg(target_os = "uefi")]
+impl Seek for UefiFileReader {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        let next = match pos {
+            SeekFrom::Start(off) => off,
+            SeekFrom::End(_) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    "UEFI pack reader does not support seeking from end",
+                ));
+            }
+            SeekFrom::Current(delta) => {
+                if delta < 0 {
+                    self.pos.saturating_sub(delta.unsigned_abs())
+                } else {
+                    self.pos.saturating_add(delta as u64)
+                }
+            }
+        };
+        self.file
+            .set_position(next)
+            .map_err(|err| uefi_io_error("set_position", err.status()))?;
+        self.pos = next;
+        Ok(self.pos)
+    }
+}
+
+#[cfg(target_os = "uefi")]
+fn uefi_io_error(op: &'static str, status: uefi::Status) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::Other, format!("{op} failed: {status:?}"))
+}
+
+#[cfg(target_os = "uefi")]
+#[derive(Debug)]
+pub struct UefiSubFile {
+    file: UefiFileReader,
+    start: u64,
+    len: u64,
+    pos: u64,
+}
+
+#[cfg(target_os = "uefi")]
+impl UefiSubFile {
+    fn new(mut file: UefiFileReader, start: u64, len: u64) -> Result<Self> {
+        file.seek(SeekFrom::Start(start))
+            .with_context(|| format!("seek UEFI pack slice start={}", start))?;
+        Ok(Self {
+            file,
+            start,
+            len,
+            pos: 0,
+        })
+    }
+
+    fn clamp_pos(&self, p: i128) -> u64 {
+        if p <= 0 {
+            return 0;
+        }
+        let p = p as u128;
+        if p >= self.len as u128 {
+            return self.len;
+        }
+        p as u64
+    }
+}
+
+#[cfg(target_os = "uefi")]
+impl Read for UefiSubFile {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if self.pos >= self.len {
+            return Ok(0);
+        }
+        let remain = (self.len - self.pos) as usize;
+        let to_read = buf.len().min(remain);
+        self.file.seek(SeekFrom::Start(self.start + self.pos))?;
+        let n = self.file.read(&mut buf[..to_read])?;
+        self.pos += n as u64;
+        Ok(n)
+    }
+}
+
+#[cfg(target_os = "uefi")]
+impl Seek for UefiSubFile {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        let next = match pos {
+            SeekFrom::Start(off) => self.clamp_pos(off as i128),
+            SeekFrom::End(delta) => self.clamp_pos(self.len as i128 + delta as i128),
+            SeekFrom::Current(delta) => self.clamp_pos(self.pos as i128 + delta as i128),
+        };
+        self.pos = next;
+        self.file.seek(SeekFrom::Start(self.start + self.pos))?;
+        Ok(self.pos)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct VfsEntry {
     pub offset: u64,
@@ -128,9 +280,11 @@ pub struct VfsEntry {
 pub struct VfsFile {
     pub path: PathBuf,
     pub folder_name: String,
+    #[cfg(target_os = "uefi")]
+    pub uefi_path: Option<String>,
     pub file_count: u64,
     pub filename_table_size: u64,
-    pub entries: HashMap<String, VfsEntry>,
+    pub entries: StableHashMap<String, VfsEntry>,
     pub nls: Nls,
     #[cfg(target_arch = "wasm32")]
     wasm_pack: Option<WasmFileRef>,
@@ -144,6 +298,28 @@ impl VfsFile {
         Ok(VfsFile {
             path,
             folder_name,
+            #[cfg(target_os = "uefi")]
+            uefi_path: None,
+            file_count,
+            filename_table_size,
+            entries,
+            nls: nls.clone(),
+            #[cfg(target_arch = "wasm32")]
+            wasm_pack: None,
+        })
+    }
+
+    #[cfg(target_os = "uefi")]
+    pub fn new_uefi_pack(path: String, folder_name: String, nls: Nls) -> anyhow::Result<Self> {
+        let mut file =
+            UefiFileReader::open(&path).with_context(|| format!("open UEFI pack {path}"))?;
+        let (file_count, filename_table_size, entries) = VfsFile::parse_reader(&mut file, nls)
+            .with_context(|| format!("parse UEFI pack {path}"))?;
+
+        Ok(VfsFile {
+            path: PathBuf::from(&path),
+            folder_name,
+            uefi_path: Some(path),
             file_count,
             filename_table_size,
             entries,
@@ -217,12 +393,12 @@ impl VfsFile {
         offset: u64,
         size: u64,
         nls: Nls,
-    ) -> Result<HashMap<u64, String>> {
+    ) -> Result<StableHashMap<u64, String>> {
         let mut buffer = vec![0u8; size as usize];
         reader.seek(SeekFrom::Start(offset))?;
         reader.read_exact(&mut buffer)?;
 
-        let mut results = HashMap::new();
+        let mut results = StableHashMap::default();
         let mut start = 0usize;
         for (i, &b) in buffer.iter().enumerate() {
             if b == 0 {
@@ -252,7 +428,7 @@ impl VfsFile {
     pub fn parse(
         path: impl AsRef<Path>,
         nls: Nls,
-    ) -> Result<(u64, u64, HashMap<String, VfsEntry>)> {
+    ) -> Result<(u64, u64, StableHashMap<String, VfsEntry>)> {
         let path = path.as_ref();
         if !path.exists() {
             bail!("pack does not exist: {}", path.display());
@@ -265,7 +441,7 @@ impl VfsFile {
     fn parse_reader(
         reader: &mut (impl Read + Seek),
         nls: Nls,
-    ) -> Result<(u64, u64, HashMap<String, VfsEntry>)> {
+    ) -> Result<(u64, u64, StableHashMap<String, VfsEntry>)> {
         let mut offset = 0u64;
         let file_count = Self::read_u32le(reader, offset)? as u64;
         offset += size_of::<u32>() as u64;
@@ -280,7 +456,7 @@ impl VfsFile {
             Self::read_filename_table(reader, filename_table_offset, filename_table_size, nls)?;
 
         reader.seek(SeekFrom::Start(entries_offset))?;
-        let mut entries = HashMap::new();
+        let mut entries = StableHashMap::default();
         let mut cur = entries_offset;
         for _ in 0..file_count {
             let name_off = Self::read_u32le(reader, cur)? as u64;
@@ -306,7 +482,7 @@ impl VfsFile {
 
     /// Open an entry as a seekable stream and return its byte length when known.
     pub fn open_stream_with_len(&self, name: &str) -> Result<(VfsStream, Option<u64>)> {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "uefi")))]
         {
             let override_path = app_base_path().join(&self.folder_name).join(name);
             if override_path.get_path().exists() {
@@ -332,7 +508,19 @@ impl VfsFile {
             return Ok((Box::new(sub), Some(ent.size)));
         }
 
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(target_os = "uefi")]
+        {
+            let Some(path) = self.uefi_path.as_ref() else {
+                anyhow::bail!("UEFI pack source is missing for {}", self.path.display());
+            };
+            let file = UefiFileReader::open(path)
+                .with_context(|| format!("open UEFI pack file {}", self.path.display()))?;
+            let sub = UefiSubFile::new(file, ent.offset, ent.size)
+                .with_context(|| format!("create UEFI pack slice for {}", name))?;
+            return Ok((Box::new(sub), Some(ent.size)));
+        }
+
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "uefi")))]
         {
             let f = File::open(&self.path)
                 .with_context(|| format!("open pack file {}", self.path.display()))?;
@@ -364,7 +552,7 @@ impl VfsFile {
             anyhow::bail!("saving VFS override files is not supported in wasm");
         }
 
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "uefi")))]
         {
             let mut file = File::create(
                 app_base_path()
@@ -377,12 +565,18 @@ impl VfsFile {
                 .with_context(|| format!("write override file for {}", name))?;
             Ok(())
         }
+
+        #[cfg(target_os = "uefi")]
+        {
+            let _ = (name, content);
+            anyhow::bail!("saving VFS override files is not supported in UEFI");
+        }
     }
 }
 
 #[derive(Debug)]
 pub struct Vfs {
-    pub files: HashMap<String, VfsFile>,
+    pub files: StableHashMap<String, VfsFile>,
     pub nls: Nls,
     #[cfg(target_arch = "wasm32")]
     wasm_app_path: Option<WasmAppPath>,
@@ -393,13 +587,21 @@ impl Default for Vfs {
         #[cfg(target_arch = "wasm32")]
         {
             return Vfs {
-                files: HashMap::new(),
+                files: StableHashMap::default(),
                 nls: Nls::ShiftJIS,
                 wasm_app_path: None,
             };
         }
 
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(target_os = "uefi")]
+        {
+            return Vfs {
+                files: StableHashMap::default(),
+                nls: Nls::ShiftJIS,
+            };
+        }
+
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "uefi")))]
         {
             Vfs::new(Nls::ShiftJIS).expect("default Vfs initialization")
         }
@@ -407,9 +609,46 @@ impl Default for Vfs {
 }
 
 impl Vfs {
+    #[cfg(target_os = "uefi")]
+    pub fn new(nls: Nls) -> Result<Vfs> {
+        const UEFI_PACKS: &[&str] = &[
+            "graph_sd",
+            "se_env",
+            "bgm",
+            "se",
+            "se_sys",
+            "graph_vis",
+            "graph_bg",
+            "voice",
+            "graph_bs",
+            "graph",
+            "etc",
+        ];
+
+        let mut files = StableHashMap::default();
+        for folder_name in UEFI_PACKS {
+            let path = format!("\\rfvp\\{folder_name}.bin");
+            match VfsFile::new_uefi_pack(path.clone(), (*folder_name).to_string(), nls) {
+                Ok(vf) => {
+                    log::info!("[UEFI] loaded VFS pack metadata {}", path);
+                    files.insert((*folder_name).to_string(), vf);
+                }
+                Err(e) => {
+                    log::warn!("[UEFI] failed to load VFS pack metadata {}: {:#}", path, e);
+                }
+            }
+        }
+
+        Ok(Vfs {
+            files,
+            nls,
+        })
+    }
+
+    #[cfg(not(target_os = "uefi"))]
     pub fn new(nls: Nls) -> Result<Vfs> {
         let path = app_base_path().join("*.bin");
-        let mut files = HashMap::new();
+        let mut files = StableHashMap::default();
         for entry in glob(path.get_path().to_str().unwrap())? {
             if let Ok(path) = entry {
                 let filename = path.file_stem().unwrap().to_string_lossy();
@@ -433,7 +672,7 @@ impl Vfs {
 
     #[cfg(target_arch = "wasm32")]
     pub fn from_wasm_app_path(nls: Nls, app_path: WasmAppPath) -> Result<Vfs> {
-        let mut files = HashMap::new();
+        let mut files = StableHashMap::new();
         for (path, file_ref) in app_path.root_bin_files() {
             let folder_name = path
                 .strip_suffix(".bin")
@@ -481,7 +720,7 @@ impl Vfs {
             }
         }
 
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(not(target_arch = "wasm32"), not(target_os = "uefi")))]
         {
             let fs_path = app_base_path().join(path);
             if fs_path.get_path().exists() {
@@ -489,6 +728,17 @@ impl Vfs {
                     .with_context(|| format!("open file {}", fs_path.get_path().display()))?;
                 let len = f.metadata().ok().map(|m| m.len());
                 return Ok((Box::new(f), len));
+            }
+        }
+
+        // On UEFI, std::fs is not reliable for path probing.  Try opening the
+        // file directly via the UEFI file-system protocol before falling back to
+        // the pack index.  VFS paths use forward slashes; UEFI paths use backslashes.
+        #[cfg(target_os = "uefi")]
+        {
+            let uefi_path = format!("\\rfvp\\{}", path.replace('/', "\\"));
+            if let Ok(file) = UefiFileReader::open(&uefi_path) {
+                return Ok((Box::new(file), None));
             }
         }
 
@@ -521,6 +771,7 @@ impl Vfs {
         self.open_stream_with_len(path).map(|(stream, _)| stream)
     }
 
+    #[cfg(all(feature = "audio", not(target_os = "uefi")))]
     /// Open a path as a Symphonia-compatible media source for streaming audio.
     pub fn open_media_source(&self, path: &str) -> Result<VfsMediaSource> {
         let (stream, byte_len) = self.open_stream_with_len(path)?;
@@ -548,18 +799,94 @@ impl Vfs {
         file.save(name, content)
     }
 
-    /// Find loose `cursor*.ani` files next to the game executable/root.
+    /// Find loose `cursor*.ani` files in the game root.
+    ///
+    /// ANI cursors are loose files in the game directory. They are not VFS pack entries.
+    /// Keep this lookup independent from BIN/HCB contents and search the roots that can
+    /// represent the game directory for desktop hosts:
+    /// - the configured app base path (`--project-dir` / `FVP_BASE_PATH` / exe dir)
+    /// - the current working directory
+    /// - directories that contain loaded BIN packs
     pub fn find_ani(&self) -> Result<Vec<PathBuf>> {
-        #[cfg(target_arch = "wasm32")]
+        #[cfg(any(target_arch = "wasm32", target_os = "uefi"))]
         {
             return Ok(Vec::new());
         }
 
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(not(any(target_arch = "wasm32", target_os = "uefi")))]
         {
-            let path = app_base_path().join("cursor*.ani");
+            use std::collections::HashSet;
+            use std::fs;
 
-            let matches: Vec<_> = glob(path.get_path().to_str().unwrap())?.flatten().collect();
+            let mut roots = Vec::new();
+            if let Some(root) = hcb_root_path() {
+                roots.push(root);
+            }
+            roots.push(app_base_path().get_path().clone());
+
+            if let Ok(cwd) = std::env::current_dir() {
+                roots.push(cwd);
+            }
+
+            if let Ok(exe) = std::env::current_exe() {
+                if let Some(parent) = exe.parent() {
+                    roots.push(parent.to_path_buf());
+                }
+            }
+
+            for file in self.files.values() {
+                if let Some(parent) = file.path.parent() {
+                    roots.push(parent.to_path_buf());
+                }
+            }
+
+            let mut seen_roots = HashSet::new();
+            let mut seen_files = HashSet::new();
+            let mut matches = Vec::new();
+
+            for root in roots {
+                let root_key = root.to_string_lossy().to_string();
+                if !seen_roots.insert(root_key) {
+                    continue;
+                }
+
+                let Ok(entries) = fs::read_dir(&root) else {
+                    continue;
+                };
+
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if !path.is_file() {
+                        continue;
+                    }
+
+                    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+                        continue;
+                    };
+                    let lower = name.to_ascii_lowercase();
+                    if !(lower.starts_with("cursor") && lower.ends_with(".ani")) {
+                        continue;
+                    }
+
+                    let key = path.to_string_lossy().to_string();
+                    if seen_files.insert(key) {
+                        matches.push(path);
+                    }
+                }
+            }
+
+            matches.sort();
+            if matches.is_empty() {
+                log::warn!(
+                    "no loose ANI cursor files found; searched roots: {}",
+                    seen_roots.into_iter().collect::<Vec<_>>().join(", ")
+                );
+            } else {
+                log::info!("found {} loose ANI cursor file(s)", matches.len());
+                for path in &matches {
+                    log::info!("found ANI cursor: {}", path.display());
+                }
+            }
             Ok(matches)
         }
     }

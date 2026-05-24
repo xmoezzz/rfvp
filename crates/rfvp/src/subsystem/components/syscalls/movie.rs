@@ -6,7 +6,6 @@ use std::io;
 use std::path::Component;
 use std::path::PathBuf;
 
-use directories::ProjectDirs;
 
 use crate::script::Variant;
 use crate::subsystem::resources::videoplayer::MovieMode;
@@ -191,14 +190,10 @@ fn video_cache_root_dir() -> PathBuf {
         return preferred;
     }
 
-    let fallback = ProjectDirs::from("com", "xmoezzz", "rfvp")
-        .map(|d| d.cache_dir().join("video"))
-        .unwrap_or_else(|| {
-            std::env::current_dir()
-                .unwrap_or_else(|_| PathBuf::from("."))
-                .join(".rfvp_cache")
-                .join("video")
-        });
+    let fallback = std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join(".rfvp_cache")
+        .join("video");
     let _ = fs::create_dir_all(&fallback);
     fallback
 }

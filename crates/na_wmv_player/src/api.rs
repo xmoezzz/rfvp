@@ -1,11 +1,16 @@
 //! Public library API.
 
 use std::collections::HashMap;
+#[cfg(target_os = "uefi")]
+use std::collections::hash_map::DefaultHasher;
+#[cfg(target_os = "uefi")]
+use std::hash::BuildHasherDefault;
 use std::io::{Read, Seek, SeekFrom};
 
 use crate::asf::{AsfFile, AsfPayload, VideoStreamInfo};
 use crate::decoder::{MacroblockDecoder, YuvFrame};
 use crate::error::{DecoderError, Result};
+#[cfg(feature = "audio")]
 use crate::wma::{PcmFrameF32, WmaDecoder};
 use crate::wmv2::{Wmv2FrameHeader, Wmv2FrameType, Wmv2Params};
 
@@ -18,6 +23,7 @@ pub struct DecodedFrame {
 }
 
 /// A decoded audio frame with timing metadata.
+#[cfg(feature = "audio")]
 #[derive(Clone)]
 pub struct DecodedAudioFrame {
     pub pts_ms: u32,
@@ -231,9 +237,14 @@ impl FrameAssembly {
     }
 }
 
+#[cfg(target_os = "uefi")]
+type InFlightMap = HashMap<FrameKey, FrameAssembly, BuildHasherDefault<DefaultHasher>>;
+#[cfg(not(target_os = "uefi"))]
+type InFlightMap = HashMap<FrameKey, FrameAssembly>;
+
 #[derive(Default)]
 struct FrameAssembler {
-    in_flight: HashMap<FrameKey, FrameAssembly>,
+    in_flight: InFlightMap,
 }
 
 impl FrameAssembler {
@@ -294,6 +305,7 @@ pub struct AsfWmv2Decoder<R: Read + Seek> {
 ///
 /// This type owns the `Read+Seek` source, parses ASF headers, reassembles media objects
 /// and decodes WMA packets into PCM.
+#[cfg(feature = "audio")]
 pub struct AsfWmaDecoder<R: Read + Seek> {
     reader: R,
     asf: AsfFile,
@@ -304,6 +316,7 @@ pub struct AsfWmaDecoder<R: Read + Seek> {
     flushed_eof: bool,
 }
 
+#[cfg(feature = "audio")]
 impl<R: Read + Seek> AsfWmaDecoder<R> {
     /// Open an ASF/WMV stream and initialize the WMA decoder.
     ///

@@ -10,11 +10,11 @@ use kira::sound::streaming::{StreamingSoundData, StreamingSoundHandle};
 use kira::sound::FromFileError;
 use kira::sound::Region;
 use kira::track::{TrackBuilder, TrackHandle};
-use kira::{Panning, Tween};
+use kira::Panning;
+use crate::rfvp_audio::{AudioManager, Tween};
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use crate::rfvp_audio::AudioManager;
 use crate::subsystem::resources::vfs::Vfs;
 
 pub const BGM_SLOT_COUNT: usize = 4;

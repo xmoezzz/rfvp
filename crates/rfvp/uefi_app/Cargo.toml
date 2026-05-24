@@ -1,0 +1,28 @@
+[package]
+name = "rfvp-uefi"
+version = "0.1.0"
+edition = "2021"
+license = "MPL-2.0"
+description = "RFVP UEFI soft-render host"
+
+[dependencies]
+rfvp = { path = "..", default-features = false, features = ["rfvp-os", "uefi-native-video"] }
+uefi = { version = "0.37.0", default-features = false, features = ["alloc", "global_allocator", "logger"] }
+uefi-raw = "0.14.0"
+
+# Keep this nested UEFI crate as its own workspace root so its profile
+# overrides are applied even when it lives inside the main rfvp workspace.
+[workspace]
+resolver = "2"
+
+[profile.release]
+panic = "abort"
+lto = true
+codegen-units = 1
+strip = true
+
+# Work around a rustc/LLVM codegen failure for simd-adler32 on
+# x86_64-unknown-uefi in optimized builds. This only lowers the
+# optimization level of that transitive dependency for the UEFI app.
+[profile.release.package.simd-adler32]
+opt-level = 0

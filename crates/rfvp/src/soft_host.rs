@@ -5,13 +5,17 @@
 //! stays platform-independent.
 
 use std::{
+    collections::HashMap,
+    fs::File,
     num::NonZeroU32,
     path::{Path, PathBuf},
     sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
 use anyhow::{Context, Result};
+use regex::Regex;
 use winit::event_loop::OwnedDisplayHandle;
+use crate::platform_time::Instant;
 use winit::{
     dpi::{PhysicalSize, Size},
     event::{Event, WindowEvent},
@@ -33,7 +37,11 @@ use crate::{
         scheduler::Scheduler,
         world::GameData,
     },
-    utils::{file::set_base_path, logger::Logger},
+    utils::{
+        ani::{self, icondir_to_custom_cursor, CursorBundle},
+        file::set_base_path,
+        logger::Logger,
+    },
     vm_worker::VmWorker,
 };
 
@@ -82,6 +90,12 @@ fn run(args: SoftHostArgs) -> Result<()> {
     }
 
     let hcb_path = find_hcb(crate::utils::file::app_base_path().get_path())?;
+    if let Some(parent) = hcb_path.parent() {
+        if let Some(parent) = parent.to_str() {
+            set_base_path(parent);
+            crate::utils::file::set_hcb_root_path(parent);
+        }
+    }
     let mut parser = crate::script::parser::Parser::new(hcb_path, args.nls)?;
     let title = parser.get_title();
     let virtual_size = parser.get_screen_size();
@@ -114,7 +128,7 @@ fn run(args: SoftHostArgs) -> Result<()> {
     let mut surface = softbuffer::Surface::new(&context, window.clone())
         .map_err(|e| anyhow::anyhow!("create softbuffer surface: {e:?}"))?;
 
-    let mut host = SoftHost::new(&mut parser, title, virtual_size, window.clone(), args)?;
+    let mut host = SoftHost::new(&event_loop, &mut parser, title, virtual_size, window.clone(), args)?;
     let _result = event_loop.run(move |event, loopd| {
         loopd.set_control_flow(ControlFlow::Poll);
 
@@ -128,7 +142,7 @@ fn run(args: SoftHostArgs) -> Result<()> {
                     window.request_redraw();
                 }
                 WindowEvent::RedrawRequested => {
-                    if let Err(e) = host.step_and_present(&mut surface, window.inner_size()) {
+                    if let Err(e) = host.step_and_present(&mut surface, window.as_ref(), window.inner_size()) {
                         log::error!("soft-render frame failed: {e:?}");
                         loopd.exit();
                     }
@@ -164,6 +178,7 @@ struct SoftHost {
 
 impl SoftHost {
     fn new(
+        event_loop: &EventLoop<()>,
         parser: &mut crate::script::parser::Parser,
         _title: String,
         virtual_size: (u32, u32),
@@ -188,6 +203,17 @@ impl SoftHost {
         }
         if let Err(e) = crate::subsystem::global_savedata::try_load_global_savedata_v1(&mut world) {
             log::error!("Failed to load global savedata: {:#}", e);
+        }
+
+        let cursor_table = load_ani_cursor_table(event_loop, &world.vfs);
+        log::info!("soft-render ANI cursor table size: {}", cursor_table.len());
+        world.set_cursor_table(cursor_table);
+        if world.has_cursor(1) {
+            world.set_current_cursor_index(0);
+            world.switch_cursor(1);
+        } else {
+            world.set_current_cursor_index(0);
+            world.window_mut().set_cursor_kind(0);
         }
 
         GLOBAL.lock().unwrap().init_with(
@@ -245,6 +271,7 @@ impl SoftHost {
     fn step_and_present(
         &mut self,
         surface: &mut softbuffer::Surface<OwnedDisplayHandle, Arc<Window>>,
+        window: &Window,
         window_size: PhysicalSize<u32>,
     ) -> Result<()> {
         let (frame_ms, notify_dissolve_done) = self.next_frame();
@@ -271,8 +298,56 @@ impl SoftHost {
             window_size.height.max(1),
         )?;
 
+        self.update_cursor(window, window_size);
+
         gd_write(&self.game_data).inputs_manager.frame_reset();
         Ok(())
+    }
+
+    fn virtual_to_window_cursor_pos(
+        &self,
+        vx: i32,
+        vy: i32,
+        window_size: PhysicalSize<u32>,
+    ) -> winit::dpi::PhysicalPosition<f64> {
+        let sw = window_size.width.max(1) as f64;
+        let sh = window_size.height.max(1) as f64;
+        let vw = self.virtual_size.0.max(1) as f64;
+        let vh = self.virtual_size.1.max(1) as f64;
+        let vx = vx.clamp(0, (vw as i32).saturating_sub(1)) as f64;
+        let vy = vy.clamp(0, (vh as i32).saturating_sub(1)) as f64;
+        let scale = (sw / vw).min(sh / vh);
+        let dst_w = vw * scale;
+        let dst_h = vh * scale;
+        let off_x = (sw - dst_w) * 0.5;
+        let off_y = (sh - dst_h) * 0.5;
+        winit::dpi::PhysicalPosition::new(off_x + (vx + 0.5) * scale, off_y + (vy + 0.5) * scale)
+    }
+
+    fn update_cursor(&mut self, window: &Window, window_size: PhysicalSize<u32>) {
+        let (cursor_frame, pending_cursor_kind, pending_cursor_visible, pending_cursor_pos) = {
+            let mut gd = gd_write(&self.game_data);
+            let frame = gd.update_cursor();
+            let cursor_kind = *gd.window_ref().new_cursor();
+            let visible = gd.window_ref().new_cursor_visible();
+            let pos = gd.window_ref().new_cursor_pos();
+            (frame, cursor_kind, visible, pos)
+        };
+
+        if let Some(frame) = cursor_frame {
+            window.set_cursor(frame);
+        } else if let Some(icon) = pending_cursor_kind {
+            window.set_cursor(icon);
+        }
+        if let Some(visible) = pending_cursor_visible {
+            window.set_cursor_visible(visible);
+        }
+        if let Some((vx, vy)) = pending_cursor_pos {
+            let pos = self.virtual_to_window_cursor_pos(vx, vy, window_size);
+            let _ = window.set_cursor_position(pos);
+        }
+
+        gd_write(&self.game_data).window_mut().reset_future_settings();
     }
 
     fn next_frame(&mut self) -> (u64, bool) {
@@ -393,6 +468,67 @@ fn present_framebuffer(
         .present()
         .map_err(|e| anyhow::anyhow!("present softbuffer buffer: {e:?}"))?;
     Ok(())
+}
+
+fn load_ani_cursor_table(event_loop: &EventLoop<()>, vfs: &Vfs) -> HashMap<u32, CursorBundle> {
+    let mut cursor_table = HashMap::new();
+    let Ok(cursor_paths) = vfs.find_ani() else {
+        return cursor_table;
+    };
+    let re = match Regex::new(r"^([a-zA-Z_]+)(\d+)$") {
+        Ok(re) => re,
+        Err(e) => {
+            log::error!("Failed to build ANI cursor filename regex: {e:#}");
+            return cursor_table;
+        }
+    };
+
+    for path in &cursor_paths {
+        let filename = path.file_stem().unwrap_or_default().to_string_lossy();
+        let Some(caps) = re.captures(&filename) else {
+            continue;
+        };
+        let Ok(index) = caps[2].parse::<u32>() else {
+            continue;
+        };
+        let Ok(file) = File::open(path) else {
+            log::error!("Failed to open cursor: {}", path.display());
+            continue;
+        };
+        let Ok(cursor) = ani::Decoder::new(file).decode() else {
+            log::error!("Failed to decode ANI cursor: {}", path.display());
+            continue;
+        };
+
+        let mut frames = Vec::new();
+        let mut failed = false;
+        for frame in &cursor.frames {
+            match icondir_to_custom_cursor(frame) {
+                Ok(source) => frames.push(event_loop.create_custom_cursor(source)),
+                Err(e) => {
+                    log::error!("Failed to create cursor frame for {}: {e:#}", path.display());
+                    failed = true;
+                    break;
+                }
+            }
+        }
+        if failed || frames.is_empty() {
+            continue;
+        }
+
+        log::info!("loaded soft-render ANI cursor slot {} from {}", index, path.display());
+        cursor_table.insert(
+            index,
+            CursorBundle {
+                animated_cursor: cursor,
+                frames,
+                current_frame: 0,
+                last_update: Instant::now(),
+            },
+        );
+    }
+
+    cursor_table
 }
 
 fn boxed_default_game_data() -> Box<GameData> {

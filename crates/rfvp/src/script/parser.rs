@@ -1,5 +1,9 @@
 use std::collections::HashMap;
+#[cfg(target_os = "uefi")]
+use std::collections::hash_map::DefaultHasher;
 use std::fs::File;
+#[cfg(target_os = "uefi")]
+use std::hash::BuildHasherDefault;
 use std::io::Read;
 use std::mem::size_of;
 use std::path::Path;
@@ -7,6 +11,18 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use anyhow::Result;
+
+#[cfg(target_os = "uefi")]
+macro_rules! uefi_parser_stage {
+    ($($arg:tt)*) => {
+        log::info!($($arg)*);
+    };
+}
+
+#[cfg(not(target_os = "uefi"))]
+macro_rules! uefi_parser_stage {
+    ($($arg:tt)*) => {};
+}
 
 #[derive(Debug, Clone, Copy, Default)]
 pub enum Nls {
@@ -40,6 +56,12 @@ pub struct Syscall {
     pub name: String,
 }
 
+#[cfg(target_os = "uefi")]
+pub type SyscallMap = HashMap<usize, Syscall, BuildHasherDefault<DefaultHasher>>;
+
+#[cfg(not(target_os = "uefi"))]
+pub type SyscallMap = HashMap<usize, Syscall>;
+
 #[derive(Debug, Clone, Default)]
 pub struct Parser {
     pub buffer: Arc<Vec<u8>>,
@@ -56,7 +78,7 @@ pub struct Parser {
     game_mode_reserved: u8,
     game_title: String,
     pub syscall_count: u16,
-    pub syscalls: HashMap<usize, Syscall>,
+    pub syscalls: SyscallMap,
 }
 
 impl Parser {
@@ -68,8 +90,14 @@ impl Parser {
     }
 
     pub fn from_bytes(buffer: impl Into<Vec<u8>>, nls: Nls) -> Result<Self> {
+        uefi_parser_stage!("[UEFI] Parser::from_bytes entered");
+        let buffer = buffer.into();
+        uefi_parser_stage!("[UEFI] Parser::from_bytes buffer len={}", buffer.len());
+        uefi_parser_stage!("[UEFI] Parser::from_bytes before Arc::new");
+        let buffer = Arc::new(buffer);
+        uefi_parser_stage!("[UEFI] Parser::from_bytes after Arc::new");
         let mut parser = Parser {
-            buffer: Arc::new(buffer.into()),
+            buffer,
             nls,
             sys_desc_offset: 0,
             entry_point: 0,
@@ -80,10 +108,12 @@ impl Parser {
             game_mode_reserved: 0,
             game_title: String::new(),
             syscall_count: 0,
-            syscalls: HashMap::new(),
+            syscalls: SyscallMap::default(),
         };
 
+        uefi_parser_stage!("[UEFI] Parser::from_bytes before parser()");
         parser.parser()?;
+        uefi_parser_stage!("[UEFI] Parser::from_bytes after parser()");
 
         Ok(parser)
     }
@@ -212,32 +242,58 @@ impl Parser {
     }
 
     fn parser(&mut self) -> Result<()> {
+        uefi_parser_stage!("[UEFI] Parser::parser entered");
         let mut off = 0usize;
         self.sys_desc_offset = self.read_u32(off)?;
+        uefi_parser_stage!(
+            "[UEFI] Parser::parser sys_desc_offset={}",
+            self.sys_desc_offset
+        );
 
         off = self.sys_desc_offset as usize;
         self.entry_point = self.read_u32(off)?;
+        uefi_parser_stage!("[UEFI] Parser::parser entry_point={}", self.entry_point);
         off += size_of::<u32>();
 
         self.non_volatile_global_count = self.read_u16(off)?;
+        uefi_parser_stage!(
+            "[UEFI] Parser::parser non_volatile_global_count={}",
+            self.non_volatile_global_count
+        );
         off += size_of::<u16>();
 
         self.volatile_global_count = self.read_u16(off)?;
+        uefi_parser_stage!(
+            "[UEFI] Parser::parser volatile_global_count={}",
+            self.volatile_global_count
+        );
         off += size_of::<u16>();
 
         self.game_mode = self.read_u8(off)? as u8;
+        uefi_parser_stage!("[UEFI] Parser::parser game_mode={}", self.game_mode);
         off += size_of::<u8>();
 
         self.game_mode_reserved = self.read_u8(off)? as u8;
+        uefi_parser_stage!(
+            "[UEFI] Parser::parser game_mode_reserved={}",
+            self.game_mode_reserved
+        );
         off += size_of::<u8>();
 
         let title_len = self.read_u8(off)?;
+        uefi_parser_stage!("[UEFI] Parser::parser title_len={}", title_len);
         off += size_of::<u8>();
 
+        uefi_parser_stage!("[UEFI] Parser::parser before game_title");
         self.game_title = self.read_cstring(off, title_len as usize)?;
+        uefi_parser_stage!("[UEFI] Parser::parser after game_title");
         off += title_len as usize;
 
         self.syscall_count = self.read_u16(off)?;
+        uefi_parser_stage!(
+            "[UEFI] Parser::parser syscall_count={}",
+            self.syscall_count
+        );
         off += size_of::<u16>();
 
         for i in 0..self.syscall_count {
@@ -254,6 +310,10 @@ impl Parser {
         }
 
         self.custom_syscall_count = self.read_u16(off)?;
+        uefi_parser_stage!(
+            "[UEFI] Parser::parser custom_syscall_count={}",
+            self.custom_syscall_count
+        );
         if self.custom_syscall_count > 0 {
             log::warn!("custom syscall count: {}", self.custom_syscall_count);
         }
@@ -269,7 +329,7 @@ impl Parser {
         self.syscalls.get(&(id as usize))
     }
 
-    pub fn get_all_syscalls(&self) -> &HashMap<usize, Syscall> {
+    pub fn get_all_syscalls(&self) -> &SyscallMap {
         &self.syscalls
     }
 

@@ -7,11 +7,22 @@ use crate::platform_time::{Duration, Instant};
 
 use bitflags::bitflags;
 use byteorder::{LittleEndian, ReadBytesExt};
+#[cfg(feature = "cursor-ani")]
 use ico::IconDir;
+#[cfg(feature = "cursor-ani")]
 use riff::{Chunk, ChunkId, LIST_ID};
 
-use winit::window::{CustomCursor, CustomCursorSource};
+#[cfg(any(feature = "gpu-render", feature = "soft-render-desktop"))]
+pub use winit::window::CustomCursor;
 
+#[cfg(any(feature = "gpu-render", feature = "soft-render-desktop"))]
+use winit::window::CustomCursorSource;
+
+#[cfg(not(any(feature = "gpu-render", feature = "soft-render-desktop")))]
+#[derive(Clone, Debug)]
+pub struct CustomCursor;
+
+#[cfg(feature = "cursor-ani")]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AnimatedCursorMetadata {
     /// The header size in bytes.
@@ -43,6 +54,7 @@ pub struct AnimatedCursorMetadata {
     pub flags: AnimatedCursorFlags,
 }
 
+#[cfg(feature = "cursor-ani")]
 bitflags! {
     #[repr(transparent)]
     #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -57,6 +69,7 @@ bitflags! {
     }
 }
 
+#[cfg(feature = "cursor-ani")]
 impl AnimatedCursorMetadata {
     #[inline(always)]
     pub fn duration_per_frame(&self) -> Duration {
@@ -64,12 +77,14 @@ impl AnimatedCursorMetadata {
     }
 }
 
+#[cfg(feature = "cursor-ani")]
 #[derive(Clone)]
 pub struct AnimatedCursor {
     pub metadata: AnimatedCursorMetadata,
     pub frames: Vec<IconDir>,
 }
 
+#[cfg(feature = "cursor-ani")]
 #[derive(Debug)]
 pub enum DecodeError {
     IoError(IoError),
@@ -82,14 +97,17 @@ pub enum DecodeError {
     UnsupportedRawDataFrameType,
 }
 
+#[cfg(feature = "cursor-ani")]
 impl std::error::Error for DecodeError {}
 
+#[cfg(feature = "cursor-ani")]
 impl From<IoError> for DecodeError {
     fn from(error: IoError) -> Self {
         DecodeError::IoError(error)
     }
 }
 
+#[cfg(feature = "cursor-ani")]
 impl fmt::Display for DecodeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -113,6 +131,7 @@ impl fmt::Display for DecodeError {
     }
 }
 
+#[cfg(feature = "cursor-ani")]
 pub struct Decoder<R>
 where
     R: Read + Seek,
@@ -120,6 +139,7 @@ where
     reader: R,
 }
 
+#[cfg(feature = "cursor-ani")]
 fn read_chunks<T>(iter: &mut riff::Iter<T>) -> std::io::Result<Vec<Chunk>>
 where
     T: Read + Seek,
@@ -134,6 +154,7 @@ where
     Ok(vec)
 }
 
+#[cfg(feature = "cursor-ani")]
 impl<R: Read + Seek> Decoder<R> {
     pub fn new(reader: R) -> Self {
         Decoder { reader }
@@ -219,6 +240,7 @@ impl<R: Read + Seek> Decoder<R> {
     }
 }
 
+#[cfg(all(feature = "cursor-ani", any(feature = "gpu-render", feature = "soft-render-desktop")))]
 pub fn icondir_to_custom_cursor(frame: &IconDir) -> anyhow::Result<CustomCursorSource> {
     let entry = frame.entries().first().unwrap();
     let image = entry.decode().unwrap();
@@ -229,6 +251,7 @@ pub fn icondir_to_custom_cursor(frame: &IconDir) -> anyhow::Result<CustomCursorS
     Ok(CustomCursor::from_rgba(rgba, width, height, hot_x, hot_y)?)
 }
 
+#[cfg(feature = "cursor-ani")]
 #[derive(Clone)]
 pub struct CursorBundle {
     pub animated_cursor: AnimatedCursor,
@@ -237,6 +260,7 @@ pub struct CursorBundle {
     pub last_update: Instant,
 }
 
+#[cfg(feature = "cursor-ani")]
 impl CursorBundle {
     pub fn update(&mut self) -> CustomCursor {
         let now = Instant::now();
@@ -256,6 +280,20 @@ impl CursorBundle {
     }
 }
 
+#[cfg(not(feature = "cursor-ani"))]
+#[derive(Clone, Debug, Default)]
+pub struct CursorBundle;
+
+#[cfg(not(feature = "cursor-ani"))]
+impl CursorBundle {
+    pub fn update(&mut self) -> CustomCursor {
+        CustomCursor
+    }
+
+    pub fn reset(&mut self) {}
+}
+
+#[cfg(feature = "cursor-ani")]
 mod tests {
     use super::*;
     use std::path::Path;

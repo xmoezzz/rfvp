@@ -1,5 +1,6 @@
 pub mod anzu_scene;
 pub mod components;
+#[cfg(any(feature = "gpu-render", feature = "soft-render-desktop"))]
 pub(crate) mod event_handler;
 pub mod global_savedata;
 #[cfg(feature = "gpu-render")]

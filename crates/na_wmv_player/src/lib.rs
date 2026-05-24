@@ -16,11 +16,14 @@ pub mod vlc;
 pub mod vlc_tree;
 pub mod wmv2;
 
+#[cfg(feature = "audio")]
 pub mod wma;
 
 pub mod api;
 
-pub use api::{AsfWmaDecoder, AsfWmv2Decoder, DecodedAudioFrame, DecodedFrame, Wmv2Decoder};
+#[cfg(feature = "audio")]
+pub use api::{AsfWmaDecoder, DecodedAudioFrame};
+pub use api::{AsfWmv2Decoder, DecodedFrame, Wmv2Decoder};
 pub use decoder::YuvFrame;
 pub use error::{DecoderError, Result};
 

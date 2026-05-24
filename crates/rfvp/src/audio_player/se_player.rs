@@ -1,11 +1,10 @@
 use anyhow::{anyhow, Context, Result};
 use std::sync::Arc;
 
-use crate::rfvp_audio::AudioManager;
+use crate::rfvp_audio::{AudioManager, Tween};
 use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings};
 use kira::sound::Region;
 use kira::track::{TrackBuilder, TrackHandle};
-use kira::Tween;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
@@ -113,7 +112,7 @@ impl SePlayer {
         repeat: bool,
         volume: f32,
         pan: f64,
-        fade_in: kira::Tween,
+        fade_in: Tween,
     ) -> anyhow::Result<()> {
         let slot = slot as usize;
 
@@ -155,7 +154,7 @@ impl SePlayer {
         Ok(())
     }
 
-    pub fn set_volume(&mut self, slot: i32, volume: f32, tween: kira::Tween) {
+    pub fn set_volume(&mut self, slot: i32, volume: f32, tween: Tween) {
         let slot = slot as usize;
 
         self.se_volumes[slot] = volume;
@@ -174,7 +173,7 @@ impl SePlayer {
         }
     }
 
-    pub fn set_type_volume(&mut self, kind: i32, volume: f32, tween: kira::Tween) {
+    pub fn set_type_volume(&mut self, kind: i32, volume: f32, tween: Tween) {
         if !(0..SOUND_TYPE_COUNT as i32).contains(&kind) {
             return;
         }
@@ -193,7 +192,7 @@ impl SePlayer {
         }
     }
 
-    pub fn set_panning(&mut self, slot: i32, pan: f64, tween: kira::Tween) {
+    pub fn set_panning(&mut self, slot: i32, pan: f64, tween: Tween) {
         let slot = slot as usize;
 
         self.se_pan[slot] = pan;
@@ -210,7 +209,7 @@ impl SePlayer {
     }
 
     /// Permanently silence a slot. This mirrors the engine's `SoundSilentOn` semantics.
-    pub fn silent_on(&mut self, slot: i32, tween: kira::Tween) {
+    pub fn silent_on(&mut self, slot: i32, tween: Tween) {
         let slot = slot as usize;
         self.se_muted[slot] = true;
 
@@ -219,7 +218,7 @@ impl SePlayer {
         }
     }
 
-    pub fn stop(&mut self, slot: i32, fade_out: kira::Tween) {
+    pub fn stop(&mut self, slot: i32, fade_out: Tween) {
         let slot = slot as usize;
 
         if let Some(mut se) = self.se_slots[slot].take() {
@@ -229,7 +228,7 @@ impl SePlayer {
         }
     }
 
-    pub fn stop_all(&mut self, fade_out: kira::Tween) {
+    pub fn stop_all(&mut self, fade_out: Tween) {
         for slot in 0..SE_SLOT_COUNT {
             if self.se_slots[slot].is_some() {
                 self.stop(slot as i32, fade_out);
@@ -254,7 +253,7 @@ impl SePlayer {
             self.effective_volume_for_slot(slot)
         };
         if let Some(handle) = self.se_slots[slot].as_mut() {
-            handle.set_volume(actual_volume, kira::Tween::default());
+            handle.set_volume(actual_volume, Tween::default());
         }
     }
     pub fn debug_summary(&self) -> SeDebugSummary {

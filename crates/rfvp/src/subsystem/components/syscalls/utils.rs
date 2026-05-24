@@ -82,7 +82,7 @@ pub fn int_to_text(_game_data: &mut GameData, value: &Variant, width: &Variant) 
 }
 
 pub fn rand(_game_data: &mut GameData) -> Result<Variant> {
-    Ok(Variant::Float(rand::random()))
+    Ok(Variant::Float(crate::platform_random::next_f32()))
 }
 
 pub fn system_project_dir(_game_data: &mut GameData, _dir: &Variant) -> Result<Variant> {

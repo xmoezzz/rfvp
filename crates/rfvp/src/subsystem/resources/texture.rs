@@ -1,5 +1,9 @@
 use anyhow::{bail, Result};
+#[cfg(all(not(feature = "zlib-flate2"), feature = "uefi-zlib"))]
+use anyhow::anyhow;
+#[cfg(feature = "zlib-flate2")]
 use flate2::read::ZlibDecoder;
+#[cfg(feature = "zlib-flate2")]
 use std::io::Read;
 use std::path::Path;
 
@@ -205,9 +209,31 @@ impl NvsgTexture {
         }
 
         let out_len = hzc1hdr.original_length as usize;
-        let mut out_buff = vec![0; out_len];
-        let mut decoder = ZlibDecoder::new(data_buff);
-        decoder.read_exact(&mut out_buff)?;
+
+        #[cfg(feature = "zlib-flate2")]
+        let mut out_buff = {
+            let mut out_buff = vec![0; out_len];
+            let mut decoder = ZlibDecoder::new(data_buff);
+            decoder.read_exact(&mut out_buff)?;
+            out_buff
+        };
+
+        #[cfg(all(not(feature = "zlib-flate2"), feature = "uefi-zlib"))]
+        let mut out_buff = {
+            let decoded = miniz_oxide::inflate::decompress_to_vec_zlib(data_buff)
+                .map_err(|e| anyhow!("zlib decompress failed: {e:?}"))?;
+            if decoded.len() != out_len {
+                bail!(
+                    "zlib output length mismatch: expected {}, got {}",
+                    out_len,
+                    decoded.len()
+                );
+            }
+            decoded
+        };
+
+        #[cfg(not(any(feature = "zlib-flate2", feature = "uefi-zlib")))]
+        compile_error!("Texture decompression requires either zlib-flate2 or uefi-zlib feature");
 
         if self.typ == TextureType::Single1Bit {
             for byte in &mut out_buff {

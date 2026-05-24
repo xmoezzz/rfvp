@@ -1,10 +1,14 @@
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+#[cfg(any(feature = "gpu-render", feature = "soft-render-desktop"))]
 use winit::dpi::LogicalSize;
+#[cfg(any(feature = "gpu-render", feature = "soft-render-desktop"))]
 use winit::window::WindowAttributes;
+#[cfg(any(feature = "gpu-render", feature = "soft-render-desktop"))]
 use winit::window::WindowLevel;
 
+#[cfg(any(feature = "gpu-render", feature = "soft-render-desktop"))]
 use crate::config::app_config::AppConfig;
 
 /// Main configuration for the game window
@@ -54,6 +58,7 @@ impl Default for WindowConfig {
 }
 
 impl WindowConfig {
+    #[cfg(any(feature = "gpu-render", feature = "soft-render-desktop"))]
     pub(crate) fn into(self, config: &AppConfig) -> WindowAttributes {
         let mut builder = WindowAttributes::default();
 

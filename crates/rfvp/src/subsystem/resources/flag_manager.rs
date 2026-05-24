@@ -1,10 +1,10 @@
-use std::collections::HashMap;
-
 use serde::{Deserialize, Serialize};
+
+use crate::utils::stable_hash::StableHashMap;
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone)]
 pub struct FlagManager {
-    flags: HashMap<u8, u8>,
+    flags: StableHashMap<u8, u8>,
 }
 
 impl FlagManager {

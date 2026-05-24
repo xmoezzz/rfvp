@@ -32,6 +32,12 @@ pub fn app_config(title: &str, size: (u32, u32)) -> AppConfig {
 pub fn load_script(nls: Nls) -> Result<Parser> {
     let base_path = app_base_path();
     let opcode_path = App::find_hcb(base_path.get_path())?;
+    if let Some(parent) = opcode_path.parent() {
+        if let Some(parent) = parent.to_str() {
+            crate::utils::file::set_base_path(parent);
+            crate::utils::file::set_hcb_root_path(parent);
+        }
+    }
 
     Parser::new(opcode_path, nls)
 }

@@ -1,12 +1,13 @@
-use std::{collections::HashMap, sync::Mutex};
+use std::sync::Mutex;
 
 use crate::script::Variant;
+use crate::utils::stable_hash::StableHashMap;
 use serde::{Deserialize, Serialize};
 
 /// Global variables
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Global {
-    global_table: HashMap<u16, Variant>,
+    global_table: StableHashMap<u16, Variant>,
     none_volatile_count: u16,
     volatile_count: u16,
 }
@@ -14,7 +15,7 @@ pub struct Global {
 impl Global {
     pub fn new() -> Self {
         Global {
-            global_table: HashMap::new(),
+            global_table: StableHashMap::default(),
             none_volatile_count: 0,
             volatile_count: 0,
         }

@@ -25,9 +25,18 @@ env_logger = { version = "0.10", optional = true }
 png = { version = "0.17", optional = true }
 
 [features]
-default = []
+default = ["audio"]
+
+# WMA audio decoding. Enabled by default for desktop builds.
+# Excluded from UEFI video-only builds.
+audio = []
+
+# Marker feature: video decode only, no WMA audio decoder compiled.
+# Used by UEFI builds via rfvp's uefi-native-video feature.
+video-only = []
 
 desktop-bins = [
+  "audio",
   "dep:anyhow",
   "dep:crossbeam-channel",
   "dep:pollster",

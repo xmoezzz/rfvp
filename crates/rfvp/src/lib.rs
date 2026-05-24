@@ -13,15 +13,18 @@ pub mod font;
 #[cfg(feature = "gpu-render")]
 pub mod legacy_save_load_ui;
 pub(crate) mod platform_time;
+pub(crate) mod platform_random;
 #[cfg(feature = "gpu-render")]
 pub mod rendering;
 pub mod rfvp_audio;
 #[cfg(feature = "gpu-render")]
 pub mod rfvp_render;
 pub mod script;
-#[cfg(feature = "soft-render")]
+#[cfg(feature = "soft-render-desktop")]
 pub mod soft_host;
-#[cfg(feature = "soft-render")]
+#[cfg(feature = "rfvp-os")]
+pub mod rfvp_os_host;
+#[cfg(any(feature = "soft-render-core", feature = "soft-render", feature = "soft-render-desktop"))]
 pub mod soft_render;
 pub mod subsystem;
 pub mod trace;
