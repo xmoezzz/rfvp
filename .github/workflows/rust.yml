@@ -281,6 +281,46 @@ jobs:
           path: dist/wasm/rfvp-wasm.zip
           if-no-files-found: error
 
+  uefi:
+    name: uefi
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-uefi,aarch64-unknown-uefi
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build UEFI EFI files
+        run: |
+          set -euo pipefail
+          chmod +x platform/scripts/build_uefi.sh
+          ./platform/scripts/build_uefi.sh
+
+      - name: Collect UEFI EFI files
+        run: |
+          set -euo pipefail
+          mkdir -p dist/uefi
+          test -f platform/uefi/x86_64/esp/EFI/BOOT/BOOTX64.EFI
+          test -f platform/uefi/aarch64/esp/EFI/BOOT/BOOTAA64.EFI
+          cp -v platform/uefi/x86_64/esp/EFI/BOOT/BOOTX64.EFI dist/uefi/BOOTX64.EFI
+          cp -v platform/uefi/aarch64/esp/EFI/BOOT/BOOTAA64.EFI dist/uefi/BOOTAA64.EFI
+
+      - name: Upload UEFI EFI files
+        uses: actions/upload-artifact@v4
+        with:
+          name: rfvp-uefi
+          path: |
+            dist/uefi/BOOTX64.EFI
+            dist/uefi/BOOTAA64.EFI
+          if-no-files-found: error
+
   macos:
     name: macos (dmg only)
     runs-on: macos-15
@@ -572,7 +612,7 @@ jobs:
   prerelease:
     name: Publish GitHub Pre-release (non-tag pushes only)
     if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
-    needs: [meta, linux_x86_64, linux_aarch64, freebsd, wasm, macos, ios, windows, android]
+    needs: [meta, linux_x86_64, linux_aarch64, freebsd, wasm, uefi, macos, ios, windows, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -622,6 +662,8 @@ jobs:
             _artifacts/rfvp-linux-aarch64/rfvp-linux-aarch64.tar.gz \
             _artifacts/rfvp-freebsd-x86_64/rfvp-freebsd-x86_64.tar.gz \
             _artifacts/rfvp-wasm/rfvp-wasm.zip \
+            _artifacts/rfvp-uefi/BOOTX64.EFI \
+            _artifacts/rfvp-uefi/BOOTAA64.EFI \
             _artifacts/rfvp-macos/RFVP.dmg \
             _artifacts/rfvp-ios/RFVPLauncher.ipa \
             _artifacts/rfvp-windows/rfvp.exe \
@@ -631,7 +673,7 @@ jobs:
   release:
     name: Publish GitHub Release (tags only)
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [meta, linux_x86_64, linux_aarch64, freebsd, wasm, macos, ios, windows, android]
+    needs: [meta, linux_x86_64, linux_aarch64, freebsd, wasm, uefi, macos, ios, windows, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
