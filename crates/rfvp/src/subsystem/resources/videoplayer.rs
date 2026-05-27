@@ -1,4 +1,12 @@
 use crate::platform_time::Instant;
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 use std::collections::VecDeque;
 use std::io::Read;
 use std::path::Path;

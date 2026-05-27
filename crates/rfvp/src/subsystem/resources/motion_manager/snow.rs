@@ -1,3 +1,11 @@
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 #[derive(Copy, Clone, Debug, Default)]
 pub struct SnowFlake {
     /// dword0 in original: variant index (uint)
@@ -195,12 +203,7 @@ impl SnowMotion {
     ///
     /// Reproduces the loop and checks from original sub_4249B0.
     /// Accepts flake index.
-    fn adjust_after_reset(
-        s: &mut SnowMotion,
-        flake_idx: usize,
-        ori_game_w: i32,
-        ori_game_h: i32,
-    ) {
+    fn adjust_after_reset(s: &mut SnowMotion, flake_idx: usize, ori_game_w: i32, ori_game_h: i32) {
         if flake_idx >= 1024 {
             return;
         }
@@ -354,7 +357,7 @@ impl SnowMotion {
         // if ( self.flake_count > 0 ) { p_period = &self.flakes[0].period; ...
         let flake_count = self.flake_count.max(0) as usize;
         if flake_count > 0 {
-                // We iterate i from 0..flake_count
+            // We iterate i from 0..flake_count
             for i in 0..flake_count {
                 // For convenience, create local mutable references
                 // Equivalent of p_period pointing to flake.period; p_period[1] is x (flake.x), p_period[2] is y

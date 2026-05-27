@@ -16,7 +16,12 @@
 //! `Font` wraps `ab_glyph::FontArc`, which is internally `Arc<dyn Font>`, so
 //! cloning a `Font` is a refcount bump — cheap.
 
+use alloc::vec;
+use alloc::vec::Vec;
+
 use ab_glyph::{Font as _, FontArc, PxScale, ScaleFont};
+#[cfg(feature = "no_std")]
+use core_maths::CoreFloat;
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FontSettings;

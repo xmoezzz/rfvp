@@ -1,9 +1,76 @@
+#[cfg(feature = "no_std")]
+mod no_std_time {
+    use core::ops::Sub;
+    use core::sync::atomic::{AtomicU64, Ordering};
+
+    pub use core::time::Duration;
+
+    static NOW_US: AtomicU64 = AtomicU64::new(0);
+
+    pub fn set_host_time_us(us: u64) {
+        NOW_US.store(us, Ordering::Relaxed);
+    }
+
+    fn now_us() -> u64 {
+        NOW_US.load(Ordering::Relaxed)
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct Instant {
+        us: u64,
+    }
+
+    impl Instant {
+        pub fn now() -> Self {
+            Self { us: now_us() }
+        }
+
+        pub fn elapsed(&self) -> Duration {
+            Duration::from_micros(now_us().saturating_sub(self.us))
+        }
+    }
+
+    impl Sub for Instant {
+        type Output = Duration;
+
+        fn sub(self, rhs: Self) -> Self::Output {
+            Duration::from_micros(self.us.saturating_sub(rhs.us))
+        }
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+    pub struct SystemTime {
+        us: u64,
+    }
+
+    pub const UNIX_EPOCH: SystemTime = SystemTime { us: 0 };
+
+    impl SystemTime {
+        pub fn now() -> Self {
+            Self { us: now_us() }
+        }
+
+        pub fn duration_since(&self, earlier: SystemTime) -> Result<Duration, Duration> {
+            self.us
+                .checked_sub(earlier.us)
+                .map(Duration::from_micros)
+                .ok_or_else(|| Duration::from_micros(earlier.us - self.us))
+        }
+    }
+}
+
+#[cfg(feature = "no_std")]
+pub use no_std_time::{set_host_time_us, Duration, Instant, SystemTime, UNIX_EPOCH};
+
+#[cfg(not(feature = "no_std"))]
 #[cfg(target_arch = "wasm32")]
 pub use web_time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+#[cfg(not(feature = "no_std"))]
 #[cfg(all(not(target_arch = "wasm32"), not(target_os = "uefi")))]
 pub use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+#[cfg(not(feature = "no_std"))]
 #[cfg(target_os = "uefi")]
 mod uefi_time {
     use core::sync::atomic::{AtomicU64, Ordering};
@@ -177,9 +244,9 @@ mod uefi_time {
     }
 }
 
-#[cfg(target_os = "uefi")]
+#[cfg(all(not(feature = "no_std"), target_os = "uefi"))]
 pub use uefi_time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 // Re-export calibrate() for UEFI startup use.
-#[cfg(target_os = "uefi")]
+#[cfg(all(not(feature = "no_std"), target_os = "uefi"))]
 pub use uefi_time::calibrate as calibrate_uefi_clock;

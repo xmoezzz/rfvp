@@ -1,6 +1,8 @@
 use anyhow::Result;
+#[cfg(not(feature = "no_std"))]
 use std::fs;
 
+#[cfg(not(feature = "no_std"))]
 use crate::debug_ui;
 use crate::script::{context::ThreadState, parser::Parser};
 use crate::subsystem::resources::save_manager::SaveItem;
@@ -72,6 +74,7 @@ impl VmRunner {
         // If the game is halted (e.g. waiting for IO / modal UI), we do not advance contexts.
         if game.get_halt() {
             uefi_vm_stage!("[UEFI] VmRunner::tick game halted");
+            #[cfg(not(feature = "no_std"))]
             if debug_ui::enabled() {
                 game.debug_vm_mut().update_from_thread_manager(&self.tm);
             }
@@ -92,54 +95,62 @@ impl VmRunner {
         // Process deferred load requests at a safe point (between VM ticks).
         uefi_vm_stage!("[UEFI] VmRunner::tick before take_load_request");
         if let Some(slot) = game.save_manager.take_load_request() {
-            let path = SaveItem::resolve_save_path_for_read(slot);
-            match fs::read(&path) {
-                Ok(bytes) => {
-                    let nls = game.get_nls();
-                    if let Err(e) = game
-                        .save_manager
-                        .load_slot_into_current_from_bytes(slot, nls, &bytes)
-                    {
-                        log::error!(
-                            "load: failed to parse save header for slot {}: {:#}",
-                            slot,
-                            e
-                        );
-                    }
-
-                    match try_decode_state_chunk_v1(&bytes) {
-                        Ok(Some(s)) => {
-                            if let Err(e) = s.apply(game, &mut self.tm) {
-                                log::error!("load: apply SaveStateSnapshotV1 failed: {:#}", e);
-                            }
-                        }
-                        Ok(None) => {
-                            // No RFVS chunk: header-only save (engine save or older rfvp save).
-                            log::warn!(
-                                "load: no RFVS chunk found in slot {} (header-only load)",
-                                slot
-                            );
-                        }
-                        Err(e) => {
+            #[cfg(feature = "no_std")]
+            {
+                let _ = slot;
+            }
+            #[cfg(not(feature = "no_std"))]
+            {
+                let path = SaveItem::resolve_save_path_for_read(slot);
+                match fs::read(&path) {
+                    Ok(bytes) => {
+                        let nls = game.get_nls();
+                        if let Err(e) = game
+                            .save_manager
+                            .load_slot_into_current_from_bytes(slot, nls, &bytes)
+                        {
                             log::error!(
-                                "load: failed to decode RFVS chunk for slot {}: {:#}",
+                                "load: failed to parse save header for slot {}: {:#}",
                                 slot,
                                 e
                             );
                         }
+
+                        match try_decode_state_chunk_v1(&bytes) {
+                            Ok(Some(s)) => {
+                                if let Err(e) = s.apply(game, &mut self.tm) {
+                                    log::error!("load: apply SaveStateSnapshotV1 failed: {:#}", e);
+                                }
+                            }
+                            Ok(None) => {
+                                // No RFVS chunk: header-only save (engine save or older rfvp save).
+                                log::warn!(
+                                    "load: no RFVS chunk found in slot {} (header-only load)",
+                                    slot
+                                );
+                            }
+                            Err(e) => {
+                                log::error!(
+                                    "load: failed to decode RFVS chunk for slot {}: {:#}",
+                                    slot,
+                                    e
+                                );
+                            }
+                        }
                     }
-                }
-                Err(e) => {
-                    log::error!(
-                        "load: failed to read save slot {} from {}: {:#}",
-                        slot,
-                        path.display(),
-                        e
-                    );
+                    Err(e) => {
+                        log::error!(
+                            "load: failed to read save slot {} from {}: {:#}",
+                            slot,
+                            path.display(),
+                            e
+                        );
+                    }
                 }
             }
 
             // Do not advance contexts in the same tick; resume on the next frame.
+            #[cfg(not(feature = "no_std"))]
             if debug_ui::enabled() {
                 game.debug_vm_mut().update_from_thread_manager(&self.tm);
             }
@@ -212,6 +223,7 @@ impl VmRunner {
             game.save_manager.set_pending_vm_snapshot(snap);
         }
 
+        #[cfg(not(feature = "no_std"))]
         if debug_ui::enabled() {
             game.debug_vm_mut().update_from_thread_manager(&self.tm);
         }
@@ -312,9 +324,15 @@ impl VmRunner {
         uefi_vm_stage!("[UEFI] run_one_context before set_current_id tid={}", tid);
         self.tm.set_current_id(tid);
         uefi_vm_stage!("[UEFI] run_one_context after set_current_id tid={}", tid);
-        uefi_vm_stage!("[UEFI] run_one_context before set_current_thread tid={}", tid);
+        uefi_vm_stage!(
+            "[UEFI] run_one_context before set_current_thread tid={}",
+            tid
+        );
         game.set_current_thread(tid);
-        uefi_vm_stage!("[UEFI] run_one_context after set_current_thread tid={}", tid);
+        uefi_vm_stage!(
+            "[UEFI] run_one_context after set_current_thread tid={}",
+            tid
+        );
 
         uefi_vm_stage!(
             "[UEFI] run_one_context before set_context_should_break false tid={}",

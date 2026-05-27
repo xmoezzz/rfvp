@@ -1,4 +1,12 @@
 use super::texture::{NvsgTexture, TextureType};
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 use anyhow::Result;
 use image::DynamicImage;
 use serde::{Deserialize, Serialize};

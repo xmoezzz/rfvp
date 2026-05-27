@@ -1,0 +1,44 @@
+[package]
+name = "rfvp-psv"
+version = "0.1.0"
+edition = "2021"
+description = "PlayStation Vita host crate for rfvp no_std core"
+license = "MPL-2.0"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "rfvp_psv"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rfvp-psv"
+path = "src/main.rs"
+required-features = ["entrypoint"]
+
+[dependencies]
+rfvp = { path = "../rfvp", default-features = false, features = ["no_std"] }
+
+[build-dependencies]
+cc = "1"
+
+[features]
+default = []
+entrypoint = ["vitasdk-backend", "global-allocator"]
+c-glue = []
+vitasdk-backend = ["c-glue"]
+global-allocator = []
+
+[package.metadata.vita]
+title_id = "RFVPPSV01"
+title_name = "rfvp PSV"
+assets = "static"
+build_std = "core,alloc,compiler_builtins"
+vita_make_fself_flags = ["-s"]
+vita_mksfoex_flags = ["-d", "ATTRIBUTE2=12"]
+
+[package.metadata.vita.profile.dev]
+strip_symbols = false
+
+[package.metadata.vita.profile.release]
+strip_symbols = true

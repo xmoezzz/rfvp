@@ -1,3 +1,10 @@
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{sync::Mutex, vec};
 #[cfg(any(feature = "gpu-render", feature = "soft-render-desktop"))]

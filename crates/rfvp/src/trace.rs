@@ -1,5 +1,7 @@
+#[cfg(not(feature = "no_std"))]
 use std::env;
 use std::fmt;
+#[cfg(not(feature = "no_std"))]
 use std::sync::OnceLock;
 
 /// Trace categories, enabled via environment variables.
@@ -42,6 +44,7 @@ const M_PRIM_TREE: u32 = 1 << 3;
 const M_MOTION: u32 = 1 << 4;
 const M_RENDER: u32 = 1 << 5;
 
+#[cfg(not(feature = "no_std"))]
 fn parse_bool_env(name: &str) -> bool {
     match env::var(name) {
         Ok(v) => {
@@ -52,6 +55,7 @@ fn parse_bool_env(name: &str) -> bool {
     }
 }
 
+#[cfg(not(feature = "no_std"))]
 fn parse_u64_env(name: &str, default_v: u64) -> u64 {
     env::var(name)
         .ok()
@@ -59,6 +63,7 @@ fn parse_u64_env(name: &str, default_v: u64) -> u64 {
         .unwrap_or(default_v)
 }
 
+#[cfg(not(feature = "no_std"))]
 fn parse_usize_env(name: &str, default_v: usize) -> usize {
     env::var(name)
         .ok()
@@ -66,6 +71,7 @@ fn parse_usize_env(name: &str, default_v: usize) -> usize {
         .unwrap_or(default_v)
 }
 
+#[cfg(not(feature = "no_std"))]
 fn parse_mask_from_trace_list(s: &str) -> u32 {
     let mut mask = 0u32;
     for raw in s.split(|c: char| c == ',' || c == ';' || c.is_whitespace()) {
@@ -89,6 +95,7 @@ fn parse_mask_from_trace_list(s: &str) -> u32 {
     mask
 }
 
+#[cfg(not(feature = "no_std"))]
 fn build_config() -> TraceConfig {
     let mut mask = 0u32;
 
@@ -125,9 +132,23 @@ fn build_config() -> TraceConfig {
     }
 }
 
+#[cfg(not(feature = "no_std"))]
 fn cfg() -> &'static TraceConfig {
     static CFG: OnceLock<TraceConfig> = OnceLock::new();
     CFG.get_or_init(build_config)
+}
+
+#[cfg(feature = "no_std")]
+fn cfg() -> &'static TraceConfig {
+    static CFG: TraceConfig = TraceConfig {
+        mask: 0,
+        prim_tree_every: 60,
+        motion_every: 30,
+        prim_tree_max_nodes: 256,
+        prim_tree_max_depth: 32,
+        motion_max: 16,
+    };
+    &CFG
 }
 
 pub fn enabled(k: TraceKind) -> bool {

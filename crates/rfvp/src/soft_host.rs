@@ -12,10 +12,10 @@ use std::{
     sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
+use crate::platform_time::Instant;
 use anyhow::{Context, Result};
 use regex::Regex;
 use winit::event_loop::OwnedDisplayHandle;
-use crate::platform_time::Instant;
 use winit::{
     dpi::{PhysicalSize, Size},
     event::{Event, WindowEvent},
@@ -128,7 +128,14 @@ fn run(args: SoftHostArgs) -> Result<()> {
     let mut surface = softbuffer::Surface::new(&context, window.clone())
         .map_err(|e| anyhow::anyhow!("create softbuffer surface: {e:?}"))?;
 
-    let mut host = SoftHost::new(&event_loop, &mut parser, title, virtual_size, window.clone(), args)?;
+    let mut host = SoftHost::new(
+        &event_loop,
+        &mut parser,
+        title,
+        virtual_size,
+        window.clone(),
+        args,
+    )?;
     let _result = event_loop.run(move |event, loopd| {
         loopd.set_control_flow(ControlFlow::Poll);
 
@@ -142,7 +149,9 @@ fn run(args: SoftHostArgs) -> Result<()> {
                     window.request_redraw();
                 }
                 WindowEvent::RedrawRequested => {
-                    if let Err(e) = host.step_and_present(&mut surface, window.as_ref(), window.inner_size()) {
+                    if let Err(e) =
+                        host.step_and_present(&mut surface, window.as_ref(), window.inner_size())
+                    {
                         log::error!("soft-render frame failed: {e:?}");
                         loopd.exit();
                     }
@@ -347,7 +356,9 @@ impl SoftHost {
             let _ = window.set_cursor_position(pos);
         }
 
-        gd_write(&self.game_data).window_mut().reset_future_settings();
+        gd_write(&self.game_data)
+            .window_mut()
+            .reset_future_settings();
     }
 
     fn next_frame(&mut self) -> (u64, bool) {
@@ -506,7 +517,10 @@ fn load_ani_cursor_table(event_loop: &EventLoop<()>, vfs: &Vfs) -> HashMap<u32, 
             match icondir_to_custom_cursor(frame) {
                 Ok(source) => frames.push(event_loop.create_custom_cursor(source)),
                 Err(e) => {
-                    log::error!("Failed to create cursor frame for {}: {e:#}", path.display());
+                    log::error!(
+                        "Failed to create cursor frame for {}: {e:#}",
+                        path.display()
+                    );
                     failed = true;
                     break;
                 }
@@ -516,7 +530,11 @@ fn load_ani_cursor_table(event_loop: &EventLoop<()>, vfs: &Vfs) -> HashMap<u32, 
             continue;
         }
 
-        log::info!("loaded soft-render ANI cursor slot {} from {}", index, path.display());
+        log::info!(
+            "loaded soft-render ANI cursor slot {} from {}",
+            index,
+            path.display()
+        );
         cursor_table.insert(
             index,
             CursorBundle {

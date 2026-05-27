@@ -1,61 +1,68 @@
-#[cfg(feature = "gpu-render")]
+extern crate alloc;
+
+#[cfg(feature = "no_std")]
+fn main() {
+    eprintln!("rfvp `no_std` is a library-only core surface; link the rfvp library from a platform SDK host.");
+}
+
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 mod app;
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 mod audio_player;
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 mod boot;
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 mod config;
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 mod debug_ui;
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 mod exit_confirm_ui;
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 mod font;
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 mod legacy_save_load_ui;
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 mod rendering;
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 mod rfvp_audio;
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 mod rfvp_render;
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 mod script;
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 mod subsystem;
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 mod trace;
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 mod utils;
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 mod vm_runner;
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 mod vm_worker;
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 mod window;
 
-#[cfg(feature = "gpu-render")]
-pub(crate) mod platform_time;
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 pub(crate) mod platform_random;
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
+pub(crate) mod platform_time;
 
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 use script::parser::Nls;
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 use subsystem::{anzu_scene::AnzuScene, resources::thread_manager::ThreadManager};
 
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 use crate::app::App;
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 use crate::utils::file::set_base_path;
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 use anyhow::Result;
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 use boot::{app_config, load_script};
 
 /// Parse `--project-dir <path>` or `--project-dir=<path>` from argv.
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 fn parse_project_dir_arg() -> Option<String> {
     let args: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -78,7 +85,7 @@ fn parse_project_dir_arg() -> Option<String> {
 }
 
 /// Parse `--nls <value>` or `--nls=<value>` from argv, default to ShiftJIS.
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 fn parse_nls_arg() -> Nls {
     let args: Vec<String> = std::env::args().collect();
     let mut i = 1;
@@ -106,7 +113,7 @@ fn parse_nls_arg() -> Nls {
 }
 
 /// Parse `--system-font`; when present, system-wide CJK fallback fonts are scanned.
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 fn parse_system_font_arg() -> bool {
     std::env::args().skip(1).any(|a| a == "--system-font")
 }
@@ -116,7 +123,7 @@ fn parse_system_font_arg() -> bool {
 // #[global_allocator]
 // static ALLOC: dhat::Alloc = dhat::Alloc;
 
-#[cfg(feature = "gpu-render")]
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 fn main() -> Result<()> {
     // let _profiler = dhat::Profiler::new_heap();
     // env_logger::init();
@@ -149,12 +156,17 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-#[cfg(all(not(feature = "gpu-render"), feature = "rfvp-os"))]
+#[cfg(all(
+    not(feature = "no_std"),
+    not(feature = "gpu-render"),
+    feature = "rfvp-os"
+))]
 fn main() -> anyhow::Result<()> {
     rfvp::rfvp_os_host::run_from_args()
 }
 
 #[cfg(all(
+    not(feature = "no_std"),
     not(feature = "gpu-render"),
     not(feature = "rfvp-os"),
     feature = "soft-render-desktop"
@@ -164,17 +176,15 @@ fn main() -> anyhow::Result<()> {
 }
 
 #[cfg(all(
+    not(feature = "no_std"),
     not(feature = "gpu-render"),
     not(feature = "rfvp-os"),
     feature = "soft-render-core",
     not(feature = "soft-render-desktop")
 ))]
 fn main() -> anyhow::Result<()> {
-    let renderer = rfvp::soft_render::create_soft_renderer(
-        320,
-        240,
-        rfvp::soft_render::PixelFormat::Rgba8,
-    )?;
+    let renderer =
+        rfvp::soft_render::create_soft_renderer(320, 240, rfvp::soft_render::PixelFormat::Rgba8)?;
     let fb = renderer.framebuffer();
     println!(
         "rfvp soft-render-core initialized: {}x{} stride={} format={:?} bytes={}",
@@ -189,6 +199,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 #[cfg(all(
+    not(feature = "no_std"),
     not(feature = "gpu-render"),
     not(feature = "soft-render"),
     not(feature = "soft-render-core"),
@@ -200,6 +211,7 @@ fn main() -> anyhow::Result<()> {
 }
 
 #[cfg(all(
+    not(feature = "no_std"),
     not(feature = "gpu-render"),
     not(feature = "soft-render"),
     not(feature = "soft-render-core"),

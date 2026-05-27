@@ -1,4 +1,12 @@
 use crate::{script::Variant, subsystem::world::GameData};
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 
 pub mod color;
 pub mod cursor;
@@ -9,9 +17,13 @@ pub mod history;
 pub mod input;
 pub mod legacy;
 pub mod motion;
-#[cfg(all(not(target_os = "uefi"), not(target_arch = "wasm32")))]
+#[cfg(all(
+    not(feature = "no_std"),
+    not(target_os = "uefi"),
+    not(target_arch = "wasm32")
+))]
 pub mod movie;
-#[cfg(any(target_os = "uefi", target_arch = "wasm32"))]
+#[cfg(any(feature = "no_std", target_os = "uefi", target_arch = "wasm32"))]
 #[path = "movie_wasm.rs"]
 pub mod movie;
 pub mod other_anm;

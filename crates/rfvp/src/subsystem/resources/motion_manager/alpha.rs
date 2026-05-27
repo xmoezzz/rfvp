@@ -1,4 +1,12 @@
 use crate::subsystem::resources::prim::{PrimManager, INVAILD_PRIM_HANDLE};
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 use anyhow::Result;
 
 #[derive(Debug, Clone, PartialEq)]

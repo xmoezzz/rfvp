@@ -1,4 +1,12 @@
 use crate::subsystem::world::GameData;
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 
 /// Trait to implement in order to define a `Scene`.
 ///

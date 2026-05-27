@@ -1,3 +1,10 @@
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
 use std::vec;
 
 #[derive(Debug, Clone, Default)]

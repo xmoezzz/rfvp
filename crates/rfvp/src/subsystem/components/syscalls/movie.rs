@@ -1,3 +1,11 @@
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 use anyhow::{Context, Result};
 
 use crate::platform_time::{SystemTime, UNIX_EPOCH};
@@ -5,7 +13,6 @@ use std::fs;
 use std::io;
 use std::path::Component;
 use std::path::PathBuf;
-
 
 use crate::script::Variant;
 use crate::subsystem::resources::videoplayer::MovieMode;

@@ -18,7 +18,6 @@ license = "MPL-2.0"
 [lib]
 name = "rfvp"
 path = "src/lib.rs"
-crate-type = ["cdylib", "staticlib", "rlib"]
 
 [[bin]]
 name = "rfvp"
@@ -30,34 +29,36 @@ path = "src/bin/sizecheck.rs"
 required-features = ["gpu-render"]
 
 [dependencies]
-anyhow = { version = "1.0.79", features = ["backtrace"] }
-encoding_rs = "0.8.33"
-log = { version = "0.4.20", features = ["serde"] }
-serde = { version = "1.0.196", features = ["derive"]}
-serde_json = "1.0.113"
-bincode = "1.3.3"
-twofloat = "0.7.0"
+anyhow = { version = "1.0.79", default-features = false, optional = true }
+encoding_rs = { version = "0.8.33", optional = true }
+log = { version = "0.4.20", optional = true }
+serde = { version = "1.0.196", default-features = false, optional = true }
+serde_json = { version = "1.0.113", optional = true }
+bincode = { version = "1.3.3", optional = true }
+twofloat = { version = "0.7.0", default-features = false, optional = true }
 winit = {version = "0.30.5", features = ["rwh_05"], optional = true}
 wgpu = { version = "0.19.1", features = ["spirv"], optional = true }
 softbuffer = { version = "0.4.8", optional = true }
-glob = "0.3.1"
-atomic_refcell = "0.1.13"
-hecs = "0.10.4"
-image = { version = "0.24.9", default-features = false }
-bytes = "1.6.0"
-bytemuck = { version = "1.14.3", features = ["derive"] }
-ultraviolet = "0.9.2"
-futures = "0.3.30"
+glob = { version = "0.3.1", optional = true }
+atomic_refcell = { version = "0.1.13", optional = true }
+hecs = { version = "0.10.4", default-features = false, optional = true }
+hashbrown = { version = "0.14.5", default-features = false, features = ["ahash"], optional = true }
+image = { version = "0.24.9", default-features = false, optional = true }
+bytes = { version = "1.6.0", default-features = false, optional = true }
+bytemuck = { version = "1.14.3", features = ["derive"], optional = true }
+ultraviolet = { version = "0.9.2", optional = true }
+futures = { version = "0.3.30", optional = true }
 fern = { version = "0.6.2", features = ["colored"], optional = true }
-chrono = "0.4.35"
+chrono = { version = "0.4.35", optional = true }
 
 flate2 = { version = "=1.0.28", optional = true }
 miniz_oxide = { version = "0.7.4", default-features = false, features = ["with-alloc"], optional = true }
-byteorder = "1.5.0"
+byteorder = { version = "1.5.0", default-features = false, optional = true }
 rand = { version = "0.8.5", features = ["small_rng"], optional = true }
-lazy_static = "1.4.0"
+lazy_static = { version = "1.4.0", optional = true }
 fontdue = { version = "0.9.3", optional = true }
-ab_glyph = "0.2.29"
+ab_glyph = { version = "0.2.29", default-features = false, features = ["libm"], optional = true }
+core_maths = { version = "0.1.1", optional = true }
 
 env_logger = { version = "0.11.3", optional = true }
 egui = { version = "0.27.2", optional = true }
@@ -67,43 +68,115 @@ glam = { version = "0.27.0", features = [
     # "scalar-math" disables the 16-byte alignment requirement for some types
     # this is required for bytemuck to work
     "bytemuck", "scalar-math"
-] }
-enum-map = "2.7.3"
-itertools = "0.12.1"
-petitset = "0.2.1"
-tracing = "0.1.37"
+], default-features = false, optional = true }
+enum-map = { version = "2.7.3", optional = true }
+itertools = { version = "0.12.1", default-features = false, features = ["use_alloc"], optional = true }
+petitset = { version = "0.2.1", optional = true }
+tracing = { version = "0.1.37", optional = true }
+spin = { version = "0.9.8", optional = true, default-features = false, features = ["mutex", "spin_mutex"] }
 
 uuid = { version = "1.19.0", features = ["js"], optional = true }
 
 wmv-decoder = { path = "../na_wmv_player", optional = true, default-features = false }
 na_mpeg2_decoder = { path = "../na_mpeg2_decoder", optional = true, default-features = false }
-crossbeam-channel = "0.5"
+crossbeam-channel = { version = "0.5", optional = true }
 
 
 
-pollster = "0.4.0"
+pollster = { version = "0.4.0", optional = true }
 
-bitflags = "2.9.4"
-regex = "1.11.2"
+bitflags = { version = "2.9.4", optional = true }
+regex = { version = "1.11.2", optional = true }
 ico = { version = "0.3", optional = true }
 riff = { version = "2.0.0", optional = true }
 
 # dhat = "0.3"
 
 [target.'cfg(target_os = "uefi")'.dependencies]
-uefi = { version = "0.37.0", default-features = false, features = ["alloc"] }
+uefi = { version = "0.37.0", default-features = false, features = ["alloc"], optional = true }
 anzu-hal = { path = "../anzu-hal", optional = true }
 
 [features]
 # Keep native movie support enabled by default for backward compatibility.
-default = ["gpu-render", "audio", "mp4", "native-video", "random", "uuid-support", "image-formats", "bevy-utils", "fontdue-compat", "cursor-ani", "zlib-flate2", "logging"]
+default = ["runtime-core-deps", "gpu-render", "audio", "mp4", "native-video", "random", "uuid-support", "image-formats", "bevy-utils", "fontdue-compat", "cursor-ani", "zlib-flate2", "logging"]
+
+# Independent no_std + alloc library surface. This feature intentionally does
+# not enable any runtime/backend dependency. Use it with:
+# cargo check -p rfvp --no-default-features --features no_std --lib
+no_std = [
+    "dep:anyhow",
+    "dep:atomic_refcell",
+    "dep:ab_glyph",
+    "dep:bitflags",
+    "dep:byteorder",
+    "dep:bytes",
+    "dep:bytemuck",
+    "dep:encoding_rs",
+    "dep:core_maths",
+    "dep:enum-map",
+    "dep:glam",
+    "dep:hecs",
+    "dep:hashbrown",
+    "dep:itertools",
+    "dep:lazy_static",
+    "lazy_static/spin_no_std",
+    "dep:log",
+    "dep:miniz_oxide",
+    "dep:petitset",
+    "dep:serde",
+    "dep:spin",
+    "dep:twofloat",
+    "glam/libm",
+    "serde/alloc",
+    "serde/derive",
+]
+
+# Dependencies required by the historical std/runtime engine modules. This is
+# deliberately separate from `no_std`; no_std builds must not enable it.
+runtime-core-deps = [
+    "dep:anyhow",
+    "anyhow/std",
+    "anyhow/backtrace",
+    "dep:encoding_rs",
+    "dep:log",
+    "log/serde",
+    "dep:serde",
+    "serde/std",
+    "serde/derive",
+    "dep:serde_json",
+    "dep:bincode",
+    "dep:twofloat",
+    "dep:glob",
+    "dep:atomic_refcell",
+    "dep:hecs",
+    "hecs/std",
+    "dep:image",
+    "dep:bytes",
+    "dep:bytemuck",
+    "dep:ultraviolet",
+    "dep:futures",
+    "dep:chrono",
+    "dep:byteorder",
+    "dep:lazy_static",
+    "dep:ab_glyph",
+    "dep:glam",
+    "glam/std",
+    "dep:enum-map",
+    "dep:itertools",
+    "dep:petitset",
+    "dep:tracing",
+    "dep:crossbeam-channel",
+    "dep:pollster",
+    "dep:bitflags",
+    "dep:regex",
+]
 
 # Existing wgpu renderer. Enabled by default for backward compatibility.
-gpu-render = ["dep:winit", "dep:wgpu", "dep:egui", "dep:egui-wgpu", "random", "cursor-ani", "zlib-flate2", "logging"]
+gpu-render = ["runtime-core-deps", "dep:winit", "dep:wgpu", "dep:egui", "dep:egui-wgpu", "dep:android-activity", "dep:ndk-context", "random", "cursor-ani", "zlib-flate2", "logging"]
 
 # CPU/software rendering backend core. This is platform-independent and is used
 # by both desktop software rendering and rfvp-os/UEFI-style builds.
-soft-render-core = ["uefi-zlib"]
+soft-render-core = ["runtime-core-deps", "uefi-zlib"]
 
 # Historical/user-facing software-render feature. For normal desktop use this
 # enables the desktop software-render host, including ANI cursor support.
@@ -111,26 +184,26 @@ soft-render = ["soft-render-desktop"]
 
 # Desktop host for the CPU/software renderer. This is intentionally separate
 # from `soft-render-core` so OS/UEFI-style builds do not pull windowing crates.
-soft-render-desktop = ["soft-render-core", "audio", "native-video", "image-formats", "cursor-ani", "zlib-flate2", "dep:winit", "dep:softbuffer", "logging"]
+soft-render-desktop = ["runtime-core-deps", "soft-render-core", "audio", "native-video", "image-formats", "cursor-ani", "zlib-flate2", "dep:winit", "dep:softbuffer", "logging"]
 
 
 # Desktop/normal logger implementation. Disabled for rfvp-os/UEFI so fern/colored/is-terminal are not pulled into UEFI builds.
-logging = ["dep:fern"]
+logging = ["runtime-core-deps", "dep:fern"]
 
 # Normal audio backend. Enabled by default for backward compatibility.
-audio = ["dep:kira", "dep:symphonia-core"]
+audio = ["runtime-core-deps", "dep:kira", "dep:symphonia-core"]
 
 # API-compatible no-op audio backend for OS/UEFI-style builds.
-no-audio = []
+no-audio = ["runtime-core-deps"]
 
 # Intel HDA audio hardware support for UEFI builds.
 # Opt-in only — disabled by default so UEFI boots without hardware audio probing.
 # Enable with: features = ["rfvp-os", "uefi-native-video", "anzu-audio"]
-anzu-audio = ["dep:anzu-hal"]
+anzu-audio = ["runtime-core-deps", "dep:anzu-hal"]
 
 # Future OS/UEFI-style configuration: CPU renderer plus no audio, with no
 # desktop windowing or GPU dependencies.
-rfvp-os = ["soft-render-core", "no-audio", "uefi-zlib"]
+rfvp-os = ["runtime-core-deps", "soft-render-core", "no-audio", "uefi-zlib", "dep:uefi"]
 
 
 # Randomness support used by normal engine/runtime paths. Disabled for rfvp-os/UEFI.
@@ -153,6 +226,8 @@ fontdue-compat = ["dep:fontdue"]
 # crate remains available for CPU image buffers in rfvp-os, but decoder formats
 # are not pulled into UEFI unless this feature is explicitly enabled.
 image-formats = [
+    "runtime-core-deps",
+    "dep:image",
     "image/png",
     "image/jpeg",
     "image/gif",
@@ -180,10 +255,11 @@ zlib-flate2 = ["dep:flate2"]
 uefi-zlib = ["dep:miniz_oxide"]
 
 # WebAssembly build entry. Use this with `--no-default-features --features wasm`.
-wasm = ["gpu-render", "image-formats", "native-video", "audio"]
+wasm = ["gpu-render", "image-formats", "native-video", "audio", "dep:web-time", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys", "dep:console_error_panic_hook", "dep:getrandom", "dep:getrandom_v02", "dep:web-sys", "dep:cpal"]
 
 # Native WMV/MPEG movie backends with full audio support. Not used for UEFI.
 native-video = [
+    "runtime-core-deps",
     "dep:wmv-decoder",
     "wmv-decoder/audio",
     "dep:na_mpeg2_decoder",
@@ -192,6 +268,7 @@ native-video = [
 
 # UEFI video-only movie backend. Excludes audio/symphonia from decoder dependency graph.
 uefi-native-video = [
+    "runtime-core-deps",
     "dep:wmv-decoder",
     "wmv-decoder/video-only",
     "dep:na_mpeg2_decoder",
@@ -199,7 +276,7 @@ uefi-native-video = [
 ]
 
 # MP4 movie playback backend (video-sys + symphonia for AAC audio).
-mp4 = ["dep:mp4", "dep:video-sys", "dep:symphonia", "dep:symphonia-core"]
+mp4 = ["runtime-core-deps", "dep:mp4", "dep:video-sys", "dep:symphonia", "dep:symphonia-core"]
 
 [target.'cfg(not(target_os = "uefi"))'.dependencies]
 kira = { version = "0.10.8", optional = true }
@@ -213,17 +290,17 @@ rodio = { version = "0.17.3", optional = true }
 uuid = { version = "1.19.0", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-web-time = "1.1"
-wasm-bindgen = "0.2.95"
-wasm-bindgen-futures = "0.4.45"
-js-sys = "0.3.72"
-console_error_panic_hook = "0.1.7"
-getrandom = { version = "0.3", features = ["wasm_js"] }
+web-time = { version = "1.1", optional = true }
+wasm-bindgen = { version = "0.2.95", optional = true }
+wasm-bindgen-futures = { version = "0.4.45", optional = true }
+js-sys = { version = "0.3.72", optional = true }
+console_error_panic_hook = { version = "0.1.7", optional = true }
+getrandom = { version = "0.3", features = ["wasm_js"], optional = true }
 # rand 0.8.x depends on getrandom 0.2.x; ensure the js feature is enabled
 # so that rand (pulled in by the random/gpu-render feature) compiles on wasm32.
-getrandom_v02 = { package = "getrandom", version = "0.2", features = ["js"] }
+getrandom_v02 = { package = "getrandom", version = "0.2", features = ["js"], optional = true }
 cpal = { version = "0.15.3", features = ["wasm-bindgen"], optional = true }
-web-sys = { version = "0.3.72", features = [
+web-sys = { version = "0.3.72", optional = true, features = [
     "Window",
     "Document",
     "Element",
@@ -237,8 +314,8 @@ web-sys = { version = "0.3.72", features = [
 wgpu = { version = "0.19.1", features = ["webgl"], optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
-android-activity = { version = "0.6", features = ["game-activity"] }
-ndk-context = "0.1.1"
+android-activity = { version = "0.6", features = ["game-activity"], optional = true }
+ndk-context = { version = "0.1.1", optional = true }
 
 [target.'cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))'.dependencies]
 egui-wgpu = { version = "0.27.2", optional = true }

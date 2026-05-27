@@ -1,3 +1,11 @@
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 pub use time::*;
 pub use timer::*;
 
@@ -63,6 +71,8 @@ mod time {
 
 mod timer {
     use crate::platform_time::Duration;
+    #[cfg(feature = "no_std")]
+    use alloc::string::{String, ToString};
 
     use crate::subsystem::resources::time::Error;
     use crate::utils::stable_hash::StableHashMap;

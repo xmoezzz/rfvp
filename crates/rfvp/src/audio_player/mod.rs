@@ -1,29 +1,53 @@
+// Host-command players for no_std platform builds.
+#[cfg(feature = "no_std")]
+#[path = "bgm_player_host.rs"]
+pub mod bgm_player;
+#[cfg(feature = "no_std")]
+#[path = "se_player_host.rs"]
+pub mod se_player;
+
 // Real kira-based players (desktop with audio feature)
-#[cfg(all(feature = "audio", not(target_os = "uefi")))]
+#[cfg(all(not(feature = "no_std"), feature = "audio", not(target_os = "uefi")))]
 pub mod bgm_player;
 // Anzu-HAL players (UEFI with anzu-audio feature)
-#[cfg(all(target_os = "uefi", feature = "anzu-audio"))]
+#[cfg(all(not(feature = "no_std"), target_os = "uefi", feature = "anzu-audio"))]
 #[path = "bgm_player_anzu.rs"]
 pub mod bgm_player;
 // No-audio stub (UEFI without anzu-audio, or desktop no-audio builds)
 #[cfg(any(
-    all(not(feature = "audio"), not(target_os = "uefi")),
-    all(target_os = "uefi", not(feature = "anzu-audio")),
+    all(
+        not(feature = "no_std"),
+        not(feature = "audio"),
+        not(target_os = "uefi")
+    ),
+    all(
+        not(feature = "no_std"),
+        target_os = "uefi",
+        not(feature = "anzu-audio")
+    ),
 ))]
 #[path = "bgm_player_no_audio.rs"]
 pub mod bgm_player;
 
 // Real kira-based players (desktop with audio feature)
-#[cfg(all(feature = "audio", not(target_os = "uefi")))]
+#[cfg(all(not(feature = "no_std"), feature = "audio", not(target_os = "uefi")))]
 pub mod se_player;
 // Anzu-HAL players (UEFI with anzu-audio feature)
-#[cfg(all(target_os = "uefi", feature = "anzu-audio"))]
+#[cfg(all(not(feature = "no_std"), target_os = "uefi", feature = "anzu-audio"))]
 #[path = "se_player_anzu.rs"]
 pub mod se_player;
 // No-audio stub (UEFI without anzu-audio, or desktop no-audio builds)
 #[cfg(any(
-    all(not(feature = "audio"), not(target_os = "uefi")),
-    all(target_os = "uefi", not(feature = "anzu-audio")),
+    all(
+        not(feature = "no_std"),
+        not(feature = "audio"),
+        not(target_os = "uefi")
+    ),
+    all(
+        not(feature = "no_std"),
+        target_os = "uefi",
+        not(feature = "anzu-audio")
+    ),
 ))]
 #[path = "se_player_no_audio.rs"]
 pub mod se_player;

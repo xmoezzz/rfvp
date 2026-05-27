@@ -1,3 +1,13 @@
+#[cfg(feature = "no_std")]
+use alloc::borrow::ToOwned;
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 use anyhow::Result;
 
 use crate::script::Variant;

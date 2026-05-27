@@ -1,3 +1,11 @@
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 use std::sync::Arc;
 
 use crate::audio_player::{BgmPlayer, SePlayer};

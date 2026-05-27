@@ -1,6 +1,14 @@
-use anyhow::Result;
 use crate::platform_time::Duration;
 use crate::rfvp_audio::Tween;
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
+use anyhow::Result;
 
 use crate::script::Variant;
 use crate::subsystem::world::GameData;
@@ -33,9 +41,7 @@ pub fn audio_load(game_data: &mut GameData, channel: &Variant, path: &Variant) -
         }
         // unload channel
         Variant::Nil => {
-            game_data
-                .bgm_player_mut()
-                .stop(channel, Tween::default());
+            game_data.bgm_player_mut().stop(channel, Tween::default());
             return Ok(Variant::Nil);
         }
         _ => {
@@ -67,14 +73,7 @@ pub fn audio_play(
     let looped = looped.canbe_true();
 
     let (vfs, bgm_player) = (&game_data.vfs, &mut game_data.bgm_player);
-    if let Err(e) = bgm_player.play(
-        channel,
-        looped,
-        1.0 as f32,
-        0.5,
-        Tween::default(),
-        vfs,
-    ) {
+    if let Err(e) = bgm_player.play(channel, looped, 1.0 as f32, 0.5, Tween::default(), vfs) {
         log::error!("audio_play: {:?}", e);
     }
 
@@ -304,9 +303,7 @@ pub fn sound_load(game_data: &mut GameData, channel: &Variant, path: &Variant) -
         }
         // unload channel
         Variant::Nil => {
-            game_data
-                .se_player_mut()
-                .stop(channel, Tween::default());
+            game_data.se_player_mut().stop(channel, Tween::default());
             return Ok(Variant::Nil);
         }
         _ => {
@@ -504,11 +501,9 @@ pub fn sound_type_vol(
         return Ok(Variant::Nil);
     }
 
-    game_data.se_player_mut().set_type_volume(
-        sound_type,
-        volume as f32 / 100.0,
-        Tween::default(),
-    );
+    game_data
+        .se_player_mut()
+        .set_type_volume(sound_type, volume as f32 / 100.0, Tween::default());
 
     Ok(Variant::Nil)
 }

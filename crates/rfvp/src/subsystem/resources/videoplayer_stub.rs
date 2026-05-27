@@ -1,3 +1,11 @@
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -61,7 +69,15 @@ impl VideoPlayerManager {
         motion: &mut MotionManager,
         audio_manager: Option<Arc<AudioManager>>,
     ) -> Result<()> {
-        let _ = (movie_name, bytes, mode, screen_w, screen_h, motion, audio_manager);
+        let _ = (
+            movie_name,
+            bytes,
+            mode,
+            screen_w,
+            screen_h,
+            motion,
+            audio_manager,
+        );
         Err(anyhow!("movie playback requires the native-video feature"))
     }
 

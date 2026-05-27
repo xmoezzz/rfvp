@@ -1,6 +1,15 @@
+use alloc::vec::Vec;
+#[cfg(feature = "no_std")]
+use core::cell::UnsafeCell;
+#[cfg(feature = "no_std")]
+use core::ops::{Deref, DerefMut};
+#[cfg(not(feature = "no_std"))]
 use std::sync::Mutex;
 
 use crate::script::Variant;
+#[cfg(feature = "no_std")]
+use crate::utils::stable_hash::StableHashMap;
+#[cfg(not(feature = "no_std"))]
 use crate::utils::stable_hash::StableHashMap;
 use serde::{Deserialize, Serialize};
 
@@ -113,8 +122,60 @@ impl Global {
     }
 }
 
+#[cfg(not(feature = "no_std"))]
 lazy_static::lazy_static! {
-    pub static ref GLOBAL: Mutex<Global> =  Mutex::new(Global::new());
+    pub static ref GLOBAL: Mutex<Global> = Mutex::new(Global::new());
+}
+
+#[cfg(feature = "no_std")]
+pub static GLOBAL: NoStdGlobal = NoStdGlobal::new();
+
+#[cfg(feature = "no_std")]
+pub struct NoStdGlobal {
+    inner: UnsafeCell<Global>,
+}
+
+#[cfg(feature = "no_std")]
+pub struct NoStdGlobalGuard<'a> {
+    inner: &'a mut Global,
+}
+
+#[cfg(feature = "no_std")]
+unsafe impl Sync for NoStdGlobal {}
+
+#[cfg(feature = "no_std")]
+impl NoStdGlobal {
+    pub const fn new() -> Self {
+        Self {
+            inner: UnsafeCell::new(Global {
+                global_table: StableHashMap::new(),
+                none_volatile_count: 0,
+                volatile_count: 0,
+            }),
+        }
+    }
+
+    pub fn lock(&self) -> Result<NoStdGlobalGuard<'_>, ()> {
+        Ok(NoStdGlobalGuard {
+            inner: unsafe { &mut *self.inner.get() },
+        })
+    }
+}
+
+#[cfg(feature = "no_std")]
+impl Deref for NoStdGlobalGuard<'_> {
+    type Target = Global;
+
+    fn deref(&self) -> &Self::Target {
+        self.inner
+    }
+}
+
+#[cfg(feature = "no_std")]
+impl DerefMut for NoStdGlobalGuard<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.inner
+    }
 }
 
 pub fn get_int_var(key: u16) -> i32 {

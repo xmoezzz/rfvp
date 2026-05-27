@@ -1,3 +1,11 @@
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 #[cfg(any(feature = "gpu-render", feature = "soft-render-desktop"))]
 pub type EngineCursorIcon = winit::window::CursorIcon;
 

@@ -1,13 +1,24 @@
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
+#[cfg(not(feature = "no_std"))]
 use std::{
     fs,
     path::{Path, PathBuf},
 };
 
 use super::gaiji_manager::GaijiManager;
-use crate::{
-    font::Font, subsystem::resources::color_manager::ColorItem, utils::file::app_base_path,
-};
+#[cfg(not(feature = "no_std"))]
+use crate::utils::file::app_base_path;
+use crate::{font::Font, subsystem::resources::color_manager::ColorItem};
 use anyhow::{anyhow, bail, Result};
+#[cfg(feature = "no_std")]
+use core_maths::CoreFloat;
 use serde::{Deserialize, Serialize};
 
 // Current font (reverse-engineered special id used by TextFont(..., -1, ...)).
@@ -286,6 +297,7 @@ struct RevealQueueItem {
     logical_cols: i32,
 }
 
+#[cfg(not(feature = "no_std"))]
 #[derive(Clone)]
 struct LoadedFont {
     // Primary face name exposed to TextFontName/TextFontSet, matching how the original
@@ -295,11 +307,12 @@ struct LoadedFont {
     font: Font,
 }
 
+#[cfg(not(feature = "no_std"))]
 impl LoadedFont {
     fn matches_name(&self, requested: &str) -> bool {
         self.name.eq_ignore_ascii_case(requested)
             || self.file_name.eq_ignore_ascii_case(requested)
-            || Path::new(&self.file_name)
+            || PathBuf::from(self.file_name.as_str())
                 .file_stem()
                 .and_then(|x| x.to_str())
                 .map(|stem| stem.eq_ignore_ascii_case(requested))
@@ -364,6 +377,7 @@ fn is_cjk_text_char(ch: char) -> bool {
     )
 }
 
+#[cfg(not(feature = "no_std"))]
 fn is_font_file(path: &Path) -> bool {
     let ext = path
         .extension()
@@ -373,6 +387,7 @@ fn is_font_file(path: &Path) -> bool {
     ext == "ttf" || ext == "otf" || ext == "ttc"
 }
 
+#[cfg(not(feature = "no_std"))]
 fn load_font_file(path: &Path) -> Result<Option<LoadedFont>> {
     let md = match path.metadata() {
         Ok(md) => md,
@@ -413,6 +428,7 @@ fn load_font_file(path: &Path) -> Result<Option<LoadedFont>> {
     }))
 }
 
+#[cfg(not(feature = "no_std"))]
 fn normalized_font_file_name(path: &Path) -> String {
     path.file_name()
         .and_then(|x| x.to_str())
@@ -423,6 +439,7 @@ fn normalized_font_file_name(path: &Path) -> String {
         .collect()
 }
 
+#[cfg(not(feature = "no_std"))]
 fn is_cjk_fallback_font_candidate(path: &Path) -> bool {
     if !is_font_file(path) {
         return false;
@@ -452,7 +469,7 @@ fn is_cjk_fallback_font_candidate(path: &Path) -> bool {
     .any(|needle| name.contains(needle))
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(feature = "no_std"), not(target_arch = "wasm32")))]
 fn system_font_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     #[cfg(target_os = "windows")]
@@ -486,23 +503,26 @@ fn system_font_dirs() -> Vec<PathBuf> {
     dirs
 }
 
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(not(feature = "no_std"), target_arch = "wasm32"))]
 fn system_font_dirs() -> Vec<PathBuf> {
     Vec::new()
 }
 
+#[cfg(not(feature = "no_std"))]
 fn read_be_u16(bytes: &[u8], off: usize) -> Option<u16> {
     let end = off.checked_add(2)?;
     let b = bytes.get(off..end)?;
     Some(u16::from_be_bytes([b[0], b[1]]))
 }
 
+#[cfg(not(feature = "no_std"))]
 fn read_be_u32(bytes: &[u8], off: usize) -> Option<u32> {
     let end = off.checked_add(4)?;
     let b = bytes.get(off..end)?;
     Some(u32::from_be_bytes([b[0], b[1], b[2], b[3]]))
 }
 
+#[cfg(not(feature = "no_std"))]
 fn decode_utf16be(bytes: &[u8]) -> Option<String> {
     if bytes.len() % 2 != 0 {
         return None;
@@ -519,6 +539,7 @@ fn decode_utf16be(bytes: &[u8]) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+#[cfg(not(feature = "no_std"))]
 fn decode_mac_roman_ascii_subset(bytes: &[u8]) -> Option<String> {
     let s: String = bytes
         .iter()
@@ -532,6 +553,7 @@ fn decode_mac_roman_ascii_subset(bytes: &[u8]) -> Option<String> {
     }
 }
 
+#[cfg(not(feature = "no_std"))]
 fn font_face_table_offset(bytes: &[u8]) -> Option<usize> {
     if bytes.len() < 12 {
         return None;
@@ -546,6 +568,7 @@ fn font_face_table_offset(bytes: &[u8]) -> Option<usize> {
     Some(0)
 }
 
+#[cfg(not(feature = "no_std"))]
 fn find_sfnt_table(bytes: &[u8], face_off: usize, tag: &[u8; 4]) -> Option<(usize, usize)> {
     let num_tables = read_be_u16(bytes, face_off.checked_add(4)?)? as usize;
     let records_off = face_off.checked_add(12)?;
@@ -563,6 +586,7 @@ fn find_sfnt_table(bytes: &[u8], face_off: usize, tag: &[u8; 4]) -> Option<(usiz
     None
 }
 
+#[cfg(not(feature = "no_std"))]
 fn font_name_record_score(
     name_id: u16,
     platform_id: u16,
@@ -594,6 +618,7 @@ fn font_name_record_score(
     score
 }
 
+#[cfg(not(feature = "no_std"))]
 fn extract_font_face_name(bytes: &[u8]) -> Option<String> {
     let face_off = font_face_table_offset(bytes)?;
     let (name_off, name_len) = find_sfnt_table(bytes, face_off, b"name")?;
@@ -637,6 +662,7 @@ fn extract_font_face_name(bytes: &[u8]) -> Option<String> {
     best_name
 }
 
+#[cfg(not(feature = "no_std"))]
 pub struct FontEnumerator {
     // Default fallback font used when a requested font is missing.
     default_font: Font,
@@ -658,12 +684,14 @@ pub struct FontEnumerator {
     current_font_name: String,
 }
 
+#[cfg(not(feature = "no_std"))]
 impl Default for FontEnumerator {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg(not(feature = "no_std"))]
 impl FontEnumerator {
     pub fn new() -> Self {
         // System fontfaces (special negative ids).
@@ -820,7 +848,7 @@ impl FontEnumerator {
         let cur = self.current_font_name.as_str();
         self.fonts.iter().any(|loaded| {
             loaded.matches_name(cur)
-                || std::path::Path::new(cur)
+                || std::path::PathBuf::from(cur)
                     .file_name()
                     .and_then(|x| x.to_str())
                     .map(|legacy_file_name| loaded.matches_name(legacy_file_name))
@@ -849,7 +877,7 @@ impl FontEnumerator {
                 return loaded.font.clone();
             }
             // Backward compatibility: old builds persisted absolute font paths.
-            if let Some(legacy_file_name) = std::path::Path::new(cur)
+            if let Some(legacy_file_name) = std::path::PathBuf::from(cur)
                 .file_name()
                 .and_then(|x| x.to_str())
             {
@@ -974,6 +1002,114 @@ impl FontEnumerator {
 
     pub fn set_system_fontface_id(&mut self, id: i32) {
         self.system_fontface_id = id;
+    }
+}
+
+#[cfg(feature = "no_std")]
+pub struct FontEnumerator {
+    default_font: Option<Font>,
+    system_fontface_id: i32,
+    current_font_name: String,
+}
+
+#[cfg(feature = "no_std")]
+impl Default for FontEnumerator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "no_std")]
+impl FontEnumerator {
+    pub fn new() -> Self {
+        Self {
+            default_font: None,
+            system_fontface_id: FONTFACE_MS_GOTHIC,
+            current_font_name: "default font".to_string(),
+        }
+    }
+
+    pub fn from_default_font(default_font: Font) -> Self {
+        Self {
+            default_font: Some(default_font),
+            system_fontface_id: FONTFACE_MS_GOTHIC,
+            current_font_name: "default font".to_string(),
+        }
+    }
+
+    pub fn set_default_font(&mut self, default_font: Font) {
+        self.default_font = Some(default_font);
+        self.current_font_name = "default font".to_string();
+        self.system_fontface_id = FONTFACE_MS_GOTHIC;
+    }
+
+    pub fn set_system_font_fallback_enabled(&mut self, _enabled: bool) {}
+
+    pub fn init_fontface(&mut self) -> Result<()> {
+        if self.default_font.is_some() {
+            Ok(())
+        } else {
+            bail!("Required font file default.ttf was not found in the game directory.")
+        }
+    }
+
+    pub fn set_current_font_name(&mut self, _name: &str) {
+        self.current_font_name = "default font".to_string();
+    }
+
+    pub fn get_current_font_name(&self) -> &str {
+        "default font"
+    }
+
+    pub fn get_font(&self, id: i32) -> Font {
+        if !self.is_valid_fontface_id(id) {
+            return self
+                .default_font
+                .as_ref()
+                .expect("no_std default.ttf must be initialized before text rendering")
+                .clone();
+        }
+        self.default_font
+            .as_ref()
+            .expect("no_std default.ttf must be initialized before text rendering")
+            .clone()
+    }
+
+    fn get_font_fallback_set(&self, id: i32) -> FontFallbackSet {
+        FontFallbackSet::new(self.get_font(id), Vec::new(), Vec::new())
+    }
+
+    pub fn get_font_name(&self, id: i32) -> Option<String> {
+        if self.is_valid_fontface_id(id) {
+            Some("default font".to_string())
+        } else {
+            None
+        }
+    }
+
+    pub fn get_font_count(&self) -> i32 {
+        0
+    }
+
+    pub fn is_valid_fontface_id(&self, id: i32) -> bool {
+        matches!(
+            id,
+            FONTFACE_CURRENT
+                | FONTFACE_MS_GOTHIC
+                | FONTFACE_MS_MINCHO
+                | FONTFACE_MS_PGOTHIC
+                | FONTFACE_MS_PMINCHO
+        )
+    }
+
+    pub fn get_system_fontface_id(&self) -> i32 {
+        self.system_fontface_id
+    }
+
+    pub fn set_system_fontface_id(&mut self, id: i32) {
+        if self.is_valid_fontface_id(id) {
+            self.system_fontface_id = id;
+        }
     }
 }
 

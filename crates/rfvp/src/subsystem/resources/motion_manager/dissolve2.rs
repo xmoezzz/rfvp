@@ -1,3 +1,11 @@
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 /// Second dissolve system (engine-internal overlay fade).
 ///
 /// This is intentionally separate from the script-controlled dissolve (mask/colored dissolve1).

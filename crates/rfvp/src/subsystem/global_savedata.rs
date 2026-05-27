@@ -1,4 +1,13 @@
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 use anyhow::{bail, Context, Result};
+#[cfg(not(feature = "no_std"))]
 use bincode::Options;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -112,6 +121,7 @@ impl GlobalSaveDataV1 {
     }
 }
 
+#[cfg(not(feature = "no_std"))]
 fn bincode_opts() -> impl bincode::Options {
     bincode::DefaultOptions::new()
         .with_fixint_encoding()
@@ -126,6 +136,12 @@ pub fn global_savedata_path() -> PathBuf {
         .join("rfvp_global.bin")
 }
 
+#[cfg(feature = "no_std")]
+pub fn save_global_savedata_v1(_game_data: &GameData) -> Result<()> {
+    bail!("GlobalSaveDataV1 host persistence is not wired to the no_std file-system adapter")
+}
+
+#[cfg(not(feature = "no_std"))]
 pub fn save_global_savedata_v1(game_data: &GameData) -> Result<()> {
     let snap = GlobalSaveDataV1::capture(game_data);
     let payload = bincode_opts()
@@ -152,7 +168,7 @@ pub fn save_global_savedata_v1(game_data: &GameData) -> Result<()> {
 
     let path = global_savedata_path();
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
+        std::fs::create_dir_all(&parent)
             .with_context(|| format!("create_dir_all {}", parent.display()))?;
     }
     std::fs::write(&path, &out).with_context(|| format!("write {}", path.display()))?;
@@ -160,6 +176,12 @@ pub fn save_global_savedata_v1(game_data: &GameData) -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "no_std")]
+pub fn try_load_global_savedata_v1(_game_data: &mut GameData) -> Result<bool> {
+    Ok(false)
+}
+
+#[cfg(not(feature = "no_std"))]
 pub fn try_load_global_savedata_v1(game_data: &mut GameData) -> Result<bool> {
     let path = global_savedata_path();
     if !path.exists() {
@@ -180,6 +202,12 @@ pub fn try_load_global_savedata_v1(game_data: &mut GameData) -> Result<bool> {
     Ok(true)
 }
 
+#[cfg(feature = "no_std")]
+pub fn try_decode_global_savedata_v1(_file_bytes: &[u8]) -> Result<Option<GlobalSaveDataV1>> {
+    Ok(None)
+}
+
+#[cfg(not(feature = "no_std"))]
 pub fn try_decode_global_savedata_v1(file_bytes: &[u8]) -> Result<Option<GlobalSaveDataV1>> {
     if file_bytes.len() < GLOBAL_SAVE_FOOTER_LEN {
         return Ok(None);

@@ -9,14 +9,16 @@
 
 <img src="images/flake.png" width="20%">
 
-### Status
-* Playable?
+### What is rfvp?
 * See [setsusmei](setsumei/README.md) for details.
 ![IN-GAME](./images/in-game.png)
 ![legacy](./images/legacy.png)
+* You can even use rfvp as an **Operation System**! Turn on your computer and boot with the UEFI program.
+![uefi](./images/uefi.png)
 
 ### rfvp debug HUD
 * Enable it with F2 hotkey (Fn + F2 on MacOS)
+* Only desktop platforms (Windows, Linux, macOS) for now.
 
 ### Pre-built Binaries
 Pre-built binaries for supported platforms are available in the [Pre-built Binaries](https://github.com/xmoezzz/rfvp/releases/tag/pre-release)
@@ -61,6 +63,8 @@ The Rust API documentation for this project is available here:
 | Windows  | Standalone EXE                                             |       No |                   Yes | x86_64, arm64                       |
 | Linux    | Standalone                                                 |       No |                   Yes | x86_64, aarch64 |
 | WASM     | Bundle                                            |      Yes |                    No | **Any architecture** (via WASI)          |
+| FreeBSD  | Standalone                                                 |       No |                   Yes | x86_64 |
+| UEFI     | Standalone EFI (`.efi`)                                             |       No |                   Yes | x86_64, arm64                       |
 
 * Since this is a Rust project, it should be possible to build for many other platforms as well. 
 

@@ -1,7 +1,15 @@
+use alloc::string::String;
+use alloc::vec::Vec;
+
+#[cfg(feature = "no_std")]
+use crate::utils::stable_hash::StableHashMap;
+#[cfg(not(feature = "no_std"))]
+use crate::utils::stable_hash::StableHashMap;
+#[cfg(feature = "no_std")]
+use serde::{Deserialize, Serialize};
+#[cfg(not(feature = "no_std"))]
 use serde::{Deserialize, Serialize};
 use twofloat::TwoFloat;
-
-use crate::utils::stable_hash::StableHashMap;
 
 pub mod context;
 pub mod global;
@@ -280,7 +288,7 @@ impl Variant {
             // The original engine compares tables by identity; our current Table is value-based,
             // so the safest approximation is pointer equality on the in-memory Variant payload.
             (Variant::Table(a), Variant::Table(b)) => {
-                if std::ptr::eq(a, b) {
+                if core::ptr::eq(a, b) {
                     Variant::True
                 } else {
                     Variant::Nil

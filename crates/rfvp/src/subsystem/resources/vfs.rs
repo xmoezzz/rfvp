@@ -1,3 +1,11 @@
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 use anyhow::{bail, Context, Result};
 #[cfg(not(target_os = "uefi"))]
 use glob::glob;
@@ -204,7 +212,10 @@ impl Seek for UefiFileReader {
 
 #[cfg(target_os = "uefi")]
 fn uefi_io_error(op: &'static str, status: uefi::Status) -> std::io::Error {
-    std::io::Error::new(std::io::ErrorKind::Other, format!("{op} failed: {status:?}"))
+    std::io::Error::new(
+        std::io::ErrorKind::Other,
+        format!("{op} failed: {status:?}"),
+    )
 }
 
 #[cfg(target_os = "uefi")]
@@ -639,10 +650,7 @@ impl Vfs {
             }
         }
 
-        Ok(Vfs {
-            files,
-            nls,
-        })
+        Ok(Vfs { files, nls })
     }
 
     #[cfg(not(target_os = "uefi"))]

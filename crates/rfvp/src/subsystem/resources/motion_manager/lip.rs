@@ -1,4 +1,12 @@
 use crate::subsystem::resources::prim::PrimManager;
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 use anyhow::Result;
 
 /// A small lip-animation state machine.

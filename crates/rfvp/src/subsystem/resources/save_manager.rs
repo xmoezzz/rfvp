@@ -1,3 +1,11 @@
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 use anyhow::{bail, Result};
 use chrono::{Datelike, Local, Timelike};
 use std::mem::size_of;
@@ -651,63 +659,63 @@ impl SaveManager {
 
         #[cfg(not(target_os = "uefi"))]
         {
-        // Clear the slot table then scan existing save files.
-        for slot in self.slots.iter_mut() {
-            *slot = None;
-        }
+            // Clear the slot table then scan existing save files.
+            for slot in self.slots.iter_mut() {
+                *slot = None;
+            }
 
-        let dir = app_base_path().get_path().join("save");
-        if !dir.exists() {
-            return Ok(());
-        }
-
-        let it = match std::fs::read_dir(&dir) {
-            Ok(it) => it,
-            Err(e) => {
-                log::warn!("refresh_all_savedata: read_dir failed: {e:?}");
+            let dir = app_base_path().get_path().join("save");
+            if !dir.exists() {
                 return Ok(());
             }
-        };
 
-        for ent in it {
-            let ent = match ent {
-                Ok(e) => e,
+            let it = match std::fs::read_dir(&dir) {
+                Ok(it) => it,
                 Err(e) => {
-                    log::warn!("refresh_all_savedata: read_dir entry error: {e:?}");
-                    continue;
+                    log::warn!("refresh_all_savedata: read_dir failed: {e:?}");
+                    return Ok(());
                 }
             };
-            let path = ent.path();
-            if !path.is_file() {
-                continue;
-            }
-            let fname = match path.file_name().and_then(|s| s.to_str()) {
-                Some(s) => s,
-                None => continue,
-            };
-            if !fname.starts_with('s') || !fname.ends_with(".bin") {
-                continue;
-            }
-            let num = &fname[1..fname.len().saturating_sub(4)];
-            let slot_id: u32 = match num.parse() {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            if slot_id >= 1000 {
-                continue;
+
+            for ent in it {
+                let ent = match ent {
+                    Ok(e) => e,
+                    Err(e) => {
+                        log::warn!("refresh_all_savedata: read_dir entry error: {e:?}");
+                        continue;
+                    }
+                };
+                let path = ent.path();
+                if !path.is_file() {
+                    continue;
+                }
+                let fname = match path.file_name().and_then(|s| s.to_str()) {
+                    Some(s) => s,
+                    None => continue,
+                };
+                if !fname.starts_with('s') || !fname.ends_with(".bin") {
+                    continue;
+                }
+                let num = &fname[1..fname.len().saturating_sub(4)];
+                let slot_id: u32 = match num.parse() {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                if slot_id >= 1000 {
+                    continue;
+                }
+
+                match SaveItem::load_from_file(&path, nls.clone()) {
+                    Ok(item) => self.slots[slot_id as usize] = Some(item),
+                    Err(e) => log::warn!(
+                        "refresh_all_savedata: failed to load slot {} from {}: {e:?}",
+                        slot_id,
+                        path.display()
+                    ),
+                }
             }
 
-            match SaveItem::load_from_file(&path, nls.clone()) {
-                Ok(item) => self.slots[slot_id as usize] = Some(item),
-                Err(e) => log::warn!(
-                    "refresh_all_savedata: failed to load slot {} from {}: {e:?}",
-                    slot_id,
-                    path.display()
-                ),
-            }
-        }
-
-        Ok(())
+            Ok(())
         }
     }
 
@@ -723,21 +731,21 @@ impl SaveManager {
 
         #[cfg(not(target_os = "uefi"))]
         {
-        let path = SaveItem::resolve_save_path_for_read(slot);
+            let path = SaveItem::resolve_save_path_for_read(slot);
 
-        // Missing save slots are not fatal for callers that enumerate all slots.
-        if !path.exists() {
-            if slot < 1000 {
-                self.slots[slot as usize] = None;
+            // Missing save slots are not fatal for callers that enumerate all slots.
+            if !path.exists() {
+                if slot < 1000 {
+                    self.slots[slot as usize] = None;
+                }
+                return Ok(());
             }
-            return Ok(());
-        }
 
-        let save_item = SaveItem::load_from_file(path, nls)?;
-        if slot < 1000 {
-            self.slots[slot as usize] = Some(save_item);
-        }
-        Ok(())
+            let save_item = SaveItem::load_from_file(path, nls)?;
+            if slot < 1000 {
+                self.slots[slot as usize] = Some(save_item);
+            }
+            Ok(())
         }
     }
 
@@ -839,31 +847,31 @@ impl SaveManager {
 
         #[cfg(not(target_os = "uefi"))]
         {
-        if !self.save_requested || self.savedata_prepared {
-            return Ok(false);
-        }
-        if self.current_save_slot >= 1000 {
-            return Ok(false);
-        }
-        let Some(bytes) = self.local_saved_bytes.as_ref() else {
-            return Ok(false);
-        };
-
-        let path = SaveItem::get_save_path(self.current_save_slot);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::write(&path, bytes)?;
-
-        // Refresh slot cache.
-        if self.current_save_slot < 1000 {
-            if let Ok(item) = SaveItem::load_from_mem(bytes, nls) {
-                self.slots[self.current_save_slot as usize] = Some(item);
+            if !self.save_requested || self.savedata_prepared {
+                return Ok(false);
             }
-        }
+            if self.current_save_slot >= 1000 {
+                return Ok(false);
+            }
+            let Some(bytes) = self.local_saved_bytes.as_ref() else {
+                return Ok(false);
+            };
 
-        self.savedata_prepared = true;
-        Ok(true)
+            let path = SaveItem::get_save_path(self.current_save_slot);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&path, bytes)?;
+
+            // Refresh slot cache.
+            if self.current_save_slot < 1000 {
+                if let Ok(item) = SaveItem::load_from_mem(bytes, nls) {
+                    self.slots[self.current_save_slot as usize] = Some(item);
+                }
+            }
+
+            self.savedata_prepared = true;
+            Ok(true)
         }
     }
 
@@ -890,39 +898,39 @@ impl SaveManager {
 
         #[cfg(not(target_os = "uefi"))]
         {
-        if !self.save_requested || self.current_save_slot == u32::MAX {
-            return Ok(());
-        }
-        let expected = (thumb_w as usize)
-            .saturating_mul(thumb_h as usize)
-            .saturating_mul(4);
-        if thumb_rgba.len() != expected {
-            log::warn!(
-                "finalize_save_write: thumbnail size mismatch: got={}, expected={}",
-                thumb_rgba.len(),
-                expected
-            );
-        }
-
-        let mut bytes = self.build_save_file_bytes(nls, thumb_rgba)?;
-        if let Some(snap) = state {
-            crate::subsystem::save_state::append_state_chunk_v1(&mut bytes, snap)?;
-        }
-        let path = SaveItem::get_save_path(self.current_save_slot);
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::write(&path, &bytes)?;
-
-        // Refresh slot cache.
-        if self.current_save_slot < 1000 {
-            if let Ok(item) = SaveItem::load_from_mem(&bytes, nls) {
-                self.slots[self.current_save_slot as usize] = Some(item);
+            if !self.save_requested || self.current_save_slot == u32::MAX {
+                return Ok(());
             }
-        }
+            let expected = (thumb_w as usize)
+                .saturating_mul(thumb_h as usize)
+                .saturating_mul(4);
+            if thumb_rgba.len() != expected {
+                log::warn!(
+                    "finalize_save_write: thumbnail size mismatch: got={}, expected={}",
+                    thumb_rgba.len(),
+                    expected
+                );
+            }
 
-        self.savedata_prepared = true;
-        Ok(())
+            let mut bytes = self.build_save_file_bytes(nls, thumb_rgba)?;
+            if let Some(snap) = state {
+                crate::subsystem::save_state::append_state_chunk_v1(&mut bytes, snap)?;
+            }
+            let path = SaveItem::get_save_path(self.current_save_slot);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&path, &bytes)?;
+
+            // Refresh slot cache.
+            if self.current_save_slot < 1000 {
+                if let Ok(item) = SaveItem::load_from_mem(&bytes, nls) {
+                    self.slots[self.current_save_slot as usize] = Some(item);
+                }
+            }
+
+            self.savedata_prepared = true;
+            Ok(())
         }
     }
 
@@ -966,9 +974,9 @@ impl SaveManager {
 
         #[cfg(not(target_os = "uefi"))]
         {
-        let path = SaveItem::resolve_save_path_for_read(slot);
-        let bytes = std::fs::read(&path)?;
-        self.load_slot_into_current_from_bytes(slot, nls, &bytes)
+            let path = SaveItem::resolve_save_path_for_read(slot);
+            let bytes = std::fs::read(&path)?;
+            self.load_slot_into_current_from_bytes(slot, nls, &bytes)
         }
     }
 

@@ -1,4 +1,12 @@
 use crate::subsystem::world::GameData;
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 use winit::event::{MouseButton, WindowEvent};
 
 use super::resources::input_manager::KeyCode;

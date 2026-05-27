@@ -30,7 +30,9 @@ mod real {
             let mut settings = AudioManagerSettings::default();
             settings.capacities.sub_track_capacity = 512;
             let mgr = KiraAudioManager::new(settings).expect("failed to create Kira AudioManager");
-            Self { manager: Mutex::new(mgr) }
+            Self {
+                manager: Mutex::new(mgr),
+            }
         }
 
         pub fn kira_manager(&self) -> &Mutex<KiraAudioManager> {
@@ -74,7 +76,9 @@ mod no_audio_tween {
 
     impl Default for Tween {
         fn default() -> Self {
-            Self { duration: Duration::from_secs(0) }
+            Self {
+                duration: Duration::from_secs(0),
+            }
         }
     }
 }
@@ -95,11 +99,15 @@ mod stub {
 
     impl AudioManager {
         pub fn new() -> Self {
-            Self { master_volume: std::sync::Mutex::new(1.0) }
+            Self {
+                master_volume: std::sync::Mutex::new(1.0),
+            }
         }
 
         pub fn master_vol(&self, vol: f32) {
-            if let Ok(mut v) = self.master_volume.lock() { *v = vol; }
+            if let Ok(mut v) = self.master_volume.lock() {
+                *v = vol;
+            }
         }
 
         pub fn tick(&self, _delta_ms: u32) {}
@@ -110,8 +118,8 @@ mod stub {
 
 #[cfg(all(target_os = "uefi", feature = "anzu-audio"))]
 mod anzu {
-    use std::sync::Arc;
     use anzu_hal::AudioSystem;
+    use std::sync::Arc;
 
     pub struct AudioManager {
         system: Arc<AudioSystem>,
@@ -125,7 +133,9 @@ mod anzu {
 
     impl AudioManager {
         pub fn new() -> Self {
-            Self { system: Arc::new(AudioSystem::new()) }
+            Self {
+                system: Arc::new(AudioSystem::new()),
+            }
         }
 
         pub fn anzu_system(&self) -> Arc<AudioSystem> {
@@ -155,7 +165,9 @@ mod uefi_stub {
     }
 
     impl AudioManager {
-        pub fn new() -> Self { Self }
+        pub fn new() -> Self {
+            Self
+        }
         pub fn master_vol(&self, _vol: f32) {}
         pub fn tick(&self, _delta_ms: u32) {}
     }
@@ -171,12 +183,12 @@ pub use real::{AudioManager, Tween};
 
 #[cfg(all(target_os = "uefi", feature = "anzu-audio"))]
 pub use anzu::AudioManager;
-#[cfg(all(target_os = "uefi", not(feature = "anzu-audio")))]
-pub use uefi_stub::AudioManager;
 #[cfg(target_os = "uefi")]
 pub use no_audio_tween::Tween;
+#[cfg(all(target_os = "uefi", not(feature = "anzu-audio")))]
+pub use uefi_stub::AudioManager;
 
 #[cfg(all(not(feature = "audio"), not(target_os = "uefi")))]
-pub use stub::AudioManager;
-#[cfg(all(not(feature = "audio"), not(target_os = "uefi")))]
 pub use no_audio_tween::Tween;
+#[cfg(all(not(feature = "audio"), not(target_os = "uefi")))]
+pub use stub::AudioManager;

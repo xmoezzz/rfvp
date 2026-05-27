@@ -1,3 +1,11 @@
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 // AUTO-GENERATED from syscalls_extracted.csv; do not edit by hand.
 // Provides syscall specs and a default registration for unknown/unimplemented syscalls.
 

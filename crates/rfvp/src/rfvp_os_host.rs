@@ -29,7 +29,8 @@ fn find_pcie_ecam_base() -> Option<u64> {
     use uefi::table::cfg::ConfigTableEntry;
 
     uefi::system::with_config_table(|tables| {
-        let rsdp_ptr = tables.iter()
+        let rsdp_ptr = tables
+            .iter()
             .find(|t| t.guid == ConfigTableEntry::ACPI2_GUID)
             .map(|t| t.address as *const u8)?;
 
@@ -44,7 +45,9 @@ fn find_pcie_ecam_base() -> Option<u64> {
             //   20..24 length
             //   24..32 XSDT address (64-bit)
             let xsdt_addr = core::ptr::read_unaligned(rsdp_ptr.add(24) as *const u64);
-            if xsdt_addr == 0 { return None; }
+            if xsdt_addr == 0 {
+                return None;
+            }
 
             // XSDT header: sig(4) + length(4) + ... entries start at byte 36
             let xsdt_len = core::ptr::read_unaligned((xsdt_addr + 4) as *const u32) as usize;
@@ -53,7 +56,9 @@ fn find_pcie_ecam_base() -> Option<u64> {
 
             for i in 0..entry_count {
                 let entry_addr = core::ptr::read_unaligned(entries_base.add(i));
-                if entry_addr == 0 { continue; }
+                if entry_addr == 0 {
+                    continue;
+                }
                 let sig = core::ptr::read(entry_addr as *const [u8; 4]);
                 if &sig == b"MCFG" {
                     // MCFG: header(36) + reserved(8) + first ECAM entry
@@ -71,9 +76,7 @@ fn find_pcie_ecam_base() -> Option<u64> {
 #[cfg(not(target_os = "uefi"))]
 pub fn init_uefi_platform() {}
 
-use std::{
-    sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard},
-};
+use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 #[cfg(not(target_os = "uefi"))]
 use std::path::{Path, PathBuf};
@@ -82,7 +85,9 @@ use anyhow::Result as AnyResult;
 
 use crate::{
     script::{global::GLOBAL, parser::Nls},
-    soft_render::{create_soft_renderer, PixelFormat, SoftFramebuffer, SoftRenderError, SoftRenderer},
+    soft_render::{
+        create_soft_renderer, PixelFormat, SoftFramebuffer, SoftRenderError, SoftRenderer,
+    },
     subsystem::{
         anzu_scene::AnzuScene,
         resources::{
@@ -531,13 +536,18 @@ impl RfvpOsRuntime {
             uefi_stage!("[UEFI] next_frame before time frame");
             let frame_duration = gd.time_mut_ref().frame();
             let frame_us = frame_duration.as_micros() as u64;
-            frame_ms = if frame_us == 0 { 0 } else { (frame_us + 999) / 1000 };
+            frame_ms = if frame_us == 0 {
+                0
+            } else {
+                (frame_us + 999) / 1000
+            };
             uefi_stage!("[UEFI] next_frame after time frame frame_ms={}", frame_ms);
             uefi_stage!("[UEFI] next_frame before timer tick");
             gd.timer_manager.tick(frame_ms.min(u32::MAX as u64) as u32);
             uefi_stage!("[UEFI] next_frame after timer tick");
             #[cfg(feature = "anzu-audio")]
-            gd.audio_manager().tick(frame_ms.min(u32::MAX as u64) as u32);
+            gd.audio_manager()
+                .tick(frame_ms.min(u32::MAX as u64) as u32);
             uefi_stage!("[UEFI] next_frame before inputs begin_frame");
             gd.inputs_manager.begin_frame();
             uefi_stage!("[UEFI] next_frame after inputs begin_frame");
@@ -568,7 +578,8 @@ impl RfvpOsRuntime {
 
             if !modal_movie {
                 uefi_stage!("[UEFI] next_frame before SceneAction::Update");
-                self.layer_machine.apply_scene_action(SceneAction::Update, gd);
+                self.layer_machine
+                    .apply_scene_action(SceneAction::Update, gd);
                 uefi_stage!("[UEFI] next_frame after SceneAction::Update");
                 uefi_stage!("[UEFI] next_frame before scheduler execute 1");
                 self.scheduler.execute(gd);

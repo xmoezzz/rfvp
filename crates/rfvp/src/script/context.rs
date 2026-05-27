@@ -1,4 +1,7 @@
-use std::mem::size_of;
+use alloc::format;
+use alloc::vec;
+use alloc::vec::Vec;
+use core::mem::size_of;
 
 use crate::script::global::GLOBAL;
 use crate::script::opcode::Opcode;
@@ -405,8 +408,12 @@ impl Context {
 
             // reverse the arguments
             args.reverse();
-            uefi_context_stage!("[UEFI] Context::syscall before do_syscall name={}", syscall.name);
+            uefi_context_stage!(
+                "[UEFI] Context::syscall before do_syscall name={}",
+                syscall.name
+            );
 
+            #[cfg(not(feature = "no_std"))]
             crate::trace::syscall(format_args!("syscall: {} {:?}", &syscall.name, &args));
             let result = match sys.do_syscall(syscall.name.as_str(), args) {
                 Ok(result) => result,
@@ -415,8 +422,12 @@ impl Context {
                     Variant::Nil
                 }
             };
-            uefi_context_stage!("[UEFI] Context::syscall after do_syscall name={}", syscall.name);
+            uefi_context_stage!(
+                "[UEFI] Context::syscall after do_syscall name={}",
+                syscall.name
+            );
             self.return_value = result;
+            #[cfg(not(feature = "no_std"))]
             crate::trace::syscall(format_args!(
                 "syscall_ret: {} -> {:?}",
                 &syscall.name, &self.return_value
@@ -1063,7 +1074,10 @@ impl Context {
         syscaller: &mut impl VmSyscall,
         parser: &mut Parser,
     ) -> Result<()> {
-        uefi_context_stage!("[UEFI] Context::dispatch_opcode before read pc={}", self.get_pc());
+        uefi_context_stage!(
+            "[UEFI] Context::dispatch_opcode before read pc={}",
+            self.get_pc()
+        );
         let opcode = parser.read_u8(self.get_pc())? as i32;
         uefi_context_stage!(
             "[UEFI] Context::dispatch_opcode after read pc={} opcode={}",
@@ -1200,6 +1214,9 @@ impl Context {
                     self.id
                 );
                 self.backtrace();
+                #[cfg(feature = "no_std")]
+                anyhow::bail!("unknown opcode: {:#02x} @ {:#08x}", opcode, self.cursor);
+                #[cfg(not(feature = "no_std"))]
                 std::process::exit(1);
             }
         };

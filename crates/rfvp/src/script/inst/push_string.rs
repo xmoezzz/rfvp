@@ -1,5 +1,7 @@
 use crate::script::opcode::Opcode;
 use crate::script::opcode::OpcodeBase;
+use alloc::format;
+use alloc::string::String;
 
 pub struct PushStringInst {
     address: u32,

@@ -1,6 +1,16 @@
-use anyhow::{bail, Result};
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
+#[cfg(feature = "no_std")]
+use anyhow::anyhow;
 #[cfg(all(not(feature = "zlib-flate2"), feature = "uefi-zlib"))]
 use anyhow::anyhow;
+use anyhow::{bail, Result};
 #[cfg(feature = "zlib-flate2")]
 use flate2::read::ZlibDecoder;
 #[cfg(feature = "zlib-flate2")]
@@ -218,7 +228,10 @@ impl NvsgTexture {
             out_buff
         };
 
-        #[cfg(all(not(feature = "zlib-flate2"), feature = "uefi-zlib"))]
+        #[cfg(all(
+            not(feature = "zlib-flate2"),
+            any(feature = "uefi-zlib", feature = "no_std")
+        ))]
         let mut out_buff = {
             let decoded = miniz_oxide::inflate::decompress_to_vec_zlib(data_buff)
                 .map_err(|e| anyhow!("zlib decompress failed: {e:?}"))?;
@@ -232,7 +245,7 @@ impl NvsgTexture {
             decoded
         };
 
-        #[cfg(not(any(feature = "zlib-flate2", feature = "uefi-zlib")))]
+        #[cfg(not(any(feature = "zlib-flate2", feature = "uefi-zlib", feature = "no_std")))]
         compile_error!("Texture decompression requires either zlib-flate2 or uefi-zlib feature");
 
         if self.typ == TextureType::Single1Bit {
@@ -332,11 +345,12 @@ impl NvsgTexture {
         Ok(())
     }
 
+    #[cfg(not(feature = "no_std"))]
     fn extract_8bit_texture(&self, index: usize, out_path: impl AsRef<Path>) -> Result<()> {
         let slice = &self.slices[index];
         let mut img = GrayAlphaImage::new(self.width as u32, self.height as u32);
 
-        for (x, y, pixel) in img.enumerate_pixels_mut() {
+        for (x, y, mut pixel) in img.enumerate_pixels_mut() {
             let index = (y * self.width as u32 + x) as usize;
             let alpha_value = slice[index];
             *pixel = image::LumaA([0xff, alpha_value]);
@@ -350,7 +364,7 @@ impl NvsgTexture {
         let slice = &self.slices[index];
         let mut img = GrayAlphaImage::new(self.width as u32, self.height as u32);
 
-        for (x, y, pixel) in img.enumerate_pixels_mut() {
+        for (x, y, mut pixel) in img.enumerate_pixels_mut() {
             let index = (y * self.width as u32 + x) as usize;
             let alpha_value = slice[index];
             *pixel = image::LumaA([0xff, alpha_value]);
@@ -359,11 +373,12 @@ impl NvsgTexture {
         Ok(img)
     }
 
+    #[cfg(not(feature = "no_std"))]
     fn extract_24bit_texture(&self, index: usize, out_path: impl AsRef<Path>) -> Result<()> {
         let slice = &self.slices[index];
         let mut img = ImageBuffer::new(self.width as u32, self.height as u32);
 
-        for (x, y, pixel) in img.enumerate_pixels_mut() {
+        for (x, y, mut pixel) in img.enumerate_pixels_mut() {
             let index = (y * self.width as u32 + x) as usize * 3;
             let r = slice[index + 2];
             let g = slice[index + 1];
@@ -379,7 +394,7 @@ impl NvsgTexture {
         let slice = &self.slices[index];
         let mut img = ImageBuffer::new(self.width as u32, self.height as u32);
 
-        for (x, y, pixel) in img.enumerate_pixels_mut() {
+        for (x, y, mut pixel) in img.enumerate_pixels_mut() {
             let index = (y * self.width as u32 + x) as usize * 3;
             let r = slice[index + 2];
             let g = slice[index + 1];
@@ -397,7 +412,7 @@ impl NvsgTexture {
         let slice = &self.slices[index];
         let mut img = ImageBuffer::new(self.width as u32, self.height as u32);
 
-        for (x, y, pixel) in img.enumerate_pixels_mut() {
+        for (x, y, mut pixel) in img.enumerate_pixels_mut() {
             let index = (y * self.width as u32 + x) as usize * 3;
             let r = slice[index + 2];
             let g = slice[index + 1];
@@ -408,11 +423,12 @@ impl NvsgTexture {
         Ok(img)
     }
 
+    #[cfg(not(feature = "no_std"))]
     fn extract_32bit_texture(&self, index: usize, out_path: impl AsRef<Path>) -> Result<()> {
         let slice = &self.slices[index];
         let mut img = ImageBuffer::new(self.width as u32, self.height as u32);
 
-        for (x, y, pixel) in img.enumerate_pixels_mut() {
+        for (x, y, mut pixel) in img.enumerate_pixels_mut() {
             let index = (y * self.width as u32 + x) as usize * 4;
             let r = slice[index + 2];
             let g = slice[index + 1];
@@ -429,7 +445,7 @@ impl NvsgTexture {
         let slice = &self.slices[index];
         let mut img = ImageBuffer::new(self.width as u32, self.height as u32);
 
-        for (x, y, pixel) in img.enumerate_pixels_mut() {
+        for (x, y, mut pixel) in img.enumerate_pixels_mut() {
             let index = (y * self.width as u32 + x) as usize * 4;
             let r = slice[index + 2];
             let g = slice[index + 1];
@@ -441,6 +457,7 @@ impl NvsgTexture {
         Ok(img)
     }
 
+    #[cfg(not(feature = "no_std"))]
     pub fn extract_textures(&self, output_dir: impl AsRef<Path>) -> Result<()> {
         let output_dir = output_dir.as_ref();
         if !output_dir.exists() {

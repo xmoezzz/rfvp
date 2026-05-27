@@ -1,3 +1,11 @@
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 pub mod anzu_scene;
 pub mod components;
 #[cfg(any(feature = "gpu-render", feature = "soft-render-desktop"))]

@@ -1,3 +1,11 @@
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 use std::collections::VecDeque;
 use std::io::Cursor;
 use std::path::Path;
@@ -320,7 +328,7 @@ impl VideoPlayerManager {
             self.stop(motion);
         }
 
-        let ext = Path::new(movie_name)
+        let ext = std::path::PathBuf::from(movie_name)
             .extension()
             .and_then(|s| s.to_str())
             .unwrap_or("")

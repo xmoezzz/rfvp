@@ -1,14 +1,23 @@
-use std::collections::HashMap;
-#[cfg(target_os = "uefi")]
+use alloc::string::{String, ToString};
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+use core::mem::size_of;
+use core::str::FromStr;
+
+#[cfg(feature = "no_std")]
+use alloc::collections::BTreeMap;
+#[cfg(all(not(feature = "no_std"), target_os = "uefi"))]
 use std::collections::hash_map::DefaultHasher;
+#[cfg(not(feature = "no_std"))]
+use std::collections::HashMap;
+#[cfg(not(feature = "no_std"))]
 use std::fs::File;
-#[cfg(target_os = "uefi")]
+#[cfg(all(not(feature = "no_std"), target_os = "uefi"))]
 use std::hash::BuildHasherDefault;
+#[cfg(not(feature = "no_std"))]
 use std::io::Read;
-use std::mem::size_of;
+#[cfg(not(feature = "no_std"))]
 use std::path::Path;
-use std::str::FromStr;
-use std::sync::Arc;
 
 use anyhow::Result;
 
@@ -24,7 +33,7 @@ macro_rules! uefi_parser_stage {
     ($($arg:tt)*) => {};
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Nls {
     #[default]
     ShiftJIS = 0,
@@ -56,11 +65,14 @@ pub struct Syscall {
     pub name: String,
 }
 
-#[cfg(target_os = "uefi")]
+#[cfg(all(not(feature = "no_std"), target_os = "uefi"))]
 pub type SyscallMap = HashMap<usize, Syscall, BuildHasherDefault<DefaultHasher>>;
 
-#[cfg(not(target_os = "uefi"))]
+#[cfg(all(not(feature = "no_std"), not(target_os = "uefi")))]
 pub type SyscallMap = HashMap<usize, Syscall>;
+
+#[cfg(feature = "no_std")]
+pub type SyscallMap = BTreeMap<usize, Syscall>;
 
 #[derive(Debug, Clone, Default)]
 pub struct Parser {
@@ -82,6 +94,7 @@ pub struct Parser {
 }
 
 impl Parser {
+    #[cfg(not(feature = "no_std"))]
     pub fn new(path: impl AsRef<Path>, nls: Nls) -> Result<Self> {
         let mut rdr = File::open(path)?;
         let mut buffer = Vec::new();
@@ -290,10 +303,7 @@ impl Parser {
         off += title_len as usize;
 
         self.syscall_count = self.read_u16(off)?;
-        uefi_parser_stage!(
-            "[UEFI] Parser::parser syscall_count={}",
-            self.syscall_count
-        );
+        uefi_parser_stage!("[UEFI] Parser::parser syscall_count={}", self.syscall_count);
         off += size_of::<u16>();
 
         for i in 0..self.syscall_count {

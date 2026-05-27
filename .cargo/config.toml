@@ -6,3 +6,7 @@ rustflags = ['--cfg', 'getrandom_backend="unsupported"']
 
 [target.aarch64-unknown-uefi]
 rustflags = ['--cfg', 'getrandom_backend="unsupported"']
+
+[unstable]
+build-std = ["core", "alloc", "compiler_builtins"]
+build-std-features = ["compiler-builtins-mem"]

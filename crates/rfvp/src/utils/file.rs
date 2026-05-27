@@ -62,7 +62,10 @@ pub fn set_hcb_root_path(_path: &str) {}
 
 #[cfg(not(target_os = "uefi"))]
 pub fn hcb_root_path() -> Option<PathBuf> {
-    env::var("FVP_HCB_ROOT").ok().filter(|s| !s.is_empty()).map(PathBuf::from)
+    env::var("FVP_HCB_ROOT")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
 }
 
 #[cfg(target_os = "uefi")]

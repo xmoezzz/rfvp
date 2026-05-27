@@ -64,8 +64,8 @@ impl SePlayer {
 
     pub fn load(&mut self, slot: i32, se: Vec<u8>) -> Result<()> {
         let slot = slot as usize;
-        let data = SoundData::from_bytes(&se)
-            .with_context(|| format!("decode SE for slot {}", slot))?;
+        let data =
+            SoundData::from_bytes(&se).with_context(|| format!("decode SE for slot {}", slot))?;
         self.se_datas[slot] = Some(data);
         Ok(())
     }
@@ -283,7 +283,10 @@ impl SePlayer {
 
     pub fn apply_snapshot_v1(&mut self, snap: &SePlayerSnapshotV1, vfs: &Vfs) -> Result<()> {
         if snap.version != 1 {
-            return Err(anyhow!("unsupported SePlayerSnapshotV1 version: {}", snap.version));
+            return Err(anyhow!(
+                "unsupported SePlayerSnapshotV1 version: {}",
+                snap.version
+            ));
         }
         for i in 0..SE_SLOT_COUNT {
             self.stop(i as i32, Tween::default());

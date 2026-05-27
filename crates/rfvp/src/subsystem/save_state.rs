@@ -1,4 +1,13 @@
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 use anyhow::{bail, Context, Result};
+#[cfg(not(feature = "no_std"))]
 use bincode::Options;
 use serde::{Deserialize, Serialize};
 
@@ -13,6 +22,7 @@ const SAVE_STATE_MAGIC: [u8; 4] = *b"RFVS";
 const SAVE_STATE_FOOTER_LEN: usize = 8; // u32 payload_len + 4-byte magic
 const MAX_STATE_PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
 
+#[cfg(not(feature = "no_std"))]
 fn bincode_opts() -> impl bincode::Options {
     bincode::DefaultOptions::new()
         .with_fixint_encoding()
@@ -93,73 +103,91 @@ impl SaveStateSnapshotV1 {
 }
 
 pub fn append_state_chunk_v1(out: &mut Vec<u8>, snap: &SaveStateSnapshotV1) -> Result<()> {
-    let payload = bincode_opts()
-        .serialize(snap)
-        .context("serialize SaveStateSnapshotV1")?;
-
-    if payload.len() > MAX_STATE_PAYLOAD_BYTES {
-        bail!(
-            "SaveStateSnapshotV1 payload too large: {} bytes (max {})",
-            payload.len(),
-            MAX_STATE_PAYLOAD_BYTES
-        );
+    #[cfg(feature = "no_std")]
+    {
+        let _ = (out, snap);
+        bail!("SaveStateSnapshotV1 serialization requires the std desktop bincode adapter");
     }
 
-    let len_u32: u32 = payload
-        .len()
-        .try_into()
-        .context("payload length overflow")?;
-    out.extend_from_slice(&payload);
-    out.extend_from_slice(&len_u32.to_le_bytes());
-    out.extend_from_slice(&SAVE_STATE_MAGIC);
-    Ok(())
+    #[cfg(not(feature = "no_std"))]
+    {
+        let payload = bincode_opts()
+            .serialize(snap)
+            .context("serialize SaveStateSnapshotV1")?;
+
+        if payload.len() > MAX_STATE_PAYLOAD_BYTES {
+            bail!(
+                "SaveStateSnapshotV1 payload too large: {} bytes (max {})",
+                payload.len(),
+                MAX_STATE_PAYLOAD_BYTES
+            );
+        }
+
+        let len_u32: u32 = payload
+            .len()
+            .try_into()
+            .context("payload length overflow")?;
+        out.extend_from_slice(&payload);
+        out.extend_from_slice(&len_u32.to_le_bytes());
+        out.extend_from_slice(&SAVE_STATE_MAGIC);
+        Ok(())
+    }
 }
 
 pub fn try_decode_state_chunk_v1(file_bytes: &[u8]) -> Result<Option<SaveStateSnapshotV1>> {
-    if file_bytes.len() < SAVE_STATE_FOOTER_LEN {
+    #[cfg(feature = "no_std")]
+    {
+        let _ = file_bytes;
         return Ok(None);
     }
 
-    let magic_pos = file_bytes.len() - 4;
-    if file_bytes[magic_pos..] != SAVE_STATE_MAGIC {
-        return Ok(None);
-    }
+    #[cfg(not(feature = "no_std"))]
+    {
+        if file_bytes.len() < SAVE_STATE_FOOTER_LEN {
+            return Ok(None);
+        }
 
-    let len_pos = file_bytes.len() - SAVE_STATE_FOOTER_LEN;
-    let payload_len = u32::from_le_bytes([
-        file_bytes[len_pos],
-        file_bytes[len_pos + 1],
-        file_bytes[len_pos + 2],
-        file_bytes[len_pos + 3],
-    ]) as usize;
+        let magic_pos = file_bytes.len() - 4;
+        if file_bytes[magic_pos..] != SAVE_STATE_MAGIC {
+            return Ok(None);
+        }
 
-    if payload_len > MAX_STATE_PAYLOAD_BYTES {
-        bail!(
-            "SaveState footer present but payload length {} exceeds max {}",
-            payload_len,
-            MAX_STATE_PAYLOAD_BYTES
-        );
-    }
+        let len_pos = file_bytes.len() - SAVE_STATE_FOOTER_LEN;
+        let payload_len = u32::from_le_bytes([
+            file_bytes[len_pos],
+            file_bytes[len_pos + 1],
+            file_bytes[len_pos + 2],
+            file_bytes[len_pos + 3],
+        ]) as usize;
 
-    if file_bytes.len() < SAVE_STATE_FOOTER_LEN + payload_len {
-        bail!(
+        if payload_len > MAX_STATE_PAYLOAD_BYTES {
+            bail!(
+                "SaveState footer present but payload length {} exceeds max {}",
+                payload_len,
+                MAX_STATE_PAYLOAD_BYTES
+            );
+        }
+
+        if file_bytes.len() < SAVE_STATE_FOOTER_LEN + payload_len {
+            bail!(
             "SaveState footer present but payload is truncated: file={} need={} payload_len={} footer={}",
             file_bytes.len(),
             SAVE_STATE_FOOTER_LEN + payload_len,
             payload_len,
             SAVE_STATE_FOOTER_LEN
         );
-    }
+        }
 
-    let payload_start = file_bytes.len() - SAVE_STATE_FOOTER_LEN - payload_len;
-    let payload_end = payload_start + payload_len;
-    let payload = &file_bytes[payload_start..payload_end];
+        let payload_start = file_bytes.len() - SAVE_STATE_FOOTER_LEN - payload_len;
+        let payload_end = payload_start + payload_len;
+        let payload = &file_bytes[payload_start..payload_end];
 
-    let snap: SaveStateSnapshotV1 = bincode_opts()
-        .deserialize(payload)
-        .context("deserialize SaveStateSnapshotV1")?;
-    if snap.version != 1 {
-        bail!("unsupported SaveStateSnapshotV1 version: {}", snap.version);
+        let snap: SaveStateSnapshotV1 = bincode_opts()
+            .deserialize(payload)
+            .context("deserialize SaveStateSnapshotV1")?;
+        if snap.version != 1 {
+            bail!("unsupported SaveStateSnapshotV1 version: {}", snap.version);
+        }
+        Ok(Some(snap))
     }
-    Ok(Some(snap))
 }

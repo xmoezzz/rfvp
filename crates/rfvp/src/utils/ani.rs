@@ -240,7 +240,10 @@ impl<R: Read + Seek> Decoder<R> {
     }
 }
 
-#[cfg(all(feature = "cursor-ani", any(feature = "gpu-render", feature = "soft-render-desktop")))]
+#[cfg(all(
+    feature = "cursor-ani",
+    any(feature = "gpu-render", feature = "soft-render-desktop")
+))]
 pub fn icondir_to_custom_cursor(frame: &IconDir) -> anyhow::Result<CustomCursorSource> {
     let entry = frame.entries().first().unwrap();
     let image = entry.decode().unwrap();

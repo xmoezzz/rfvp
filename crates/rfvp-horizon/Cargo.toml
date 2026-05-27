@@ -1,0 +1,34 @@
+[package]
+name = "rfvp-horizon"
+version = "0.1.0"
+edition = "2021"
+description = "Nintendo Horizon host crate for rfvp no_std core"
+license = "MPL-2.0"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "rfvp_horizon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rfvp-horizon"
+path = "src/main.rs"
+required-features = ["entrypoint"]
+
+[dependencies]
+rfvp = { path = "../rfvp", default-features = false, features = ["no_std"] }
+nx = { git = "https://github.com/aarch64-switch-rs/nx", features = ["input", "canvas", "fs", "services"] }
+
+[build-dependencies]
+cc = "1"
+
+[features]
+default = []
+entrypoint = []
+
+[package.metadata.nx.nro.nacp]
+default_name = "rfvp-horizon"
+default_author = "xmoe"
+version = "0.1.0"
+application_id = "0x0100AAAABBBBCCCC"

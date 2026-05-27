@@ -1,4 +1,12 @@
 use crate::script::Variant;
+#[cfg(feature = "no_std")]
+use alloc::{
+    boxed::Box,
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 
 use super::{scene::Scene, world::GameData};
 use crate::{script::global::GLOBAL, subsystem::resources::input_manager::KeyCode};

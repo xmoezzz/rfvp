@@ -70,8 +70,8 @@ impl BgmPlayer {
 
     pub fn load(&mut self, slot: i32, bgm: Vec<u8>) -> Result<()> {
         let slot = slot as usize;
-        let data = SoundData::from_bytes(&bgm)
-            .with_context(|| format!("decode BGM for slot {}", slot))?;
+        let data =
+            SoundData::from_bytes(&bgm).with_context(|| format!("decode BGM for slot {}", slot))?;
         self.bgm_datas[slot] = Some(data);
         self.bgm_names[slot] = None;
         Ok(())
@@ -160,7 +160,10 @@ impl BgmPlayer {
         if let Some(handle) = self.bgm_slots[slot].as_mut() {
             handle.set_volume(actual_volume as f64, anzu_tween(tween));
         } else {
-            log::warn!("Tried to set volume of BGM slot {}, but there was no BGM playing", slot);
+            log::warn!(
+                "Tried to set volume of BGM slot {}, but there was no BGM playing",
+                slot
+            );
         }
     }
 
@@ -263,7 +266,12 @@ impl BgmPlayer {
                 });
             }
         }
-        BgmDebugSummary { max_slots: BGM_SLOT_COUNT, loaded_datas, playing_slots, slots }
+        BgmDebugSummary {
+            max_slots: BGM_SLOT_COUNT,
+            loaded_datas,
+            playing_slots,
+            slots,
+        }
     }
 
     pub fn capture_snapshot_v1(&self) -> BgmPlayerSnapshotV1 {
@@ -293,7 +301,10 @@ impl BgmPlayer {
 
     pub fn apply_snapshot_v1(&mut self, snap: &BgmPlayerSnapshotV1, vfs: &Vfs) -> Result<()> {
         if snap.version != 1 {
-            return Err(anyhow!("unsupported BgmPlayerSnapshotV1 version: {}", snap.version));
+            return Err(anyhow!(
+                "unsupported BgmPlayerSnapshotV1 version: {}",
+                snap.version
+            ));
         }
         for i in 0..BGM_SLOT_COUNT {
             self.stop(i as i32, Tween::default());
