@@ -32,6 +32,7 @@ pub mod vfs;
 #[path = "vfs_host.rs"]
 pub mod vfs;
 #[cfg(all(
+    not(feature = "no_std"),
     not(target_os = "uefi"),
     not(target_arch = "wasm32"),
     feature = "native-video",

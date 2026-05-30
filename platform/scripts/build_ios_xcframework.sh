@@ -11,7 +11,7 @@ HDR_DIR="$IOS_DIR/Headers"
 VENDOR_DIR="$IOS_DIR/Vendor"
 OUT_XCF="$VENDOR_DIR/RFVP.xcframework"
 
-RFVP_CARGO_PKG="${RFVP_CARGO_PKG:-rfvp}"
+RFVP_STATICLIB_CARGO_PKG="${RFVP_STATICLIB_CARGO_PKG:-rfvp-staticlib}"
 LIB_NAME="${LIB_NAME:-rfvp}" # produces lib${LIB_NAME}.a
 
 TGT_IOS="aarch64-apple-ios"
@@ -34,8 +34,8 @@ rustup target add "$TGT_SIM" >/dev/null 2>&1 || true
 
 echo "[ios-xcf] Building Rust static libs..."
 pushd "$ROOT_DIR" >/dev/null
-cargo build --release -p "$RFVP_CARGO_PKG" --target "$TGT_IOS"
-cargo build --release -p "$RFVP_CARGO_PKG" --target "$TGT_SIM"
+cargo build --release -p "$RFVP_STATICLIB_CARGO_PKG" --target "$TGT_IOS"
+cargo build --release -p "$RFVP_STATICLIB_CARGO_PKG" --target "$TGT_SIM"
 popd >/dev/null
 
 LIB_IOS_A="$ROOT_DIR/target/$TGT_IOS/release/lib${LIB_NAME}.a"
@@ -60,5 +60,3 @@ xcodebuild -create-xcframework \
   -output "$OUT_XCF"
 
 echo "[ios-xcf] OK: $OUT_XCF"
-
-

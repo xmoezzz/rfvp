@@ -1,18 +1,47 @@
 #[cfg(feature = "no_std")]
 mod no_std_time {
     use core::ops::Sub;
-    use core::sync::atomic::{AtomicU64, Ordering};
+    #[cfg(not(target_has_atomic = "64"))]
+    use core::sync::atomic::AtomicU32;
+    #[cfg(target_has_atomic = "64")]
+    use core::sync::atomic::AtomicU64;
+    use core::sync::atomic::Ordering;
 
     pub use core::time::Duration;
 
+    #[cfg(target_has_atomic = "64")]
     static NOW_US: AtomicU64 = AtomicU64::new(0);
+    #[cfg(not(target_has_atomic = "64"))]
+    static NOW_US_LO: AtomicU32 = AtomicU32::new(0);
+    #[cfg(not(target_has_atomic = "64"))]
+    static NOW_US_HI: AtomicU32 = AtomicU32::new(0);
 
+    #[cfg(target_has_atomic = "64")]
     pub fn set_host_time_us(us: u64) {
         NOW_US.store(us, Ordering::Relaxed);
     }
 
+    #[cfg(not(target_has_atomic = "64"))]
+    pub fn set_host_time_us(us: u64) {
+        NOW_US_LO.store(us as u32, Ordering::Relaxed);
+        NOW_US_HI.store((us >> 32) as u32, Ordering::Relaxed);
+    }
+
+    #[cfg(target_has_atomic = "64")]
     fn now_us() -> u64 {
         NOW_US.load(Ordering::Relaxed)
+    }
+
+    #[cfg(not(target_has_atomic = "64"))]
+    fn now_us() -> u64 {
+        loop {
+            let hi_before = NOW_US_HI.load(Ordering::Relaxed);
+            let lo = NOW_US_LO.load(Ordering::Relaxed);
+            let hi_after = NOW_US_HI.load(Ordering::Relaxed);
+            if hi_before == hi_after {
+                return ((hi_after as u64) << 32) | lo as u64;
+            }
+        }
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

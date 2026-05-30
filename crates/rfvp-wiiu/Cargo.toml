@@ -1,0 +1,19 @@
+[package]
+name = "rfvp-wiiu"
+version = "0.1.0"
+edition = "2021"
+description = "Nintendo Wii U no_std-style host crate for rfvp"
+license = "MPL-2.0"
+publish = false
+
+[lib]
+name = "rfvp_wiiu"
+path = "src/lib.rs"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+rfvp = { path = "../rfvp", default-features = false, features = ["no_std"] }
+
+[features]
+default = []
+entrypoint = []

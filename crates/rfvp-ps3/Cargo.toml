@@ -1,0 +1,19 @@
+[package]
+name = "rfvp-ps3"
+version = "0.1.0"
+edition = "2021"
+description = "PlayStation 3 no_std-style host crate for rfvp"
+license = "MPL-2.0"
+publish = false
+
+[lib]
+name = "rfvp_ps3"
+path = "src/lib.rs"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+rfvp = { path = "../rfvp", default-features = false, features = ["no_std"] }
+
+[features]
+default = []
+entrypoint = []

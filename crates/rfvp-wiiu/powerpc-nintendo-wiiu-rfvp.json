@@ -1,0 +1,21 @@
+{
+  "arch": "powerpc",
+  "cpu": "750",
+  "crt-objects-fallback": "false",
+  "data-layout": "E-m:e-p:32:32-Fn32-i64:64-n32",
+  "emit-debug-gdb-scripts": false,
+  "features": "+hard-float",
+  "linker": "powerpc-eabi-gcc",
+  "linker-flavor": "gcc",
+  "llvm-target": "powerpc-unknown-none-eabi",
+  "metadata": {
+    "description": "rfvp Wii U staticlib target for devkitPPC/wut final linking",
+    "host_tools": false,
+    "std": false,
+    "tier": 3
+  },
+  "panic-strategy": "abort",
+  "relocation-model": "static",
+  "target-endian": "big",
+  "target-pointer-width": 32
+}

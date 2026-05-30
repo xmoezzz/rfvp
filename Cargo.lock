@@ -225,6 +225,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "aotuv_lancer_vorbis_sys"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1c22da1eae146e1ac2956da45bd1856b2f9ad788e6f7af535b861df497d726a1"
+dependencies = [
+ "cc",
+ "ogg_next_sys",
+]
+
+[[package]]
 name = "arrayref"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3299,6 +3309,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ogg_next_sys"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c990730c2782b922815753a62af535e4205267df190dfbd8aa5d74e11d7dcc3"
+dependencies = [
+ "cc",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3544,6 +3563,20 @@ name = "profiling"
 version = "1.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3eb8486b569e12e2c32ad3e204dbaba5e4b5b216e9367044f25f1dba42341773"
+
+[[package]]
+name = "psp"
+version = "0.3.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dd85125e9f358089836318435fbe8d7d47879f9da15d6e3feb33514d58a7134b"
+dependencies = [
+ "bitflags 2.11.1",
+ "libm",
+ "num_enum",
+ "num_enum_derive",
+ "paste",
+ "unstringify",
+]
 
 [[package]]
 name = "ptr_meta"
@@ -3793,6 +3826,7 @@ dependencies = [
  "pollster 0.4.0",
  "rand",
  "regex",
+ "rfvp_bitmap",
  "riff",
  "rodio",
  "serde",
@@ -3817,6 +3851,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rfvp-3ds"
+version = "0.1.0"
+dependencies = [
+ "rfvp",
+]
+
+[[package]]
 name = "rfvp-horizon"
 version = "0.1.0"
 dependencies = [
@@ -3826,11 +3867,79 @@ dependencies = [
 ]
 
 [[package]]
+name = "rfvp-ps2"
+version = "0.1.0"
+dependencies = [
+ "rfvp",
+]
+
+[[package]]
+name = "rfvp-ps3"
+version = "0.1.0"
+dependencies = [
+ "rfvp",
+]
+
+[[package]]
+name = "rfvp-psp"
+version = "0.1.0"
+dependencies = [
+ "psp",
+ "rfvp",
+]
+
+[[package]]
 name = "rfvp-psv"
 version = "0.1.0"
 dependencies = [
  "cc",
  "rfvp",
+]
+
+[[package]]
+name = "rfvp-rebuilder"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "encoding_rs",
+ "flate2",
+ "rayon",
+ "rfvp_bitmap",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "vorbis_rs",
+ "walkdir",
+]
+
+[[package]]
+name = "rfvp-staticlib"
+version = "0.1.0"
+dependencies = [
+ "rfvp",
+]
+
+[[package]]
+name = "rfvp-wii"
+version = "0.1.0"
+dependencies = [
+ "rfvp",
+]
+
+[[package]]
+name = "rfvp-wiiu"
+version = "0.1.0"
+dependencies = [
+ "rfvp",
+]
+
+[[package]]
+name = "rfvp_bitmap"
+version = "0.1.0"
+dependencies = [
+ "encoding_rs",
+ "fontdue",
 ]
 
 [[package]]
@@ -4532,6 +4641,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df7f62577c25e07834649fc3b39fafdc597c0a3527dc1c60129201ccfcbaa50c"
 
 [[package]]
+name = "tempfile"
+version = "3.27.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
+dependencies = [
+ "fastrand",
+ "getrandom 0.4.2",
+ "once_cell",
+ "rustix 1.1.4",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "termcolor"
 version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5036,6 +5158,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
+name = "unstringify"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9612d66420ead229348915b911ad9689e79dfc347fe7a876a82551c8eab36b5e"
+
+[[package]]
 name = "unwinding"
 version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5133,6 +5261,20 @@ dependencies = [
  "parking_lot",
  "thiserror 1.0.69",
  "windows 0.60.0",
+]
+
+[[package]]
+name = "vorbis_rs"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "874075ad757c0f6031d4706ed75703a9ba6c711164a0b1dab55af86800cd618f"
+dependencies = [
+ "aotuv_lancer_vorbis_sys",
+ "errno",
+ "getrandom 0.2.17",
+ "ogg_next_sys",
+ "thiserror 2.0.18",
+ "tinyvec",
 ]
 
 [[package]]

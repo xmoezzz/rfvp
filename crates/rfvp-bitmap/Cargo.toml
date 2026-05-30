@@ -1,0 +1,15 @@
+[package]
+name = "rfvp_bitmap"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[features]
+default = ["std", "generator"]
+std = ["alloc"]
+alloc = []
+generator = ["std", "dep:encoding_rs", "dep:fontdue"]
+
+[dependencies]
+encoding_rs = { version = "0.8", optional = true }
+fontdue = { version = "0.9", optional = true, default-features = false }

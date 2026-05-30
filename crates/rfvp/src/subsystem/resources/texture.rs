@@ -1,3 +1,5 @@
+#[cfg(all(feature = "zlib-flate2", not(feature = "no_std")))]
+use ::std::io::Read;
 #[cfg(feature = "no_std")]
 use alloc::{
     boxed::Box,
@@ -11,10 +13,8 @@ use anyhow::anyhow;
 #[cfg(all(not(feature = "zlib-flate2"), feature = "uefi-zlib"))]
 use anyhow::anyhow;
 use anyhow::{bail, Result};
-#[cfg(feature = "zlib-flate2")]
+#[cfg(all(feature = "zlib-flate2", not(feature = "no_std")))]
 use flate2::read::ZlibDecoder;
-#[cfg(feature = "zlib-flate2")]
-use std::io::Read;
 use std::path::Path;
 
 use image::{DynamicImage, GrayAlphaImage, ImageBuffer};
@@ -220,7 +220,7 @@ impl NvsgTexture {
 
         let out_len = hzc1hdr.original_length as usize;
 
-        #[cfg(feature = "zlib-flate2")]
+        #[cfg(all(feature = "zlib-flate2", not(feature = "no_std")))]
         let mut out_buff = {
             let mut out_buff = vec![0; out_len];
             let mut decoder = ZlibDecoder::new(data_buff);

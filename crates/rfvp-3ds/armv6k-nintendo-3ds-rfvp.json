@@ -1,0 +1,24 @@
+{
+  "abi": "eabihf",
+  "arch": "arm",
+  "cpu": "mpcore",
+  "crt-objects-fallback": "false",
+  "data-layout": "e-m:e-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64",
+  "emit-debug-gdb-scripts": false,
+  "env": "newlib",
+  "features": "+vfp2",
+  "linker": "arm-none-eabi-gcc",
+  "linker-flavor": "gcc",
+  "llvm-floatabi": "hard",
+  "llvm-target": "armv6k-none-eabihf",
+  "metadata": {
+    "description": "rfvp Nintendo 3DS staticlib target for devkitARM/libctru final linking",
+    "host_tools": false,
+    "std": false,
+    "tier": 3
+  },
+  "panic-strategy": "abort",
+  "relocation-model": "static",
+  "target-endian": "little",
+  "target-pointer-width": 32
+}

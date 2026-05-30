@@ -1,0 +1,21 @@
+{
+  "arch": "mips",
+  "cpu": "mips3",
+  "crt-objects-fallback": "false",
+  "data-layout": "e-m:m-p:32:32-i8:8:32-i16:16:32-i64:64-n32-S64",
+  "emit-debug-gdb-scripts": false,
+  "features": "+soft-float",
+  "linker": "ee-gcc",
+  "linker-flavor": "gcc",
+  "llvm-abiname": "o32",
+  "llvm-target": "mipsel-unknown-none",
+  "metadata": {
+    "description": "rfvp PS2 EE staticlib target",
+    "host_tools": false,
+    "std": false,
+    "tier": 3
+  },
+  "panic-strategy": "abort",
+  "relocation-model": "static",
+  "target-pointer-width": 32
+}

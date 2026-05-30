@@ -1,11 +1,14 @@
 use alloc::string::{String, ToString};
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::mem::size_of;
 use core::str::FromStr;
 
+#[cfg(feature = "old_school")]
+use alloc::boxed::Box;
 #[cfg(feature = "no_std")]
 use alloc::collections::BTreeMap;
+#[cfg(not(feature = "old_school"))]
+use alloc::sync::Arc;
 #[cfg(all(not(feature = "no_std"), target_os = "uefi"))]
 use std::collections::hash_map::DefaultHasher;
 #[cfg(not(feature = "no_std"))]
@@ -74,9 +77,12 @@ pub type SyscallMap = HashMap<usize, Syscall>;
 #[cfg(feature = "no_std")]
 pub type SyscallMap = BTreeMap<usize, Syscall>;
 
-#[derive(Debug, Clone, Default)]
+#[cfg_attr(not(feature = "old_school"), derive(Debug, Clone, Default))]
 pub struct Parser {
+    #[cfg(not(feature = "old_school"))]
     pub buffer: Arc<Vec<u8>>,
+    #[cfg(feature = "old_school")]
+    source: Box<dyn HcbByteSource>,
     pub nls: Nls,
     pub sys_desc_offset: u32,
     /// entry point (offset) of the script
@@ -106,11 +112,60 @@ impl Parser {
         uefi_parser_stage!("[UEFI] Parser::from_bytes entered");
         let buffer = buffer.into();
         uefi_parser_stage!("[UEFI] Parser::from_bytes buffer len={}", buffer.len());
-        uefi_parser_stage!("[UEFI] Parser::from_bytes before Arc::new");
-        let buffer = Arc::new(buffer);
-        uefi_parser_stage!("[UEFI] Parser::from_bytes after Arc::new");
+        #[cfg(feature = "old_school")]
+        {
+            return Self::from_source(Box::new(MemoryHcbSource { bytes: buffer }), nls);
+        }
+
+        #[cfg(not(feature = "old_school"))]
+        {
+            uefi_parser_stage!("[UEFI] Parser::from_bytes before Arc::new");
+            let buffer = Arc::new(buffer);
+            uefi_parser_stage!("[UEFI] Parser::from_bytes after Arc::new");
+            let mut parser = Parser {
+                buffer,
+                nls,
+                sys_desc_offset: 0,
+                entry_point: 0,
+                non_volatile_global_count: 0,
+                volatile_global_count: 0,
+                custom_syscall_count: 0,
+                game_mode: 0,
+                game_mode_reserved: 0,
+                game_title: String::new(),
+                syscall_count: 0,
+                syscalls: SyscallMap::default(),
+            };
+
+            uefi_parser_stage!("[UEFI] Parser::from_bytes before parser()");
+            parser.parser()?;
+            uefi_parser_stage!("[UEFI] Parser::from_bytes after parser()");
+
+            Ok(parser)
+        }
+    }
+
+    #[cfg(feature = "old_school")]
+    pub fn from_paged_file<F: crate::host_api::RfvpFile + 'static>(
+        file: F,
+        len: usize,
+        nls: Nls,
+        page_size: usize,
+        page_count: usize,
+    ) -> Result<Self> {
+        if len == 0 || page_size == 0 || page_count == 0 {
+            return Err(anyhow::anyhow!("invalid HCB page cache configuration"));
+        }
+        Self::from_source(
+            Box::new(PagedHcbSource::new(file, len, page_size, page_count)),
+            nls,
+        )
+    }
+
+    #[cfg(feature = "old_school")]
+    fn from_source(source: Box<dyn HcbByteSource>, nls: Nls) -> Result<Self> {
         let mut parser = Parser {
-            buffer,
+            source,
             nls,
             sys_desc_offset: 0,
             entry_point: 0,
@@ -124,109 +179,202 @@ impl Parser {
             syscalls: SyscallMap::default(),
         };
 
-        uefi_parser_stage!("[UEFI] Parser::from_bytes before parser()");
         parser.parser()?;
-        uefi_parser_stage!("[UEFI] Parser::from_bytes after parser()");
-
         Ok(parser)
     }
 
     /// safely read a u8 from the buffer
     pub fn read_u8(&self, offset: usize) -> Result<u8> {
-        if offset >= self.buffer.len() {
-            return Err(anyhow::anyhow!("offset out of bounds"));
+        #[cfg(feature = "old_school")]
+        {
+            return self.source.read_byte(offset);
         }
-        Ok(self.buffer[offset])
+        #[cfg(not(feature = "old_school"))]
+        {
+            if offset >= self.buffer.len() {
+                return Err(anyhow::anyhow!("offset out of bounds"));
+            }
+            Ok(self.buffer[offset])
+        }
     }
 
     /// safely read a little-endian u16 from the buffer
     pub fn read_u16(&self, offset: usize) -> Result<u16> {
-        if offset + 1 >= self.buffer.len() {
-            return Err(anyhow::anyhow!("offset out of bounds"));
+        #[cfg(feature = "old_school")]
+        {
+            return Ok(u16::from_le_bytes([
+                self.read_u8(offset)?,
+                self.read_u8(offset + 1)?,
+            ]));
         }
-        Ok(u16::from_le_bytes([
-            self.buffer[offset],
-            self.buffer[offset + 1],
-        ]))
+        #[cfg(not(feature = "old_school"))]
+        {
+            if offset + 1 >= self.buffer.len() {
+                return Err(anyhow::anyhow!("offset out of bounds"));
+            }
+            Ok(u16::from_le_bytes([
+                self.buffer[offset],
+                self.buffer[offset + 1],
+            ]))
+        }
     }
 
     /// safely read a little-endian u32 from the buffer
     pub fn read_u32(&self, offset: usize) -> Result<u32> {
-        if offset + 3 >= self.buffer.len() {
-            return Err(anyhow::anyhow!("offset out of bounds"));
+        #[cfg(feature = "old_school")]
+        {
+            return Ok(u32::from_le_bytes([
+                self.read_u8(offset)?,
+                self.read_u8(offset + 1)?,
+                self.read_u8(offset + 2)?,
+                self.read_u8(offset + 3)?,
+            ]));
         }
-        Ok(u32::from_le_bytes([
-            self.buffer[offset],
-            self.buffer[offset + 1],
-            self.buffer[offset + 2],
-            self.buffer[offset + 3],
-        ]))
+        #[cfg(not(feature = "old_school"))]
+        {
+            if offset + 3 >= self.buffer.len() {
+                return Err(anyhow::anyhow!("offset out of bounds"));
+            }
+            Ok(u32::from_le_bytes([
+                self.buffer[offset],
+                self.buffer[offset + 1],
+                self.buffer[offset + 2],
+                self.buffer[offset + 3],
+            ]))
+        }
     }
 
     /// safely read a little-endian i8 from the buffer
     pub fn read_i8(&self, offset: usize) -> Result<i8> {
-        if offset >= self.buffer.len() {
-            return Err(anyhow::anyhow!("offset out of bounds"));
+        #[cfg(feature = "old_school")]
+        {
+            return Ok(self.read_u8(offset)? as i8);
         }
-        Ok(self.buffer[offset] as i8)
+        #[cfg(not(feature = "old_school"))]
+        {
+            if offset >= self.buffer.len() {
+                return Err(anyhow::anyhow!("offset out of bounds"));
+            }
+            Ok(self.buffer[offset] as i8)
+        }
     }
 
     /// safely read a little-endian i16 from the buffer
     pub fn read_i16(&self, offset: usize) -> Result<i16> {
-        if offset + 1 >= self.buffer.len() {
-            return Err(anyhow::anyhow!("offset out of bounds"));
+        #[cfg(feature = "old_school")]
+        {
+            return Ok(i16::from_le_bytes([
+                self.read_u8(offset)?,
+                self.read_u8(offset + 1)?,
+            ]));
         }
-        Ok(i16::from_le_bytes([
-            self.buffer[offset],
-            self.buffer[offset + 1],
-        ]))
+        #[cfg(not(feature = "old_school"))]
+        {
+            if offset + 1 >= self.buffer.len() {
+                return Err(anyhow::anyhow!("offset out of bounds"));
+            }
+            Ok(i16::from_le_bytes([
+                self.buffer[offset],
+                self.buffer[offset + 1],
+            ]))
+        }
     }
 
     /// safely read a little-endian i32 from the buffer
     pub fn read_i32(&self, offset: usize) -> Result<i32> {
-        if offset + 3 >= self.buffer.len() {
-            return Err(anyhow::anyhow!("offset out of bounds"));
+        #[cfg(feature = "old_school")]
+        {
+            return Ok(i32::from_le_bytes([
+                self.read_u8(offset)?,
+                self.read_u8(offset + 1)?,
+                self.read_u8(offset + 2)?,
+                self.read_u8(offset + 3)?,
+            ]));
         }
-        Ok(i32::from_le_bytes([
-            self.buffer[offset],
-            self.buffer[offset + 1],
-            self.buffer[offset + 2],
-            self.buffer[offset + 3],
-        ]))
+        #[cfg(not(feature = "old_school"))]
+        {
+            if offset + 3 >= self.buffer.len() {
+                return Err(anyhow::anyhow!("offset out of bounds"));
+            }
+            Ok(i32::from_le_bytes([
+                self.buffer[offset],
+                self.buffer[offset + 1],
+                self.buffer[offset + 2],
+                self.buffer[offset + 3],
+            ]))
+        }
     }
 
     /// safely read a little-endian f32 from the buffer
     pub fn read_f32(&self, offset: usize) -> Result<f32> {
-        if offset + 3 >= self.buffer.len() {
-            return Err(anyhow::anyhow!("offset out of bounds"));
+        #[cfg(feature = "old_school")]
+        {
+            return Ok(f32::from_le_bytes([
+                self.read_u8(offset)?,
+                self.read_u8(offset + 1)?,
+                self.read_u8(offset + 2)?,
+                self.read_u8(offset + 3)?,
+            ]));
         }
-        Ok(f32::from_le_bytes([
-            self.buffer[offset],
-            self.buffer[offset + 1],
-            self.buffer[offset + 2],
-            self.buffer[offset + 3],
-        ]))
+        #[cfg(not(feature = "old_school"))]
+        {
+            if offset + 3 >= self.buffer.len() {
+                return Err(anyhow::anyhow!("offset out of bounds"));
+            }
+            Ok(f32::from_le_bytes([
+                self.buffer[offset],
+                self.buffer[offset + 1],
+                self.buffer[offset + 2],
+                self.buffer[offset + 3],
+            ]))
+        }
     }
 
     /// safe read a c-style string from the buffer with string length
     /// (with null terminator)
     /// then convert it to a UTF-8 string due to the NLS
     pub fn read_cstring(&self, offset: usize, len: usize) -> Result<String> {
-        if offset + len >= self.buffer.len() {
-            return Err(anyhow::anyhow!("offset out of bounds"));
-        }
-        let mut string = Vec::new();
-        for i in 0..len {
-            if self.buffer[offset + i] == 0 {
-                break;
+        #[cfg(feature = "old_school")]
+        {
+            if offset
+                .checked_add(len)
+                .is_none_or(|end| end > self.source.len())
+            {
+                return Err(anyhow::anyhow!("offset out of bounds"));
             }
-            string.push(self.buffer[offset + i]);
+            let mut string = Vec::new();
+            for i in 0..len {
+                let byte = self.read_u8(offset + i)?;
+                if byte == 0 {
+                    break;
+                }
+                string.push(byte);
+            }
+            return self.decode_string_bytes(&string);
         }
 
-        if string.ends_with(&[0]) {
-            string.pop();
-        }
+        #[cfg(not(feature = "old_school"))]
+        {
+            if offset + len >= self.buffer.len() {
+                return Err(anyhow::anyhow!("offset out of bounds"));
+            }
+            let mut string = Vec::new();
+            for i in 0..len {
+                if self.buffer[offset + i] == 0 {
+                    break;
+                }
+                string.push(self.buffer[offset + i]);
+            }
 
+            if string.ends_with(&[0]) {
+                string.pop();
+            }
+
+            self.decode_string_bytes(&string)
+        }
+    }
+
+    fn decode_string_bytes(&self, string: &[u8]) -> Result<String> {
         let s = match self.nls {
             Nls::ShiftJIS => {
                 let (s, _, e) = encoding_rs::SHIFT_JIS.decode(&string);
@@ -402,6 +550,163 @@ impl Parser {
     // the upper bound of the code area
     pub fn get_sys_desc_offset(&self) -> u32 {
         self.sys_desc_offset
+    }
+}
+
+#[cfg(feature = "old_school")]
+trait HcbByteSource {
+    fn len(&self) -> usize;
+    fn read_byte(&self, offset: usize) -> Result<u8>;
+}
+
+#[cfg(feature = "old_school")]
+#[derive(Debug)]
+struct MemoryHcbSource {
+    bytes: Vec<u8>,
+}
+
+#[cfg(feature = "old_school")]
+impl HcbByteSource for MemoryHcbSource {
+    fn len(&self) -> usize {
+        self.bytes.len()
+    }
+
+    fn read_byte(&self, offset: usize) -> Result<u8> {
+        self.bytes
+            .get(offset)
+            .copied()
+            .ok_or_else(|| anyhow::anyhow!("offset out of bounds"))
+    }
+}
+
+#[cfg(feature = "old_school")]
+struct HcbPage {
+    index: usize,
+    valid_len: usize,
+    age: u64,
+    data: Vec<u8>,
+}
+
+#[cfg(feature = "old_school")]
+struct PagedHcbState<F: crate::host_api::RfvpFile> {
+    file: F,
+    tick: u64,
+    pages: Vec<HcbPage>,
+}
+
+#[cfg(feature = "old_school")]
+struct PagedHcbSource<F: crate::host_api::RfvpFile> {
+    len: usize,
+    page_size: usize,
+    page_count: usize,
+    state: spin::Mutex<PagedHcbState<F>>,
+}
+
+#[cfg(feature = "old_school")]
+impl<F: crate::host_api::RfvpFile> PagedHcbSource<F> {
+    fn new(file: F, len: usize, page_size: usize, page_count: usize) -> Self {
+        Self {
+            len,
+            page_size,
+            page_count,
+            state: spin::Mutex::new(PagedHcbState {
+                file,
+                tick: 0,
+                pages: Vec::new(),
+            }),
+        }
+    }
+
+    fn load_page(state: &mut PagedHcbState<F>, page_size: usize, page_index: usize) -> Result<u8> {
+        state.tick = state.tick.wrapping_add(1);
+        if let Some(page) = state.pages.iter_mut().find(|page| page.index == page_index) {
+            page.age = state.tick;
+            return Ok(0);
+        }
+
+        let victim_index = state
+            .pages
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, page)| page.age)
+            .map(|(idx, _)| idx);
+        let mut data = alloc::vec![0; page_size];
+        let offset = page_index
+            .checked_mul(page_size)
+            .ok_or_else(|| anyhow::anyhow!("HCB page offset overflow"))?;
+        let read = state
+            .file
+            .read_at(offset as u64, &mut data)
+            .map_err(|err| anyhow::anyhow!("HCB page read failed: {:?}", err))?;
+        if read == 0 {
+            return Err(anyhow::anyhow!("HCB page read returned EOF"));
+        }
+        if let Some(idx) = victim_index {
+            state.pages[idx] = HcbPage {
+                index: page_index,
+                valid_len: read,
+                age: state.tick,
+                data,
+            };
+        } else {
+            state.pages.push(HcbPage {
+                index: page_index,
+                valid_len: read,
+                age: state.tick,
+                data,
+            });
+        }
+        Ok(0)
+    }
+}
+
+#[cfg(feature = "old_school")]
+impl<F: crate::host_api::RfvpFile> HcbByteSource for PagedHcbSource<F> {
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn read_byte(&self, offset: usize) -> Result<u8> {
+        if offset >= self.len {
+            return Err(anyhow::anyhow!("offset out of bounds"));
+        }
+        let page_index = offset / self.page_size;
+        let page_offset = offset % self.page_size;
+        let mut state = self.state.lock();
+        if state.pages.iter().all(|page| page.index != page_index) {
+            if state.pages.len() < self.page_count {
+                let mut data = alloc::vec![0; self.page_size];
+                let read = state
+                    .file
+                    .read_at((page_index * self.page_size) as u64, &mut data)
+                    .map_err(|err| anyhow::anyhow!("HCB page read failed: {:?}", err))?;
+                if read == 0 {
+                    return Err(anyhow::anyhow!("HCB page read returned EOF"));
+                }
+                state.tick = state.tick.wrapping_add(1);
+                let age = state.tick;
+                state.pages.push(HcbPage {
+                    index: page_index,
+                    valid_len: read,
+                    age,
+                    data,
+                });
+            } else {
+                Self::load_page(&mut state, self.page_size, page_index)?;
+            }
+        }
+        let tick = state.tick.wrapping_add(1);
+        state.tick = tick;
+        let page = state
+            .pages
+            .iter_mut()
+            .find(|page| page.index == page_index)
+            .ok_or_else(|| anyhow::anyhow!("HCB page cache miss"))?;
+        if page_offset >= page.valid_len {
+            return Err(anyhow::anyhow!("offset out of bounds"));
+        }
+        page.age = tick;
+        Ok(page.data[page_offset])
     }
 }
 

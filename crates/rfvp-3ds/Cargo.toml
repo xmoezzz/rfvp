@@ -1,0 +1,20 @@
+[package]
+name = "rfvp-3ds"
+version = "0.1.0"
+edition = "2021"
+description = "Nintendo 3DS old-school host crate for rfvp no_std core"
+license = "MPL-2.0"
+publish = false
+
+[lib]
+name = "rfvp_3ds"
+path = "src/lib.rs"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+rfvp = { path = "../rfvp", default-features = false, features = ["no_std", "old_school"] }
+
+[features]
+default = []
+old_school = []
+entrypoint = ["old_school"]

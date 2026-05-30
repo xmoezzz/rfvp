@@ -58,6 +58,7 @@ rand = { version = "0.8.5", features = ["small_rng"], optional = true }
 lazy_static = { version = "1.4.0", optional = true }
 fontdue = { version = "0.9.3", optional = true }
 ab_glyph = { version = "0.2.29", default-features = false, features = ["libm"], optional = true }
+rfvp_bitmap = { path = "../rfvp-bitmap", default-features = false, optional = true }
 core_maths = { version = "0.1.1", optional = true }
 
 env_logger = { version = "0.11.3", optional = true }
@@ -130,6 +131,10 @@ no_std = [
     "serde/alloc",
     "serde/derive",
 ]
+
+# PSP old-school no_std profile. This is opt-in only and is used by
+# rfvp-psp; default desktop/mobile/wasm builds must not enable it.
+old_school = ["no_std", "dep:rfvp_bitmap", "rfvp_bitmap/alloc"]
 
 # Dependencies required by the historical std/runtime engine modules. This is
 # deliberately separate from `no_std`; no_std builds must not enable it.

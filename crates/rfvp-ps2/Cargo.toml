@@ -1,0 +1,20 @@
+[package]
+name = "rfvp-ps2"
+version = "0.1.0"
+edition = "2021"
+description = "PS2 old-school host crate for rfvp no_std core"
+license = "MPL-2.0"
+publish = false
+
+[lib]
+name = "rfvp_ps2"
+path = "src/lib.rs"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+rfvp = { path = "../rfvp", default-features = false, features = ["no_std", "old_school"] }
+
+[features]
+default = []
+old_school = []
+entrypoint = ["old_school"]

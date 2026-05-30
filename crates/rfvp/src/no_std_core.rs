@@ -1,3 +1,4 @@
+#[cfg(not(feature = "old_school"))]
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -20,6 +21,12 @@ const MISSING_DEFAULT_FONT_MESSAGE: &str =
     "Required font file default.ttf was not found in the game directory.";
 const INVALID_DEFAULT_FONT_MESSAGE: &str =
     "Required font file default.ttf exists but is not a valid TrueType/OpenType font.";
+#[cfg(feature = "old_school")]
+const MISSING_OLD_SCHOOL_FONT_MESSAGE: &str =
+    "Required font file defualt.tmap was not found in the game directory.";
+#[cfg(feature = "old_school")]
+const INVALID_OLD_SCHOOL_FONT_MESSAGE: &str =
+    "Required font file defualt.tmap exists but is not a valid bitmap font.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RfvpCoreConfig {
@@ -165,7 +172,10 @@ impl RfvpCore {
         self.pending_events.clear();
     }
 
-    pub fn boot<H: RfvpHost>(&mut self, host: &mut H, boot: RfvpBootConfig<'_>) -> RfvpResult<()> {
+    pub fn boot<H: RfvpHost>(&mut self, host: &mut H, boot: RfvpBootConfig<'_>) -> RfvpResult<()>
+    where
+        <<H as RfvpHost>::FileSystem as RfvpFileSystem>::File: 'static,
+    {
         match self.try_boot(host, boot) {
             Ok(()) => {
                 self.run_state = RfvpCoreRunState::Booted;
@@ -181,7 +191,10 @@ impl RfvpCore {
         }
     }
 
-    fn try_boot<H: RfvpHost>(&mut self, host: &mut H, boot: RfvpBootConfig<'_>) -> RfvpResult<()> {
+    fn try_boot<H: RfvpHost>(&mut self, host: &mut H, boot: RfvpBootConfig<'_>) -> RfvpResult<()>
+    where
+        <<H as RfvpHost>::FileSystem as RfvpFileSystem>::File: 'static,
+    {
         if boot.asset_root.as_bytes().iter().any(|b| *b == 0) || boot.asset_root.is_empty() {
             return Err(RfvpError::InvalidArgument);
         }
@@ -197,17 +210,50 @@ impl RfvpCore {
             "rfvp no_std boot: scanning asset root for HCB",
         );
 
-        let (hcb, hcb_manifest) = find_and_load_hcb(
-            host,
-            boot.asset_root,
-            boot.hcb_extension,
-            boot.max_hcb_bytes,
-            boot.max_manifest_entries,
-        )?;
-        let parser = Parser::from_bytes(hcb.bytes.clone(), boot.nls).map_err(|err| {
-            self.last_error_detail = Some(err.to_string());
-            RfvpError::InvalidData
-        })?;
+        #[cfg(feature = "old_school")]
+        let (hcb, hcb_manifest, parser) = {
+            let (path, info, manifest) = find_hcb_info(
+                host,
+                boot.asset_root,
+                boot.hcb_extension,
+                boot.max_manifest_entries,
+            )?;
+            let mut file = host.fs().open(&path)?;
+            let len = file.len()?;
+            if len == 0 || len as usize > boot.max_hcb_bytes {
+                return Err(RfvpError::CapacityExceeded);
+            }
+            let parser =
+                Parser::from_paged_file(file, len as usize, boot.nls, 4096, 8).map_err(|err| {
+                    self.last_error_detail = Some(err.to_string());
+                    RfvpError::InvalidData
+                })?;
+            (
+                LoadedHcb {
+                    path,
+                    bytes: Vec::new(),
+                    info,
+                },
+                manifest,
+                parser,
+            )
+        };
+
+        #[cfg(not(feature = "old_school"))]
+        let (hcb, hcb_manifest, parser) = {
+            let (hcb, hcb_manifest) = find_and_load_hcb(
+                host,
+                boot.asset_root,
+                boot.hcb_extension,
+                boot.max_hcb_bytes,
+                boot.max_manifest_entries,
+            )?;
+            let parser = Parser::from_bytes(hcb.bytes.clone(), boot.nls).map_err(|err| {
+                self.last_error_detail = Some(err.to_string());
+                RfvpError::InvalidData
+            })?;
+            (hcb, hcb_manifest, parser)
+        };
         let default_font = load_required_default_font(host).map_err(|(err, detail)| {
             self.last_error_detail = Some(detail);
             err
@@ -219,6 +265,7 @@ impl RfvpCore {
         );
 
         let mut vfs = build_host_vfs(host, boot)?;
+        #[cfg(not(feature = "old_school"))]
         vfs.add_loose_file(&hcb.path, hcb.bytes.clone());
 
         let mut game_data = GameData::default();
@@ -400,33 +447,69 @@ impl RfvpCore {
 fn load_required_default_font<H: RfvpHost>(host: &mut H) -> Result<Font, (RfvpError, String)> {
     let callbacks = host.platform_callbacks();
     let mut bytes = Vec::new();
-    if host
-        .fs()
-        .read_required_file("default.ttf", &mut bytes)
-        .is_err()
+    #[cfg(feature = "old_school")]
     {
-        notify_fatal(
-            callbacks,
-            FatalErrorCode::MissingDefaultFont,
-            MISSING_DEFAULT_FONT_MESSAGE,
-        );
-        return Err((
-            RfvpError::NotFound,
-            MISSING_DEFAULT_FONT_MESSAGE.to_string(),
-        ));
-    }
-    match Font::from_vec(bytes) {
-        Ok(font) => Ok(font),
-        Err(_) => {
+        if host
+            .fs()
+            .read_required_file("defualt.tmap", &mut bytes)
+            .is_err()
+        {
             notify_fatal(
                 callbacks,
-                FatalErrorCode::InvalidDefaultFont,
-                INVALID_DEFAULT_FONT_MESSAGE,
+                FatalErrorCode::MissingDefaultFont,
+                MISSING_OLD_SCHOOL_FONT_MESSAGE,
             );
-            Err((
-                RfvpError::InvalidData,
-                INVALID_DEFAULT_FONT_MESSAGE.to_string(),
-            ))
+            return Err((
+                RfvpError::NotFound,
+                MISSING_OLD_SCHOOL_FONT_MESSAGE.to_string(),
+            ));
+        }
+        match Font::from_old_school_tmap(bytes) {
+            Ok(font) => Ok(font),
+            Err(_) => {
+                notify_fatal(
+                    callbacks,
+                    FatalErrorCode::InvalidDefaultFont,
+                    INVALID_OLD_SCHOOL_FONT_MESSAGE,
+                );
+                Err((
+                    RfvpError::InvalidData,
+                    INVALID_OLD_SCHOOL_FONT_MESSAGE.to_string(),
+                ))
+            }
+        }
+    }
+
+    #[cfg(not(feature = "old_school"))]
+    {
+        if host
+            .fs()
+            .read_required_file("default.ttf", &mut bytes)
+            .is_err()
+        {
+            notify_fatal(
+                callbacks,
+                FatalErrorCode::MissingDefaultFont,
+                MISSING_DEFAULT_FONT_MESSAGE,
+            );
+            return Err((
+                RfvpError::NotFound,
+                MISSING_DEFAULT_FONT_MESSAGE.to_string(),
+            ));
+        }
+        match Font::from_vec(bytes) {
+            Ok(font) => Ok(font),
+            Err(_) => {
+                notify_fatal(
+                    callbacks,
+                    FatalErrorCode::InvalidDefaultFont,
+                    INVALID_DEFAULT_FONT_MESSAGE,
+                );
+                Err((
+                    RfvpError::InvalidData,
+                    INVALID_DEFAULT_FONT_MESSAGE.to_string(),
+                ))
+            }
         }
     }
 }
@@ -464,6 +547,31 @@ fn find_and_load_hcb<H: RfvpHost>(
     Ok((LoadedHcb { path, bytes, info }, manifest))
 }
 
+#[cfg(feature = "old_school")]
+fn find_hcb_info<H: RfvpHost>(
+    host: &mut H,
+    root: &str,
+    extension: &str,
+    max_manifest_entries: usize,
+) -> RfvpResult<(String, RfvpFileInfo, Vec<(String, RfvpFileInfo)>)> {
+    let mut found = Vec::new();
+    {
+        let visitor = &mut |path: &str, info: RfvpFileInfo| -> RfvpResult<()> {
+            if found.len() >= max_manifest_entries {
+                return Err(RfvpError::CapacityExceeded);
+            }
+            found.push((path.to_string(), info));
+            Ok(())
+        };
+        host.fs().enumerate_by_extension(root, extension, visitor)?;
+    }
+    let Some((path, info)) = found.first().cloned() else {
+        return Err(RfvpError::NotFound);
+    };
+    let manifest = found.into_iter().skip(1).collect();
+    Ok((path, info, manifest))
+}
+
 struct LoadedHcb {
     path: String,
     bytes: Vec<u8>,
@@ -472,33 +580,43 @@ struct LoadedHcb {
 
 fn build_host_vfs<H: RfvpHost>(host: &mut H, boot: RfvpBootConfig<'_>) -> RfvpResult<Vfs> {
     let mut vfs = Vfs::new(boot.nls).map_err(|_| RfvpError::InvalidData)?;
-    let mut packs = Vec::new();
+    #[cfg(feature = "old_school")]
     {
-        let visitor = &mut |path: &str, info: RfvpFileInfo| -> RfvpResult<()> {
-            if info.kind == crate::host_api::RfvpFileKind::File {
-                packs.push(path.to_string());
-            }
-            Ok(())
-        };
-        host.fs()
-            .enumerate_by_extension(boot.asset_root, "bin", visitor)?;
+        let _ = host;
+        let _ = boot;
+        return Ok(vfs);
     }
-    for path in packs {
-        let mut file = host.fs().open(&path)?;
-        let bytes = file.read_to_vec(usize::MAX)?;
-        let folder = path
-            .rsplit('/')
-            .next()
-            .unwrap_or(path.as_str())
-            .strip_suffix(".bin")
-            .unwrap_or(path.as_str());
-        vfs.add_pack_bytes(folder, bytes).map_err(|err| {
-            host.log(
-                RfvpLogLevel::Warn,
-                &format!("failed to parse host pack {path}: {err}"),
-            );
-            RfvpError::InvalidData
-        })?;
+
+    #[cfg(not(feature = "old_school"))]
+    {
+        let mut packs = Vec::new();
+        {
+            let visitor = &mut |path: &str, info: RfvpFileInfo| -> RfvpResult<()> {
+                if info.kind == crate::host_api::RfvpFileKind::File {
+                    packs.push(path.to_string());
+                }
+                Ok(())
+            };
+            host.fs()
+                .enumerate_by_extension(boot.asset_root, "bin", visitor)?;
+        }
+        for path in packs {
+            let mut file = host.fs().open(&path)?;
+            let bytes = file.read_to_vec(usize::MAX)?;
+            let folder = path
+                .rsplit('/')
+                .next()
+                .unwrap_or(path.as_str())
+                .strip_suffix(".bin")
+                .unwrap_or(path.as_str());
+            vfs.add_pack_bytes(folder, bytes).map_err(|err| {
+                host.log(
+                    RfvpLogLevel::Warn,
+                    &format!("failed to parse host pack {path}: {err}"),
+                );
+                RfvpError::InvalidData
+            })?;
+        }
+        Ok(vfs)
     }
-    Ok(vfs)
 }

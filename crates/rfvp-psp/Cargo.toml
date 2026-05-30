@@ -1,0 +1,30 @@
+[package]
+name = "rfvp-psp"
+version = "0.1.0"
+edition = "2021"
+description = "PSP old-school host crate for rfvp no_std core"
+license = "MPL-2.0"
+publish = false
+
+[lib]
+name = "rfvp_psp"
+path = "src/lib.rs"
+
+[[bin]]
+name = "rfvp-psp"
+path = "src/main.rs"
+required-features = ["entrypoint"]
+
+[dependencies]
+rfvp = { path = "../rfvp", default-features = false, features = ["no_std", "old_school"] }
+
+[target.'cfg(target_os = "psp")'.dependencies]
+psp = "0.3.12"
+
+[features]
+default = []
+old_school = []
+entrypoint = ["old_school"]
+
+[package.metadata.cargo-psp]
+title = "rfvp-psp"

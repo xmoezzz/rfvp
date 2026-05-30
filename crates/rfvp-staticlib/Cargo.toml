@@ -1,0 +1,13 @@
+[package]
+name = "rfvp-staticlib"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "rfvp"
+path = "src/lib.rs"
+crate-type = ["staticlib"]
+
+[dependencies]
+rfvp = { path = "../rfvp" }
