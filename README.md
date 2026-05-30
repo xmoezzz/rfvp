@@ -65,8 +65,23 @@ The Rust API documentation for this project is available here:
 | WASM     | Bundle                                            |      Yes |                    No | **Any architecture** (via WASI)          |
 | FreeBSD  | Standalone                                                 |       No |                   Yes | x86_64 |
 | UEFI     | Standalone EFI (`.efi`)                                             |       No |                   Yes | x86_64, arm64                       |
+| PS Vita  | Standalone (`.eboot`)                                               |       No |                   Yes | armv7                   |
+| PSP      | Standalone (`.eboot`)                                               |       No |                   Yes | MIPS R4000                 |
+| PS3      | Static Library (`.a`)                                               |       No |                   Yes | PPC64BE                   |
+| PS2      | Static Library (`.a`)                                               |       No |                   Yes | MIPS R5900                   |
+| Switch    | Standalone (`.nro`)                                               |       No |                   Yes | arm64-v8a                   |
+| Wii U      | Standalone (`.rpx`)                                               |       No |                   Yes | PowerPC 750CL                 |
+| Wii      | Standalone (`.dol`)                                               |       No |                   Yes | PowerPC 750CL                  |
+| 3DS      | Standalone (`.3dsx`)                                               |       No |                   Yes | arm6k                    |
 
-* Since this is a Rust project, it should be possible to build for many other platforms as well. 
+
+* Since this is a Rust project, it should be possible to build for many other platforms as well.
+
+### As Library
+* Normal Mode: Provide full capabilities of the engine, including using `winit` for event handling and `wgpu` for rendering. This mode is suitable for modern platforms.
+* Non-Standard Mode: Both event handling and rendering are handled by the target platform. This mode is suitable for modern game consoles and some embedded systems.
+* Old-School Mode: We don't use `*.bin` package files at all. Glyphs must be pre-rendered into 16 x 16 4bpp tiles, and game data must be pre-processed by using `rfvp-rebuilder`. We do everything for reducing memory consumption. This mode is suitable for legacy game consoles with less than 128MB of memory available to the game process, while you need to implement plaform-specific code for rendering, audio, input handling, file I/O, etc. We set minimum memory requirement to 32MB as our goal.
+* soft-renderer feature: By enabling the `soft-renderer` feature, you can use a built-in software renderer instead of `wgpu`, and everything just works on CPU. There is no more high-DPI support for this feature, so the game will be rendered exactly at its original resolution. If you believe that your niche platform haven't supported by `wgpu` yet, you can try this feature. It should work on any platform that Rust supports, while you don't need to write any line of code. This feature is not optimized for low memory budget.
 
 ### Compatibility
 This project aims to be compatible with all versions of the original FVP engine. 
