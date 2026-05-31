@@ -1,6 +1,6 @@
 # macOS Bundle Build Guide
 
-This repository provides a macOS **launcher application** (`RFVP.app`) that embeds the engine runtime.
+This repository provides a macOS application bundle (`RFVP.app`) that runs the release `rfvp` binary.
 
 ## Requirements
 
@@ -8,13 +8,8 @@ This repository provides a macOS **launcher application** (`RFVP.app`) that embe
 - macOS (Apple Silicon or Intel)
 
 ### Apple tooling
-- **Xcode** (required)
-  - Install via the Mac App Store.
-  - Verify: `xcodebuild -version`
-
-- **XcodeGen** (required)
-  - Install via Homebrew: `brew install xcodegen`
-  - Verify: `xcodegen --version`
+- **hdiutil** (required for DMG packaging; included with macOS)
+- **codesign** (optional ad-hoc signing; included with macOS)
 
 ### Rust tooling
 - **Rust toolchain** (required)
@@ -29,8 +24,8 @@ Run:
 ./platform/scripts/package_macos_app.sh
 ```
 
-This script builds the Rust library and the macOS launcher app, then assembles:
-- `RFVP.app` with `librfvp.dylib` embedded.
+This script builds the release Rust binary and assembles:
+- `RFVP.app` with `Contents/MacOS/RFVP` copied from `target/release/rfvp`.
 
 ### 2) Build the DMG
 Run:

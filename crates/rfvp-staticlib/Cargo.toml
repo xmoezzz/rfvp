@@ -5,7 +5,7 @@ edition = "2021"
 publish = false
 
 [lib]
-name = "rfvp"
+name = "rfvp_staticlib"
 path = "src/lib.rs"
 crate-type = ["staticlib"]
 

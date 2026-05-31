@@ -47,7 +47,16 @@ jobs:
             libges-1.0-dev
 
       - name: Build workspace docs
-        run: cargo doc --workspace --no-deps
+        run: |
+          cargo doc --workspace --no-deps \
+            --exclude rfvp-3ds \
+            --exclude rfvp-horizon \
+            --exclude rfvp-ps2 \
+            --exclude rfvp-ps3 \
+            --exclude rfvp-psp \
+            --exclude rfvp-psv \
+            --exclude rfvp-wii \
+            --exclude rfvp-wiiu
 
       - name: Install handwritten homepage
         run: cp site/index.html target/doc/index.html

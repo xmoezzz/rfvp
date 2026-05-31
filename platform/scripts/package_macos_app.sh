@@ -4,68 +4,92 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 MACOS_DIR="${ROOT_DIR}/platform/macos/RFVPLauncher"
-VENDOR_DIR="${MACOS_DIR}/Vendor"
 DIST_DIR="${ROOT_DIR}/dist/macos"
-DERIVED_DIR="${DIST_DIR}/DerivedData"
+OUT_APP="${DIST_DIR}/RFVP.app"
 
 RFVP_CARGO_PKG="${RFVP_CARGO_PKG:-rfvp}"
-SCHEME="${SCHEME:-RFVPLauncher}"
-CONFIG="${CONFIG:-Release}"
+RFVP_BIN_NAME="${RFVP_BIN_NAME:-rfvp}"
+APP_EXECUTABLE_NAME="${APP_EXECUTABLE_NAME:-RFVP}"
+APP_BUNDLE_ID="${APP_BUNDLE_ID:-org.rfvp.RFVP}"
+APP_VERSION="${APP_VERSION:-}"
 
-mkdir -p "${VENDOR_DIR}" "${DIST_DIR}"
+if [[ -z "${APP_VERSION}" ]]; then
+  APP_VERSION="$(
+    awk '
+      /^\[package\]$/ { in_package = 1; next }
+      /^\[/ { in_package = 0 }
+      in_package && $1 == "version" {
+        gsub(/"/, "", $3)
+        print $3
+        exit
+      }
+    ' "${ROOT_DIR}/crates/rfvp/Cargo.toml"
+  )"
+fi
+[[ -n "${APP_VERSION}" ]] || { echo "ERROR: Missing package version in ${ROOT_DIR}/crates/rfvp/Cargo.toml"; exit 1; }
+
+mkdir -p "${DIST_DIR}"
 
 command -v cargo >/dev/null 2>&1 || { echo "ERROR: cargo not found"; exit 1; }
-command -v xcodebuild >/dev/null 2>&1 || { echo "ERROR: xcodebuild not found (install Xcode)"; exit 1; }
-command -v xcodegen >/dev/null 2>&1 || { echo "ERROR: xcodegen not found. Install: brew install xcodegen"; exit 1; }
 
-echo "[macos] Building librfvp.dylib ..."
+echo "[macos] Building ${RFVP_BIN_NAME} ..."
 pushd "${ROOT_DIR}" >/dev/null
 cargo build --release -p "${RFVP_CARGO_PKG}"
 popd >/dev/null
 
-DYLIB_PATH="${ROOT_DIR}/target/release/librfvp.dylib"
-if [[ ! -f "${DYLIB_PATH}" ]]; then
-  echo "ERROR: Missing ${DYLIB_PATH}"
-  echo "Hint: ensure macOS build produces a cdylib named librfvp.dylib."
+BIN_PATH="${ROOT_DIR}/target/release/${RFVP_BIN_NAME}"
+if [[ ! -f "${BIN_PATH}" ]]; then
+  echo "ERROR: Missing ${BIN_PATH}"
+  echo "Hint: ensure macOS build produces a release binary named ${RFVP_BIN_NAME}."
   exit 1
 fi
 
-cp -f "${DYLIB_PATH}" "${VENDOR_DIR}/librfvp.dylib"
-
-# Ensure a relocatable install name for rpath loading.
-install_name_tool -id "@rpath/librfvp.dylib" "${VENDOR_DIR}/librfvp.dylib" || true
-
-echo "[macos] Generating Xcode project ..."
-pushd "${MACOS_DIR}" >/dev/null
-xcodegen generate --spec project.yml
-popd >/dev/null
-
-XCODEPROJ="${MACOS_DIR}/${SCHEME}.xcodeproj"
-[[ -d "${XCODEPROJ}" ]] || { echo "ERROR: Missing generated ${XCODEPROJ}"; exit 1; }
-
-rm -rf "${DERIVED_DIR}"
-mkdir -p "${DERIVED_DIR}"
-
-echo "[macos] Building .app ..."
-xcodebuild   -project "${XCODEPROJ}"   -scheme "${SCHEME}"   -configuration "${CONFIG}"   -derivedDataPath "${DERIVED_DIR}"   build
-
-APP_PATH="${DERIVED_DIR}/Build/Products/${CONFIG}/RFVP.app"
-if [[ ! -d "${APP_PATH}" ]]; then
-  # Fallback to scheme-based naming
-  APP_PATH="${DERIVED_DIR}/Build/Products/${CONFIG}/${SCHEME}.app"
-fi
-[[ -d "${APP_PATH}" ]] || { echo "ERROR: Built app not found"; exit 1; }
-
-FW_DIR="${APP_PATH}/Contents/Frameworks"
-mkdir -p "${FW_DIR}"
-cp -f "${VENDOR_DIR}/librfvp.dylib" "${FW_DIR}/librfvp.dylib"
-
-# Ad-hoc sign for local testing. Replace '-' with a real identity for distribution.
-codesign --force --sign - --timestamp=none "${FW_DIR}/librfvp.dylib" || true
-codesign --force --sign - --timestamp=none --deep "${APP_PATH}" || true
-
-OUT_APP="${DIST_DIR}/RFVP.app"
 rm -rf "${OUT_APP}"
-cp -R "${APP_PATH}" "${OUT_APP}"
+mkdir -p "${OUT_APP}/Contents/MacOS" "${OUT_APP}/Contents/Resources"
+
+cp -f "${BIN_PATH}" "${OUT_APP}/Contents/MacOS/${APP_EXECUTABLE_NAME}"
+chmod +x "${OUT_APP}/Contents/MacOS/${APP_EXECUTABLE_NAME}"
+
+ICON_PATH="${MACOS_DIR}/RFVPLauncher/Resources/RFVP.icns"
+ICON_PLIST_ENTRY=""
+if [[ -f "${ICON_PATH}" ]]; then
+  cp -f "${ICON_PATH}" "${OUT_APP}/Contents/Resources/RFVP.icns"
+  ICON_PLIST_ENTRY=$'  <key>CFBundleIconFile</key>\n  <string>RFVP</string>\n'
+fi
+
+cat > "${OUT_APP}/Contents/Info.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleDisplayName</key>
+  <string>RFVP</string>
+  <key>CFBundleExecutable</key>
+  <string>${APP_EXECUTABLE_NAME}</string>
+  <key>CFBundleIdentifier</key>
+  <string>${APP_BUNDLE_ID}</string>
+${ICON_PLIST_ENTRY}  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>RFVP</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>${APP_VERSION}</string>
+  <key>CFBundleVersion</key>
+  <string>${APP_VERSION}</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>10.13</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+</dict>
+</plist>
+PLIST
+
+if command -v codesign >/dev/null 2>&1; then
+  codesign --force --sign - --timestamp=none --deep "${OUT_APP}"
+fi
 
 echo "[macos] OK: ${OUT_APP}"
