@@ -75,7 +75,7 @@ pushd "${ROOT_DIR}" >/dev/null
 echo "[android] Building Rust shared library via cargo ndk ..."
 cargo ndk $(for abi in ${ABIS}; do printf -- "-t %s " "${abi}"; done) \
   -o "${JNI_LIBS_DIR}" \
-  build ${CARGO_PROFILE_ARGS[@]+"${CARGO_PROFILE_ARGS[@]}"} -p "${RFVP_CARGO_PKG}"
+  build ${CARGO_PROFILE_ARGS[@]+"${CARGO_PROFILE_ARGS[@]}"} -p "${RFVP_CARGO_PKG}" --lib
 popd >/dev/null
 
 missing=0

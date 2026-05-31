@@ -18,6 +18,7 @@ license = "MPL-2.0"
 [lib]
 name = "rfvp"
 path = "src/lib.rs"
+crate-type = ["rlib", "cdylib"]
 
 [[bin]]
 name = "rfvp"

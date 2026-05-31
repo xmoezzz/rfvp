@@ -61,7 +61,13 @@ cargo build -p rfvp \
   --no-default-features \
   --features wasm
 
-test -f "${RFVP_WASM}"
+if [[ ! -f "${RFVP_WASM}" ]]; then
+  echo "ERROR: Missing ${RFVP_WASM}" >&2
+  echo "Hint: ensure the wasm build produces a cdylib wasm named rfvp.wasm" >&2
+  echo "Contents of $(dirname "${RFVP_WASM}"):" >&2
+  ls -la "$(dirname "${RFVP_WASM}")" >&2 || true
+  exit 1
+fi
 
 echo "==> Generating wasm-bindgen web package"
 rm -rf "${PKG_DIR}"
