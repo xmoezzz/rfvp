@@ -1,6 +1,10 @@
 # syntax=docker/dockerfile:1.7
 
-FROM ubuntu:24.04
+FROM devkitpro/devkita64:latest AS dkpa64
+FROM devkitpro/devkitarm:latest AS dkparm
+FROM devkitpro/devkitppc:latest AS base
+
+FROM base
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG RUST_TOOLCHAIN=nightly
@@ -8,8 +12,8 @@ ARG RUST_TOOLCHAIN=nightly
 ARG INSTALL_DEVKITPRO=1
 ARG INSTALL_VITA=1
 ARG INSTALL_PSP=1
-ARG INSTALL_PS2=1
-ARG INSTALL_PS3=1
+ARG INSTALL_PS2=0
+ARG INSTALL_PS3=0
 
 ENV DEVKITPRO=/opt/devkitpro
 ENV DEVKITARM=/opt/devkitpro/devkitARM
@@ -26,136 +30,167 @@ ENV PSL1GHT=/usr/local/ps3dev
 ENV CARGO_HOME=/usr/local/cargo
 ENV RUSTUP_HOME=/usr/local/rustup
 
-ENV PATH="/usr/local/cargo/bin:${DEVKITARM}/bin:${DEVKITPPC}/bin:${DEVKITA64}/bin:${VITASDK}/bin:${PSPDEV}/bin:${PS2DEV}/bin:${PS2DEV}/ee/bin:${PS2DEV}/iop/bin:${PS2DEV}/dvp/bin:${PS2SDK}/bin:${PS3DEV}/bin:${PS3DEV}/ppu/bin:${PS3DEV}/spu/bin:${PATH}"
+ENV PATH="/usr/local/cargo/bin:${DEVKITPRO}/tools/bin:${DEVKITARM}/bin:${DEVKITPPC}/bin:${DEVKITA64}/bin:${VITASDK}/bin:${PSPDEV}/bin:${PS2DEV}/bin:${PS2DEV}/ee/bin:${PS2DEV}/iop/bin:${PS2DEV}/dvp/bin:${PS2SDK}/bin:${PS3DEV}/bin:${PS3DEV}/ppu/bin:${PS3DEV}/spu/bin:${PATH}"
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    curl \
-    wget \
-    git \
-    build-essential \
-    clang \
-    cmake \
-    ninja-build \
-    make \
-    pkg-config \
-    file \
-    zip \
-    unzip \
-    xz-utils \
-    bzip2 \
-    patch \
-    texinfo \
-    flex \
-    bison \
-    gettext \
-    autoconf \
-    automake \
-    libtool \
-    libgmp-dev \
-    libmpfr-dev \
-    libmpc-dev \
-    libisl-dev \
-    libzstd-dev \
-    zlib1g-dev \
-    libelf-dev \
-    libusb-1.0-0-dev \
-    libarchive-dev \
-    libgpgme-dev \
-    libreadline-dev \
-    libssl-dev \
-    python3 \
-    python3-pip \
-    python-is-python3 \
-    subversion \
-    mercurial \
-    && rm -rf /var/lib/apt/lists/*
+# Merge official devkitPro toolchain images.
+# base already contains devkitPPC. These copies add devkitA64 and devkitARM trees
+# without running install-devkitpro-pacman in our CI.
+COPY --from=dkpa64 /opt/devkitpro/ /opt/devkitpro/
+COPY --from=dkparm /opt/devkitpro/ /opt/devkitpro/
 
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-    | sh -s -- -y --profile minimal --default-toolchain "${RUST_TOOLCHAIN}" \
-    && rustup component add rust-src llvm-tools-preview \
-    && rustup target add wasm32-unknown-unknown \
-    && chmod -R a+w "${CARGO_HOME}" "${RUSTUP_HOME}"
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+      ca-certificates \
+      curl \
+      wget \
+      git \
+      build-essential \
+      clang \
+      cmake \
+      ninja-build \
+      make \
+      pkg-config \
+      file \
+      zip \
+      unzip \
+      xz-utils \
+      bzip2 \
+      patch \
+      texinfo \
+      flex \
+      bison \
+      gettext \
+      autoconf \
+      automake \
+      libtool \
+      libgmp-dev \
+      libmpfr-dev \
+      libmpc-dev \
+      libisl-dev \
+      libzstd-dev \
+      zlib1g-dev \
+      libelf-dev \
+      libusb-1.0-0-dev \
+      libarchive-dev \
+      libgpgme-dev \
+      libreadline-dev \
+      libssl-dev \
+      python3 \
+      python3-pip \
+      python-is-python3 \
+      subversion \
+      mercurial; \
+    rm -rf /var/lib/apt/lists/*
 
-# Switch / Wii U / Wii / 3DS
-RUN if [[ "${INSTALL_DEVKITPRO}" == "1" ]]; then \
-      curl -fsSL https://apt.devkitpro.org/install-devkitpro-pacman -o /tmp/install-devkitpro-pacman && \
-      chmod +x /tmp/install-devkitpro-pacman && \
-      /tmp/install-devkitpro-pacman && \
-      dkp-pacman -Syyu --noconfirm && \
-      dkp-pacman -S --needed --noconfirm \
-        switch-dev \
-        3ds-dev \
-        wii-dev \
-        wiiu-dev \
-        gamecube-dev \
-        switch-portlibs \
-        3ds-portlibs \
-        ppc-portlibs && \
-      yes | dkp-pacman -Scc || true && \
-      rm -f /tmp/install-devkitpro-pacman ; \
-    fi
+RUN set -eux; \
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --profile minimal --default-toolchain "${RUST_TOOLCHAIN}"; \
+    rustup component add rust-src llvm-tools-preview; \
+    rustup target add wasm32-unknown-unknown; \
+    chmod -R a+w "${CARGO_HOME}" "${RUSTUP_HOME}"; \
+    rustup show active-toolchain; \
+    rustc --version; \
+    cargo --version
 
-# PS Vita
+# Optional Rust helper tools.
+RUN set -eux; \
+    cargo install cargo-binutils wasm-bindgen-cli
+
+# PS Vita.
+# Do not pre-create ${VITASDK}. bootstrap-vitasdk.sh intentionally fails if it already exists.
 RUN if [[ "${INSTALL_VITA}" == "1" ]]; then \
-      mkdir -p "${VITASDK}" && \
-      git clone --depth 1 https://github.com/vitasdk/vdpm.git /tmp/vdpm && \
-      cd /tmp/vdpm && \
-      ./bootstrap-vitasdk.sh && \
-      ./install-all.sh && \
-      rm -rf /tmp/vdpm ; \
+      set -eux; \
+      rm -rf /tmp/vdpm; \
+      rm -rf "${VITASDK}"; \
+      git clone --depth 1 https://github.com/vitasdk/vdpm.git /tmp/vdpm; \
+      cd /tmp/vdpm; \
+      export VITASDK="${VITASDK}"; \
+      export PATH="${VITASDK}/bin:${PATH}"; \
+      ./bootstrap-vitasdk.sh; \
+      ./install-all.sh; \
+      command -v arm-vita-eabi-gcc; \
+      arm-vita-eabi-gcc --version; \
+      rm -rf /tmp/vdpm; \
     fi
 
-# PSP
+# PSP.
 RUN if [[ "${INSTALL_PSP}" == "1" ]]; then \
-      mkdir -p "${PSPDEV}" && \
-      git clone --depth 1 https://github.com/pspdev/pspdev.git /tmp/pspdev && \
-      cd /tmp/pspdev && \
-      ./build-all.sh && \
-      rm -rf /tmp/pspdev ; \
+      set -eux; \
+      rm -rf /tmp/pspdev; \
+      rm -rf "${PSPDEV}"; \
+      mkdir -p "${PSPDEV}"; \
+      git clone --depth 1 https://github.com/pspdev/pspdev.git /tmp/pspdev; \
+      cd /tmp/pspdev; \
+      export PSPDEV="${PSPDEV}"; \
+      export PATH="${PSPDEV}/bin:${PATH}"; \
+      ./build-all.sh; \
+      command -v psp-gcc; \
+      psp-gcc --version; \
+      rm -rf /tmp/pspdev; \
     fi
 
-# PS2
+# PS2, disabled by default.
 RUN if [[ "${INSTALL_PS2}" == "1" ]]; then \
-      mkdir -p "${PS2DEV}" && \
-      git clone --depth 1 https://github.com/ps2dev/ps2dev.git /tmp/ps2dev && \
-      cd /tmp/ps2dev && \
-      ./build-all.sh && \
-      rm -rf /tmp/ps2dev ; \
+      set -eux; \
+      rm -rf /tmp/ps2dev; \
+      rm -rf "${PS2DEV}"; \
+      mkdir -p "${PS2DEV}"; \
+      git clone --depth 1 https://github.com/ps2dev/ps2dev.git /tmp/ps2dev; \
+      cd /tmp/ps2dev; \
+      export PS2DEV="${PS2DEV}"; \
+      export PS2SDK="${PS2SDK}"; \
+      export PATH="${PS2DEV}/bin:${PS2DEV}/ee/bin:${PS2DEV}/iop/bin:${PS2DEV}/dvp/bin:${PS2SDK}/bin:${PATH}"; \
+      ./build-all.sh; \
+      command -v ee-gcc; \
+      ee-gcc --version; \
+      rm -rf /tmp/ps2dev; \
     fi
 
-# PS3
+# PS3, disabled by default.
 RUN if [[ "${INSTALL_PS3}" == "1" ]]; then \
-      mkdir -p "${PS3DEV}" && \
-      git clone --depth 1 https://github.com/ps3dev/ps3toolchain.git /tmp/ps3toolchain && \
-      cd /tmp/ps3toolchain && \
-      ./toolchain.sh && \
-      rm -rf /tmp/ps3toolchain && \
-      git clone --depth 1 https://github.com/ps3dev/PSL1GHT.git /tmp/psl1ght && \
-      cd /tmp/psl1ght && \
-      make install && \
-      rm -rf /tmp/psl1ght ; \
+      set -eux; \
+      rm -rf /tmp/ps3toolchain /tmp/psl1ght; \
+      rm -rf "${PS3DEV}"; \
+      mkdir -p "${PS3DEV}"; \
+      git clone --depth 1 https://github.com/ps3dev/ps3toolchain.git /tmp/ps3toolchain; \
+      cd /tmp/ps3toolchain; \
+      export PS3DEV="${PS3DEV}"; \
+      export PSL1GHT="${PSL1GHT}"; \
+      export PATH="${PS3DEV}/bin:${PS3DEV}/ppu/bin:${PS3DEV}/spu/bin:${PATH}"; \
+      ./toolchain.sh; \
+      git clone --depth 1 https://github.com/ps3dev/PSL1GHT.git /tmp/psl1ght; \
+      cd /tmp/psl1ght; \
+      make install; \
+      command -v ppu-gcc; \
+      ppu-gcc --version; \
+      rm -rf /tmp/ps3toolchain /tmp/psl1ght; \
     fi
 
-RUN rustc --version && cargo --version && \
+RUN set -eux; \
+    rustc --version; \
+    cargo --version; \
     if [[ "${INSTALL_DEVKITPRO}" == "1" ]]; then \
-      command -v aarch64-none-elf-gcc && \
-      command -v arm-none-eabi-gcc && \
-      command -v powerpc-eabi-gcc ; \
-    fi && \
+      command -v aarch64-none-elf-gcc; \
+      command -v arm-none-eabi-gcc; \
+      command -v powerpc-eabi-gcc; \
+      aarch64-none-elf-gcc --version; \
+      arm-none-eabi-gcc --version; \
+      powerpc-eabi-gcc --version; \
+    fi; \
     if [[ "${INSTALL_VITA}" == "1" ]]; then \
-      command -v arm-vita-eabi-gcc ; \
-    fi && \
+      command -v arm-vita-eabi-gcc; \
+    fi; \
     if [[ "${INSTALL_PSP}" == "1" ]]; then \
-      command -v psp-gcc ; \
-    fi && \
+      command -v psp-gcc; \
+    fi; \
     if [[ "${INSTALL_PS2}" == "1" ]]; then \
-      command -v ee-gcc ; \
-    fi && \
+      command -v ee-gcc; \
+    fi; \
     if [[ "${INSTALL_PS3}" == "1" ]]; then \
-      command -v ppu-gcc ; \
+      command -v ppu-gcc; \
     fi
 
 WORKDIR /work
