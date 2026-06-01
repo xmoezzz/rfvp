@@ -1,0 +1,73 @@
+name: Build Homebrew Artifacts
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  homebrew:
+    name: homebrew-${{ matrix.platform }}
+    runs-on: ubuntu-24.04
+
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/rfvp-homebrew-consoles:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: 3ds
+            script: crates/rfvp-3ds/build-3ds.sh
+            artifact_name: rfvp-3ds
+            artifact_path: target/rfvp-3ds/3ds/
+
+          - platform: psp
+            script: crates/rfvp-psp/build-psp.sh
+            artifact_name: rfvp-psp
+            artifact_path: crates/rfvp-psp/target/
+
+          - platform: wii
+            script: crates/rfvp-wii/build-wii.sh
+            artifact_name: rfvp-wii
+            artifact_path: target/rfvp-wii/wii/
+
+          - platform: wiiu
+            script: crates/rfvp-wiiu/build-wiiu.sh
+            artifact_name: rfvp-wiiu
+            artifact_path: target/rfvp-wiiu/wiiu/
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show environment
+        shell: bash
+        run: |
+          set -eux
+          rustc --version
+          cargo --version
+          echo "PATH=$PATH"
+          echo "DEVKITPRO=${DEVKITPRO:-}"
+          echo "DEVKITARM=${DEVKITARM:-}"
+          echo "DEVKITPPC=${DEVKITPPC:-}"
+          echo "DEVKITA64=${DEVKITA64:-}"
+          echo "PSPDEV=${PSPDEV:-}"
+
+      - name: Build ${{ matrix.platform }}
+        shell: bash
+        run: |
+          set -eux
+          chmod +x "${{ matrix.script }}"
+          "${{ matrix.script }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
+          if-no-files-found: error
