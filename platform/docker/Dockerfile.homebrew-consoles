@@ -121,7 +121,8 @@ RUN set -eux; \
 # cargo-nx is required for rfvp-horizon / Switch builds.
 # cargo-vita is required for rfvp-psv / PS Vita builds.
 RUN set -eux; \
-    cargo install cargo-binutils wasm-bindgen-cli cargo-psp cargo-nx cargo-vita; \
+    cargo install cargo-binutils wasm-bindgen-cli cargo-psp cargo-vita; \
+    cargo install --git https://github.com/aarch64-switch-rs/cargo-nx cargo-nx; \
     rustup toolchain install nightly-2025-03-19 --profile minimal; \
     rustup component add rust-src --toolchain nightly-2025-03-19; \
     cargo psp --version; \
