@@ -56,24 +56,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Show environment
-        shell: bash
-        run: |
-          set -eux
-          rustc --version
-          cargo --version
-          cargo psp --version
-          cargo nx --version
-          cargo vita --version
-          rustc +nightly-2025-03-19 --version
-          echo "PATH=$PATH"
-          echo "DEVKITPRO=${DEVKITPRO:-}"
-          echo "DEVKITARM=${DEVKITARM:-}"
-          echo "DEVKITPPC=${DEVKITPPC:-}"
-          echo "DEVKITA64=${DEVKITA64:-}"
-          echo "VITASDK=${VITASDK:-}"
-          echo "PSPDEV=${PSPDEV:-}"
-
       - name: Build ${{ matrix.platform }}
         shell: bash
         run: |
