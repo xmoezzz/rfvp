@@ -1,9 +1,5 @@
 # syntax=docker/dockerfile:1.7
 
-FROM devkitpro/devkita64:latest AS dkpa64
-FROM devkitpro/devkitarm:latest AS dkparm
-FROM devkitpro/devkitppc:latest AS dkppc
-
 FROM ubuntu:24.04
 
 ARG DEBIAN_FRONTEND=noninteractive
@@ -19,18 +15,14 @@ ENV PSPDEV=/usr/local/pspdev
 ENV PS2DEV=/usr/local/ps2dev
 ENV PS2SDK=/usr/local/ps2dev/ps2sdk
 ENV PS3DEV=/usr/local/ps3dev
-ENV PSL1GHT=/usr/local/ps3dev/psl1ght
+ENV PSL1GHT=/usr/local/ps3dev
 
 ENV CARGO_HOME=/usr/local/cargo
 ENV RUSTUP_HOME=/usr/local/rustup
 
-ENV PATH="/usr/local/cargo/bin:${DEVKITPRO}/tools/bin:${DEVKITARM}/bin:${DEVKITPPC}/bin:${DEVKITA64}/bin:${VITASDK}/bin:${PSPDEV}/bin:${PS2DEV}/bin:${PS2DEV}/ee/bin:${PS2DEV}/iop/bin:${PS2DEV}/dvp/bin:${PS2SDK}/bin:${PS3DEV}/bin:${PS3DEV}/ppu/bin:${PS3DEV}/spu/bin:${PSL1GHT}/bin:${PATH}"
+ENV PATH="/usr/local/cargo/bin:${DEVKITPRO}/tools/bin:${DEVKITARM}/bin:${DEVKITPPC}/bin:${DEVKITA64}/bin:${VITASDK}/bin:${PSPDEV}/bin:${PS2DEV}/bin:${PS2DEV}/ee/bin:${PS2DEV}/iop/bin:${PS2DEV}/dvp/bin:${PS2SDK}/bin:${PS3DEV}/bin:${PS3DEV}/ppu/bin:${PS3DEV}/spu/bin:${PATH}"
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
-
-COPY --from=dkpa64 /opt/devkitpro/ /opt/devkitpro/
-COPY --from=dkparm /opt/devkitpro/ /opt/devkitpro/
-COPY --from=dkppc /opt/devkitpro/ /opt/devkitpro/
 
 RUN set -eux; \
     apt-get update; \
@@ -86,6 +78,7 @@ RUN set -eux; \
       sudo; \
     rm -rf /var/lib/apt/lists/*
 
+# Rust nightly.
 RUN set -eux; \
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
       | sh -s -- -y --profile minimal --default-toolchain "${RUST_TOOLCHAIN}"; \
@@ -99,11 +92,32 @@ RUN set -eux; \
 RUN set -eux; \
     cargo install cargo-binutils wasm-bindgen-cli
 
-# PS Vita.
-# Do not create ${VITASDK} before bootstrap-vitasdk.sh.
+# devkitPro: Switch / 3DS / Wii / Wii U / GameCube.
+# Do not compile. Install devkitPro pacman and binary packages.
 RUN set -eux; \
-    rm -rf /tmp/vdpm; \
-    rm -rf "${VITASDK}"; \
+    curl -fsSL -A "dkp-apt" https://apt.devkitpro.org/install-devkitpro-pacman -o /tmp/install-devkitpro-pacman; \
+    chmod +x /tmp/install-devkitpro-pacman; \
+    /tmp/install-devkitpro-pacman; \
+    dkp-pacman -Syyu --noconfirm; \
+    dkp-pacman -S --needed --noconfirm \
+      switch-dev \
+      3ds-dev \
+      wii-dev \
+      wiiu-dev \
+      gamecube-dev \
+      switch-portlibs \
+      3ds-portlibs \
+      ppc-portlibs; \
+    yes | dkp-pacman -Scc || true; \
+    rm -f /tmp/install-devkitpro-pacman; \
+    command -v aarch64-none-elf-gcc; \
+    command -v arm-none-eabi-gcc; \
+    command -v powerpc-eabi-gcc
+
+# PS Vita.
+# Do not pre-create ${VITASDK}; bootstrap-vitasdk.sh creates it.
+RUN set -eux; \
+    rm -rf /tmp/vdpm "${VITASDK}"; \
     git clone --depth 1 https://github.com/vitasdk/vdpm.git /tmp/vdpm; \
     cd /tmp/vdpm; \
     export VITASDK="${VITASDK}"; \
@@ -115,51 +129,75 @@ RUN set -eux; \
     rm -rf /tmp/vdpm
 
 # PSP.
+# Do not build PSPDEV from source. Download official release SDK archive.
 RUN set -eux; \
-    rm -rf /tmp/pspdev; \
-    rm -rf "${PSPDEV}"; \
+    rm -rf "${PSPDEV}" /tmp/pspdev.tar.gz; \
     mkdir -p "${PSPDEV}"; \
-    git clone --depth 1 https://github.com/pspdev/pspdev.git /tmp/pspdev; \
-    cd /tmp/pspdev; \
-    export PSPDEV="${PSPDEV}"; \
-    export PATH="${PSPDEV}/bin:${PATH}"; \
-    ./build-all.sh; \
+    curl -fL \
+      "https://github.com/pspdev/pspdev/releases/latest/download/pspdev-ubuntu-latest-x86_64.tar.gz" \
+      -o /tmp/pspdev.tar.gz; \
+    tar -xzf /tmp/pspdev.tar.gz --strip-components 1 -C "${PSPDEV}"; \
+    rm -f /tmp/pspdev.tar.gz; \
     command -v psp-gcc; \
-    psp-gcc --version; \
-    rm -rf /tmp/pspdev
+    psp-gcc --version
 
 # PS2.
+# Do not build PS2DEV from source. Download official release SDK archive.
 RUN set -eux; \
-    rm -rf /tmp/ps2dev; \
-    rm -rf "${PS2DEV}"; \
+    rm -rf "${PS2DEV}" /tmp/ps2dev.tar.gz; \
     mkdir -p "${PS2DEV}"; \
-    git clone --depth 1 https://github.com/ps2dev/ps2dev.git /tmp/ps2dev; \
-    cd /tmp/ps2dev; \
-    export PS2DEV="${PS2DEV}"; \
-    export PS2SDK="${PS2SDK}"; \
-    export PATH="${PS2DEV}/bin:${PS2DEV}/ee/bin:${PS2DEV}/iop/bin:${PS2DEV}/dvp/bin:${PS2SDK}/bin:${PATH}"; \
-    ./build-all.sh; \
+    curl -fL \
+      "https://github.com/ps2dev/ps2dev/releases/download/latest/ps2dev-ubuntu-latest.tar.gz" \
+      -o /tmp/ps2dev.tar.gz; \
+    tar -xzf /tmp/ps2dev.tar.gz --strip-components 1 -C "${PS2DEV}"; \
+    rm -f /tmp/ps2dev.tar.gz; \
     command -v ee-gcc; \
-    ee-gcc --version; \
-    rm -rf /tmp/ps2dev
+    ee-gcc --version
 
 # PS3.
+# ps3dev/ps3toolchain itself is a source-build script. To avoid source building,
+# use a precompiled Linux release archive when available.
+# This intentionally fails loudly if no suitable precompiled asset exists.
 RUN set -eux; \
-    rm -rf /tmp/ps3toolchain /tmp/psl1ght; \
-    rm -rf "${PS3DEV}"; \
+    rm -rf "${PS3DEV}" /tmp/ps3dev.tar.gz; \
     mkdir -p "${PS3DEV}"; \
-    git clone --depth 1 https://github.com/ps3dev/ps3toolchain.git /tmp/ps3toolchain; \
-    cd /tmp/ps3toolchain; \
-    export PS3DEV="${PS3DEV}"; \
-    export PSL1GHT="${PSL1GHT}"; \
-    export PATH="${PS3DEV}/bin:${PS3DEV}/ppu/bin:${PS3DEV}/spu/bin:${PATH}"; \
-    ./toolchain.sh; \
-    git clone --depth 1 https://github.com/ps3dev/PSL1GHT.git /tmp/psl1ght; \
-    cd /tmp/psl1ght; \
-    make install; \
-    command -v ppu-gcc; \
-    ppu-gcc --version; \
-    rm -rf /tmp/ps3toolchain /tmp/psl1ght
+    PS3_URL="$(python3 - <<'PY' \
+import json, urllib.request, sys \
+api = "https://api.github.com/repos/bucanero/ps3toolchain/releases/latest" \
+try: \
+    data = json.load(urllib.request.urlopen(api, timeout=30)) \
+except Exception as e: \
+    raise SystemExit(f"failed to query {api}: {e}") \
+assets = data.get("assets", []) \
+candidates = [] \
+for a in assets: \
+    name = a.get("name", "").lower() \
+    url = a.get("browser_download_url", "") \
+    if ("linux" in name or "ubuntu" in name) and (name.endswith(".tar.gz") or name.endswith(".tgz") or name.endswith(".tar.xz")): \
+        candidates.append(url) \
+if not candidates: \
+    raise SystemExit("no Linux/Ubuntu precompiled ps3toolchain tarball found in bucanero/ps3toolchain latest release") \
+print(candidates[0]) \
+PY \
+)"; \
+    echo "Downloading PS3 toolchain: ${PS3_URL}"; \
+    curl -fL "${PS3_URL}" -o /tmp/ps3dev.tar.gz; \
+    tar -xf /tmp/ps3dev.tar.gz -C /tmp; \
+    found="$(find /tmp -maxdepth 3 -type f \( -name ppu-gcc -o -name powerpc64-ps3-elf-gcc \) | head -n 1)"; \
+    test -n "${found}"; \
+    root="$(dirname "$(dirname "${found}")")"; \
+    cp -a "${root}/." "${PS3DEV}/"; \
+    rm -f /tmp/ps3dev.tar.gz; \
+    rm -rf /tmp/ps3dev /tmp/ps3toolchain /tmp/psl1ght; \
+    if command -v ppu-gcc >/dev/null 2>&1; then \
+      ppu-gcc --version; \
+    elif command -v powerpc64-ps3-elf-gcc >/dev/null 2>&1; then \
+      powerpc64-ps3-elf-gcc --version; \
+    else \
+      echo "ERROR: no PS3 compiler found after installing precompiled PS3 toolchain" >&2; \
+      find "${PS3DEV}" -maxdepth 4 -type f -name '*gcc*' -print >&2; \
+      exit 1; \
+    fi
 
 RUN set -eux; \
     rustc --version; \
@@ -170,14 +208,20 @@ RUN set -eux; \
     command -v arm-vita-eabi-gcc; \
     command -v psp-gcc; \
     command -v ee-gcc; \
-    command -v ppu-gcc; \
     aarch64-none-elf-gcc --version; \
     arm-none-eabi-gcc --version; \
     powerpc-eabi-gcc --version; \
     arm-vita-eabi-gcc --version; \
     psp-gcc --version; \
     ee-gcc --version; \
-    ppu-gcc --version
+    if command -v ppu-gcc >/dev/null 2>&1; then \
+      ppu-gcc --version; \
+    elif command -v powerpc64-ps3-elf-gcc >/dev/null 2>&1; then \
+      powerpc64-ps3-elf-gcc --version; \
+    else \
+      echo "ERROR: missing PS3 compiler" >&2; \
+      exit 1; \
+    fi
 
 WORKDIR /work
 
