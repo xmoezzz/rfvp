@@ -125,6 +125,7 @@ fn rebuild(cli: &Cli) -> Result<()> {
     let hcb = find_and_parse_hcb(&cli.input)?;
     let profile = make_profile(cli.platform, &hcb)?;
     write_json(&cli.output.join("profile.json"), &profile)?;
+    write_rfvp_toml(&cli.output.join("rfvp.toml"), &profile)?;
 
     let resources = build_resource_table(&cli.input)?;
     resources.values().par_bridge().try_for_each(|resource| {
@@ -246,6 +247,11 @@ fn scale_round(value: u32, scale_num: u32, scale_den: u32) -> u32 {
     } else {
         q as u32
     }
+}
+
+fn write_rfvp_toml(path: &Path, profile: &Profile) -> Result<()> {
+    let scale = profile.scale_num as f64 / profile.scale_den as f64;
+    write_bytes(path, format!("scale = {scale}\n").as_bytes())
 }
 
 fn build_resource_table(input: &Path) -> Result<BTreeMap<PathBuf, Resource>> {

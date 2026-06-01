@@ -7,6 +7,8 @@ use alloc::{
     vec::Vec,
 };
 use anyhow::{anyhow, Result};
+#[cfg(feature = "old_school")]
+use core_maths::CoreFloat;
 use image::{DynamicImage, GenericImageView, ImageBuffer};
 use serde::{Deserialize, Serialize};
 
@@ -248,6 +250,18 @@ impl GraphBuff {
         Ok(())
     }
 
+    #[cfg(feature = "old_school")]
+    pub fn load_texture_old_school(
+        &mut self,
+        file_name: &str,
+        buff: Vec<u8>,
+        scale: f32,
+    ) -> Result<()> {
+        self.load_texture(file_name, buff)?;
+        self.apply_old_school_scale_metadata(scale);
+        Ok(())
+    }
+
     pub fn load_gaiji_fontface_glyph(&mut self, file_name: &str, buff: Vec<u8>) -> Result<()> {
         let mut nvsg_texture = NvsgTexture::new(file_name);
         nvsg_texture.read_texture(&buff, |typ| typ == super::texture::TextureType::Single1Bit)?;
@@ -270,6 +284,18 @@ impl GraphBuff {
         self.load_kind = GraphBuffLoadKind::GaijiGlyph;
         self.mark_dirty();
 
+        Ok(())
+    }
+
+    #[cfg(feature = "old_school")]
+    pub fn load_gaiji_fontface_glyph_old_school(
+        &mut self,
+        file_name: &str,
+        buff: Vec<u8>,
+        scale: f32,
+    ) -> Result<()> {
+        self.load_gaiji_fontface_glyph(file_name, buff)?;
+        self.apply_old_school_scale_metadata(scale);
         Ok(())
     }
 
@@ -296,6 +322,29 @@ impl GraphBuff {
         self.mark_dirty();
 
         Ok(())
+    }
+
+    #[cfg(feature = "old_school")]
+    pub fn load_mask_old_school(
+        &mut self,
+        file_name: &str,
+        buff: Vec<u8>,
+        scale: f32,
+    ) -> Result<()> {
+        self.load_mask(file_name, buff)?;
+        self.apply_old_school_scale_metadata(scale);
+        Ok(())
+    }
+
+    #[cfg(feature = "old_school")]
+    fn apply_old_school_scale_metadata(&mut self, scale: f32) {
+        if !scale.is_finite() || scale <= 0.0 {
+            return;
+        }
+        self.offset_x = inverse_scale_old_school_u16(self.offset_x, scale);
+        self.offset_y = inverse_scale_old_school_u16(self.offset_y, scale);
+        self.display_width = inverse_scale_old_school_u16(self.width, scale);
+        self.display_height = inverse_scale_old_school_u16(self.height, scale);
     }
 
     pub fn load_from_buff(&mut self, buff: Vec<u8>, width: u32, height: u32) -> Result<()> {
@@ -451,6 +500,15 @@ impl GraphBuff {
         self.g_value = g_adj as u8;
         self.b_value = b_adj as u8;
         self.mark_dirty();
+    }
+}
+
+#[cfg(feature = "old_school")]
+fn inverse_scale_old_school_u16(value: u16, scale: f32) -> u16 {
+    if value == 0 {
+        0
+    } else {
+        ((value as f32 / scale).floor() as u32).min(u16::MAX as u32) as u16
     }
 }
 

@@ -14,6 +14,11 @@ use crate::subsystem::world::GameData;
 
 use super::Syscaller;
 
+#[cfg(feature = "old_school")]
+fn scale_i32(game_data: &GameData, value: i32) -> i32 {
+    game_data.scale_old_school_i32(value)
+}
+
 pub fn prim_exit_group(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
     let Some(id) = id.as_int() else {
         return Ok(Variant::Nil);
@@ -240,6 +245,10 @@ pub fn prim_set_op(
 
     let opx_v = opx.as_int();
     let opy_v = opy.as_int();
+    #[cfg(feature = "old_school")]
+    let opx_v = opx_v.map(|v| scale_i32(game_data, v));
+    #[cfg(feature = "old_school")]
+    let opy_v = opy_v.map(|v| scale_i32(game_data, v));
 
     game_data
         .motion_manager
@@ -434,8 +443,13 @@ pub fn prim_set_snow(
         return Ok(Variant::Nil);
     }
 
-    let x = x.as_int().unwrap_or(0);
-    let y = y.as_int().unwrap_or(0);
+    let mut x = x.as_int().unwrap_or(0);
+    let mut y = y.as_int().unwrap_or(0);
+    #[cfg(feature = "old_school")]
+    {
+        x = scale_i32(game_data, x);
+        y = scale_i32(game_data, y);
+    }
 
     game_data
         .motion_manager
@@ -500,8 +514,13 @@ pub fn prim_set_sprt(
         return Ok(Variant::Nil);
     }
 
-    let x = x.as_int().unwrap_or(0);
-    let y = y.as_int().unwrap_or(0);
+    let mut x = x.as_int().unwrap_or(0);
+    let mut y = y.as_int().unwrap_or(0);
+    #[cfg(feature = "old_school")]
+    {
+        x = scale_i32(game_data, x);
+        y = scale_i32(game_data, y);
+    }
 
     game_data
         .motion_manager
@@ -571,8 +590,13 @@ pub fn prim_set_text(
         return Ok(Variant::Nil);
     }
 
-    let x = x.as_int().unwrap_or(0);
-    let y = y.as_int().unwrap_or(0);
+    let mut x = x.as_int().unwrap_or(0);
+    let mut y = y.as_int().unwrap_or(0);
+    #[cfg(feature = "old_school")]
+    {
+        x = scale_i32(game_data, x);
+        y = scale_i32(game_data, y);
+    }
 
     game_data
         .motion_manager
@@ -635,16 +659,22 @@ pub fn prim_set_tile(
         .prim_manager
         .prim_set_alpha(id, 255);
     game_data.motion_manager.prim_manager.prim_set_blend(id, 0);
-    game_data.motion_manager.prim_manager.prim_set_pos(
-        id,
-        x.as_int().unwrap_or(0),
-        y.as_int().unwrap_or(0),
-    );
-    game_data.motion_manager.prim_manager.prim_set_size(
-        id,
-        w.as_int().unwrap_or(0),
-        h.as_int().unwrap_or(0),
-    );
+    let mut x = x.as_int().unwrap_or(0);
+    let mut y = y.as_int().unwrap_or(0);
+    let mut w = w.as_int().unwrap_or(0);
+    let mut h = h.as_int().unwrap_or(0);
+    #[cfg(feature = "old_school")]
+    {
+        x = scale_i32(game_data, x);
+        y = scale_i32(game_data, y);
+        w = scale_i32(game_data, w);
+        h = scale_i32(game_data, h);
+    }
+    game_data.motion_manager.prim_manager.prim_set_pos(id, x, y);
+    game_data
+        .motion_manager
+        .prim_manager
+        .prim_set_size(id, w, h);
 
     // Default tile id is 255; override only if a valid int is supplied.
     game_data.motion_manager.prim_manager.prim_set_tile(id, 255);
@@ -676,7 +706,7 @@ pub fn prim_set_uv(
         return Ok(Variant::Nil);
     }
 
-    let u = match u.as_int() {
+    let mut u = match u.as_int() {
         Some(u) => u,
         None => {
             log::error!("prim_set_uv: invalid u : {:?}", u);
@@ -684,13 +714,18 @@ pub fn prim_set_uv(
         }
     };
 
-    let v = match v.as_int() {
+    let mut v = match v.as_int() {
         Some(v) => v,
         None => {
             log::error!("prim_set_uv: invalid v : {:?}", v);
             return Ok(Variant::Nil);
         }
     };
+    #[cfg(feature = "old_school")]
+    {
+        u = scale_i32(game_data, u);
+        v = scale_i32(game_data, v);
+    }
 
     game_data.motion_manager.prim_manager.prim_set_uv(id, u, v);
     game_data.motion_manager.prim_manager.prim_add_attr(id, 1);
@@ -721,7 +756,7 @@ pub fn prim_set_xy(
         return Ok(Variant::Nil);
     }
 
-    let x = if !x.is_nil() {
+    let mut x = if !x.is_nil() {
         match x.as_int() {
             Some(x) => x,
             None => {
@@ -738,7 +773,7 @@ pub fn prim_set_xy(
             .into()
     };
 
-    let y = if !y.is_nil() {
+    let mut y = if !y.is_nil() {
         match y.as_int() {
             Some(y) => y,
             None => {
@@ -754,6 +789,11 @@ pub fn prim_set_xy(
             .get_y()
             .into()
     };
+    #[cfg(feature = "old_school")]
+    {
+        x = scale_i32(game_data, x);
+        y = scale_i32(game_data, y);
+    }
 
     game_data.motion_manager.prim_manager.prim_set_pos(id, x, y);
     game_data
@@ -783,7 +823,7 @@ pub fn prim_set_wh(
         return Ok(Variant::Nil);
     }
 
-    let w = if !w.is_nil() {
+    let mut w = if !w.is_nil() {
         match w.as_int() {
             Some(w) => w,
             None => {
@@ -800,7 +840,7 @@ pub fn prim_set_wh(
             .into()
     };
 
-    let h = if !h.is_nil() {
+    let mut h = if !h.is_nil() {
         match h.as_int() {
             Some(h) => h,
             None => {
@@ -816,6 +856,11 @@ pub fn prim_set_wh(
             .get_h()
             .into()
     };
+    #[cfg(feature = "old_school")]
+    {
+        w = scale_i32(game_data, w);
+        h = scale_i32(game_data, h);
+    }
 
     game_data
         .motion_manager
@@ -944,6 +989,14 @@ pub fn graph_load(game_data: &mut GameData, id: &Variant, path: &Variant) -> Res
     match path {
         Variant::String(path) | Variant::ConstString(path, _) => {
             let buff = game_data.vfs_load_file(path)?;
+            #[cfg(feature = "old_school")]
+            {
+                let scale = game_data.old_school_scale();
+                game_data
+                    .motion_manager
+                    .load_graph_old_school(id as u16, path, buff, scale)?;
+            }
+            #[cfg(not(feature = "old_school"))]
             game_data.motion_manager.load_graph(id as u16, path, buff)?;
             game_data.motion_manager.refresh_prims(id as u16);
         }
@@ -1070,6 +1123,15 @@ pub fn gaiji_load(
 
     let buff = game_data.vfs_load_file(fname)?;
 
+    #[cfg(feature = "old_school")]
+    {
+        let scale = game_data.old_school_scale();
+        let size = game_data.scale_old_school_u8(size as u8);
+        game_data
+            .motion_manager
+            .set_gaiji_old_school(code.clone(), size, fname, buff, scale)?;
+    }
+    #[cfg(not(feature = "old_school"))]
     game_data
         .motion_manager
         .set_gaiji(code.clone(), size as u8, fname, buff)?;

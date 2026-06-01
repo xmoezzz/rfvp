@@ -755,6 +755,18 @@ impl MotionManager {
         graph.load_texture(file_name, buff)
     }
 
+    #[cfg(feature = "old_school")]
+    pub fn load_graph_old_school(
+        &mut self,
+        id: u16,
+        file_name: &str,
+        buff: Vec<u8>,
+        scale: f32,
+    ) -> Result<()> {
+        let graph = &mut self.textures[id as usize];
+        graph.load_texture_old_school(file_name, buff, scale)
+    }
+
     pub fn unload_graph(&mut self, id: u16) {
         let graph = &mut self.textures[id as usize];
         graph.unload();
@@ -833,6 +845,21 @@ impl MotionManager {
     ) -> Result<()> {
         let mut texture = GraphBuff::new();
         texture.load_gaiji_fontface_glyph(filename, buff)?;
+        self.gaiji_manager.set_gaiji(key, size, texture);
+        Ok(())
+    }
+
+    #[cfg(feature = "old_school")]
+    pub fn set_gaiji_old_school(
+        &mut self,
+        key: String,
+        size: u8,
+        filename: &str,
+        buff: Vec<u8>,
+        scale: f32,
+    ) -> Result<()> {
+        let mut texture = GraphBuff::new();
+        texture.load_gaiji_fontface_glyph_old_school(filename, buff, scale)?;
         self.gaiji_manager.set_gaiji(key, size, texture);
         Ok(())
     }

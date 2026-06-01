@@ -7,12 +7,23 @@ use alloc::{
     vec::Vec,
 };
 use anyhow::Result;
+#[cfg(feature = "old_school")]
+use core_maths::CoreFloat;
 
 use crate::script::Variant;
 use crate::subsystem::resources::{graph_buff::GraphBuff, motion_manager::DissolveType};
 use crate::subsystem::world::GameData;
 
 use super::{get_var, Syscaller};
+
+#[cfg(feature = "old_school")]
+fn scale_i32_by_scale(value: i32, scale: f32) -> i32 {
+    if value >= 0 {
+        ((value as f32 * scale) + 0.5).floor() as i32
+    } else {
+        ((value as f32 * scale) - 0.5).ceil() as i32
+    }
+}
 
 // UNUSED macro
 macro_rules! UNUSED {
@@ -216,6 +227,9 @@ pub fn dissolve(
         Variant::ConstString(s, _) | Variant::String(s) => {
             let buff = game_data.vfs_load_file(s)?;
             let mut graph = GraphBuff::new();
+            #[cfg(feature = "old_school")]
+            graph.load_mask_old_school(s, buff, game_data.old_school_scale())?;
+            #[cfg(not(feature = "old_school"))]
             graph.load_mask(s, buff)?;
             game_data.motion_manager.set_dissolve_mask_graph(graph);
             // IDA (original engine): for mask dissolve, args[2] is *not* a boolean direction.
@@ -241,22 +255,40 @@ pub fn dissolve(
                 game_data
                     .motion_manager
                     .set_dissolve_color_id(color_id as u32);
+                #[cfg(feature = "old_school")]
+                let old_school_scale = game_data.old_school_scale();
                 let mask_prim = game_data.motion_manager.get_mask_prim();
                 mask_prim.set_x(0);
                 mask_prim.set_y(0);
                 mask_prim.set_w(game_width);
                 mask_prim.set_h(game_height);
                 if let Variant::Int(x) = x {
-                    mask_prim.set_x(*x as i16);
+                    #[cfg(feature = "old_school")]
+                    let x = scale_i32_by_scale(*x, old_school_scale);
+                    #[cfg(not(feature = "old_school"))]
+                    let x = *x;
+                    mask_prim.set_x(x as i16);
                 }
                 if let Variant::Int(y) = y {
-                    mask_prim.set_y(*y as i16);
+                    #[cfg(feature = "old_school")]
+                    let y = scale_i32_by_scale(*y, old_school_scale);
+                    #[cfg(not(feature = "old_school"))]
+                    let y = *y;
+                    mask_prim.set_y(y as i16);
                 }
                 if let Variant::Int(w) = w {
-                    mask_prim.set_w(*w as i16);
+                    #[cfg(feature = "old_school")]
+                    let w = scale_i32_by_scale(*w, old_school_scale);
+                    #[cfg(not(feature = "old_school"))]
+                    let w = *w;
+                    mask_prim.set_w(w as i16);
                 }
                 if let Variant::Int(h) = h {
-                    mask_prim.set_h(*h as i16);
+                    #[cfg(feature = "old_school")]
+                    let h = scale_i32_by_scale(*h, old_school_scale);
+                    #[cfg(not(feature = "old_school"))]
+                    let h = *h;
+                    mask_prim.set_h(h as i16);
                 }
             }
         }

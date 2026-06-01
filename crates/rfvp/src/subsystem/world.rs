@@ -100,6 +100,8 @@ use super::resources::videoplayer::VideoPlayerManager;
 
 use crate::subsystem::components::syscalls::generated;
 use crate::subsystem::components::syscalls::Syscaller;
+#[cfg(feature = "old_school")]
+use core_maths::CoreFloat;
 
 #[cfg(target_os = "uefi")]
 macro_rules! uefi_game_data_stage {
@@ -169,6 +171,8 @@ pub struct GameData {
     cursor_table: StableHashMap<u32, CursorBundle>,
     current_cursor_index: u32,
     halt: bool,
+    #[cfg(feature = "old_school")]
+    old_school_scale: f32,
 
     pub(crate) debug_vm: crate::debug_ui::vm_snapshot::VmSnapshot,
 }
@@ -241,6 +245,8 @@ impl GameData {
         ptr::addr_of_mut!((*dst).cursor_table).write(StableHashMap::default());
         ptr::addr_of_mut!((*dst).current_cursor_index).write(0);
         ptr::addr_of_mut!((*dst).halt).write(false);
+        #[cfg(feature = "old_school")]
+        ptr::addr_of_mut!((*dst).old_school_scale).write(1.0);
         ptr::addr_of_mut!((*dst).debug_vm).write(Default::default());
         uefi_game_data_stage!("[UEFI] GameData init complete");
     }
@@ -286,6 +292,8 @@ impl Default for GameData {
             cursor_table: StableHashMap::default(),
             current_cursor_index: 0, // means use the defualt cursor
             halt: false,
+            #[cfg(feature = "old_school")]
+            old_school_scale: 1.0,
             debug_vm: Default::default(),
         }
     }
@@ -320,6 +328,36 @@ impl GameData {
 
     pub fn set_window(&mut self, window: Window) {
         self.window = window;
+    }
+
+    #[cfg(feature = "old_school")]
+    pub fn set_old_school_scale(&mut self, scale: f32) {
+        self.old_school_scale = scale;
+    }
+
+    #[cfg(feature = "old_school")]
+    pub fn old_school_scale(&self) -> f32 {
+        self.old_school_scale
+    }
+
+    #[cfg(feature = "old_school")]
+    pub fn scale_old_school_i32(&self, value: i32) -> i32 {
+        round_half_up(value as f32 * self.old_school_scale)
+    }
+
+    #[cfg(feature = "old_school")]
+    pub fn scale_old_school_u32(&self, value: u32) -> u32 {
+        self.scale_old_school_i32(value as i32).max(0) as u32
+    }
+
+    #[cfg(feature = "old_school")]
+    pub fn scale_old_school_u16(&self, value: u16) -> u16 {
+        self.scale_old_school_u32(value as u32).min(u16::MAX as u32) as u16
+    }
+
+    #[cfg(feature = "old_school")]
+    pub fn scale_old_school_u8(&self, value: u8) -> u8 {
+        self.scale_old_school_u32(value as u32).min(u8::MAX as u32) as u8
     }
 
     pub fn get_can_fullscreen(&self) -> bool {
@@ -526,6 +564,15 @@ impl GameData {
 
     pub fn set_halt(&mut self, value: bool) {
         self.halt = value;
+    }
+}
+
+#[cfg(feature = "old_school")]
+fn round_half_up(v: f32) -> i32 {
+    if v >= 0.0 {
+        (v + 0.5).floor() as i32
+    } else {
+        (v - 0.5).ceil() as i32
     }
 }
 

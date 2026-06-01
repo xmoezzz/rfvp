@@ -16,6 +16,8 @@ use crate::subsystem::resources::vfs::Vfs;
 use crate::subsystem::resources::window::Window;
 use crate::subsystem::world::GameData;
 use crate::vm_runner::VmRunner;
+#[cfg(feature = "old_school")]
+use core_maths::CoreFloat;
 
 const MISSING_DEFAULT_FONT_MESSAGE: &str =
     "Required font file default.ttf was not found in the game directory.";
@@ -27,6 +29,12 @@ const MISSING_OLD_SCHOOL_FONT_MESSAGE: &str =
 #[cfg(feature = "old_school")]
 const INVALID_OLD_SCHOOL_FONT_MESSAGE: &str =
     "Required font file defualt.tmap exists but is not a valid bitmap font.";
+#[cfg(feature = "old_school")]
+const MISSING_OLD_SCHOOL_CONFIG_MESSAGE: &str =
+    "Required old-school config file rfvp.toml was not found in the game directory.";
+#[cfg(feature = "old_school")]
+const INVALID_OLD_SCHOOL_CONFIG_MESSAGE: &str =
+    "Required old-school config file rfvp.toml is invalid: expected exactly one top-level float field, scale.";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RfvpCoreConfig {
@@ -254,11 +262,23 @@ impl RfvpCore {
             })?;
             (hcb, hcb_manifest, parser)
         };
+        #[cfg(feature = "old_school")]
+        let old_school_scale = load_required_old_school_scale(host).map_err(|(err, detail)| {
+            self.last_error_detail = Some(detail);
+            err
+        })?;
         let default_font = load_required_default_font(host).map_err(|(err, detail)| {
             self.last_error_detail = Some(detail);
             err
         })?;
-        let screen = parser.get_screen_size();
+        let mut screen = parser.get_screen_size();
+        #[cfg(feature = "old_school")]
+        {
+            screen = (
+                scale_old_school_u32(screen.0, old_school_scale),
+                scale_old_school_u32(screen.1, old_school_scale),
+            );
+        }
         GLOBAL.lock().map_err(|_| RfvpError::Backend)?.init_with(
             parser.get_non_volatile_global_count(),
             parser.get_volatile_global_count(),
@@ -269,6 +289,8 @@ impl RfvpCore {
         vfs.add_loose_file(&hcb.path, hcb.bytes.clone());
 
         let mut game_data = GameData::default();
+        #[cfg(feature = "old_school")]
+        game_data.set_old_school_scale(old_school_scale);
         game_data.fontface_manager = FontEnumerator::from_default_font(default_font);
         game_data.vfs = vfs;
         game_data.nls = boot.nls;
@@ -517,6 +539,76 @@ fn load_required_default_font<H: RfvpHost>(host: &mut H) -> Result<Font, (RfvpEr
 fn notify_fatal(callbacks: PlatformCallbacks, code: FatalErrorCode, message: &str) {
     if let Some(callback) = callbacks.fatal_error {
         callback(callbacks.user_data, code, message.as_ptr(), message.len());
+    }
+}
+
+#[cfg(feature = "old_school")]
+fn load_required_old_school_scale<H: RfvpHost>(host: &mut H) -> Result<f32, (RfvpError, String)> {
+    let mut bytes = Vec::new();
+    if host
+        .fs()
+        .read_required_file("rfvp.toml", &mut bytes)
+        .is_err()
+    {
+        return Err((
+            RfvpError::NotFound,
+            MISSING_OLD_SCHOOL_CONFIG_MESSAGE.to_string(),
+        ));
+    }
+    parse_old_school_scale(&bytes).map_err(|detail| (RfvpError::InvalidData, detail))
+}
+
+#[cfg(feature = "old_school")]
+fn parse_old_school_scale(bytes: &[u8]) -> Result<f32, String> {
+    let text =
+        core::str::from_utf8(bytes).map_err(|_| INVALID_OLD_SCHOOL_CONFIG_MESSAGE.to_string())?;
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Err("rfvp.toml is missing required top-level scale field".to_string());
+    }
+
+    let mut lines = trimmed.lines();
+    let line = lines
+        .next()
+        .ok_or_else(|| "rfvp.toml is missing required top-level scale field".to_string())?
+        .trim();
+    if lines.any(|line| !line.trim().is_empty()) {
+        return Err("rfvp.toml must contain only one top-level field: scale".to_string());
+    }
+
+    let Some((key, value)) = line.split_once('=') else {
+        return Err("rfvp.toml is missing required top-level scale field".to_string());
+    };
+    if key.trim() != "scale" {
+        return Err("rfvp.toml must contain only the top-level scale field".to_string());
+    }
+
+    let value = value.trim();
+    if !(value.contains('.') || value.contains('e') || value.contains('E')) {
+        return Err("rfvp.toml scale must be a floating-point number".to_string());
+    }
+
+    let scale: f32 = value
+        .parse()
+        .map_err(|_| "rfvp.toml scale must be a floating-point number".to_string())?;
+    if !scale.is_finite() || scale <= 0.0 {
+        return Err("rfvp.toml scale must be greater than 0".to_string());
+    }
+    Ok(scale)
+}
+
+#[cfg(feature = "old_school")]
+fn scale_old_school_u32(value: u32, scale: f32) -> u32 {
+    let scaled = round_half_up(value as f32 * scale);
+    scaled.max(0) as u32
+}
+
+#[cfg(feature = "old_school")]
+fn round_half_up(v: f32) -> i32 {
+    if v >= 0.0 {
+        (v + 0.5).floor() as i32
+    } else {
+        (v - 0.5).ceil() as i32
     }
 }
 

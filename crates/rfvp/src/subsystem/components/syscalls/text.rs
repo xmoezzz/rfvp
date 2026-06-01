@@ -15,6 +15,11 @@ use crate::subsystem::world::GameData;
 
 use super::{get_var, Syscaller};
 
+#[cfg(feature = "old_school")]
+fn scale_i32(game_data: &GameData, value: i32) -> i32 {
+    game_data.scale_old_school_i32(value)
+}
+
 pub fn text_buff(
     game_data: &mut GameData,
     id: &Variant,
@@ -50,6 +55,11 @@ pub fn text_buff(
         if *v >= 0 {
             hh = *v;
         }
+    }
+    #[cfg(feature = "old_school")]
+    {
+        ww = scale_i32(game_data, ww);
+        hh = scale_i32(game_data, hh);
     }
 
     game_data
@@ -320,30 +330,39 @@ pub fn text_format(
         return Ok(Variant::Nil);
     }
 
-    let space_vertical = match space_vertical {
+    let mut space_vertical = match space_vertical {
         Variant::Int(v) if (-32..=32).contains(v) => Some(*v as i16),
         _ => None,
     };
-    let space_horizon = match space_horizon {
+    let mut space_horizon = match space_horizon {
         Variant::Int(v) if (-32..=32).contains(v) => Some(*v as i16),
         _ => None,
     };
-    let text_start_vertical = match text_start_vertical {
+    let mut text_start_vertical = match text_start_vertical {
         Variant::Int(v) if (0..=64).contains(v) => Some(*v as u16),
         _ => None,
     };
-    let text_start_horizon = match text_start_horizon {
+    let mut text_start_horizon = match text_start_horizon {
         Variant::Int(v) if (0..=64).contains(v) => Some(*v as u16),
         _ => None,
     };
-    let ruby_horizon = match ruby_horizon {
+    let mut ruby_horizon = match ruby_horizon {
         Variant::Int(v) if (-16..=16).contains(v) => Some(*v as i16),
         _ => None,
     };
-    let ruby_vertical = match ruby_vertical {
+    let mut ruby_vertical = match ruby_vertical {
         Variant::Int(v) if (-16..=16).contains(v) => Some(*v as i16),
         _ => None,
     };
+    #[cfg(feature = "old_school")]
+    {
+        space_vertical = space_vertical.map(|v| scale_i32(game_data, v as i32) as i16);
+        space_horizon = space_horizon.map(|v| scale_i32(game_data, v as i32) as i16);
+        text_start_vertical = text_start_vertical.map(|v| game_data.scale_old_school_u16(v));
+        text_start_horizon = text_start_horizon.map(|v| game_data.scale_old_school_u16(v));
+        ruby_horizon = ruby_horizon.map(|v| scale_i32(game_data, v as i32) as i16);
+        ruby_vertical = ruby_vertical.map(|v| scale_i32(game_data, v as i32) as i16);
+    }
 
     game_data.motion_manager.text_manager.apply_text_format(
         id,
@@ -430,10 +449,14 @@ pub fn text_out_size_legacy_aw(
 
     if let Variant::Int(v) = outline {
         if (0..=8).contains(v) {
+            #[cfg(feature = "old_school")]
+            let v = game_data.scale_old_school_u8(*v as u8);
+            #[cfg(not(feature = "old_school"))]
+            let v = *v as u8;
             game_data
                 .motion_manager
                 .text_manager
-                .set_text_outline1(id, *v as u8);
+                .set_text_outline1(id, v);
         }
     }
 
@@ -464,19 +487,27 @@ pub fn text_out_size(
 
     if let Variant::Int(v) = outline {
         if (0..=12).contains(v) {
+            #[cfg(feature = "old_school")]
+            let v = game_data.scale_old_school_u8(*v as u8);
+            #[cfg(not(feature = "old_school"))]
+            let v = *v as u8;
             game_data
                 .motion_manager
                 .text_manager
-                .set_text_outline1(id, *v as u8);
+                .set_text_outline1(id, v);
         }
     }
 
     if let Variant::Int(v) = ruby_outline {
         if (0..=8).contains(v) {
+            #[cfg(feature = "old_school")]
+            let v = game_data.scale_old_school_u8(*v as u8);
+            #[cfg(not(feature = "old_school"))]
+            let v = *v as u8;
             game_data
                 .motion_manager
                 .text_manager
-                .set_text_outline2(id, *v as u8);
+                .set_text_outline2(id, v);
         }
     }
 
@@ -538,17 +569,19 @@ pub fn text_pos(
     }
 
     if let Variant::Int(vx) = x {
-        game_data
-            .motion_manager
-            .text_manager
-            .set_text_pos_x(id, *vx as u16);
+        #[cfg(feature = "old_school")]
+        let vx = game_data.scale_old_school_u16(*vx as u16);
+        #[cfg(not(feature = "old_school"))]
+        let vx = *vx as u16;
+        game_data.motion_manager.text_manager.set_text_pos_x(id, vx);
     }
 
     if let Variant::Int(vy) = y {
-        game_data
-            .motion_manager
-            .text_manager
-            .set_text_pos_y(id, *vy as u16);
+        #[cfg(feature = "old_school")]
+        let vy = game_data.scale_old_school_u16(*vy as u16);
+        #[cfg(not(feature = "old_school"))]
+        let vy = *vy as u16;
+        game_data.motion_manager.text_manager.set_text_pos_y(id, vy);
     }
 
     Ok(Variant::Nil)
@@ -691,6 +724,10 @@ pub fn text_shadow_dist(game_data: &mut GameData, id: &Variant, dist: &Variant) 
     } else if d > 12 {
         d = 12;
     }
+    #[cfg(feature = "old_school")]
+    {
+        d = scale_i32(game_data, d);
+    }
 
     game_data
         .motion_manager
@@ -718,10 +755,11 @@ pub fn text_size_legacy_aw(
 
     if let Variant::Int(v) = size {
         if (8..=64).contains(v) {
-            game_data
-                .motion_manager
-                .text_manager
-                .set_text_size1(id, *v as u8);
+            #[cfg(feature = "old_school")]
+            let v = game_data.scale_old_school_u8(*v as u8);
+            #[cfg(not(feature = "old_school"))]
+            let v = *v as u8;
+            game_data.motion_manager.text_manager.set_text_size1(id, v);
         }
     }
 
@@ -752,19 +790,21 @@ pub fn text_size(
 
     if let Variant::Int(v) = size {
         if (12..=64).contains(v) {
-            game_data
-                .motion_manager
-                .text_manager
-                .set_text_size1(id, *v as u8);
+            #[cfg(feature = "old_school")]
+            let v = game_data.scale_old_school_u8(*v as u8);
+            #[cfg(not(feature = "old_school"))]
+            let v = *v as u8;
+            game_data.motion_manager.text_manager.set_text_size1(id, v);
         }
     }
 
     if let Variant::Int(v) = ruby_size {
         if (8..=32).contains(v) {
-            game_data
-                .motion_manager
-                .text_manager
-                .set_text_size2(id, *v as u8);
+            #[cfg(feature = "old_school")]
+            let v = game_data.scale_old_school_u8(*v as u8);
+            #[cfg(not(feature = "old_school"))]
+            let v = *v as u8;
+            game_data.motion_manager.text_manager.set_text_size2(id, v);
         }
     }
 
@@ -822,19 +862,27 @@ pub fn text_space(
 
     if let Variant::Int(v) = space_vertical {
         if (-32..=32).contains(v) {
+            #[cfg(feature = "old_school")]
+            let v = scale_i32(game_data, *v) as i16;
+            #[cfg(not(feature = "old_school"))]
+            let v = *v as i16;
             game_data
                 .motion_manager
                 .text_manager
-                .set_text_vertical_space(id, *v as i16);
+                .set_text_vertical_space(id, v);
         }
     }
 
     if let Variant::Int(v) = space_horizon {
         if (-32..=32).contains(v) {
+            #[cfg(feature = "old_school")]
+            let v = scale_i32(game_data, *v) as i16;
+            #[cfg(not(feature = "old_school"))]
+            let v = *v as i16;
             game_data
                 .motion_manager
                 .text_manager
-                .set_text_horizon_space(id, *v as i16);
+                .set_text_horizon_space(id, v);
         }
     }
 
