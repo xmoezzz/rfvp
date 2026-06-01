@@ -2,18 +2,12 @@
 
 FROM devkitpro/devkita64:latest AS dkpa64
 FROM devkitpro/devkitarm:latest AS dkparm
-FROM devkitpro/devkitppc:latest AS base
+FROM devkitpro/devkitppc:latest AS dkppc
 
-FROM base
+FROM ubuntu:24.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 ARG RUST_TOOLCHAIN=nightly
-
-ARG INSTALL_DEVKITPRO=1
-ARG INSTALL_VITA=1
-ARG INSTALL_PSP=1
-ARG INSTALL_PS2=0
-ARG INSTALL_PS3=0
 
 ENV DEVKITPRO=/opt/devkitpro
 ENV DEVKITARM=/opt/devkitpro/devkitARM
@@ -25,20 +19,18 @@ ENV PSPDEV=/usr/local/pspdev
 ENV PS2DEV=/usr/local/ps2dev
 ENV PS2SDK=/usr/local/ps2dev/ps2sdk
 ENV PS3DEV=/usr/local/ps3dev
-ENV PSL1GHT=/usr/local/ps3dev
+ENV PSL1GHT=/usr/local/ps3dev/psl1ght
 
 ENV CARGO_HOME=/usr/local/cargo
 ENV RUSTUP_HOME=/usr/local/rustup
 
-ENV PATH="/usr/local/cargo/bin:${DEVKITPRO}/tools/bin:${DEVKITARM}/bin:${DEVKITPPC}/bin:${DEVKITA64}/bin:${VITASDK}/bin:${PSPDEV}/bin:${PS2DEV}/bin:${PS2DEV}/ee/bin:${PS2DEV}/iop/bin:${PS2DEV}/dvp/bin:${PS2SDK}/bin:${PS3DEV}/bin:${PS3DEV}/ppu/bin:${PS3DEV}/spu/bin:${PATH}"
+ENV PATH="/usr/local/cargo/bin:${DEVKITPRO}/tools/bin:${DEVKITARM}/bin:${DEVKITPPC}/bin:${DEVKITA64}/bin:${VITASDK}/bin:${PSPDEV}/bin:${PS2DEV}/bin:${PS2DEV}/ee/bin:${PS2DEV}/iop/bin:${PS2DEV}/dvp/bin:${PS2SDK}/bin:${PS3DEV}/bin:${PS3DEV}/ppu/bin:${PS3DEV}/spu/bin:${PSL1GHT}/bin:${PATH}"
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# Merge official devkitPro toolchain images.
-# base already contains devkitPPC. These copies add devkitA64 and devkitARM trees
-# without running install-devkitpro-pacman in our CI.
 COPY --from=dkpa64 /opt/devkitpro/ /opt/devkitpro/
 COPY --from=dkparm /opt/devkitpro/ /opt/devkitpro/
+COPY --from=dkppc /opt/devkitpro/ /opt/devkitpro/
 
 RUN set -eux; \
     apt-get update; \
@@ -58,14 +50,20 @@ RUN set -eux; \
       unzip \
       xz-utils \
       bzip2 \
+      gzip \
+      tar \
       patch \
       texinfo \
       flex \
       bison \
+      gawk \
+      m4 \
+      help2man \
       gettext \
       autoconf \
       automake \
       libtool \
+      libtool-bin \
       libgmp-dev \
       libmpfr-dev \
       libmpc-dev \
@@ -78,11 +76,14 @@ RUN set -eux; \
       libgpgme-dev \
       libreadline-dev \
       libssl-dev \
+      libncurses-dev \
       python3 \
       python3-pip \
       python-is-python3 \
       subversion \
-      mercurial; \
+      mercurial \
+      rsync \
+      sudo; \
     rm -rf /var/lib/apt/lists/*
 
 RUN set -eux; \
@@ -95,103 +96,88 @@ RUN set -eux; \
     rustc --version; \
     cargo --version
 
-# Optional Rust helper tools.
 RUN set -eux; \
     cargo install cargo-binutils wasm-bindgen-cli
 
 # PS Vita.
-# Do not pre-create ${VITASDK}. bootstrap-vitasdk.sh intentionally fails if it already exists.
-RUN if [[ "${INSTALL_VITA}" == "1" ]]; then \
-      set -eux; \
-      rm -rf /tmp/vdpm; \
-      rm -rf "${VITASDK}"; \
-      git clone --depth 1 https://github.com/vitasdk/vdpm.git /tmp/vdpm; \
-      cd /tmp/vdpm; \
-      export VITASDK="${VITASDK}"; \
-      export PATH="${VITASDK}/bin:${PATH}"; \
-      ./bootstrap-vitasdk.sh; \
-      ./install-all.sh; \
-      command -v arm-vita-eabi-gcc; \
-      arm-vita-eabi-gcc --version; \
-      rm -rf /tmp/vdpm; \
-    fi
+# Do not create ${VITASDK} before bootstrap-vitasdk.sh.
+RUN set -eux; \
+    rm -rf /tmp/vdpm; \
+    rm -rf "${VITASDK}"; \
+    git clone --depth 1 https://github.com/vitasdk/vdpm.git /tmp/vdpm; \
+    cd /tmp/vdpm; \
+    export VITASDK="${VITASDK}"; \
+    export PATH="${VITASDK}/bin:${PATH}"; \
+    ./bootstrap-vitasdk.sh; \
+    ./install-all.sh; \
+    command -v arm-vita-eabi-gcc; \
+    arm-vita-eabi-gcc --version; \
+    rm -rf /tmp/vdpm
 
 # PSP.
-RUN if [[ "${INSTALL_PSP}" == "1" ]]; then \
-      set -eux; \
-      rm -rf /tmp/pspdev; \
-      rm -rf "${PSPDEV}"; \
-      mkdir -p "${PSPDEV}"; \
-      git clone --depth 1 https://github.com/pspdev/pspdev.git /tmp/pspdev; \
-      cd /tmp/pspdev; \
-      export PSPDEV="${PSPDEV}"; \
-      export PATH="${PSPDEV}/bin:${PATH}"; \
-      ./build-all.sh; \
-      command -v psp-gcc; \
-      psp-gcc --version; \
-      rm -rf /tmp/pspdev; \
-    fi
+RUN set -eux; \
+    rm -rf /tmp/pspdev; \
+    rm -rf "${PSPDEV}"; \
+    mkdir -p "${PSPDEV}"; \
+    git clone --depth 1 https://github.com/pspdev/pspdev.git /tmp/pspdev; \
+    cd /tmp/pspdev; \
+    export PSPDEV="${PSPDEV}"; \
+    export PATH="${PSPDEV}/bin:${PATH}"; \
+    ./build-all.sh; \
+    command -v psp-gcc; \
+    psp-gcc --version; \
+    rm -rf /tmp/pspdev
 
-# PS2, disabled by default.
-RUN if [[ "${INSTALL_PS2}" == "1" ]]; then \
-      set -eux; \
-      rm -rf /tmp/ps2dev; \
-      rm -rf "${PS2DEV}"; \
-      mkdir -p "${PS2DEV}"; \
-      git clone --depth 1 https://github.com/ps2dev/ps2dev.git /tmp/ps2dev; \
-      cd /tmp/ps2dev; \
-      export PS2DEV="${PS2DEV}"; \
-      export PS2SDK="${PS2SDK}"; \
-      export PATH="${PS2DEV}/bin:${PS2DEV}/ee/bin:${PS2DEV}/iop/bin:${PS2DEV}/dvp/bin:${PS2SDK}/bin:${PATH}"; \
-      ./build-all.sh; \
-      command -v ee-gcc; \
-      ee-gcc --version; \
-      rm -rf /tmp/ps2dev; \
-    fi
+# PS2.
+RUN set -eux; \
+    rm -rf /tmp/ps2dev; \
+    rm -rf "${PS2DEV}"; \
+    mkdir -p "${PS2DEV}"; \
+    git clone --depth 1 https://github.com/ps2dev/ps2dev.git /tmp/ps2dev; \
+    cd /tmp/ps2dev; \
+    export PS2DEV="${PS2DEV}"; \
+    export PS2SDK="${PS2SDK}"; \
+    export PATH="${PS2DEV}/bin:${PS2DEV}/ee/bin:${PS2DEV}/iop/bin:${PS2DEV}/dvp/bin:${PS2SDK}/bin:${PATH}"; \
+    ./build-all.sh; \
+    command -v ee-gcc; \
+    ee-gcc --version; \
+    rm -rf /tmp/ps2dev
 
-# PS3, disabled by default.
-RUN if [[ "${INSTALL_PS3}" == "1" ]]; then \
-      set -eux; \
-      rm -rf /tmp/ps3toolchain /tmp/psl1ght; \
-      rm -rf "${PS3DEV}"; \
-      mkdir -p "${PS3DEV}"; \
-      git clone --depth 1 https://github.com/ps3dev/ps3toolchain.git /tmp/ps3toolchain; \
-      cd /tmp/ps3toolchain; \
-      export PS3DEV="${PS3DEV}"; \
-      export PSL1GHT="${PSL1GHT}"; \
-      export PATH="${PS3DEV}/bin:${PS3DEV}/ppu/bin:${PS3DEV}/spu/bin:${PATH}"; \
-      ./toolchain.sh; \
-      git clone --depth 1 https://github.com/ps3dev/PSL1GHT.git /tmp/psl1ght; \
-      cd /tmp/psl1ght; \
-      make install; \
-      command -v ppu-gcc; \
-      ppu-gcc --version; \
-      rm -rf /tmp/ps3toolchain /tmp/psl1ght; \
-    fi
+# PS3.
+RUN set -eux; \
+    rm -rf /tmp/ps3toolchain /tmp/psl1ght; \
+    rm -rf "${PS3DEV}"; \
+    mkdir -p "${PS3DEV}"; \
+    git clone --depth 1 https://github.com/ps3dev/ps3toolchain.git /tmp/ps3toolchain; \
+    cd /tmp/ps3toolchain; \
+    export PS3DEV="${PS3DEV}"; \
+    export PSL1GHT="${PSL1GHT}"; \
+    export PATH="${PS3DEV}/bin:${PS3DEV}/ppu/bin:${PS3DEV}/spu/bin:${PATH}"; \
+    ./toolchain.sh; \
+    git clone --depth 1 https://github.com/ps3dev/PSL1GHT.git /tmp/psl1ght; \
+    cd /tmp/psl1ght; \
+    make install; \
+    command -v ppu-gcc; \
+    ppu-gcc --version; \
+    rm -rf /tmp/ps3toolchain /tmp/psl1ght
 
 RUN set -eux; \
     rustc --version; \
     cargo --version; \
-    if [[ "${INSTALL_DEVKITPRO}" == "1" ]]; then \
-      command -v aarch64-none-elf-gcc; \
-      command -v arm-none-eabi-gcc; \
-      command -v powerpc-eabi-gcc; \
-      aarch64-none-elf-gcc --version; \
-      arm-none-eabi-gcc --version; \
-      powerpc-eabi-gcc --version; \
-    fi; \
-    if [[ "${INSTALL_VITA}" == "1" ]]; then \
-      command -v arm-vita-eabi-gcc; \
-    fi; \
-    if [[ "${INSTALL_PSP}" == "1" ]]; then \
-      command -v psp-gcc; \
-    fi; \
-    if [[ "${INSTALL_PS2}" == "1" ]]; then \
-      command -v ee-gcc; \
-    fi; \
-    if [[ "${INSTALL_PS3}" == "1" ]]; then \
-      command -v ppu-gcc; \
-    fi
+    command -v aarch64-none-elf-gcc; \
+    command -v arm-none-eabi-gcc; \
+    command -v powerpc-eabi-gcc; \
+    command -v arm-vita-eabi-gcc; \
+    command -v psp-gcc; \
+    command -v ee-gcc; \
+    command -v ppu-gcc; \
+    aarch64-none-elf-gcc --version; \
+    arm-none-eabi-gcc --version; \
+    powerpc-eabi-gcc --version; \
+    arm-vita-eabi-gcc --version; \
+    psp-gcc --version; \
+    ee-gcc --version; \
+    ppu-gcc --version
 
 WORKDIR /work
 
