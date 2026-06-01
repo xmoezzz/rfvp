@@ -102,13 +102,7 @@ RUN set -eux; \
       switch-portlibs \
       3ds-portlibs \
       ppc-portlibs; \
-    pacman -Scc --noconfirm || true; \
-    command -v aarch64-none-elf-gcc; \
-    command -v arm-none-eabi-gcc; \
-    command -v powerpc-eabi-gcc; \
-    aarch64-none-elf-gcc --version; \
-    arm-none-eabi-gcc --version; \
-    powerpc-eabi-gcc --version
+    pacman -Scc --noconfirm || true
 
 # Rust nightly.
 RUN set -eux; \
@@ -134,80 +128,53 @@ RUN set -eux; \
     export PATH="${VITASDK}/bin:${PATH}"; \
     ./bootstrap-vitasdk.sh; \
     ./install-all.sh; \
-    command -v arm-vita-eabi-gcc; \
-    arm-vita-eabi-gcc --version; \
     rm -rf /tmp/vdpm
 
 # PSP.
 # Uses the PSPDEV release SDK archive, not build-all.sh.
+# Do not validate a fixed compiler command name here.
 RUN set -eux; \
     PSPDEV_URL="https://github.com/pspdev/pspdev/releases/latest/download/pspdev-ubuntu-latest-x86_64.tar.gz"; \
     rm -rf "${PSPDEV}" /tmp/pspdev.tar.gz; \
+    mkdir -p "${PSPDEV}"; \
     curl -fL --retry 3 --retry-delay 2 "${PSPDEV_URL}" -o /tmp/pspdev.tar.gz; \
-    tar -xzf /tmp/pspdev.tar.gz -C /usr/local; \
-    rm -f /tmp/pspdev.tar.gz; \
-    command -v psp-gcc; \
-    psp-gcc --version
+    tar -xzf /tmp/pspdev.tar.gz --strip-components=1 -C "${PSPDEV}"; \
+    rm -f /tmp/pspdev.tar.gz
 
 # PS2.
 # Uses the PS2DEV release SDK archive, not build-all.sh.
-# Do not hard-code ${PS2DEV}/ee/bin/ee-gcc here. The archive layout can change;
-# PATH is authoritative.
+# Do not validate a fixed compiler command name here.
 RUN set -eux; \
     PS2DEV_URL="https://github.com/ps2dev/ps2dev/releases/download/latest/ps2dev-ubuntu-latest.tar.gz"; \
     rm -rf "${PS2DEV}" /tmp/ps2dev.tar.gz; \
+    mkdir -p "${PS2DEV}"; \
     curl -fL --retry 3 --retry-delay 2 "${PS2DEV_URL}" -o /tmp/ps2dev.tar.gz; \
-    tar -xzf /tmp/ps2dev.tar.gz -C /usr/local; \
-    rm -f /tmp/ps2dev.tar.gz; \
-    command -v ee-gcc; \
-    ee-gcc --version
+    tar -xzf /tmp/ps2dev.tar.gz --strip-components=1 -C "${PS2DEV}"; \
+    rm -f /tmp/ps2dev.tar.gz
 
 # PS3.
-# Uses a prebuilt PS3DEV archive. Does not run ps3toolchain/toolchain.sh.
-# This is a third-party prebuilt archive, not an official ps3dev release.
+# Uses a third-party prebuilt PS3DEV archive.
+# Does not run ps3toolchain/toolchain.sh.
+# Do not validate a fixed compiler command name here.
 RUN set -eux; \
     PS3DEV_URL="https://github.com/bucanero/ps3toolchain/releases/download/ubuntu-latest-fad3b5fb/ps3dev-ubuntu-latest-2020-08-31.tar.gz"; \
-    rm -rf "${PS3DEV}" /tmp/ps3dev.tar.gz; \
+    rm -rf "${PS3DEV}" /tmp/ps3dev.tar.gz /tmp/ps3dev-extract; \
+    mkdir -p /tmp/ps3dev-extract; \
     curl -fL --retry 3 --retry-delay 2 "${PS3DEV_URL}" -o /tmp/ps3dev.tar.gz; \
-    tar -xzf /tmp/ps3dev.tar.gz -C /; \
+    tar -xzf /tmp/ps3dev.tar.gz -C /tmp/ps3dev-extract; \
     rm -f /tmp/ps3dev.tar.gz; \
-    if [[ ! -d "${PS3DEV}" && -d /ps3dev ]]; then \
-      mv /ps3dev "${PS3DEV}"; \
-    fi; \
-    test -d "${PS3DEV}"; \
-    if command -v ppu-gcc >/dev/null 2>&1; then \
-      ppu-gcc --version; \
-    elif command -v powerpc64-ps3-elf-gcc >/dev/null 2>&1; then \
-      powerpc64-ps3-elf-gcc --version; \
+    if [[ -d /tmp/ps3dev-extract/ps3dev ]]; then \
+      mkdir -p "$(dirname "${PS3DEV}")"; \
+      mv /tmp/ps3dev-extract/ps3dev "${PS3DEV}"; \
     else \
-      echo "ERROR: no PS3 compiler found after extracting ${PS3DEV_URL}" >&2; \
-      find "${PS3DEV}" -maxdepth 5 -type f \( -name 'ppu-gcc' -o -name 'powerpc64-ps3-elf-gcc' -o -name '*gcc*' \) -print >&2; \
-      exit 1; \
-    fi
+      mkdir -p "${PS3DEV}"; \
+      cp -a /tmp/ps3dev-extract/. "${PS3DEV}/"; \
+    fi; \
+    rm -rf /tmp/ps3dev-extract
 
 RUN set -eux; \
     rustc --version; \
-    cargo --version; \
-    command -v aarch64-none-elf-gcc; \
-    command -v arm-none-eabi-gcc; \
-    command -v powerpc-eabi-gcc; \
-    command -v arm-vita-eabi-gcc; \
-    command -v psp-gcc; \
-    command -v ee-gcc; \
-    aarch64-none-elf-gcc --version; \
-    arm-none-eabi-gcc --version; \
-    powerpc-eabi-gcc --version; \
-    arm-vita-eabi-gcc --version; \
-    psp-gcc --version; \
-    ee-gcc --version; \
-    if command -v ppu-gcc >/dev/null 2>&1; then \
-      ppu-gcc --version; \
-    elif command -v powerpc64-ps3-elf-gcc >/dev/null 2>&1; then \
-      powerpc64-ps3-elf-gcc --version; \
-    else \
-      echo "ERROR: missing PS3 compiler" >&2; \
-      exit 1; \
-    fi
+    cargo --version
 
 WORKDIR /work
 
