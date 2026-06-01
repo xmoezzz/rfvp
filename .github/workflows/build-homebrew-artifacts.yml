@@ -22,22 +22,33 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - platform: psv
+            kind: cargo-vita
+            artifact_name: rfvp-psv
+
+          - platform: psp
+            kind: script
+            script: crates/rfvp-psp/build-psp.sh
+            artifact_name: rfvp-psp
+
+          - platform: switch
+            kind: cargo-nx
+            artifact_name: rfvp-switch
+
           - platform: 3ds
+            kind: script
             script: crates/rfvp-3ds/build-3ds.sh
             artifact_name: rfvp-3ds
             artifact_path: target/rfvp-3ds/3ds/
 
-          - platform: psp
-            script: crates/rfvp-psp/build-psp.sh
-            artifact_name: rfvp-psp
-            artifact_path: crates/rfvp-psp/target/
-
           - platform: wii
+            kind: script
             script: crates/rfvp-wii/build-wii.sh
             artifact_name: rfvp-wii
             artifact_path: target/rfvp-wii/wii/
 
           - platform: wiiu
+            kind: script
             script: crates/rfvp-wiiu/build-wiiu.sh
             artifact_name: rfvp-wiiu
             artifact_path: target/rfvp-wiiu/wiiu/
@@ -51,23 +62,100 @@ jobs:
           set -eux
           rustc --version
           cargo --version
+          cargo psp --version
+          cargo nx --version
+          cargo vita --version
+          rustc +nightly-2025-03-19 --version
           echo "PATH=$PATH"
           echo "DEVKITPRO=${DEVKITPRO:-}"
           echo "DEVKITARM=${DEVKITARM:-}"
           echo "DEVKITPPC=${DEVKITPPC:-}"
           echo "DEVKITA64=${DEVKITA64:-}"
+          echo "VITASDK=${VITASDK:-}"
           echo "PSPDEV=${PSPDEV:-}"
 
       - name: Build ${{ matrix.platform }}
         shell: bash
         run: |
           set -eux
-          chmod +x "${{ matrix.script }}"
-          "${{ matrix.script }}"
 
-      - name: Upload artifact
+          case "${{ matrix.kind }}" in
+            script)
+              chmod +x "${{ matrix.script }}"
+              "${{ matrix.script }}"
+              ;;
+
+            cargo-nx)
+              cargo nx build \
+                -p rfvp-horizon \
+                --release \
+                --features entrypoint
+              ;;
+
+            cargo-vita)
+              cargo +nightly vita build vpk \
+                -p rfvp-psv \
+                --release \
+                --features entrypoint \
+                --config 'profile.dev.panic="abort"' \
+                --config 'profile.release.panic="abort"' \
+                -Z build-std=core,alloc,compiler_builtins \
+                -Z build-std-features=compiler-builtins-mem
+              ;;
+
+            *)
+              echo "unknown build kind: ${{ matrix.kind }}" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: List build outputs
+        if: always()
+        shell: bash
+        run: |
+          set -eux
+          find target crates -type f \( \
+            -name '*.3dsx' -o \
+            -name '*.elf' -o \
+            -name '*.dol' -o \
+            -name '*.rpx' -o \
+            -name '*.nro' -o \
+            -name '*.nacp' -o \
+            -name '*.npdm' -o \
+            -name '*.vpk' -o \
+            -name '*.eboot' -o \
+            -name 'EBOOT.PBP' -o \
+            -name '*.PBP' -o \
+            -name '*.pbp' \
+          \) -print | sort
+
+      - name: Upload known script artifacts
+        if: ${{ matrix.kind == 'script' && matrix.platform != 'psp' }}
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_path }}
           if-no-files-found: error
+
+      - name: Upload discovered artifacts
+        if: ${{ matrix.kind != 'script' || matrix.platform == 'psp' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: |
+            target/**/*.3dsx
+            target/**/*.elf
+            target/**/*.dol
+            target/**/*.rpx
+            target/**/*.nro
+            target/**/*.nacp
+            target/**/*.npdm
+            target/**/*.vpk
+            target/**/*.eboot
+            target/**/*.PBP
+            target/**/*.pbp
+            target/**/EBOOT.PBP
+            crates/rfvp-psp/target/**/*.PBP
+            crates/rfvp-psp/target/**/*.pbp
+            crates/rfvp-psp/target/**/EBOOT.PBP
+          if-no-files-found: warn

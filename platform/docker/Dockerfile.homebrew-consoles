@@ -115,8 +115,19 @@ RUN set -eux; \
     rustc --version; \
     cargo --version
 
+# Rust-side host build helpers.
+# cargo-psp is required by crates/rfvp-psp/build-psp.sh.
+# nightly-2025-03-19 and its rust-src are required by crates/rfvp-psp/build-psp.sh.
+# cargo-nx is required for rfvp-horizon / Switch builds.
+# cargo-vita is required for rfvp-psv / PS Vita builds.
 RUN set -eux; \
-    cargo install cargo-binutils wasm-bindgen-cli
+    cargo install cargo-binutils wasm-bindgen-cli cargo-psp cargo-nx cargo-vita; \
+    rustup toolchain install nightly-2025-03-19 --profile minimal; \
+    rustup component add rust-src --toolchain nightly-2025-03-19; \
+    cargo psp --version; \
+    cargo nx --version; \
+    cargo vita --version; \
+    rustc +nightly-2025-03-19 --version
 
 # PS Vita.
 # Do not pre-create ${VITASDK}; bootstrap-vitasdk.sh creates it.
@@ -174,7 +185,11 @@ RUN set -eux; \
 
 RUN set -eux; \
     rustc --version; \
-    cargo --version
+    cargo --version; \
+    cargo psp --version; \
+    cargo nx --version; \
+    cargo vita --version; \
+    rustc +nightly-2025-03-19 --version
 
 WORKDIR /work
 
