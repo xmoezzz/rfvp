@@ -125,9 +125,6 @@ RUN set -eux; \
     cargo install --git https://github.com/aarch64-switch-rs/cargo-nx cargo-nx; \
     rustup toolchain install nightly-2025-03-19 --profile minimal; \
     rustup component add rust-src --toolchain nightly-2025-03-19; \
-    cargo psp --version; \
-    cargo nx --version; \
-    cargo vita --version; \
     rustc +nightly-2025-03-19 --version
 
 # PS Vita.
