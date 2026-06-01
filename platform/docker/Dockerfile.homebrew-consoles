@@ -70,13 +70,15 @@ RUN set -eux; \
       openssl \
       ncurses \
       python \
+      python-pip \
       subversion \
       mercurial \
       rsync \
       sudo; \
     pacman -Scc --noconfirm || true
 
-# devkitPro pacman setup for existing pacman systems, based on devkitPro_pacman.
+# devkitPro pacman setup for existing pacman systems.
+# Based on devkitPro_pacman: import key, install keyring, add dkp-libs and dkp-linux.
 RUN set -eux; \
     pacman-key --recv BC26F752D25B92CE272E0F44F7FD5492264BB9D0 --keyserver keyserver.ubuntu.com; \
     pacman-key --lsign BC26F752D25B92CE272E0F44F7FD5492264BB9D0; \
@@ -144,24 +146,25 @@ RUN set -eux; \
     curl -fL --retry 3 --retry-delay 2 "${PSPDEV_URL}" -o /tmp/pspdev.tar.gz; \
     tar -xzf /tmp/pspdev.tar.gz -C /usr/local; \
     rm -f /tmp/pspdev.tar.gz; \
-    test -x "${PSPDEV}/bin/psp-gcc"; \
     command -v psp-gcc; \
     psp-gcc --version
 
 # PS2.
 # Uses the PS2DEV release SDK archive, not build-all.sh.
+# Do not hard-code ${PS2DEV}/ee/bin/ee-gcc here. The archive layout can change;
+# PATH is authoritative.
 RUN set -eux; \
     PS2DEV_URL="https://github.com/ps2dev/ps2dev/releases/download/latest/ps2dev-ubuntu-latest.tar.gz"; \
     rm -rf "${PS2DEV}" /tmp/ps2dev.tar.gz; \
     curl -fL --retry 3 --retry-delay 2 "${PS2DEV_URL}" -o /tmp/ps2dev.tar.gz; \
     tar -xzf /tmp/ps2dev.tar.gz -C /usr/local; \
     rm -f /tmp/ps2dev.tar.gz; \
-    test -x "${PS2DEV}/ee/bin/ee-gcc"; \
     command -v ee-gcc; \
     ee-gcc --version
 
 # PS3.
 # Uses a prebuilt PS3DEV archive. Does not run ps3toolchain/toolchain.sh.
+# This is a third-party prebuilt archive, not an official ps3dev release.
 RUN set -eux; \
     PS3DEV_URL="https://github.com/bucanero/ps3toolchain/releases/download/ubuntu-latest-fad3b5fb/ps3dev-ubuntu-latest-2020-08-31.tar.gz"; \
     rm -rf "${PS3DEV}" /tmp/ps3dev.tar.gz; \
