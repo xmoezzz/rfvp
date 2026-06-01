@@ -184,13 +184,13 @@ RUN set -eux; \
     fi; \
     rm -rf /tmp/ps3dev-extract
 
-RUN set -eux; \
-    rustc --version; \
-    cargo --version; \
-    cargo psp --version; \
-    cargo nx --version; \
-    cargo vita --version; \
-    rustc +nightly-2025-03-19 --version
+# RUN set -eux; \
+#     rustc --version; \
+#     cargo --version; \
+#     cargo psp --version; \
+#     cargo nx --version; \
+#     cargo vita --version; \
+#     rustc +nightly-2025-03-19 --version
 
 WORKDIR /work
 
