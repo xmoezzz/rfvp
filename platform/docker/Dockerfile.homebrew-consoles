@@ -1,8 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
-FROM ubuntu:24.04
+FROM archlinux:base
 
-ARG DEBIAN_FRONTEND=noninteractive
 ARG RUST_TOOLCHAIN=nightly
 
 ENV DEVKITPRO=/opt/devkitpro
@@ -25,22 +24,24 @@ ENV PATH="/usr/local/cargo/bin:${DEVKITPRO}/tools/bin:${DEVKITARM}/bin:${DEVKITP
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 RUN set -eux; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends \
+    pacman-key --init; \
+    pacman-key --populate archlinux; \
+    pacman -Syu --noconfirm; \
+    pacman -S --needed --noconfirm \
+      base-devel \
       ca-certificates \
       curl \
       wget \
       git \
-      build-essential \
       clang \
       cmake \
-      ninja-build \
+      ninja \
       make \
-      pkg-config \
+      pkgconf \
       file \
       zip \
       unzip \
-      xz-utils \
+      xz \
       bzip2 \
       gzip \
       tar \
@@ -55,38 +56,57 @@ RUN set -eux; \
       autoconf \
       automake \
       libtool \
-      libtool-bin \
-      libgmp-dev \
-      libmpfr-dev \
-      libmpc-dev \
-      libisl-dev \
-      libzstd-dev \
-      zlib1g-dev \
-      libelf-dev \
-      libusb-1.0-0-dev \
-      libarchive-dev \
-      libgpgme-dev \
-      libreadline-dev \
-      libssl-dev \
-      libncurses-dev \
-      python3 \
-      python3-pip \
-      python-is-python3 \
+      gmp \
+      mpfr \
+      libmpc \
+      isl \
+      zstd \
+      zlib \
+      libelf \
+      libusb \
+      libarchive \
+      gpgme \
+      readline \
+      openssl \
+      ncurses \
+      python \
       subversion \
       mercurial \
       rsync \
       sudo; \
-    rm -rf /var/lib/apt/lists/*
+    pacman -Scc --noconfirm || true
 
+# devkitPro pacman setup for existing pacman systems, based on devkitPro_pacman.
 RUN set -eux; \
-    cat >/usr/local/bin/verify-url <<'SH'; \
-#!/usr/bin/env bash
-set -euo pipefail
-url="$1"
-echo "Verifying URL: ${url}"
-curl -fIL --retry 3 --retry-delay 2 --connect-timeout 20 "${url}" >/dev/null
-SH
-    chmod +x /usr/local/bin/verify-url
+    pacman-key --recv BC26F752D25B92CE272E0F44F7FD5492264BB9D0 --keyserver keyserver.ubuntu.com; \
+    pacman-key --lsign BC26F752D25B92CE272E0F44F7FD5492264BB9D0; \
+    pacman -U --noconfirm https://pkg.devkitpro.org/devkitpro-keyring.pkg.tar.zst; \
+    pacman-key --populate devkitpro || true; \
+    printf '%s\n' \
+      '' \
+      '[dkp-libs]' \
+      'Server = https://pkg.devkitpro.org/packages' \
+      '' \
+      '[dkp-linux]' \
+      'Server = https://pkg.devkitpro.org/packages/linux/$arch/' \
+      >> /etc/pacman.conf; \
+    pacman -Syu --noconfirm; \
+    pacman -S --needed --noconfirm \
+      switch-dev \
+      3ds-dev \
+      wii-dev \
+      wiiu-dev \
+      gamecube-dev \
+      switch-portlibs \
+      3ds-portlibs \
+      ppc-portlibs; \
+    pacman -Scc --noconfirm || true; \
+    command -v aarch64-none-elf-gcc; \
+    command -v arm-none-eabi-gcc; \
+    command -v powerpc-eabi-gcc; \
+    aarch64-none-elf-gcc --version; \
+    arm-none-eabi-gcc --version; \
+    powerpc-eabi-gcc --version
 
 # Rust nightly.
 RUN set -eux; \
@@ -101,36 +121,6 @@ RUN set -eux; \
 
 RUN set -eux; \
     cargo install cargo-binutils wasm-bindgen-cli
-
-# devkitPro: Switch / 3DS / Wii / Wii U / GameCube.
-# Do not use https://apt.devkitpro.org/install-devkitpro-pacman here;
-# it returned 403 in GitHub Actions.
-RUN set -eux; \
-    DEVKITPRO_PACMAN_URL="https://github.com/devkitPro/pacman/releases/latest/download/devkitpro-pacman.deb"; \
-    verify-url "${DEVKITPRO_PACMAN_URL}"; \
-    curl -fL --retry 3 --retry-delay 2 "${DEVKITPRO_PACMAN_URL}" -o /tmp/devkitpro-pacman.deb; \
-    dpkg -i /tmp/devkitpro-pacman.deb || true; \
-    apt-get update; \
-    apt-get install -f -y; \
-    rm -rf /var/lib/apt/lists/*; \
-    dkp-pacman -Syyu --noconfirm; \
-    dkp-pacman -S --needed --noconfirm \
-      switch-dev \
-      3ds-dev \
-      wii-dev \
-      wiiu-dev \
-      gamecube-dev \
-      switch-portlibs \
-      3ds-portlibs \
-      ppc-portlibs; \
-    yes | dkp-pacman -Scc || true; \
-    rm -f /tmp/devkitpro-pacman.deb; \
-    command -v aarch64-none-elf-gcc; \
-    command -v arm-none-eabi-gcc; \
-    command -v powerpc-eabi-gcc; \
-    aarch64-none-elf-gcc --version; \
-    arm-none-eabi-gcc --version; \
-    powerpc-eabi-gcc --version
 
 # PS Vita.
 # Do not pre-create ${VITASDK}; bootstrap-vitasdk.sh creates it.
@@ -147,10 +137,9 @@ RUN set -eux; \
     rm -rf /tmp/vdpm
 
 # PSP.
-# Do not build PSPDEV from source. Download the official release SDK archive.
+# Uses the PSPDEV release SDK archive, not build-all.sh.
 RUN set -eux; \
     PSPDEV_URL="https://github.com/pspdev/pspdev/releases/latest/download/pspdev-ubuntu-latest-x86_64.tar.gz"; \
-    verify-url "${PSPDEV_URL}"; \
     rm -rf "${PSPDEV}" /tmp/pspdev.tar.gz; \
     curl -fL --retry 3 --retry-delay 2 "${PSPDEV_URL}" -o /tmp/pspdev.tar.gz; \
     tar -xzf /tmp/pspdev.tar.gz -C /usr/local; \
@@ -160,10 +149,9 @@ RUN set -eux; \
     psp-gcc --version
 
 # PS2.
-# Do not build PS2DEV from source. Download the official release SDK archive.
+# Uses the PS2DEV release SDK archive, not build-all.sh.
 RUN set -eux; \
     PS2DEV_URL="https://github.com/ps2dev/ps2dev/releases/download/latest/ps2dev-ubuntu-latest.tar.gz"; \
-    verify-url "${PS2DEV_URL}"; \
     rm -rf "${PS2DEV}" /tmp/ps2dev.tar.gz; \
     curl -fL --retry 3 --retry-delay 2 "${PS2DEV_URL}" -o /tmp/ps2dev.tar.gz; \
     tar -xzf /tmp/ps2dev.tar.gz -C /usr/local; \
@@ -173,11 +161,9 @@ RUN set -eux; \
     ee-gcc --version
 
 # PS3.
-# ps3dev/ps3toolchain itself is a source-build script, so use a prebuilt release archive.
-# This URL is used by bucanero/pkgi-ps3 and redirects to a GitHub release asset.
+# Uses a prebuilt PS3DEV archive. Does not run ps3toolchain/toolchain.sh.
 RUN set -eux; \
     PS3DEV_URL="https://github.com/bucanero/ps3toolchain/releases/download/ubuntu-latest-fad3b5fb/ps3dev-ubuntu-latest-2020-08-31.tar.gz"; \
-    verify-url "${PS3DEV_URL}"; \
     rm -rf "${PS3DEV}" /tmp/ps3dev.tar.gz; \
     curl -fL --retry 3 --retry-delay 2 "${PS3DEV_URL}" -o /tmp/ps3dev.tar.gz; \
     tar -xzf /tmp/ps3dev.tar.gz -C /; \
