@@ -28,7 +28,7 @@ Pre-built binaries for supported platforms are available in the [Pre-built Binar
 
 
 ### Custom Font
-* By default, the engine uses a built-in font that is compatible with all original games. However, you can also use a custom font by put a ttf file in the `fonts` directory under the game data directory. 
+* By default, the engine uses a built-in font that is compatible with all original games. However, you can also use a custom font by put a ttf file in the `font` directory under the game data directory. 
 
 ### Translated Version
 If you want to run a translated game, currently we only support UTF-8 and GBK encodings. You should switch to the proper encoding through `Nls` before running the game. However, only switching encoding doesn't guarantee that the translated game will work in following cases (not limited to):
