@@ -26,6 +26,16 @@ Pre-built binaries for supported platforms are available in the [Pre-built Binar
 * Please note that pre-release version is the latest version containing the most recent features and fixes. 
 * I usually don't bump the version so ofter. So if you want to get the latest features and fixes, please check the pre-release version.
 
+
+### Custom Font
+* By default, the engine uses a built-in font that is compatible with all original games. However, you can also use a custom font by put a ttf file in the `fonts` directory under the game data directory. 
+
+### Translated Version
+If you want to run a translated game, currently we only support UTF-8 and GBK encodings. You should switch to the proper encoding through `Nls` before running the game. However, only switching encoding doesn't guarantee that the translated game will work in following cases (not limited to):
+* The translated strings are not stored in the `*.hcb` file.
+* The translated game encrypts the translated assets.
+* Any other ways that the translated game differs from the original game in terms of data structure and format.
+
 ### HOW TO BUILD
 * macOS Bundle: [setsumei/HOW-TO-BUILD.macos-bundle.md](setsumei/HOW-TO-BUILD.macos-bundle.md)
 * iOS IPA: [setsumei/HOW-TO-BUILD.ios.md](setsumei/HOW-TO-BUILD.ios.md)
