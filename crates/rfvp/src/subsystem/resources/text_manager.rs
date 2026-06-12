@@ -730,45 +730,43 @@ impl FontEnumerator {
     }
 
     pub fn init_fontface(&mut self) -> Result<()> {
-        if self.fonts.is_empty() {
-            let mut path = app_base_path().join("font");
-            if !path.exists() {
-                // Android/Linux file systems are case-sensitive; many games ship `FONT`/`Font`.
-                let alt_font = app_base_path().join("Font");
-                let alt_upper = app_base_path().join("FONT");
-                if alt_font.exists() {
-                    path = alt_font;
-                } else if alt_upper.exists() {
-                    path = alt_upper;
+        let mut path = app_base_path().join("font");
+        if !path.exists() {
+            // Android/Linux file systems are case-sensitive; many games ship `FONT`/`Font`.
+            let alt_font = app_base_path().join("Font");
+            let alt_upper = app_base_path().join("FONT");
+            if alt_font.exists() {
+                path = alt_font;
+            } else if alt_upper.exists() {
+                path = alt_upper;
+            }
+        }
+        if path.exists() {
+            let mut loaded_count: usize = 0;
+            for entry in fs::read_dir(path.get_path())? {
+                let entry = entry?;
+                let p = entry.path();
+                if let Some(loaded) = load_font_file(&p)? {
+                    log::info!(
+                        "Loaded custom font face '{}' from {}",
+                        loaded.name,
+                        p.display()
+                    );
+                    self.fonts.push(loaded);
+                    loaded_count += 1;
                 }
             }
-            if path.exists() {
-                let mut loaded_count: usize = 0;
-                for entry in fs::read_dir(path.get_path())? {
-                    let entry = entry?;
-                    let p = entry.path();
-                    if let Some(loaded) = load_font_file(&p)? {
-                        log::info!(
-                            "Loaded custom font face '{}' from {}",
-                            loaded.name,
-                            p.display()
-                        );
-                        self.fonts.push(loaded);
-                        loaded_count += 1;
-                    }
-                }
 
-                log::info!(
-                    "Font scan done: loaded {} custom font(s) from {}",
-                    loaded_count,
-                    path.get_path().display()
-                );
-            } else {
-                log::info!(
-                    "Font scan skipped: no font dir under {}",
-                    app_base_path().get_path().display()
-                );
-            }
+            log::info!(
+                "Font scan done: loaded {} custom font(s) from {}",
+                loaded_count,
+                path.get_path().display()
+            );
+        } else {
+            log::info!(
+                "Font scan skipped: no font dir under {}",
+                app_base_path().get_path().display()
+            );
         }
 
         if self.system_fallback_enabled {
