@@ -9,7 +9,7 @@ use alloc::{
 use anyhow::{bail, Context, Result};
 #[cfg(not(target_os = "uefi"))]
 use glob::glob;
-use std::fs::File;
+use std::fs::{self, File};
 use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 use std::mem::size_of;
 use std::path::{Path, PathBuf};
@@ -655,18 +655,34 @@ impl Vfs {
 
     #[cfg(not(target_os = "uefi"))]
     pub fn new(nls: Nls) -> Result<Vfs> {
-        let path = app_base_path().join("*.bin");
+        let base_path = app_base_path();
         let mut files = StableHashMap::default();
-        for entry in glob(path.get_path().to_str().unwrap())? {
-            if let Ok(path) = entry {
-                let filename = path.file_stem().unwrap().to_string_lossy();
-                if filename.is_empty() {
-                    continue;
-                }
-                let folder_name = filename.to_string();
-                if let Ok(vf) = VfsFile::new(path, folder_name.to_ascii_lowercase().clone(), nls) {
-                    files.insert(folder_name.to_ascii_lowercase(), vf);
-                }
+
+        for entry in fs::read_dir(base_path.get_path())? {
+            let Ok(entry) = entry else {
+                continue;
+            };
+            let path = entry.path();
+
+            if !path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("bin"))
+            {
+                continue;
+            }
+
+            let Some(filename) = path.file_stem() else {
+                continue;
+            };
+            let folder_name = filename.to_string_lossy();
+            if folder_name.is_empty() {
+                continue;
+            }
+
+            let folder_name = folder_name.to_string();
+            if let Ok(vf) = VfsFile::new(path, folder_name.to_ascii_lowercase().clone(), nls) {
+                files.insert(folder_name.to_ascii_lowercase(), vf);
             }
         }
 

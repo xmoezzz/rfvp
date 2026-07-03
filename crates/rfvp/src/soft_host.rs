@@ -559,18 +559,27 @@ fn boxed_default_game_data() -> Box<GameData> {
 }
 
 fn find_hcb(game_path: impl AsRef<Path>) -> Result<PathBuf> {
-    let mut path = game_path.as_ref().to_path_buf();
-    path.push("*.hcb");
+    let game_path = game_path.as_ref();
 
-    let matches: Vec<_> = glob::glob(&path.to_string_lossy())?.flatten().collect();
-    if matches.is_empty() {
-        anyhow::bail!(
-            "No hcb file found in the game directory: {}",
-            game_path.as_ref().display()
-        );
+    for entry in std::fs::read_dir(game_path)? {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        let path = entry.path();
+
+        if path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("hcb"))
+        {
+            return Ok(path);
+        }
     }
 
-    Ok(matches[0].to_path_buf())
+    anyhow::bail!(
+        "No hcb file found in the game directory: {}",
+        game_path.display()
+    );
 }
 
 fn parse_args() -> SoftHostArgs {
