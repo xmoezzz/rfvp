@@ -267,7 +267,7 @@ impl V3dMotionContainer {
                 elapsed = -elapsed;
             }
             self.motion.elapsed += elapsed;
-            if self.motion.elapsed >= self.motion.duration {
+            if elapsed < 0 || self.motion.elapsed >= self.motion.duration {
                 let _ = self.stop_motion();
                 return false;
             }

@@ -21,26 +21,46 @@ impl Scene for AnzuScene {
         let frame_duration = game_data.time_mut_ref().delta_duration();
         let frame_us = frame_duration.as_micros() as i64;
         let frame_ms = ((frame_us as u64) + 999) / 1000;
-        let frame_duration = frame_ms as i64;
+        self.update_after_vm(game_data, frame_ms);
+    }
+
+    fn late_update(&mut self, _game_data: &mut GameData) {}
+}
+
+impl AnzuScene {
+    pub fn new() -> Self {
+        Self {}
+    }
+
+    /// Apply the original engine's post-script frame update order.
+    ///
+    /// The original executable runs all script contexts first, then updates text while
+    /// `control_is_pulse` is still visible, then consumes the pulse and passes a negative
+    /// elapsed value to the motion containers.
+    pub(crate) fn update_after_vm(&mut self, game_data: &mut GameData, frame_ms: u64) {
+        let frame_duration = frame_ms.min(i64::MAX as u64) as i64;
 
         crate::trace::vm(format_args!(
-            "AnzuScene::on_update frame_duration={}",
+            "AnzuScene::update_after_vm frame_duration={}",
             frame_duration
         ));
 
-        // --- ControlPulse semantics (from original engine) ---
-        //
-        // Original update loop:
-        //   if (Ctrl is held) || (scene.control_is_pulse) {
-        //     elapsed = -elapsed;
-        //     scene.control_is_pulse = 0;
-        //   }
-        // A negative elapsed is a "fast-forward" signal: most motion containers treat
-        // elapsed < 0 as "commit final state immediately".
-        // Text reveal is handled separately, but it uses the same Ctrl/ControlPulse condition.
         let ctrl_down =
             (game_data.inputs_manager.get_input_state() & (1u32 << (KeyCode::Ctrl as u32))) != 0;
         let pulse = game_data.inputs_manager.peek_control_pulse();
+        let fast_forward = ctrl_down || pulse;
+        let elapsed = if fast_forward {
+            -frame_duration
+        } else {
+            frame_duration
+        };
+
+        // update_text() in the original executable observes control_is_pulse before the
+        // frame update clears it.
+        self.update_text_reveal(game_data, elapsed);
+
+        // The pulse is one-shot and is cleared immediately before motion updates.
+        let pulse = game_data.inputs_manager.take_control_pulse();
         let fast_forward = ctrl_down || pulse;
         let elapsed = if fast_forward {
             -frame_duration
@@ -58,42 +78,6 @@ impl Scene for AnzuScene {
         self.update_parts_motions(game_data, elapsed);
         self.update_snow_motions(game_data, elapsed);
         self.update_dissolve(game_data, frame_duration, fast_forward);
-    }
-
-    fn late_update(&mut self, game_data: &mut GameData) {
-        // Text reveal and its repaint/upload must observe the effects of VM syscalls issued
-        // in this frame (TextPrint/TextRepaint/ControlPulse). Therefore we update it in
-        // late_update, after scheduler.execute().
-        let frame_duration = game_data.time_mut_ref().delta_duration();
-        let frame_us = frame_duration.as_micros() as i64;
-        let frame_ms = ((frame_us as u64) + 999) / 1000;
-        let frame_duration = frame_ms as i64;
-
-        let ctrl_down =
-            (game_data.inputs_manager.get_input_state() & (1u32 << (KeyCode::Ctrl as u32))) != 0;
-        let pulse = game_data.inputs_manager.take_control_pulse();
-        let fast_forward = ctrl_down || pulse;
-        let elapsed = if fast_forward {
-            -frame_duration
-        } else {
-            frame_duration
-        };
-
-        let completed = game_data.motion_manager.update_text_reveal(
-            elapsed,
-            GLOBAL.lock().unwrap().get_int_var(0),
-            elapsed < 0,
-            &game_data.fontface_manager,
-        );
-        for tid in completed {
-            game_data.thread_wrapper.thread_text_resume(tid);
-        }
-    }
-}
-
-impl AnzuScene {
-    pub fn new() -> Self {
-        Self {}
     }
 
     fn update_alpha_motions(&mut self, game_data: &mut GameData, elapsed: i64) {
@@ -153,7 +137,6 @@ impl AnzuScene {
     }
 
     fn update_text_reveal(&mut self, game_data: &mut GameData, elapsed: i64) {
-        // Kept for compatibility with older call sites; late_update handles text reveal directly.
         let completed = game_data.motion_manager.update_text_reveal(
             elapsed,
             GLOBAL.lock().unwrap().get_int_var(0),

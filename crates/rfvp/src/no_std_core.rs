@@ -11,6 +11,7 @@ use crate::host_api::{
 use crate::rendering::prim_commands::{render_motion_to_host, HostPrimRenderCache};
 use crate::script::global::GLOBAL;
 use crate::script::parser::{Nls, Parser};
+use crate::subsystem::anzu_scene::AnzuScene;
 use crate::subsystem::resources::text_manager::FontEnumerator;
 use crate::subsystem::resources::vfs::Vfs;
 use crate::subsystem::resources::window::Window;
@@ -353,6 +354,11 @@ impl RfvpCore {
                 self.last_error_detail = Some(message);
                 return Err(RfvpError::Unsupported);
             }
+
+            // The original engine advances scripts before text and motion updates.
+            let mut scene = AnzuScene::new();
+            scene.update_after_vm(&mut self.game_data, frame_time_ms);
+
             self.flush_audio(host)?;
             self.render_game_frame(host)?;
         } else if self.run_state == RfvpCoreRunState::BootFailed {

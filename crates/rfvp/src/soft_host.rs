@@ -288,6 +288,7 @@ impl SoftHost {
             self.vm_worker.send_dissolve_done_sync();
         }
         let _ = self.vm_worker.send_frame_ms_sync(frame_ms);
+        self.finish_frame();
 
         {
             let mut gd = gd_write(&self.game_data);
@@ -396,27 +397,16 @@ impl SoftHost {
                 gd.set_halt(false);
             }
 
-            let prev_dissolve = self.last_dissolve_type;
-            let prev_dissolve2 = self.last_dissolve2_transitioning;
-            let modal_movie = gd.video_manager.is_modal_active();
-
-            if !modal_movie {
-                self.layer_machine
-                    .apply_scene_action(SceneAction::Update, gd);
-                self.scheduler.execute(gd);
-                self.layer_machine
-                    .apply_scene_action(SceneAction::LateUpdate, gd);
-            }
-
             let cur_dissolve = gd.motion_manager.get_dissolve_type();
-            if (prev_dissolve != DissolveType::None && prev_dissolve != DissolveType::Static)
+            if (self.last_dissolve_type != DissolveType::None
+                && self.last_dissolve_type != DissolveType::Static)
                 && (cur_dissolve == DissolveType::None || cur_dissolve == DissolveType::Static)
             {
                 notify_dissolve_done = true;
             }
 
             let cur_dissolve2 = gd.motion_manager.is_dissolve2_transitioning();
-            if prev_dissolve2 && !cur_dissolve2 {
+            if self.last_dissolve2_transitioning && !cur_dissolve2 {
                 notify_dissolve_done = true;
             }
             self.last_dissolve2_transitioning = cur_dissolve2;
@@ -429,6 +419,21 @@ impl SoftHost {
         }
 
         (frame_ms, notify_dissolve_done)
+    }
+
+    fn finish_frame(&mut self) {
+        let mut gd_guard = gd_write(&self.game_data);
+        let gd = &mut *gd_guard;
+
+        if !gd.video_manager.is_modal_active() {
+            self.layer_machine
+                .apply_scene_action(SceneAction::Update, gd);
+            self.scheduler.execute(gd);
+            self.layer_machine
+                .apply_scene_action(SceneAction::LateUpdate, gd);
+        }
+
+        gd.set_current_thread(0);
     }
 }
 
@@ -559,27 +564,18 @@ fn boxed_default_game_data() -> Box<GameData> {
 }
 
 fn find_hcb(game_path: impl AsRef<Path>) -> Result<PathBuf> {
-    let game_path = game_path.as_ref();
+    let mut path = game_path.as_ref().to_path_buf();
+    path.push("*.hcb");
 
-    for entry in std::fs::read_dir(game_path)? {
-        let Ok(entry) = entry else {
-            continue;
-        };
-        let path = entry.path();
-
-        if path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("hcb"))
-        {
-            return Ok(path);
-        }
+    let matches: Vec<_> = glob::glob(&path.to_string_lossy())?.flatten().collect();
+    if matches.is_empty() {
+        anyhow::bail!(
+            "No hcb file found in the game directory: {}",
+            game_path.as_ref().display()
+        );
     }
 
-    anyhow::bail!(
-        "No hcb file found in the game directory: {}",
-        game_path.display()
-    );
+    Ok(matches[0].to_path_buf())
 }
 
 fn parse_args() -> SoftHostArgs {

@@ -399,6 +399,9 @@ impl App {
                         // Run the script VM before rendering so scene changes become visible immediately.
                         let _rep = self.vm_worker.send_frame_ms_sync(frame_ms);
 
+                        // Match the original engine: script contexts run before text and motion updates.
+                        self.finish_frame();
+
                         // Apply WindowMode/Cursor requests that may have been issued during the VM tick.
                         self.apply_window_mode_requests();
                         self.update_cursor();
@@ -611,9 +614,6 @@ impl App {
             };
             gd.timer_manager.tick(frame_ms.min(u32::MAX as u64) as u32);
 
-            let prev_dissolve = self.last_dissolve_type;
-            let prev_dissolve2 = self.last_dissolve2_transitioning;
-
             // IMPORTANT: refresh input BEFORE running any scene/VM logic for this frame.
             //
             // The VM polls InputGetState/InputGetDown/InputGetUp during scheduler.execute().
@@ -654,31 +654,19 @@ impl App {
                 gd.set_halt(false);
             }
 
-            let modal_movie = gd.video_manager.is_modal_active();
-
-            if !modal_movie
-                && !self.legacy_save_load_ui.is_active()
-                && !self.exit_confirm_ui.is_active()
-            {
-                self.layer_machine
-                    .apply_scene_action(SceneAction::Update, gd);
-                self.scheduler.execute(gd);
-                self.layer_machine
-                    .apply_scene_action(SceneAction::LateUpdate, gd);
-            }
-
-            // If a dissolve finished on this frame, wake contexts waiting on DISSOLVE_WAIT
-            // on the VM thread. We only emit the event on the transition to None/Static.
+            // Detect dissolve completion produced by the previous frame's post-VM motion update.
+            // The notification is delivered before this frame's VM tick, matching the original
+            // engine's "scripts first, motions afterwards" frame boundary.
             let cur_dissolve = gd.motion_manager.get_dissolve_type();
-            if (prev_dissolve != DissolveType::None && prev_dissolve != DissolveType::Static)
+            if (self.last_dissolve_type != DissolveType::None
+                && self.last_dissolve_type != DissolveType::Static)
                 && (cur_dissolve == DissolveType::None || cur_dissolve == DissolveType::Static)
             {
                 notify_dissolve_done = true;
             }
 
-            // Dissolve2 completion should also wake contexts waiting on DISSOLVE_WAIT.
             let cur_dissolve2 = gd.motion_manager.is_dissolve2_transitioning();
-            if prev_dissolve2 && !cur_dissolve2 {
+            if self.last_dissolve2_transitioning && !cur_dissolve2 {
                 notify_dissolve_done = true;
             }
             self.last_dissolve2_transitioning = cur_dissolve2;
@@ -701,6 +689,24 @@ impl App {
         self.debug_frame_no = self.debug_frame_no.wrapping_add(1);
 
         (frame_ms, notify_dissolve_done)
+    }
+
+    fn finish_frame(&mut self) {
+        let mut gd_guard = gd_write(&self.game_data);
+        let gd = &mut *gd_guard;
+
+        if !gd.video_manager.is_modal_active()
+            && !self.legacy_save_load_ui.is_active()
+            && !self.exit_confirm_ui.is_active()
+        {
+            self.layer_machine
+                .apply_scene_action(SceneAction::Update, gd);
+            self.scheduler.execute(gd);
+            self.layer_machine
+                .apply_scene_action(SceneAction::LateUpdate, gd);
+        }
+
+        gd.set_current_thread(0);
     }
 
     fn apply_window_mode_requests(&mut self) {
@@ -1410,29 +1416,20 @@ impl App {
 
         Ok(())
     }
-    
     pub fn find_hcb(game_path: impl AsRef<Path>) -> Result<PathBuf> {
-        let game_path = game_path.as_ref();
+        let mut path = game_path.as_ref().to_path_buf();
+        path.push("*.hcb");
 
-        for entry in std::fs::read_dir(game_path)? {
-            let Ok(entry) = entry else {
-                continue;
-            };
-            let path = entry.path();
+        let matches: Vec<_> = glob::glob(&path.to_string_lossy())?.flatten().collect();
 
-            if path
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("hcb"))
-            {
-                return Ok(path);
-            }
+        if matches.is_empty() {
+            anyhow::bail!(
+                "No hcb file found in the game directory: {}",
+                game_path.as_ref().display()
+            );
         }
 
-        anyhow::bail!(
-            "No hcb file found in the game directory: {}",
-            game_path.display()
-        );
+        Ok(matches[0].to_path_buf())
     }
 
     /// Step the engine once in a host-driven environment (e.g. SwiftUI/UIKit on iOS).
@@ -1473,6 +1470,9 @@ impl App {
         }
 
         let _rep = self.vm_worker.send_frame_ms_sync(frame_ms);
+
+        // Match the original engine: script contexts run before text and motion updates.
+        self.finish_frame();
 
         self.apply_window_mode_requests();
         self.update_cursor();

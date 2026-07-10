@@ -451,6 +451,10 @@ impl RfvpOsRuntime {
         let _ = self.vm_worker.send_frame_ms_sync(frame_ms);
         uefi_stage!("[UEFI] step_frame after send_frame_ms_sync");
 
+        uefi_stage!("[UEFI] step_frame before finish_frame");
+        self.finish_frame();
+        uefi_stage!("[UEFI] step_frame after finish_frame");
+
         {
             uefi_stage!("[UEFI] step_frame before SceneAction::EndFrame");
             let mut gd = gd_write(&self.game_data);
@@ -572,36 +576,16 @@ impl RfvpOsRuntime {
                 uefi_stage!("[UEFI] next_frame after video stop");
             }
 
-            let prev_dissolve = self.last_dissolve_type;
-            let prev_dissolve2 = self.last_dissolve2_transitioning;
-            let modal_movie = gd.video_manager.is_modal_active();
-
-            if !modal_movie {
-                uefi_stage!("[UEFI] next_frame before SceneAction::Update");
-                self.layer_machine
-                    .apply_scene_action(SceneAction::Update, gd);
-                uefi_stage!("[UEFI] next_frame after SceneAction::Update");
-                uefi_stage!("[UEFI] next_frame before scheduler execute 1");
-                self.scheduler.execute(gd);
-                uefi_stage!("[UEFI] next_frame after scheduler execute 1");
-                uefi_stage!("[UEFI] next_frame before scheduler execute 2");
-                self.scheduler.execute(gd);
-                uefi_stage!("[UEFI] next_frame after scheduler execute 2");
-                uefi_stage!("[UEFI] next_frame before SceneAction::LateUpdate");
-                self.layer_machine
-                    .apply_scene_action(SceneAction::LateUpdate, gd);
-                uefi_stage!("[UEFI] next_frame after SceneAction::LateUpdate");
-            }
-
             let cur_dissolve = gd.motion_manager.get_dissolve_type();
-            if (prev_dissolve != DissolveType::None && prev_dissolve != DissolveType::Static)
+            if (self.last_dissolve_type != DissolveType::None
+                && self.last_dissolve_type != DissolveType::Static)
                 && (cur_dissolve == DissolveType::None || cur_dissolve == DissolveType::Static)
             {
                 notify_dissolve_done = true;
             }
 
             let cur_dissolve2 = gd.motion_manager.is_dissolve2_transitioning();
-            if prev_dissolve2 && !cur_dissolve2 {
+            if self.last_dissolve2_transitioning && !cur_dissolve2 {
                 notify_dissolve_done = true;
             }
             self.last_dissolve2_transitioning = cur_dissolve2;
@@ -614,6 +598,30 @@ impl RfvpOsRuntime {
         }
 
         (frame_ms, notify_dissolve_done)
+    }
+
+    fn finish_frame(&mut self) {
+        let mut gd_guard = gd_write(&self.game_data);
+        let gd = &mut *gd_guard;
+
+        if !gd.video_manager.is_modal_active() {
+            uefi_stage!("[UEFI] finish_frame before SceneAction::Update");
+            self.layer_machine
+                .apply_scene_action(SceneAction::Update, gd);
+            uefi_stage!("[UEFI] finish_frame after SceneAction::Update");
+            uefi_stage!("[UEFI] finish_frame before scheduler execute 1");
+            self.scheduler.execute(gd);
+            uefi_stage!("[UEFI] finish_frame after scheduler execute 1");
+            uefi_stage!("[UEFI] finish_frame before scheduler execute 2");
+            self.scheduler.execute(gd);
+            uefi_stage!("[UEFI] finish_frame after scheduler execute 2");
+            uefi_stage!("[UEFI] finish_frame before SceneAction::LateUpdate");
+            self.layer_machine
+                .apply_scene_action(SceneAction::LateUpdate, gd);
+            uefi_stage!("[UEFI] finish_frame after SceneAction::LateUpdate");
+        }
+
+        gd.set_current_thread(0);
     }
 }
 
@@ -782,26 +790,18 @@ fn boxed_default_game_data() -> Box<GameData> {
 #[cfg(not(target_os = "uefi"))]
 fn find_hcb(config: &RfvpOsConfig) -> AnyResult<PathBuf> {
     let game_path = Path::new(&config.project_dir);
+    let mut path = game_path.to_path_buf();
+    path.push("*.hcb");
 
-    for entry in std::fs::read_dir(game_path)? {
-        let Ok(entry) = entry else {
-            continue;
-        };
-        let path = entry.path();
-
-        if path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("hcb"))
-        {
-            return Ok(path);
-        }
+    let matches: Vec<_> = glob::glob(&path.to_string_lossy())?.flatten().collect();
+    if matches.is_empty() {
+        anyhow::bail!(
+            "No hcb file found in the game directory: {}",
+            game_path.display()
+        );
     }
 
-    anyhow::bail!(
-        "No hcb file found in the game directory: {}",
-        game_path.display()
-    );
+    Ok(matches[0].to_path_buf())
 }
 
 #[cfg(target_os = "uefi")]
