@@ -360,7 +360,13 @@ fn is_cjk_text_char(ch: char) -> bool {
         ch as u32,
         0x2E80..=0x2EFF
             | 0x3000..=0x303F
+            // Keep Japanese kana on the same preferred CJK face as kanji.
+            // Without these ranges, a Japanese sentence can mix the primary
+            // MS Gothic face for kana with a packaged CJK face for kanji.
+            | 0x3040..=0x309F
+            | 0x30A0..=0x30FF
             | 0x31C0..=0x31EF
+            | 0x31F0..=0x31FF
             | 0x3200..=0x32FF
             | 0x3300..=0x33FF
             | 0x3400..=0x4DBF
@@ -368,6 +374,8 @@ fn is_cjk_text_char(ch: char) -> bool {
             | 0xF900..=0xFAFF
             | 0xFE10..=0xFE1F
             | 0xFE30..=0xFE4F
+            | 0xFF00..=0xFFEF
+            | 0x1B000..=0x1B16F
             | 0x20000..=0x2A6DF
             | 0x2A700..=0x2B73F
             | 0x2B740..=0x2B81F
@@ -1513,6 +1521,14 @@ impl TextItem {
         eff.max(1.0)
     }
 
+    #[inline]
+    fn gdi_effect_units_to_pixels(value: u8) -> i32 {
+        // The original engine builds outline/shadow on a 4x monochrome mask
+        // and then downsamples 4x4 cells. TextOutline/TextShadowDist are thus
+        // quarter-pixel mask units, not final framebuffer pixels.
+        ((value as i32) + 3) / 4
+    }
+
     fn measure_char_advance(
         &self,
         fonts: &FontFallbackSet,
@@ -1895,7 +1911,7 @@ impl TextItem {
             return RectI32::default();
         }
         let mut rect = RectI32 { x, y, w, h };
-        let r = outline as i32;
+        let r = Self::gdi_effect_units_to_pixels(outline);
         if r > 0 {
             rect = RectI32 {
                 x: rect.x - r,
@@ -1904,8 +1920,8 @@ impl TextItem {
                 h: rect.h + r * 2,
             };
         }
-        if shadow_dist != 0 {
-            let d = shadow_dist as i32;
+        let d = Self::gdi_effect_units_to_pixels(shadow_dist);
+        if d > 0 {
             rect = rect.union(RectI32 {
                 x: x + d,
                 y: y + d,
@@ -2074,14 +2090,14 @@ impl TextItem {
             return adv;
         }
 
-        if shadow_dist != 0 {
-            let d = shadow_dist as i32;
+        let shadow_px = Self::gdi_effect_units_to_pixels(shadow_dist);
+        if shadow_px > 0 {
             Self::draw_glyph_mask(
                 buf,
                 bw,
                 bh,
-                gx + d,
-                gy + d,
+                gx + shadow_px,
+                gy + shadow_px,
                 &bitmap,
                 metrics.width,
                 metrics.height,
@@ -2090,14 +2106,14 @@ impl TextItem {
             );
         }
 
-        if outline != 0 {
-            let r = outline as i32;
-            for oy in -r..=r {
-                for ox in -r..=r {
+        let outline_px = Self::gdi_effect_units_to_pixels(outline);
+        if outline_px > 0 {
+            for oy in -outline_px..=outline_px {
+                for ox in -outline_px..=outline_px {
                     if ox == 0 && oy == 0 {
                         continue;
                     }
-                    if (ox * ox + oy * oy) > (r * r) {
+                    if (ox * ox + oy * oy) > (outline_px * outline_px) {
                         continue;
                     }
                     Self::draw_glyph_mask(
@@ -2411,49 +2427,36 @@ impl TextItem {
             self.text_size2
         };
 
-        let lm = main_fonts
+        // The original GDI renderer treats TextPos Y as the top of a fixed
+        // logical character cell. Font metrics are used only to place the
+        // glyph baseline inside that cell; they do not redefine the object's
+        // Y coordinate or line height.
+        let main_ascent = main_fonts
             .primary()
-            .horizontal_line_metrics(main_layout_size);
-        let ascent_f = lm.map(|m| m.ascent).unwrap_or(main_layout_size);
-        let descent_f = lm.map(|m| m.descent).unwrap_or(-main_layout_size * 0.25);
-        let line_gap_f = lm.map(|m| m.line_gap).unwrap_or(0.0);
+            .horizontal_line_metrics(main_layout_size)
+            .map(|m| m.ascent.ceil() as i32)
+            .unwrap_or(main_layout_size.ceil() as i32);
+        let ruby_ascent = ruby_fonts
+            .primary()
+            .horizontal_line_metrics(ruby_layout_size)
+            .map(|m| m.ascent.ceil() as i32)
+            .unwrap_or(ruby_layout_size.ceil() as i32);
 
-        let main_top_reserve = ascent_f.ceil() as i32 + self.outline_size1 as i32;
-        let main_bottom_reserve =
-            (-descent_f).ceil() as i32 + self.outline_size1 as i32 + self.shadow_distance as i32;
-
-        // Ruby must participate in vertical layout.
-        // Keep the current baseline-up policy, but derive line height from the combined
-        // main+ruby reserves instead of only adding ruby font size heuristically.
-        let ruby_baseline_up = if self.ruby_text_mode == 2 {
-            (main_layout_size.ceil() as i32 + self.ruby_extra_y as i32).max(0)
+        // IDA sub_432AF0:
+        //   y += ruby_size + ruby_extra_y  (ruby mode 2 only)
+        //   y += main_size
+        //   y += line_gap_y
+        let ruby_block_h = if self.ruby_text_mode == 2 {
+            ruby_size.round() as i32 + self.ruby_extra_y as i32
         } else {
             0
         };
-        let (line_top_reserve, line_bottom_reserve) = if self.ruby_text_mode == 2 {
-            let rlm = ruby_fonts
-                .primary()
-                .horizontal_line_metrics(ruby_layout_size);
-            let ruby_ascent_f = rlm.map(|m| m.ascent).unwrap_or(ruby_layout_size);
-            let ruby_descent_f = rlm.map(|m| m.descent).unwrap_or(-ruby_layout_size * 0.25);
-            let ruby_top_reserve = ruby_ascent_f.ceil() as i32 + self.outline_size2 as i32;
-            let ruby_bottom_reserve = (-ruby_descent_f).ceil() as i32
-                + self.outline_size2 as i32
-                + self.shadow_distance as i32;
-            (
-                main_top_reserve.max(ruby_baseline_up + ruby_top_reserve),
-                main_bottom_reserve.max((ruby_bottom_reserve - ruby_baseline_up).max(0)),
-            )
-        } else {
-            (main_top_reserve, main_bottom_reserve)
-        };
-        let line_h = line_top_reserve
-            + line_bottom_reserve
-            + line_gap_f.ceil() as i32
-            + self.line_gap_y as i32;
+        let main_baseline_offset = ruby_block_h + main_ascent;
+        let ruby_baseline_offset = ruby_ascent;
+        let line_h = ruby_block_h + main_size.round() as i32 + self.line_gap_y as i32;
 
         let mut pen_x = (self.x as i32).max(self.line_start_x as i32);
-        let mut pen_y = self.y as i32 + line_top_reserve;
+        let mut pen_y = self.y as i32 + main_baseline_offset;
 
         let mut total_required_units: i64 = 0;
         let mut line_has_any = false;
@@ -2727,7 +2730,8 @@ impl TextItem {
                         base_total_adv += logical_adv + self.main_gap_x as i32;
                     }
 
-                    let ruby_y = pen_y - ruby_baseline_up;
+                    let line_top_y = pen_y - main_baseline_offset;
+                    let ruby_y = line_top_y + ruby_baseline_offset;
                     let mut ruby_width = 0i32;
                     for rch in ruby.iter() {
                         ruby_width += self.measure_char_advance(
