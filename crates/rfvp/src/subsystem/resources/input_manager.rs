@@ -145,9 +145,7 @@ pub struct InputManager {
 
 impl Default for InputManager {
     fn default() -> Self {
-        let mut s = Self::new();
-        s.control_is_masked = true;
-        s
+        Self::new()
     }
 }
 
@@ -379,10 +377,6 @@ impl InputManager {
         {
             let _g = self.cs.enter();
 
-            if self.control_is_masked && matches!(keycode, KeyCode::Shift | KeyCode::Ctrl) {
-                return;
-            }
-
             prev_bits = self.new_input_state;
             let mask = Self::bit_for(keycode.clone());
 
@@ -406,10 +400,6 @@ impl InputManager {
         let prev_bits;
         {
             let _g = self.cs.enter();
-
-            if self.control_is_masked && matches!(keycode, KeyCode::Shift | KeyCode::Ctrl) {
-                return;
-            }
 
             prev_bits = self.new_input_state;
             let mask = Self::bit_for(keycode.clone());
@@ -548,7 +538,7 @@ impl InputManager {
         v
     }
 
-    // ignore both control and shift when masked
+    // The original engine masks only the Ctrl bit. Shift remains visible.
     pub fn set_control_mask(&mut self, mask: bool) {
         self.control_is_masked = mask;
     }
@@ -574,7 +564,6 @@ impl InputManager {
         Self::apply_virtual_click_state(&mut self.input_state);
 
         if self.control_is_masked {
-            self.input_state &= !Self::bit_for(KeyCode::Shift);
             self.input_state &= !Self::bit_for(KeyCode::Ctrl);
         }
 

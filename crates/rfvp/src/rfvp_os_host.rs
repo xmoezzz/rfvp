@@ -592,7 +592,7 @@ impl RfvpOsRuntime {
             self.last_dissolve_type = cur_dissolve;
 
             gd.set_current_thread(0);
-            if gd.get_halt() && !gd.video_manager.is_modal_active() {
+            if gd.get_halt() {
                 gd.set_halt(false);
             }
         }
@@ -604,22 +604,20 @@ impl RfvpOsRuntime {
         let mut gd_guard = gd_write(&self.game_data);
         let gd = &mut *gd_guard;
 
-        if !gd.video_manager.is_modal_active() {
-            uefi_stage!("[UEFI] finish_frame before SceneAction::Update");
-            self.layer_machine
-                .apply_scene_action(SceneAction::Update, gd);
-            uefi_stage!("[UEFI] finish_frame after SceneAction::Update");
-            uefi_stage!("[UEFI] finish_frame before scheduler execute 1");
-            self.scheduler.execute(gd);
-            uefi_stage!("[UEFI] finish_frame after scheduler execute 1");
-            uefi_stage!("[UEFI] finish_frame before scheduler execute 2");
-            self.scheduler.execute(gd);
-            uefi_stage!("[UEFI] finish_frame after scheduler execute 2");
-            uefi_stage!("[UEFI] finish_frame before SceneAction::LateUpdate");
-            self.layer_machine
-                .apply_scene_action(SceneAction::LateUpdate, gd);
-            uefi_stage!("[UEFI] finish_frame after SceneAction::LateUpdate");
-        }
+        uefi_stage!("[UEFI] finish_frame before SceneAction::Update");
+        self.layer_machine
+            .apply_scene_action(SceneAction::Update, gd);
+        uefi_stage!("[UEFI] finish_frame after SceneAction::Update");
+        uefi_stage!("[UEFI] finish_frame before scheduler execute 1");
+        self.scheduler.execute(gd);
+        uefi_stage!("[UEFI] finish_frame after scheduler execute 1");
+        uefi_stage!("[UEFI] finish_frame before scheduler execute 2");
+        self.scheduler.execute(gd);
+        uefi_stage!("[UEFI] finish_frame after scheduler execute 2");
+        uefi_stage!("[UEFI] finish_frame before SceneAction::LateUpdate");
+        self.layer_machine
+            .apply_scene_action(SceneAction::LateUpdate, gd);
+        uefi_stage!("[UEFI] finish_frame after SceneAction::LateUpdate");
 
         gd.set_current_thread(0);
     }

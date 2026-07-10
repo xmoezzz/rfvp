@@ -90,9 +90,11 @@ pub fn control_pulse(game_data: &mut GameData) -> Result<Variant> {
 }
 
 pub fn control_mask(game_data: &mut GameData, mask: &Variant) -> Result<Variant> {
-    // IDA: control_is_masked = (args[0].Type == 0)
-    // i.e. passing Nil enables the mask; any non-nil disables it.
-    let masked = mask.is_nil();
+    // IDA behavior:
+    //   control flag = (args[0].Type == 0)
+    //   refresh_input clears the Ctrl bit only when that flag is zero.
+    // Therefore Nil enables Ctrl, while any non-Nil value masks Ctrl.
+    let masked = !mask.is_nil();
     game_data.inputs_manager.set_control_mask(masked);
 
     Ok(Variant::Nil)

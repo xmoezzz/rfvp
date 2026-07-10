@@ -101,6 +101,7 @@ impl VideoPlayerManager {
 
     pub fn stop(&mut self, _motion: &mut MotionManager) {
         self.playing = false;
+        self.loaded = false;
         self.modal = false;
     }
 

@@ -29,8 +29,8 @@ use super::Syscaller;
 ///   - `flag != nil`  => normal modal movie (video + audio)
 ///
 /// In layer mode, the movie is rendered into a reserved GraphBuff slot and drawn via a reserved
-/// sprite in the root=0 prim tree. In modal mode, we additionally halt script/scheduler execution
-/// while the movie is playing.
+/// sprite in the root=0 prim tree. A non-nil flag enables movie audio, but does not halt the
+/// script engine; the original executable keeps running script contexts while a movie is active.
 pub fn movie_play(game_data: &mut GameData, path: &Variant, flag: &Variant) -> Result<Variant> {
     let path = match path {
         Variant::String(path) | Variant::ConstString(path, _) => path.as_str(),
@@ -111,12 +111,8 @@ pub fn movie_play(game_data: &mut GameData, path: &Variant, flag: &Variant) -> R
         return Ok(Variant::Nil);
     }
 
-    if matches!(mode, MovieMode::ModalWithAudio) {
-        // Freeze other actions while the modal movie is active.
-        game_data.set_halt(true);
-        game_data.thread_wrapper.should_break();
-    }
-
+    // The original Movie syscall does not set Scene::halt. Scripts that need to wait for
+    // playback explicitly poll MovieState and yield with ThreadNext.
     Ok(Variant::True)
 }
 

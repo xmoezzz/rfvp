@@ -674,14 +674,11 @@ impl App {
 
             gd.set_current_thread(0);
 
-            if gd.get_halt() {
-                // Preserve halt while a modal Movie or compatibility layer is active.
-                if !gd.video_manager.is_modal_active()
-                    && !self.legacy_save_load_ui.is_active()
-                    && !self.exit_confirm_ui.is_active()
-                {
-                    gd.set_halt(false);
-                }
+            if gd.get_halt()
+                && !self.legacy_save_load_ui.is_active()
+                && !self.exit_confirm_ui.is_active()
+            {
+                gd.set_halt(false);
             }
         }
 
@@ -695,10 +692,7 @@ impl App {
         let mut gd_guard = gd_write(&self.game_data);
         let gd = &mut *gd_guard;
 
-        if !gd.video_manager.is_modal_active()
-            && !self.legacy_save_load_ui.is_active()
-            && !self.exit_confirm_ui.is_active()
-        {
+        if !self.legacy_save_load_ui.is_active() && !self.exit_confirm_ui.is_active() {
             self.layer_machine
                 .apply_scene_action(SceneAction::Update, gd);
             self.scheduler.execute(gd);

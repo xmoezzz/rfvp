@@ -413,7 +413,7 @@ impl SoftHost {
             self.last_dissolve_type = cur_dissolve;
 
             gd.set_current_thread(0);
-            if gd.get_halt() && !gd.video_manager.is_modal_active() {
+            if gd.get_halt() {
                 gd.set_halt(false);
             }
         }
@@ -425,13 +425,11 @@ impl SoftHost {
         let mut gd_guard = gd_write(&self.game_data);
         let gd = &mut *gd_guard;
 
-        if !gd.video_manager.is_modal_active() {
-            self.layer_machine
-                .apply_scene_action(SceneAction::Update, gd);
-            self.scheduler.execute(gd);
-            self.layer_machine
-                .apply_scene_action(SceneAction::LateUpdate, gd);
-        }
+        self.layer_machine
+            .apply_scene_action(SceneAction::Update, gd);
+        self.scheduler.execute(gd);
+        self.layer_machine
+            .apply_scene_action(SceneAction::LateUpdate, gd);
 
         gd.set_current_thread(0);
     }
