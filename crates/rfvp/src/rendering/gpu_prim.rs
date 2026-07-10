@@ -575,30 +575,60 @@ impl GpuPrimRenderer {
                                 let attr = draw_prim.get_attr();
                                 let use_rect = (attr & 1) != 0;
 
-                                let (w, h, u, v) = if use_rect {
-                                    let mut w = draw_prim.get_w() as f32;
-                                    let mut h = draw_prim.get_h() as f32;
-                                    if w <= 0.0 {
-                                        w = g.get_width() as f32;
+                                let (mut w, mut h, mut u, mut v, mut clip_x, mut clip_y) =
+                                    if use_rect {
+                                        let mut w = draw_prim.get_w() as f32;
+                                        let mut h = draw_prim.get_h() as f32;
+                                        if w <= 0.0 {
+                                            w = g.get_width() as f32;
+                                        }
+                                        if h <= 0.0 {
+                                            h = g.get_height() as f32;
+                                        }
+                                        (
+                                            w,
+                                            h,
+                                            draw_prim.get_u() as f32 - g.get_offset_x() as f32,
+                                            draw_prim.get_v() as f32 - g.get_offset_y() as f32,
+                                            0.0,
+                                            0.0,
+                                        )
+                                    } else {
+                                        (
+                                            g.get_width() as f32,
+                                            g.get_height() as f32,
+                                            0.0,
+                                            0.0,
+                                            0.0,
+                                            0.0,
+                                        )
+                                    };
+
+                                if use_rect {
+                                    if u < 0.0 {
+                                        clip_x = -u;
+                                        w += u;
+                                        u = 0.0;
                                     }
-                                    if h <= 0.0 {
-                                        h = g.get_height() as f32;
+                                    if v < 0.0 {
+                                        clip_y = -v;
+                                        h += v;
+                                        v = 0.0;
                                     }
-                                    (
-                                        w.min(g.get_width() as f32),
-                                        h.min(g.get_height() as f32),
-                                        draw_prim.get_u() as f32,
-                                        draw_prim.get_v() as f32,
-                                    )
-                                } else {
-                                    (g.get_width() as f32, g.get_height() as f32, 0.0, 0.0)
-                                };
+                                    w = w.min(tw as f32 - u);
+                                    h = h.min(th as f32 - v);
+                                }
+
+                                if w <= 0.0 || h <= 0.0 {
+                                    visit[prim_idx] = 2;
+                                    return;
+                                }
 
                                 let uv0 = vec2(u / tw as f32, v / th as f32);
                                 let uv1 = vec2((u + w) / tw as f32, (v + h) / th as f32);
                                 let color = vec4(1.0, 1.0, 1.0, draw_alpha);
-                                let off_x = g.get_offset_x() as f32;
-                                let off_y = g.get_offset_y() as f32;
+                                let off_x = g.get_offset_x() as f32 + clip_x;
+                                let off_y = g.get_offset_y() as f32 + clip_y;
                                 let (pivot_x, pivot_y) = if (attr & 2) != 0 {
                                     (draw_prim.get_opx() as f32, draw_prim.get_opy() as f32)
                                 } else {

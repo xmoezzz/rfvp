@@ -639,7 +639,7 @@ fn emit_graph_sprite(
     let attr = prim.get_attr();
     let use_rect = (attr & 1) != 0;
 
-    let (w, h, u, v, tex_w, tex_h) = if text_graph {
+    let (mut w, mut h, mut u, mut v, mut tex_w, mut tex_h) = if text_graph {
         let display_w = graph.get_display_width() as f32;
         let display_h = graph.get_display_height() as f32;
         let tex_scale_x = if display_w > 0.0 {
@@ -686,12 +686,12 @@ fn emit_graph_sprite(
             h = graph.get_height() as f32;
         }
         (
-            w.min(graph.get_width() as f32),
-            h.min(graph.get_height() as f32),
-            prim.get_u() as f32,
-            prim.get_v() as f32,
-            w.min(graph.get_width() as f32),
-            h.min(graph.get_height() as f32),
+            w,
+            h,
+            prim.get_u() as f32 - graph.get_offset_x() as f32,
+            prim.get_v() as f32 - graph.get_offset_y() as f32,
+            w,
+            h,
         )
     } else {
         (
@@ -704,11 +704,38 @@ fn emit_graph_sprite(
         )
     };
 
+    let mut clip_x = 0.0;
+    let mut clip_y = 0.0;
+    if use_rect && !text_graph {
+        if u < 0.0 {
+            clip_x = -u;
+            w += u;
+            tex_w += u;
+            u = 0.0;
+        }
+        if v < 0.0 {
+            clip_y = -v;
+            h += v;
+            tex_h += v;
+            v = 0.0;
+        }
+        let max_w = tw as f32 - u;
+        let max_h = th as f32 - v;
+        w = w.min(max_w);
+        h = h.min(max_h);
+        tex_w = tex_w.min(max_w);
+        tex_h = tex_h.min(max_h);
+    }
+
+    if w <= 0.0 || h <= 0.0 || tex_w <= 0.0 || tex_h <= 0.0 {
+        return Ok(());
+    }
+
     let uv0 = vec2(u / tw as f32, v / th as f32);
     let uv1 = vec2((u + tex_w) / tw as f32, (v + tex_h) / th as f32);
     let color = vec4(1.0, 1.0, 1.0, draw_alpha);
-    let off_x = graph.get_offset_x() as f32;
-    let off_y = graph.get_offset_y() as f32;
+    let off_x = graph.get_offset_x() as f32 + clip_x;
+    let off_y = graph.get_offset_y() as f32 + clip_y;
     let (pivot_x, pivot_y) = if (attr & 2) != 0 {
         (prim.get_opx() as f32, prim.get_opy() as f32)
     } else {

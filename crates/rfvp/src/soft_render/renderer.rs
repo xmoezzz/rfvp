@@ -338,7 +338,7 @@ impl SoftRenderer {
 
         let attr = prim.get_attr();
         let use_rect = (attr & 1) != 0;
-        let (w, h, u, v) = if use_rect {
+        let (mut w, mut h, mut u, mut v, mut clip_x, mut clip_y) = if use_rect {
             let mut w = prim.get_w() as f32;
             let mut h = prim.get_h() as f32;
             if w <= 0.0 {
@@ -348,10 +348,12 @@ impl SoftRenderer {
                 h = graph.get_height() as f32;
             }
             (
-                w.min(graph.get_width() as f32),
-                h.min(graph.get_height() as f32),
-                prim.get_u() as f32,
-                prim.get_v() as f32,
+                w,
+                h,
+                prim.get_u() as f32 - graph.get_offset_x() as f32,
+                prim.get_v() as f32 - graph.get_offset_y() as f32,
+                0.0,
+                0.0,
             )
         } else {
             (
@@ -359,8 +361,29 @@ impl SoftRenderer {
                 graph.get_height() as f32,
                 0.0,
                 0.0,
+                0.0,
+                0.0,
             )
         };
+
+        if use_rect {
+            if u < 0.0 {
+                clip_x = -u;
+                w += u;
+                u = 0.0;
+            }
+            if v < 0.0 {
+                clip_y = -v;
+                h += v;
+                v = 0.0;
+            }
+            w = w.min(tw as f32 - u);
+            h = h.min(th as f32 - v);
+        }
+
+        if w <= 0.0 || h <= 0.0 {
+            return Ok(());
+        }
 
         let (pivot_x, pivot_y) = if (attr & 2) != 0 {
             (prim.get_opx() as f32, prim.get_opy() as f32)
@@ -373,8 +396,8 @@ impl SoftRenderer {
             parent_y,
             draw_x,
             draw_y,
-            graph.get_offset_x() as f32,
-            graph.get_offset_y() as f32,
+            graph.get_offset_x() as f32 + clip_x,
+            graph.get_offset_y() as f32 + clip_y,
             pivot_x,
             pivot_y,
             v3d_x,
