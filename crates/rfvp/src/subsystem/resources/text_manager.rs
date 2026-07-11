@@ -340,13 +340,21 @@ impl FontFallbackSet {
     }
 
     fn for_char(&self, ch: char) -> &Font {
+        // The original engine selects one HFONT for the text style and asks GDI
+        // to rasterize every glyph with that face. Therefore the selected primary
+        // face must win whenever it actually contains the glyph. A packaged CJK
+        // font is only a fallback for characters missing from the selected face.
+        //
+        // Checking preferred_cjk first made ordinary Japanese kanji use a different
+        // face from the requested MS Gothic face, which also changed vertical
+        // metrics and shifted option text inside its fixed GDI character cell.
+        if self.primary.has_glyph(ch) {
+            return &self.primary;
+        }
         if is_cjk_text_char(ch) {
             if let Some(font) = self.preferred_cjk.iter().find(|font| font.has_glyph(ch)) {
                 return font;
             }
-        }
-        if self.primary.has_glyph(ch) {
-            return &self.primary;
         }
         self.fallbacks
             .iter()
@@ -1529,6 +1537,28 @@ impl TextItem {
         ((value as i32) + 3) / 4
     }
 
+    #[inline]
+    fn baseline_from_cell_top(
+        fonts: &FontFallbackSet,
+        size: f32,
+        cell_top: i32,
+        ch: char,
+        outline: u8,
+        shadow_dist: u8,
+    ) -> i32 {
+        // The original GDI path copies each glyph into a fixed-height character
+        // cell whose top is TextObj::y (plus the ruby block for main text).
+        // Our fallback renderer can select a different face per character, so the
+        // baseline must come from the face that will actually rasterize this glyph.
+        let eff_size = Self::effective_gdi_font_size(size, outline, shadow_dist);
+        let font = fonts.for_char(ch);
+        let ascent = font
+            .horizontal_line_metrics(eff_size)
+            .map(|m| m.ascent.ceil() as i32)
+            .unwrap_or(eff_size.ceil() as i32);
+        cell_top + ascent
+    }
+
     fn measure_char_advance(
         &self,
         fonts: &FontFallbackSet,
@@ -2411,11 +2441,6 @@ impl TextItem {
         let draw_outline1 = Self::scale_len_u8(self.outline_size1, render_scale);
         let draw_outline2 = Self::scale_len_u8(self.outline_size2, render_scale);
         let draw_shadow = Self::scale_len_u8(self.shadow_distance, render_scale);
-        let main_layout_size =
-            Self::effective_gdi_font_size(main_size, self.outline_size1, self.shadow_distance);
-        let ruby_layout_size =
-            Self::effective_gdi_font_size(ruby_size, self.outline_size2, self.shadow_distance);
-
         let main_slot: u8 = if self.text_size1 == 0 {
             16
         } else {
@@ -2427,36 +2452,21 @@ impl TextItem {
             self.text_size2
         };
 
-        // The original GDI renderer treats TextPos Y as the top of a fixed
-        // logical character cell. Font metrics are used only to place the
-        // glyph baseline inside that cell; they do not redefine the object's
-        // Y coordinate or line height.
-        let main_ascent = main_fonts
-            .primary()
-            .horizontal_line_metrics(main_layout_size)
-            .map(|m| m.ascent.ceil() as i32)
-            .unwrap_or(main_layout_size.ceil() as i32);
-        let ruby_ascent = ruby_fonts
-            .primary()
-            .horizontal_line_metrics(ruby_layout_size)
-            .map(|m| m.ascent.ceil() as i32)
-            .unwrap_or(ruby_layout_size.ceil() as i32);
-
-        // IDA sub_432AF0:
-        //   y += ruby_size + ruby_extra_y  (ruby mode 2 only)
-        //   y += main_size
-        //   y += line_gap_y
+        // IDA sub_424550/sub_432AF0 use fixed character-cell coordinates:
+        //   ruby cell top = TextObj::y
+        //   main cell top = TextObj::y + ruby_size + ruby_extra_y (ruby mode 2)
+        //   next line      = current y + ruby block + main_size + line_gap_y
+        // Keep pen_y as the main cell top. The per-character baseline is derived
+        // later from the actual fallback face used to rasterize that character.
         let ruby_block_h = if self.ruby_text_mode == 2 {
             ruby_size.round() as i32 + self.ruby_extra_y as i32
         } else {
             0
         };
-        let main_baseline_offset = ruby_block_h + main_ascent;
-        let ruby_baseline_offset = ruby_ascent;
         let line_h = ruby_block_h + main_size.round() as i32 + self.line_gap_y as i32;
 
         let mut pen_x = (self.x as i32).max(self.line_start_x as i32);
-        let mut pen_y = self.y as i32 + main_baseline_offset;
+        let mut pen_y = self.y as i32 + ruby_block_h;
 
         let mut total_required_units: i64 = 0;
         let mut line_has_any = false;
@@ -2545,7 +2555,15 @@ impl TextItem {
                                 self.shadow_distance,
                             );
                             let draw_x = Self::scale_pos_i32(unit_x, render_scale);
-                            let draw_y = Self::scale_pos_i32(pen_y, render_scale);
+                            let draw_cell_top = Self::scale_pos_i32(pen_y, render_scale);
+                            let draw_y = Self::baseline_from_cell_top(
+                                &main_fonts,
+                                main_draw_size,
+                                draw_cell_top,
+                                ch,
+                                draw_outline1,
+                                draw_shadow,
+                            );
                             self.draw_char(
                                 &mut full_buffer,
                                 bw,
@@ -2621,7 +2639,15 @@ impl TextItem {
                         self.shadow_distance,
                     );
                     let draw_x = Self::scale_pos_i32(pen_x, render_scale);
-                    let draw_y = Self::scale_pos_i32(pen_y, render_scale);
+                    let draw_cell_top = Self::scale_pos_i32(pen_y, render_scale);
+                    let draw_y = Self::baseline_from_cell_top(
+                        &main_fonts,
+                        main_draw_size,
+                        draw_cell_top,
+                        ch,
+                        draw_outline1,
+                        draw_shadow,
+                    );
                     self.draw_char(
                         &mut full_buffer,
                         bw,
@@ -2697,7 +2723,15 @@ impl TextItem {
                             self.shadow_distance,
                         );
                         let draw_x = Self::scale_pos_i32(pen_x, render_scale);
-                        let draw_y = Self::scale_pos_i32(pen_y, render_scale);
+                        let draw_cell_top = Self::scale_pos_i32(pen_y, render_scale);
+                        let draw_y = Self::baseline_from_cell_top(
+                            &main_fonts,
+                            main_draw_size,
+                            draw_cell_top,
+                            *ch,
+                            draw_outline1,
+                            draw_shadow,
+                        );
                         self.draw_char(
                             &mut full_buffer,
                             bw,
@@ -2730,8 +2764,7 @@ impl TextItem {
                         base_total_adv += logical_adv + self.main_gap_x as i32;
                     }
 
-                    let line_top_y = pen_y - main_baseline_offset;
-                    let ruby_y = line_top_y + ruby_baseline_offset;
+                    let ruby_cell_top = pen_y - ruby_block_h;
                     let mut ruby_width = 0i32;
                     for rch in ruby.iter() {
                         ruby_width += self.measure_char_advance(
@@ -2757,7 +2790,15 @@ impl TextItem {
                             self.shadow_distance,
                         );
                         let draw_x = Self::scale_pos_i32(ruby_x, render_scale);
-                        let draw_y = Self::scale_pos_i32(ruby_y, render_scale);
+                        let draw_cell_top = Self::scale_pos_i32(ruby_cell_top, render_scale);
+                        let draw_y = Self::baseline_from_cell_top(
+                            &ruby_fonts,
+                            ruby_draw_size,
+                            draw_cell_top,
+                            rch,
+                            draw_outline2,
+                            draw_shadow,
+                        );
                         self.draw_char(
                             &mut full_buffer,
                             bw,

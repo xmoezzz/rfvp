@@ -530,26 +530,14 @@ where
                     color.get_b() as f32 / 255.0,
                     draw_alpha * (color.get_a() as f32 / 255.0),
                 );
-                let (pivot_x, pivot_y) = if (draw_prim.get_attr() & 2) != 0 {
-                    (draw_prim.get_opx() as f32, draw_prim.get_opy() as f32)
-                } else {
-                    (0.0, 0.0)
-                };
-                let model = build_draw_model(
-                    virtual_size,
-                    &draw_prim,
-                    parent_x,
-                    parent_y,
-                    draw_x,
-                    draw_y,
+                // The original engine's draw_color_tile() uses only the
+                // accumulated parent position plus the tile's X/Y and W/H.
+                // Tile primitives do not apply rotation, scale, pivot, or V3D.
+                let model = Mat4::from_translation(vec3(
+                    parent_x + draw_x,
+                    parent_y + draw_y,
                     0.0,
-                    0.0,
-                    pivot_x,
-                    pivot_y,
-                    v3d_x,
-                    v3d_y,
-                    v3d_z,
-                );
+                ));
                 emit_sprite(
                     commands,
                     hit_proxies,
@@ -558,8 +546,12 @@ where
                     model,
                     w,
                     h,
-                    vec2(0.0, 0.0),
-                    vec2(1.0, 1.0),
+                    // The original engine draws Tile primitives as an untextured
+                    // diffuse-color quad. Keep the compatibility 1x1 white texture, but
+                    // sample its center at every vertex so filtering can never pull an
+                    // edge/border value into the solid rectangle.
+                    vec2(0.5, 0.5),
+                    vec2(0.5, 0.5),
                     rgba,
                     DrawTextureKey::White,
                 )?;

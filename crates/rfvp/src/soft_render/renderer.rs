@@ -626,9 +626,9 @@ impl SoftRenderer {
         draw_x: f32,
         draw_y: f32,
         draw_alpha: f32,
-        v3d_x: i32,
-        v3d_y: i32,
-        v3d_z: i32,
+        _v3d_x: i32,
+        _v3d_y: i32,
+        _v3d_z: i32,
     ) {
         let w = prim.get_w() as f32;
         let h = prim.get_h() as f32;
@@ -642,15 +642,14 @@ impl SoftRenderer {
             c.get_b() as f32 / 255.0,
             draw_alpha * (c.get_a() as f32 / 255.0),
         );
-        let (pivot_x, pivot_y) = if (prim.get_attr() & 2) != 0 {
-            (prim.get_opx() as f32, prim.get_opy() as f32)
-        } else {
-            (0.0, 0.0)
-        };
-        let model = self.build_draw_model(
-            prim, parent_x, parent_y, draw_x, draw_y, 0.0, 0.0, pivot_x, pivot_y, v3d_x, v3d_y,
-            v3d_z,
-        );
+        // The original engine's draw_color_tile() uses only the accumulated
+        // parent position plus the tile's X/Y and W/H. Tile primitives do not
+        // apply rotation, scale, pivot, or V3D.
+        let model = Mat4::from_translation(vec3(
+            parent_x + draw_x,
+            parent_y + draw_y,
+            0.0,
+        ));
         let _ = self.draw_textured_quad(
             model,
             w,
