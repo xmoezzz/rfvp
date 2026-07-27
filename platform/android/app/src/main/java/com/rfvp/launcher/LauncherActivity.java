@@ -1,6 +1,8 @@
 package com.rfvp.launcher;
 
+import android.Manifest;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -14,6 +16,7 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.app.AlertDialog;
+import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -33,6 +36,29 @@ public final class LauncherActivity extends AppCompatActivity implements GameAda
 
     private final ActivityResultLauncher<Uri> openTreeLauncher =
             registerForActivityResult(new ActivityResultContracts.OpenDocumentTree(), this::onImportTreeSelected);
+
+    private final ActivityResultLauncher<String[]> legacyStoragePermissionLauncher =
+            registerForActivityResult(
+                    new ActivityResultContracts.RequestMultiplePermissions(),
+                    result -> {
+                        boolean readGranted = Boolean.TRUE.equals(
+                                result.get(Manifest.permission.READ_EXTERNAL_STORAGE)
+                        );
+                        boolean writeGranted = Boolean.TRUE.equals(
+                                result.get(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                        );
+
+                        if (readGranted && writeGranted) {
+                            openTreeLauncher.launch(null);
+                        } else {
+                            Toast.makeText(
+                                    this,
+                                    "Storage access is required for no-copy import.",
+                                    Toast.LENGTH_LONG
+                            ).show();
+                        }
+                    }
+            );
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -59,19 +85,35 @@ public final class LauncherActivity extends AppCompatActivity implements GameAda
     }
 
     private void startImportFlow() {
-        if (!hasAllFilesAccess()) {
-            showAllFilesAccessPrompt();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (!Environment.isExternalStorageManager()) {
+                showAllFilesAccessPrompt();
+                return;
+            }
+            openTreeLauncher.launch(null);
             return;
         }
+
+        if (!hasLegacyStorageAccess()) {
+            legacyStoragePermissionLauncher.launch(new String[] {
+                    Manifest.permission.READ_EXTERNAL_STORAGE,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE
+            });
+            return;
+        }
+
         openTreeLauncher.launch(null);
     }
 
-    private boolean hasAllFilesAccess() {
-        // MANAGE_EXTERNAL_STORAGE applies on Android 11+.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            return Environment.isExternalStorageManager();
-        }
-        return true;
+    private boolean hasLegacyStorageAccess() {
+        return ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.READ_EXTERNAL_STORAGE
+        ) == PackageManager.PERMISSION_GRANTED
+                && ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
+        ) == PackageManager.PERMISSION_GRANTED;
     }
 
     private void showAllFilesAccessPrompt() {

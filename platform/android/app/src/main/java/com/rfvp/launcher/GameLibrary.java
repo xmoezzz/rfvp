@@ -19,6 +19,7 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 public final class GameLibrary {
@@ -114,7 +115,25 @@ public final class GameLibrary {
 
         File hcb = findFirstHcb(directRoot);
         if (hcb == null) {
+            // Some Android storage implementations grant access through SAF but do not allow
+            // File.listFiles() to enumerate the same directory. Search the granted SAF tree and
+            // map the matching relative path back to the direct root required by the native engine.
+            String relativeHcbPath = findFirstHcbRelativePath(tree, "");
+            if (relativeHcbPath != null) {
+                hcb = new File(directRoot, relativeHcbPath);
+            }
+        }
+
+        if (hcb == null) {
             throw new IllegalStateException("No .hcb found in selected folder");
+        }
+
+        if (!hcb.isFile()) {
+            throw new IllegalStateException(
+                    "The .hcb file was found through Android's folder picker, "
+                            + "but its direct filesystem path is not accessible: "
+                            + hcb.getAbsolutePath()
+            );
         }
 
         String title = HcbTitleReader.readTitle(hcb);
@@ -254,10 +273,37 @@ public final class GameLibrary {
     }
 
     @Nullable
+    private static String findFirstHcbRelativePath(DocumentFile root, String relativePath) {
+        if (root == null || !root.exists()) return null;
+
+        if (root.isFile()) {
+            String name = root.getName();
+            if (name != null && name.toLowerCase(Locale.ROOT).endsWith(".hcb")) {
+                return relativePath;
+            }
+            return null;
+        }
+
+        DocumentFile[] children = root.listFiles();
+        for (DocumentFile child : children) {
+            String name = child.getName();
+            if (name == null || name.isEmpty()) continue;
+
+            String childRelativePath = relativePath.isEmpty()
+                    ? name
+                    : relativePath + File.separator + name;
+
+            String hit = findFirstHcbRelativePath(child, childRelativePath);
+            if (hit != null) return hit;
+        }
+        return null;
+    }
+
+    @Nullable
     private static File findFirstHcb(File root) {
         if (root == null || !root.exists()) return null;
         if (root.isFile()) {
-            String n = root.getName().toLowerCase();
+            String n = root.getName().toLowerCase(Locale.ROOT);
             if (n.endsWith(".hcb")) return root;
             return null;
         }
