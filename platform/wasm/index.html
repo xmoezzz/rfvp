@@ -48,7 +48,8 @@
 
     button,
     select,
-    label.file-button {
+    label.file-button,
+    label.toggle-control {
       font: inherit;
     }
 
@@ -128,6 +129,21 @@
     }
 
     #header-spacer { flex: 1; }
+
+    .toggle-control {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+      user-select: none;
+    }
+
+    .toggle-control input {
+      margin: 0;
+    }
 
     #game-dir {
       position: absolute;
@@ -375,6 +391,10 @@
       <header id="header">
         <div id="brand">rfvp</div>
         <div id="header-spacer"></div>
+        <label class="toggle-control" for="text-hidpi-toggle">
+          <input id="text-hidpi-toggle" type="checkbox" checked />
+          <span>Text HiDPI</span>
+        </label>
         <label class="file-button secondary" for="game-dir">Choose Folder</label>
         <input id="game-dir" type="file" webkitdirectory multiple />
         <button id="rescan-button" class="secondary" disabled>Rescan</button>

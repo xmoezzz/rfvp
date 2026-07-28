@@ -3,6 +3,7 @@ import AppKit
 
 struct ContentView: View {
     @EnvironmentObject var library: GameLibrary
+    @AppStorage("rfvp.textHidpiEnabled") private var textHidpiEnabled: Bool = true
 
     private let columns: [GridItem] = [
         GridItem(.flexible(), spacing: 16),
@@ -43,6 +44,10 @@ struct ContentView: View {
                 .bold()
 
             Spacer()
+
+            Toggle("Text HiDPI", isOn: $textHidpiEnabled)
+                .toggleStyle(.switch)
+                .fixedSize()
 
             Button("Import…") {
                 library.importGameFolder()

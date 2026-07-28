@@ -33,6 +33,9 @@ import java.nio.charset.StandardCharsets;
 public final class RfvpGameActivity extends AppCompatActivity
         implements SurfaceHolder.Callback, Choreographer.FrameCallback, View.OnTouchListener {
 
+    private static final String SETTINGS_NAME = "rfvp_settings";
+    private static final String TEXT_HIDPI_KEY = "text_hidpi_enabled";
+
     private SurfaceView surfaceView;
 
     private long handle = 0;
@@ -155,6 +158,9 @@ public final class RfvpGameActivity extends AppCompatActivity
             finish();
             return;
         }
+        boolean textHidpiEnabled = getSharedPreferences(SETTINGS_NAME, MODE_PRIVATE)
+                .getBoolean(TEXT_HIDPI_KEY, true);
+        NativeRfvp.setTextHidpi(hnd, textHidpiEnabled);
         handle = hnd;
     }
 

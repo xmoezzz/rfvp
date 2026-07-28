@@ -1,4 +1,4 @@
-import init, { start_rfvp_from_directory } from "./pkg/rfvp.js";
+import init, { start_rfvp_from_directory_with_text_hidpi } from "./pkg/rfvp.js";
 
 const input = document.getElementById("game-dir");
 const rescanButton = document.getElementById("rescan-button");
@@ -13,6 +13,7 @@ const playerScreen = document.getElementById("player-screen");
 const playerTitle = document.getElementById("player-title");
 const exitButton = document.getElementById("exit-button");
 const canvas = document.getElementById("rfvp-canvas");
+const textHidpiToggle = document.getElementById("text-hidpi-toggle");
 
 const NLS_OPTIONS = [
   { value: "sjis", label: "SJIS" },
@@ -27,6 +28,28 @@ let games = [];
 let running = false;
 let nextFileId = 1;
 const fileRegistry = new Map();
+
+function loadTextHidpiEnabled() {
+  try {
+    const saved = localStorage.getItem("rfvp.textHidpiEnabled");
+    return saved === null ? true : saved === "true";
+  } catch (_) {
+    return true;
+  }
+}
+
+function saveTextHidpiEnabled(enabled) {
+  try {
+    localStorage.setItem("rfvp.textHidpiEnabled", enabled ? "true" : "false");
+  } catch (_) {
+    // best-effort
+  }
+}
+
+textHidpiToggle.checked = loadTextHidpiEnabled();
+textHidpiToggle.addEventListener("change", () => {
+  saveTextHidpiEnabled(textHidpiToggle.checked);
+});
 
 globalThis.rfvpReadFileRange = function rfvpReadFileRange(fileId, offset, len) {
   const file = fileRegistry.get(Number(fileId));
@@ -483,10 +506,11 @@ async function launchGame(game) {
 
     hideLaunching();
 
-    await start_rfvp_from_directory(
+    await start_rfvp_from_directory_with_text_hidpi(
       "rfvp-canvas",
       game.nls,
       JSON.stringify(files),
+      textHidpiToggle.checked,
     );
 
     setStatus("Running.");

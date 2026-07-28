@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject var library: GameLibrary
+    @AppStorage("rfvp.textHidpiEnabled") private var textHidpiEnabled: Bool = true
 
     @State private var isLaunching: Bool = false
 
@@ -62,6 +63,10 @@ struct ContentView: View {
                 .font(.headline)
 
             Spacer()
+
+            Toggle("Text HiDPI", isOn: $textHidpiEnabled)
+                .toggleStyle(.switch)
+                .fixedSize()
 
             Button("Rescan") {
                 library.rescanFromDocuments()

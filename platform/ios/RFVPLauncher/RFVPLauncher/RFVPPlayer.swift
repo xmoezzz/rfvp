@@ -199,6 +199,7 @@ final class RFVPPlayerViewController: UIViewController {
     private let gameRoot: String
     private let nls: String
     private let onExit: () -> Void
+    private var textHidpiEnabled: Bool
 
     private var metalView: RFVPMetalView { view as! RFVPMetalView }
 
@@ -209,9 +210,10 @@ final class RFVPPlayerViewController: UIViewController {
     private var lastDrawableSizePx: (UInt32, UInt32) = (0, 0)
     private var lastScale: Double = 0.0
 
-    init(gameRoot: String, nls: String, onExit: @escaping () -> Void) {
+    init(gameRoot: String, nls: String, textHidpiEnabled: Bool, onExit: @escaping () -> Void) {
         self.gameRoot = gameRoot
         self.nls = nls
+        self.textHidpiEnabled = textHidpiEnabled
         self.onExit = onExit
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .fullScreen
@@ -306,6 +308,9 @@ final class RFVPPlayerViewController: UIViewController {
                 self.handle = hnd
                 self.lastDrawableSizePx = (wPx, hPx)
                 self.lastScale = scale
+                if let hnd {
+                    rfvp_ios_set_text_hidpi(hnd, self.textHidpiEnabled ? 1 : 0)
+                }
             }
         }
 
@@ -315,6 +320,7 @@ final class RFVPPlayerViewController: UIViewController {
     }
 
     func setTextHidpiEnabled(_ enabled: Bool) {
+        textHidpiEnabled = enabled
         guard let handle else { return }
         rfvp_ios_set_text_hidpi(handle, enabled ? 1 : 0)
     }
@@ -368,25 +374,33 @@ final class RFVPPlayerViewController: UIViewController {
 struct RFVPPlayerContainer: UIViewControllerRepresentable {
     let gameRoot: String
     let nls: String
+    let textHidpiEnabled: Bool
     let onExit: () -> Void
 
     func makeUIViewController(context: Context) -> RFVPPlayerViewController {
-        RFVPPlayerViewController(gameRoot: gameRoot, nls: nls, onExit: onExit)
+        RFVPPlayerViewController(
+            gameRoot: gameRoot,
+            nls: nls,
+            textHidpiEnabled: textHidpiEnabled,
+            onExit: onExit
+        )
     }
 
     func updateUIViewController(_ uiViewController: RFVPPlayerViewController, context: Context) {
-        // No-op
+        uiViewController.setTextHidpiEnabled(textHidpiEnabled)
     }
 }
 
 struct RFVPPlayerScreen: View {
     @EnvironmentObject var library: GameLibrary
+    @AppStorage("rfvp.textHidpiEnabled") private var textHidpiEnabled: Bool = true
     let game: GameEntry
 
     var body: some View {
         RFVPPlayerContainer(
             gameRoot: game.rootPath,
             nls: GameEntry.normalizeNls(game.nls),
+            textHidpiEnabled: textHidpiEnabled,
             onExit: {
                 DispatchQueue.main.async {
                     library.activeGame = nil

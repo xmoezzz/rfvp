@@ -1,6 +1,6 @@
 # macOS Bundle Build Guide
 
-This repository provides a macOS application bundle (`RFVP.app`) that runs the release `rfvp` binary.
+This repository provides a macOS SwiftUI launcher bundle (`RFVP.app`) linked to the release `librfvp.dylib`.
 
 ## Requirements
 
@@ -8,6 +8,7 @@ This repository provides a macOS application bundle (`RFVP.app`) that runs the r
 - macOS (Apple Silicon or Intel)
 
 ### Apple tooling
+- **Xcode command line tools** with `xcodebuild`, `install_name_tool`, and `otool`
 - **hdiutil** (required for DMG packaging; included with macOS)
 - **codesign** (optional ad-hoc signing; included with macOS)
 
@@ -24,8 +25,12 @@ Run:
 ./platform/scripts/package_macos_app.sh
 ```
 
-This script builds the release Rust binary and assembles:
-- `RFVP.app` with `Contents/MacOS/RFVP` copied from `target/release/rfvp`.
+This script:
+- builds the release Rust `cdylib`;
+- builds the SwiftUI launcher in `platform/macos/RFVPLauncher`;
+- embeds `librfvp.dylib` in `RFVP.app/Contents/Frameworks`;
+- rewrites the launcher dependency to `@rpath/librfvp.dylib`;
+- applies an ad hoc signature when `codesign` is available.
 
 ### 2) Build the DMG
 Run:

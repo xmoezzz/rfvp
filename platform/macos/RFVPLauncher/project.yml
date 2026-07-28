@@ -19,9 +19,7 @@ targets:
         PRODUCT_NAME: RFVP
         SWIFT_VERSION: "5.0"
         INFOPLIST_FILE: RFVPLauncher/Info.plist
-        # Link-time search path for librfvp.dylib copied into Vendor/
-        LIBRARY_SEARCH_PATHS: ["$(PROJECT_DIR)/Vendor"]
-        OTHER_LDFLAGS: ["-L$(PROJECT_DIR)/Vendor", "-lrfvp", "-Wl,-rpath,@executable_path/../Frameworks"]
+        # The launcher loads Contents/Frameworks/librfvp.dylib with dlopen.
         LD_RUNPATH_SEARCH_PATHS: ["@executable_path/../Frameworks"]
     dependencies:
       - sdk: AppKit.framework

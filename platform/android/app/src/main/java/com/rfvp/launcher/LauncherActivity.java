@@ -16,6 +16,7 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.app.AlertDialog;
+import androidx.appcompat.widget.SwitchCompat;
 import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -30,6 +31,9 @@ import java.util.List;
  * - Run: taps a tile -> writes launch.json -> starts GameActivity.
  */
 public final class LauncherActivity extends AppCompatActivity implements GameAdapter.Listener {
+
+    private static final String SETTINGS_NAME = "rfvp_settings";
+    private static final String TEXT_HIDPI_KEY = "text_hidpi_enabled";
 
     private GameLibrary library;
     private GameAdapter adapter;
@@ -75,6 +79,17 @@ public final class LauncherActivity extends AppCompatActivity implements GameAda
 
         Button importBtn = findViewById(R.id.btn_import);
         importBtn.setOnClickListener(v -> startImportFlow());
+
+        SwitchCompat textHidpiSwitch = findViewById(R.id.switch_text_hidpi);
+        boolean textHidpiEnabled = getSharedPreferences(SETTINGS_NAME, MODE_PRIVATE)
+                .getBoolean(TEXT_HIDPI_KEY, true);
+        textHidpiSwitch.setChecked(textHidpiEnabled);
+        textHidpiSwitch.setOnCheckedChangeListener((buttonView, isChecked) ->
+                getSharedPreferences(SETTINGS_NAME, MODE_PRIVATE)
+                        .edit()
+                        .putBoolean(TEXT_HIDPI_KEY, isChecked)
+                        .apply()
+        );
 
         refresh();
     }

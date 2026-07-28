@@ -22,11 +22,73 @@ private func redirectStdoutStderrToLogFile() {
     print("\n---- RFVPLauncher start: \(Date()) ----")
 }
 
-@_silgen_name("rfvp_run_entry")
-private func rfvp_run_entry(_ gameRootUtf8: UnsafePointer<CChar>, _ nlsUtf8: UnsafePointer<CChar>) -> Int32
+private typealias RfvpRunEntryFn = @convention(c) (
+    UnsafePointer<CChar>,
+    UnsafePointer<CChar>
+) -> Int32
+private typealias RfvpSetTextHidpiEnabledFn = @convention(c) (Int32) -> Void
 
-@_silgen_name("rfvp_set_text_hidpi_enabled")
-private func rfvp_set_text_hidpi_enabled(_ enabled: Int32) -> Void
+/// Loads the Rust engine from the dylib embedded in this app bundle.
+///
+/// The launcher intentionally does not link against `librfvp.dylib` at build time.
+/// Loading the exact bundle path avoids Xcode library-search ambiguity and allows the
+/// packaging script to validate both Universal Binary slices before the app is built.
+private final class RfvpDynamicLibrary {
+    static let shared = RfvpDynamicLibrary()
+
+    private let handle: UnsafeMutableRawPointer?
+
+    private init() {
+        guard let frameworksPath = Bundle.main.privateFrameworksPath else {
+            print("[launcher] error: app bundle has no Frameworks directory")
+            self.handle = nil
+            return
+        }
+
+        let dylibPath = URL(fileURLWithPath: frameworksPath)
+            .appendingPathComponent("librfvp.dylib", isDirectory: false)
+            .path
+
+        dlerror()
+        self.handle = dylibPath.withCString { path in
+            dlopen(path, RTLD_NOW | RTLD_LOCAL)
+        }
+
+        if self.handle == nil {
+            let detail = dlerror().map { String(cString: $0) } ?? "unknown dynamic loader error"
+            print("[launcher] error: failed to load \(dylibPath): \(detail)")
+        }
+    }
+
+    private func symbol(named name: String) -> UnsafeMutableRawPointer? {
+        guard let handle else {
+            return nil
+        }
+
+        dlerror()
+        let symbol = name.withCString { dlsym(handle, $0) }
+        if symbol == nil {
+            let detail = dlerror().map { String(cString: $0) } ?? "symbol not found"
+            print("[launcher] error: \(name) unavailable: \(detail)")
+        }
+        return symbol
+    }
+
+    func runEntry() -> RfvpRunEntryFn? {
+        guard let symbol = symbol(named: "rfvp_run_entry") else {
+            return nil
+        }
+        return unsafeBitCast(symbol, to: RfvpRunEntryFn.self)
+    }
+
+    func setTextHidpiEnabled(_ enabled: Bool) {
+        guard let symbol = symbol(named: "rfvp_set_text_hidpi_enabled") else {
+            return
+        }
+        let setter = unsafeBitCast(symbol, to: RfvpSetTextHidpiEnabledFn.self)
+        setter(enabled ? 1 : 0)
+    }
+}
 
 final class LauncherWindowDelegate: NSObject, NSWindowDelegate {
     private let onClose: () -> Void
@@ -117,14 +179,18 @@ final class LauncherHost {
     }
 
     func setTextHidpiEnabled(_ enabled: Bool) {
-        rfvp_set_text_hidpi_enabled(enabled ? 1 : 0)
+        RfvpDynamicLibrary.shared.setTextHidpiEnabled(enabled)
     }
 
     func runGame(_ game: GameEntry) -> Int32 {
+        guard let runEntry = RfvpDynamicLibrary.shared.runEntry() else {
+            return 126
+        }
+
         // Avoid manual allocation/free here; the strings are only needed for the duration of the call.
         return game.rootPath.withCString { gameC in
             game.nls.withCString { nlsC in
-                rfvp_run_entry(gameC, nlsC)
+                runEntry(gameC, nlsC)
             }
         }
     }
@@ -153,7 +219,10 @@ struct RFVPLauncherMain {
             return
         }
 
-        print("[launcher] -> rfvp_run_entry(game_root=\(game.rootPath), nls=\(game.nls)); NSApp.isRunning=\(NSApp.isRunning)")
+        let textHidpiEnabled = UserDefaults.standard.object(forKey: "rfvp.textHidpiEnabled") as? Bool ?? true
+        host.setTextHidpiEnabled(textHidpiEnabled)
+
+        print("[launcher] -> rfvp_run_entry(game_root=\(game.rootPath), nls=\(game.nls), text_hidpi=\(textHidpiEnabled)); NSApp.isRunning=\(NSApp.isRunning)")
         let rc = host.runGame(game)
         print("[launcher] <- rfvp_run_entry returned \(rc); exiting process")
 
