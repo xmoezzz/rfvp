@@ -1426,6 +1426,18 @@ impl App {
         Ok(matches[0].to_path_buf())
     }
 
+    pub fn set_text_hidpi_enabled(&mut self, enabled: bool) {
+        let mut gd = gd_write(&self.game_data);
+        gd.motion_manager
+            .text_manager
+            .set_hidpi_enabled(enabled);
+    }
+
+    pub fn text_hidpi_enabled(&self) -> bool {
+        let gd = gd_read(&self.game_data);
+        gd.motion_manager.text_manager.hidpi_enabled()
+    }
+
     /// Step the engine once in a host-driven environment (e.g. SwiftUI/UIKit on iOS).
     ///
     /// The host is responsible for calling this at a stable cadence (e.g. via CADisplayLink).
@@ -2060,6 +2072,14 @@ impl AppBuilder {
         self.world
             .fontface_manager
             .set_system_font_fallback_enabled(enabled);
+        self
+    }
+
+    pub fn with_text_hidpi_enabled(mut self, enabled: bool) -> Self {
+        self.world
+            .motion_manager
+            .text_manager
+            .set_hidpi_enabled(enabled);
         self
     }
 
@@ -3333,6 +3353,14 @@ pub struct PumpInstance {
 
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 impl PumpInstance {
+    pub fn set_text_hidpi_enabled(&mut self, enabled: bool) {
+        self.app.set_text_hidpi_enabled(enabled);
+    }
+
+    pub fn text_hidpi_enabled(&self) -> bool {
+        self.app.text_hidpi_enabled()
+    }
+
     /// Pump window/system events and drive one iteration of the application.
     ///
     /// Returns `PumpStatus::Exit` once the app requests termination.

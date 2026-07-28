@@ -34,6 +34,18 @@ pub enum GraphBuffLoadKind {
     RawRgba,
 }
 
+#[derive(Debug, Copy, Clone)]
+pub struct TextTextureRegion {
+    pub draw_x: f32,
+    pub draw_y: f32,
+    pub draw_w: f32,
+    pub draw_h: f32,
+    pub tex_x: f32,
+    pub tex_y: f32,
+    pub tex_w: f32,
+    pub tex_h: f32,
+}
+
 #[derive(Debug, Clone)]
 pub struct GraphBuff {
     pub texture: Option<DynamicImage>,
@@ -50,6 +62,14 @@ pub struct GraphBuff {
     pub display_height: u16,
     pub u: u16,
     pub v: u16,
+
+    /// Pixel-space origin of a cropped HiDPI text backing surface inside its logical TextBuff.
+    /// These fields are zero for ordinary graph buffers and uncropped text surfaces.
+    pub text_origin_x_px: u16,
+    pub text_origin_y_px: u16,
+    /// Rasterization scale used by text surfaces. Zero means this graph is not carrying
+    /// explicit text-surface metadata and callers should use the legacy width/display ratio.
+    pub text_raster_scale: f32,
 
     /// Monotonically increasing generation counter.
     ///
@@ -78,6 +98,9 @@ impl GraphBuff {
             display_height: 0,
             u: 0,
             v: 0,
+            text_origin_x_px: 0,
+            text_origin_y_px: 0,
+            text_raster_scale: 0.0,
             generation: 0,
             load_kind: GraphBuffLoadKind::Unknown,
         }
@@ -153,6 +176,96 @@ impl GraphBuff {
         }
     }
 
+    pub fn get_text_origin_x_px(&self) -> u16 {
+        self.text_origin_x_px
+    }
+
+    pub fn get_text_origin_y_px(&self) -> u16 {
+        self.text_origin_y_px
+    }
+
+    pub fn get_text_raster_scale(&self) -> f32 {
+        self.text_raster_scale
+    }
+
+    /// Resolve the visible portion of a possibly cropped HiDPI text surface.
+    /// Text primitive rectangle coordinates remain in the original logical TextBuff space.
+    pub fn text_texture_region(
+        &self,
+        texture_width: u32,
+        texture_height: u32,
+        use_rect: bool,
+        rect_u: f32,
+        rect_v: f32,
+        rect_w: f32,
+        rect_h: f32,
+    ) -> Option<TextTextureRegion> {
+        if texture_width == 0 || texture_height == 0 {
+            return None;
+        }
+
+        let display_w = self.get_display_width() as f32;
+        let display_h = self.get_display_height() as f32;
+        let scale = if self.text_raster_scale.is_finite() && self.text_raster_scale > 0.0 {
+            self.text_raster_scale
+        } else if display_w > 0.0 {
+            texture_width as f32 / display_w
+        } else {
+            1.0
+        };
+        if !scale.is_finite() || scale <= 0.0 {
+            return None;
+        }
+
+        let content_x = self.text_origin_x_px as f32 / scale;
+        let content_y = self.text_origin_y_px as f32 / scale;
+        let content_w = texture_width as f32 / scale;
+        let content_h = texture_height as f32 / scale;
+        if content_w <= 0.0 || content_h <= 0.0 {
+            return None;
+        }
+
+        if !use_rect {
+            return Some(TextTextureRegion {
+                draw_x: content_x,
+                draw_y: content_y,
+                draw_w: content_w,
+                draw_h: content_h,
+                tex_x: 0.0,
+                tex_y: 0.0,
+                tex_w: texture_width as f32,
+                tex_h: texture_height as f32,
+            });
+        }
+
+        let requested_w = if rect_w > 0.0 { rect_w } else { display_w };
+        let requested_h = if rect_h > 0.0 { rect_h } else { display_h };
+        if requested_w <= 0.0 || requested_h <= 0.0 {
+            return None;
+        }
+
+        let x0 = rect_u.max(content_x);
+        let y0 = rect_v.max(content_y);
+        let x1 = (rect_u + requested_w).min(content_x + content_w);
+        let y1 = (rect_v + requested_h).min(content_y + content_h);
+        if x1 <= x0 || y1 <= y0 {
+            return None;
+        }
+
+        Some(TextTextureRegion {
+            // Rect selection changes the source region but keeps the destination origin at zero.
+            // Only the transparent prefix removed by cropping becomes a destination offset.
+            draw_x: x0 - rect_u,
+            draw_y: y0 - rect_v,
+            draw_w: x1 - x0,
+            draw_h: y1 - y0,
+            tex_x: (x0 - content_x) * scale,
+            tex_y: (y0 - content_y) * scale,
+            tex_w: (x1 - x0) * scale,
+            tex_h: (y1 - y0) * scale,
+        })
+    }
+
     /// Export this graph as an 8-bit coverage mask (alpha plane) for text rendering.
     ///
     /// This is primarily used for gaiji (external glyph) rendering where the NVSG payload is
@@ -217,6 +330,9 @@ impl GraphBuff {
         self.display_height = 0;
         self.u = 0;
         self.v = 0;
+        self.text_origin_x_px = 0;
+        self.text_origin_y_px = 0;
+        self.text_raster_scale = 0.0;
         self.load_kind = GraphBuffLoadKind::Unknown;
         self.mark_dirty();
     }
@@ -348,11 +464,108 @@ impl GraphBuff {
     }
 
     pub fn load_from_buff(&mut self, buff: Vec<u8>, width: u32, height: u32) -> Result<()> {
-        self.load_from_buff_ref_with_display_size(&buff, width, height, width, height)
+        self.load_from_buff_with_display_size(buff, width, height, width, height)
     }
 
     pub fn load_from_buff_ref(&mut self, buff: &[u8], width: u32, height: u32) -> Result<()> {
         self.load_from_buff_ref_with_display_size(buff, width, height, width, height)
+    }
+
+    pub fn load_from_buff_with_display_size(
+        &mut self,
+        buff: Vec<u8>,
+        width: u32,
+        height: u32,
+        display_width: u32,
+        display_height: u32,
+    ) -> Result<()> {
+        self.load_from_owned_rgba(
+            buff,
+            width,
+            height,
+            display_width,
+            display_height,
+            0,
+            0,
+            0.0,
+        )
+    }
+
+    pub fn load_text_from_buff_with_display_size(
+        &mut self,
+        buff: Vec<u8>,
+        width: u32,
+        height: u32,
+        display_width: u32,
+        display_height: u32,
+        origin_x_px: u32,
+        origin_y_px: u32,
+        raster_scale: f32,
+    ) -> Result<()> {
+        self.load_from_owned_rgba(
+            buff,
+            width,
+            height,
+            display_width,
+            display_height,
+            origin_x_px,
+            origin_y_px,
+            raster_scale,
+        )
+    }
+
+    pub fn load_text_from_buff_ref_with_display_size(
+        &mut self,
+        buff: &[u8],
+        width: u32,
+        height: u32,
+        display_width: u32,
+        display_height: u32,
+        origin_x_px: u32,
+        origin_y_px: u32,
+        raster_scale: f32,
+    ) -> Result<()> {
+        self.validate_raw_rgba_size(
+            buff.len(),
+            width,
+            height,
+            display_width,
+            display_height,
+            origin_x_px,
+            origin_y_px,
+        )?;
+
+        let reused = match self.texture.as_mut() {
+            Some(DynamicImage::ImageRgba8(img))
+                if img.width() == width && img.height() == height =>
+            {
+                img.as_mut().copy_from_slice(buff);
+                true
+            }
+            _ => false,
+        };
+
+        if !reused {
+            self.texture = None;
+            let img = image::RgbaImage::from_raw(width, height, buff.to_vec()).ok_or_else(|| {
+                anyhow!(
+                    "load_from_buff: RgbaImage::from_raw failed ({}x{})",
+                    width,
+                    height
+                )
+            })?;
+            self.texture = Some(DynamicImage::ImageRgba8(img));
+        }
+
+        self.finish_raw_rgba_load(
+            width,
+            height,
+            display_width,
+            display_height,
+            origin_x_px,
+            origin_y_px,
+            raster_scale,
+        )
     }
 
     pub fn load_from_buff_ref_with_display_size(
@@ -362,6 +575,68 @@ impl GraphBuff {
         height: u32,
         display_width: u32,
         display_height: u32,
+    ) -> Result<()> {
+        self.load_text_from_buff_ref_with_display_size(
+            buff,
+            width,
+            height,
+            display_width,
+            display_height,
+            0,
+            0,
+            0.0,
+        )
+    }
+
+    fn load_from_owned_rgba(
+        &mut self,
+        buff: Vec<u8>,
+        width: u32,
+        height: u32,
+        display_width: u32,
+        display_height: u32,
+        origin_x_px: u32,
+        origin_y_px: u32,
+        raster_scale: f32,
+    ) -> Result<()> {
+        self.validate_raw_rgba_size(
+            buff.len(),
+            width,
+            height,
+            display_width,
+            display_height,
+            origin_x_px,
+            origin_y_px,
+        )?;
+        self.texture = None;
+        let img = image::RgbaImage::from_raw(width, height, buff).ok_or_else(|| {
+            anyhow!(
+                "load_from_buff: RgbaImage::from_raw failed ({}x{})",
+                width,
+                height
+            )
+        })?;
+        self.texture = Some(DynamicImage::ImageRgba8(img));
+        self.finish_raw_rgba_load(
+            width,
+            height,
+            display_width,
+            display_height,
+            origin_x_px,
+            origin_y_px,
+            raster_scale,
+        )
+    }
+
+    fn validate_raw_rgba_size(
+        &self,
+        buffer_len: usize,
+        width: u32,
+        height: u32,
+        display_width: u32,
+        display_height: u32,
+        origin_x_px: u32,
+        origin_y_px: u32,
     ) -> Result<()> {
         if width == 0 || height == 0 || display_width == 0 || display_height == 0 {
             return Err(anyhow!(
@@ -377,11 +652,10 @@ impl GraphBuff {
             .checked_mul(height as usize)
             .and_then(|v| v.checked_mul(4))
             .ok_or_else(|| anyhow!("load_from_buff: size overflow ({}x{}x4)", width, height))?;
-
-        if buff.len() != expected {
+        if buffer_len != expected {
             return Err(anyhow!(
                 "load_from_buff: invalid buffer length: got {}, expected {} ({}x{}x4)",
-                buff.len(),
+                buffer_len,
                 expected,
                 width,
                 height
@@ -392,38 +666,32 @@ impl GraphBuff {
             || height > u16::MAX as u32
             || display_width > u16::MAX as u32
             || display_height > u16::MAX as u32
+            || origin_x_px > u16::MAX as u32
+            || origin_y_px > u16::MAX as u32
         {
             return Err(anyhow!(
-                "load_from_buff: size too large for u16: {}x{} (display {}x{})",
+                "load_from_buff: size or origin too large for u16: {}x{} (display {}x{}, origin {},{})",
                 width,
                 height,
                 display_width,
-                display_height
+                display_height,
+                origin_x_px,
+                origin_y_px
             ));
         }
+        Ok(())
+    }
 
-        let reused = match self.texture.as_mut() {
-            Some(DynamicImage::ImageRgba8(img))
-                if img.width() == width && img.height() == height =>
-            {
-                img.as_mut().copy_from_slice(buff);
-                true
-            }
-            _ => false,
-        };
-
-        if !reused {
-            let img =
-                image::RgbaImage::from_raw(width, height, buff.to_vec()).ok_or_else(|| {
-                    anyhow!(
-                        "load_from_buff: RgbaImage::from_raw failed ({}x{})",
-                        width,
-                        height
-                    )
-                })?;
-            self.texture = Some(DynamicImage::ImageRgba8(img));
-        }
-
+    fn finish_raw_rgba_load(
+        &mut self,
+        width: u32,
+        height: u32,
+        display_width: u32,
+        display_height: u32,
+        origin_x_px: u32,
+        origin_y_px: u32,
+        raster_scale: f32,
+    ) -> Result<()> {
         self.texture_ready = true;
         self.texture_path.clear();
         self.offset_x = 0;
@@ -434,6 +702,13 @@ impl GraphBuff {
         self.display_height = display_height as u16;
         self.u = 0;
         self.v = 0;
+        self.text_origin_x_px = origin_x_px as u16;
+        self.text_origin_y_px = origin_y_px as u16;
+        self.text_raster_scale = if raster_scale.is_finite() && raster_scale > 0.0 {
+            raster_scale
+        } else {
+            0.0
+        };
         self.mark_dirty();
         self.load_kind = GraphBuffLoadKind::RawRgba;
         Ok(())
@@ -775,5 +1050,73 @@ impl GraphBuff {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod hidpi_text_region_tests {
+    use super::*;
+
+    #[test]
+    fn cropped_text_region_preserves_logical_position_and_scale() {
+        let mut graph = GraphBuff::new();
+        graph.display_width = 810;
+        graph.display_height = 120;
+        graph.text_origin_x_px = 35;
+        graph.text_origin_y_px = 14;
+        graph.text_raster_scale = 3.5;
+
+        let region = graph
+            .text_texture_region(700, 140, false, 0.0, 0.0, 0.0, 0.0)
+            .unwrap();
+        assert!((region.draw_x - 10.0).abs() < 0.0001);
+        assert!((region.draw_y - 4.0).abs() < 0.0001);
+        assert!((region.draw_w - 200.0).abs() < 0.0001);
+        assert!((region.draw_h - 40.0).abs() < 0.0001);
+        assert_eq!(region.tex_x, 0.0);
+        assert_eq!(region.tex_y, 0.0);
+        assert_eq!(region.tex_w, 700.0);
+        assert_eq!(region.tex_h, 140.0);
+    }
+
+
+    #[test]
+    fn text_rect_keeps_destination_origin_when_source_starts_inside_content() {
+        let mut graph = GraphBuff::new();
+        graph.display_width = 810;
+        graph.display_height = 120;
+        graph.text_origin_x_px = 35;
+        graph.text_origin_y_px = 14;
+        graph.text_raster_scale = 3.5;
+
+        let region = graph
+            .text_texture_region(700, 140, true, 20.0, 10.0, 40.0, 20.0)
+            .unwrap();
+        assert!((region.draw_x - 0.0).abs() < 0.0001);
+        assert!((region.draw_y - 0.0).abs() < 0.0001);
+        assert!((region.draw_w - 40.0).abs() < 0.0001);
+        assert!((region.draw_h - 20.0).abs() < 0.0001);
+        assert!((region.tex_x - 35.0).abs() < 0.0001);
+        assert!((region.tex_y - 21.0).abs() < 0.0001);
+    }
+
+    #[test]
+    fn cropped_text_region_intersects_legacy_text_rect() {
+        let mut graph = GraphBuff::new();
+        graph.display_width = 810;
+        graph.display_height = 120;
+        graph.text_origin_x_px = 35;
+        graph.text_origin_y_px = 14;
+        graph.text_raster_scale = 3.5;
+
+        let region = graph
+            .text_texture_region(700, 140, true, 0.0, 0.0, 60.0, 30.0)
+            .unwrap();
+        assert!((region.draw_x - 10.0).abs() < 0.0001);
+        assert!((region.draw_y - 4.0).abs() < 0.0001);
+        assert!((region.draw_w - 50.0).abs() < 0.0001);
+        assert!((region.draw_h - 26.0).abs() < 0.0001);
+        assert!((region.tex_w - 175.0).abs() < 0.0001);
+        assert!((region.tex_h - 91.0).abs() < 0.0001);
     }
 }

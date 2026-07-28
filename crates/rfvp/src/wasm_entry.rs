@@ -15,6 +15,31 @@ pub async fn start_rfvp_from_directory(
     nls: String,
     files_json: String,
 ) -> Result<(), JsValue> {
+    start_rfvp_from_directory_impl(canvas_id, nls, files_json, true).await
+}
+
+#[wasm_bindgen]
+pub async fn start_rfvp_from_directory_with_text_hidpi(
+    canvas_id: String,
+    nls: String,
+    files_json: String,
+    text_hidpi_enabled: bool,
+) -> Result<(), JsValue> {
+    start_rfvp_from_directory_impl(
+        canvas_id,
+        nls,
+        files_json,
+        text_hidpi_enabled,
+    )
+    .await
+}
+
+async fn start_rfvp_from_directory_impl(
+    canvas_id: String,
+    nls: String,
+    files_json: String,
+    text_hidpi_enabled: bool,
+) -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
 
     let nls: Nls = nls
@@ -43,6 +68,7 @@ pub async fn start_rfvp_from_directory(
         .with_window_title(&title)
         .with_window_size(size)
         .with_parser(parser)
+        .with_text_hidpi_enabled(text_hidpi_enabled)
         .with_wasm_vfs(vfs)
         .run_web(&canvas_id)
         .await

@@ -19,6 +19,7 @@ using step_fn_t = int32_t (*)(void* handle, uint32_t dt_ms);
 using resize_fn_t = void (*)(void* handle, uint32_t w_px, uint32_t h_px);
 using set_surface_fn_t = void (*)(void* handle, void* native_window_ptr, uint32_t w_px, uint32_t h_px);
 using touch_fn_t = void (*)(void* handle, int32_t phase, double x_px, double y_px);
+using set_text_hidpi_fn_t = void (*)(void* handle, int32_t enabled);
 using destroy_fn_t = void (*)(void* handle);
 using init_context_fn_t = void (*)(void* java_vm_ptr, void* app_context_global_ref);
 
@@ -28,6 +29,7 @@ struct Api {
     resize_fn_t resize = nullptr;
     set_surface_fn_t set_surface = nullptr;
     touch_fn_t touch = nullptr;
+    set_text_hidpi_fn_t set_text_hidpi = nullptr;
     destroy_fn_t destroy = nullptr;
     init_context_fn_t init_context = nullptr;
 };
@@ -63,10 +65,11 @@ const char* lib_path = "librfvp.so";
         g_api.resize = reinterpret_cast<resize_fn_t>(load("rfvp_android_resize"));
         g_api.set_surface = reinterpret_cast<set_surface_fn_t>(load("rfvp_android_set_surface"));
         g_api.touch = reinterpret_cast<touch_fn_t>(load("rfvp_android_touch"));
+        g_api.set_text_hidpi = reinterpret_cast<set_text_hidpi_fn_t>(load("rfvp_android_set_text_hidpi"));
         g_api.destroy = reinterpret_cast<destroy_fn_t>(load("rfvp_android_destroy"));
         g_api.init_context = reinterpret_cast<init_context_fn_t>(load("rfvp_android_init_context"));
 
-        if (g_api.create && g_api.step && g_api.resize && g_api.set_surface && g_api.touch && g_api.destroy) {
+        if (g_api.create && g_api.step && g_api.resize && g_api.set_surface && g_api.touch && g_api.set_text_hidpi && g_api.destroy) {
             LOGI("rfvp_android_* symbols resolved");
         } else {
             LOGE("missing one or more rfvp_android_* symbols; check that librfvp.so exports them");
@@ -251,6 +254,15 @@ Java_com_rfvp_launcher_NativeRfvp_touch(JNIEnv*, jclass, jlong handle, jint phas
     }
     g_api.touch(reinterpret_cast<void*>(handle), static_cast<int32_t>(phase),
                 static_cast<double>(x_px), static_cast<double>(y_px));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_rfvp_launcher_NativeRfvp_setTextHidpi(JNIEnv*, jclass, jlong handle, jboolean enabled) {
+    load_api_or_log();
+    if (!g_api.set_text_hidpi || handle == 0) {
+        return;
+    }
+    g_api.set_text_hidpi(reinterpret_cast<void*>(handle), enabled == JNI_TRUE ? 1 : 0);
 }
 
 extern "C" JNIEXPORT void JNICALL

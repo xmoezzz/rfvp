@@ -239,6 +239,16 @@ pub unsafe extern "C" fn rfvp_ios_key(handle: *mut c_void, key: i32, phase: i32)
     inst.app.host_key_ios(key, phase);
 }
 
+/// Enable or disable HiDPI text backing surfaces without changing the iOS create ABI.
+#[no_mangle]
+pub unsafe extern "C" fn rfvp_ios_set_text_hidpi(handle: *mut c_void, enabled: i32) {
+    if handle.is_null() {
+        return;
+    }
+    let inst = &mut *(handle as *mut IosInstance);
+    inst.app.set_text_hidpi_enabled(enabled != 0);
+}
+
 /// Destroy the iOS host-mode instance.
 #[no_mangle]
 pub unsafe extern "C" fn rfvp_ios_destroy(handle: *mut c_void) {

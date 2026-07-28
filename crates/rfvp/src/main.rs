@@ -61,61 +61,33 @@ use anyhow::Result;
 #[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 use boot::{app_config, load_script};
 
-/// Parse `--project-dir <path>` or `--project-dir=<path>` from argv.
 #[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
-fn parse_project_dir_arg() -> Option<String> {
-    let args: Vec<String> = std::env::args().collect();
-    let mut i = 1;
-    while i < args.len() {
-        let a = &args[i];
-        if let Some(val) = a.strip_prefix("--project-dir=") {
-            if !val.is_empty() {
-                return Some(val.to_string());
-            }
-        } else if a == "--project-dir" {
-            if let Some(val) = args.get(i + 1) {
-                if !val.is_empty() {
-                    return Some(val.to_string());
-                }
-            }
-        }
-        i += 1;
-    }
-    None
+use clap::Parser;
+
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
+fn parse_cli_nls(value: &str) -> core::result::Result<Nls, String> {
+    value.parse().map_err(|e: anyhow::Error| e.to_string())
 }
 
-/// Parse `--nls <value>` or `--nls=<value>` from argv, default to ShiftJIS.
 #[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
-fn parse_nls_arg() -> Nls {
-    let args: Vec<String> = std::env::args().collect();
-    let mut i = 1;
-    while i < args.len() {
-        let a = &args[i];
-        if let Some(val) = a.strip_prefix("--nls=") {
-            return val.parse().unwrap_or_else(|e| {
-                eprintln!("rfvp: {e}");
-                std::process::exit(1);
-            });
-        } else if a == "--nls" {
-            if let Some(val) = args.get(i + 1) {
-                return val.parse().unwrap_or_else(|e| {
-                    eprintln!("rfvp: {e}");
-                    std::process::exit(1);
-                });
-            } else {
-                eprintln!("rfvp: --nls requires a value (sjis, gbk, utf8)");
-                std::process::exit(1);
-            }
-        }
-        i += 1;
-    }
-    Nls::ShiftJIS
-}
+#[derive(Debug, Parser)]
+#[command(name = "rfvp", version, about)]
+struct CliArgs {
+    /// Set the game project directory before loading the script.
+    #[arg(long, value_name = "PATH")]
+    project_dir: Option<String>,
 
-/// Parse `--system-font`; when present, system-wide CJK fallback fonts are scanned.
-#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
-fn parse_system_font_arg() -> bool {
-    std::env::args().skip(1).any(|a| a == "--system-font")
+    /// Select script text encoding. Valid values: sjis, gbk, utf8.
+    #[arg(long, default_value = "sjis", value_parser = parse_cli_nls)]
+    nls: Nls,
+
+    /// Scan system-wide CJK fallback fonts.
+    #[arg(long)]
+    system_font: bool,
+
+    /// Rasterize text at the platform HiDPI scale. Set to false to use a 1.0 text backing scale.
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    text_hidpi: bool,
 }
 
 // use dhat;
@@ -127,11 +99,12 @@ fn parse_system_font_arg() -> bool {
 fn main() -> Result<()> {
     // let _profiler = dhat::Profiler::new_heap();
     // env_logger::init();
-    if let Some(project_dir) = parse_project_dir_arg() {
-        set_base_path(&project_dir);
+    let args = CliArgs::parse();
+    if let Some(project_dir) = args.project_dir.as_deref() {
+        set_base_path(project_dir);
     }
-    let nls = parse_nls_arg();
-    let system_font = parse_system_font_arg();
+    let nls = args.nls;
+    let system_font = args.system_font;
     let parser = load_script(nls)?;
     let title = parser.get_title();
     let size = parser.get_screen_size();
@@ -143,6 +116,7 @@ fn main() -> Result<()> {
         .with_window_title(&title)
         .with_window_size(size)
         .with_parser(parser)
+        .with_text_hidpi_enabled(args.text_hidpi)
         .with_vfs(nls)?;
     let app = if system_font {
         app.with_system_font(true)

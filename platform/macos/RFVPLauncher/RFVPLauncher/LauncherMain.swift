@@ -25,6 +25,9 @@ private func redirectStdoutStderrToLogFile() {
 @_silgen_name("rfvp_run_entry")
 private func rfvp_run_entry(_ gameRootUtf8: UnsafePointer<CChar>, _ nlsUtf8: UnsafePointer<CChar>) -> Int32
 
+@_silgen_name("rfvp_set_text_hidpi_enabled")
+private func rfvp_set_text_hidpi_enabled(_ enabled: Int32) -> Void
+
 final class LauncherWindowDelegate: NSObject, NSWindowDelegate {
     private let onClose: () -> Void
 
@@ -111,6 +114,10 @@ final class LauncherHost {
 
         window.orderOut(nil)
         return selected
+    }
+
+    func setTextHidpiEnabled(_ enabled: Bool) {
+        rfvp_set_text_hidpi_enabled(enabled ? 1 : 0)
     }
 
     func runGame(_ game: GameEntry) -> Int32 {

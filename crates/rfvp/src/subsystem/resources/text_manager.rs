@@ -1179,6 +1179,10 @@ pub struct TextItem {
     speed: i32,
     loaded: bool,
     pixel_buffer: Vec<u8>,
+    surface_origin_x_px: u32,
+    surface_origin_y_px: u32,
+    surface_width_px: u32,
+    surface_height_px: u32,
     dirty: bool,
     elapsed: u32,
 
@@ -1246,6 +1250,10 @@ impl TextItem {
             speed: 0,
             loaded: false,
             pixel_buffer: vec![],
+            surface_origin_x_px: 0,
+            surface_origin_y_px: 0,
+            surface_width_px: 0,
+            surface_height_px: 0,
             dirty: false,
             elapsed: 0,
             total_chars: 0,
@@ -1281,6 +1289,9 @@ impl TextItem {
     }
 
     fn mark_layout_dirty(&mut self) {
+        if !self.pixel_buffer.is_empty() || !self.full_buffer.is_empty() {
+            self.release_surfaces();
+        }
         self.layout_dirty = true;
         self.dirty = true;
     }
@@ -1466,36 +1477,104 @@ impl TextItem {
         self.mark_layout_dirty();
     }
 
-    fn ensure_buffer(&mut self) {
-        let (w, h) = self.raster_dimensions();
-        let expected = (w as usize).saturating_mul(h as usize).saturating_mul(4);
+    fn release_surfaces(&mut self) {
+        self.pixel_buffer = Vec::new();
+        self.full_buffer = Vec::new();
+        self.surface_origin_x_px = 0;
+        self.surface_origin_y_px = 0;
+        self.surface_width_px = 0;
+        self.surface_height_px = 0;
+        self.reveal_queue.clear();
+        self.applied_visible_chars = 0;
+    }
+
+    fn ensure_visible_buffer(&mut self, width: u32, height: u32) -> Result<()> {
+        let expected = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|v| v.checked_mul(4))
+            .ok_or_else(|| anyhow!("text surface size overflow: {}x{}", width, height))?;
         if expected == 0 {
-            self.pixel_buffer.clear();
-            self.full_buffer.clear();
-            self.reveal_queue.clear();
-            self.applied_visible_chars = 0;
-            self.loaded = false;
-            return;
+            self.pixel_buffer = Vec::new();
+            return Ok(());
         }
         if self.pixel_buffer.len() != expected {
-            self.pixel_buffer.resize(expected, 0);
+            self.pixel_buffer = vec![0; expected];
+        } else {
+            self.pixel_buffer.fill(0);
         }
-        if self.full_buffer.len() != expected {
-            self.full_buffer.resize(expected, 0);
-        }
-        self.loaded = true;
+        Ok(())
     }
 
     fn clear_buffer(&mut self) {
-        if !self.pixel_buffer.is_empty() {
-            self.pixel_buffer.fill(0);
-        }
-        if !self.full_buffer.is_empty() {
-            self.full_buffer.fill(0);
-        }
-        self.reveal_queue.clear();
-        self.applied_visible_chars = 0;
+        self.release_surfaces();
         self.layout_dirty = false;
+    }
+
+    fn alpha_bounds(buf: &[u8], width: u32, height: u32) -> Option<RectI32> {
+        if width == 0 || height == 0 {
+            return None;
+        }
+        let expected = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|v| v.checked_mul(4))?;
+        if buf.len() != expected {
+            return None;
+        }
+
+        let mut min_x = width;
+        let mut min_y = height;
+        let mut max_x = 0u32;
+        let mut max_y = 0u32;
+        let mut any = false;
+        for y in 0..height {
+            for x in 0..width {
+                let alpha = buf[((y * width + x) * 4 + 3) as usize];
+                if alpha == 0 {
+                    continue;
+                }
+                any = true;
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(x + 1);
+                max_y = max_y.max(y + 1);
+            }
+        }
+        if !any {
+            return None;
+        }
+        // Keep one transparent physical pixel around the visible glyphs when available.
+        // Graph textures use linear filtering with clamp to edge, so cropping directly to an
+        // antialiased edge could smear that edge when the texture is transformed or resampled.
+        let padded_min_x = min_x.saturating_sub(1);
+        let padded_min_y = min_y.saturating_sub(1);
+        let padded_max_x = max_x.saturating_add(1).min(width);
+        let padded_max_y = max_y.saturating_add(1).min(height);
+        Some(RectI32 {
+            x: padded_min_x as i32,
+            y: padded_min_y as i32,
+            w: (padded_max_x - padded_min_x) as i32,
+            h: (padded_max_y - padded_min_y) as i32,
+        })
+    }
+
+    fn crop_rgba(buf: Vec<u8>, width: u32, height: u32, rect: RectI32) -> Vec<u8> {
+        if rect.x == 0 && rect.y == 0 && rect.w == width as i32 && rect.h == height as i32 {
+            return buf;
+        }
+        let crop_w = rect.w.max(0) as u32;
+        let crop_h = rect.h.max(0) as u32;
+        let mut out = vec![0; (crop_w as usize).saturating_mul(crop_h as usize).saturating_mul(4)];
+        let src_stride = width as usize * 4;
+        let dst_stride = crop_w as usize * 4;
+        let x = rect.x.max(0) as usize;
+        let y = rect.y.max(0) as usize;
+        for row in 0..crop_h as usize {
+            let src_start = (y + row) * src_stride + x * 4;
+            let dst_start = row * dst_stride;
+            out[dst_start..dst_start + dst_stride]
+                .copy_from_slice(&buf[src_start..src_start + dst_stride]);
+        }
+        out
     }
 
     fn is_suspend_chr(&self, ch: char) -> bool {
@@ -1717,9 +1796,7 @@ impl TextItem {
         self.pending_wait_ms = 0;
         self.pending_special_wait = false;
         self.reveal_carry = 0;
-        self.applied_visible_chars = 0;
-        self.reveal_queue.clear();
-        self.full_buffer.fill(0);
+        self.release_surfaces();
         self.sync_wait_active = false;
         self.sync_wait_thread = None;
 
@@ -2415,8 +2492,18 @@ impl TextItem {
     }
 
     fn rasterize_full(&mut self, fonts: &FontEnumerator, gaiji: &GaijiManager) -> Result<()> {
-        self.ensure_buffer();
         if !self.loaded {
+            return Ok(());
+        }
+
+        let (bw, bh) = self.raster_dimensions();
+        let expected = (bw as usize)
+            .checked_mul(bh as usize)
+            .and_then(|v| v.checked_mul(4))
+            .ok_or_else(|| anyhow!("text raster size overflow: {}x{}", bw, bh))?;
+        if expected == 0 {
+            self.release_surfaces();
+            self.layout_dirty = false;
             return Ok(());
         }
 
@@ -2424,7 +2511,6 @@ impl TextItem {
         let ruby_fonts = fonts.get_font_fallback_set(self.text_font_idx2);
 
         let render_scale = self.effective_render_scale();
-        let (bw, bh) = self.raster_dimensions();
 
         let main_size = if self.text_size1 == 0 {
             16.0
@@ -2470,7 +2556,7 @@ impl TextItem {
 
         let mut total_required_units: i64 = 0;
         let mut line_has_any = false;
-        let mut full_buffer = vec![0u8; self.pixel_buffer.len()];
+        let mut full_buffer = vec![0u8; expected];
         let mut reveal_queue: Vec<RevealQueueItem> = Vec::new();
 
         self.wait_points.clear();
@@ -2849,10 +2935,33 @@ impl TextItem {
             self.visible_chars = self.total_chars;
         }
 
-        self.full_buffer = full_buffer;
-        self.reveal_queue = reveal_queue;
-        self.clear_visible_surface();
-        self.apply_reveal_delta_to_current_target();
+        if self.speed == 0 {
+            if let Some(bounds) = Self::alpha_bounds(&full_buffer, bw, bh) {
+                self.surface_origin_x_px = bounds.x.max(0) as u32;
+                self.surface_origin_y_px = bounds.y.max(0) as u32;
+                self.surface_width_px = bounds.w.max(0) as u32;
+                self.surface_height_px = bounds.h.max(0) as u32;
+                self.pixel_buffer = Self::crop_rgba(full_buffer, bw, bh, bounds);
+            } else {
+                self.pixel_buffer = Vec::new();
+                self.surface_origin_x_px = 0;
+                self.surface_origin_y_px = 0;
+                self.surface_width_px = 0;
+                self.surface_height_px = 0;
+            }
+            self.full_buffer = Vec::new();
+            self.reveal_queue.clear();
+            self.applied_visible_chars = self.total_chars;
+        } else {
+            self.surface_origin_x_px = 0;
+            self.surface_origin_y_px = 0;
+            self.surface_width_px = bw;
+            self.surface_height_px = bh;
+            self.full_buffer = full_buffer;
+            self.reveal_queue = reveal_queue;
+            self.ensure_visible_buffer(bw, bh)?;
+            self.apply_reveal_delta_to_current_target();
+        }
         self.layout_dirty = false;
         Ok(())
     }
@@ -2864,11 +2973,31 @@ impl Default for TextItem {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub struct TextSlotSurfaceInfo {
+    pub width: u32,
+    pub height: u32,
+    pub display_width: u32,
+    pub display_height: u32,
+    pub origin_x_px: u32,
+    pub origin_y_px: u32,
+    pub raster_scale: f32,
+    pub can_transfer: bool,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub enum TextSlotSurfaceUpdate {
+    Clear,
+    Pixels(TextSlotSurfaceInfo),
+}
+
 pub struct TextManager {
     pub items: Vec<TextItem>,
     /// Bitmap for script const-string offsets (< 0x800000). Each bit marks whether it has been seen.
     pub readed_text: Vec<u32>,
+    device_render_scale: f32,
     render_scale: f32,
+    hidpi_enabled: bool,
 }
 
 impl Default for TextManager {
@@ -2882,7 +3011,9 @@ impl TextManager {
         Self {
             items: vec![TextItem::new(); 32],
             readed_text: vec![0u32; 0x800000 / 32],
+            device_render_scale: 1.0,
             render_scale: 1.0,
+            hidpi_enabled: true,
         }
     }
 
@@ -2892,12 +3023,34 @@ impl TextManager {
         } else {
             1.0
         };
-        if (self.render_scale - normalized).abs() <= f32::EPSILON {
+        self.device_render_scale = normalized;
+        self.apply_effective_render_scale();
+    }
+
+    pub fn set_hidpi_enabled(&mut self, enabled: bool) {
+        if self.hidpi_enabled == enabled {
             return;
         }
-        self.render_scale = normalized;
+        self.hidpi_enabled = enabled;
+        self.apply_effective_render_scale();
+    }
+
+    pub fn hidpi_enabled(&self) -> bool {
+        self.hidpi_enabled
+    }
+
+    fn apply_effective_render_scale(&mut self) {
+        let effective = if self.hidpi_enabled {
+            self.device_render_scale
+        } else {
+            1.0
+        };
+        if (self.render_scale - effective).abs() <= f32::EPSILON {
+            return;
+        }
+        self.render_scale = effective;
         for item in self.items.iter_mut() {
-            item.set_render_scale(normalized);
+            item.set_render_scale(effective);
         }
     }
 
@@ -3046,8 +3199,8 @@ impl TextManager {
             text.applied_visible_chars = 0;
             text.layout_dirty = false;
             text.clear_sync_print_wait();
-            // TextClear must upload the cleared texture immediately so any following alpha/move
-            // motion acts on the already submitted blank surface, not on stale glyphs.
+            // TextClear marks the slot for GraphBuff/GPU release. Active fade-out motions defer
+            // the release until their submitted glyph surface is no longer needed.
             text.dirty = true;
         }
     }
@@ -3057,8 +3210,7 @@ impl TextManager {
         text.set_w(w.max(0) as u16);
         text.set_h(h.max(0) as u16);
         text.set_render_scale(self.render_scale);
-        text.ensure_buffer();
-        text.clear_buffer();
+        text.release_surfaces();
         text.loaded = true;
         text.elapsed = 0;
 
@@ -3096,7 +3248,7 @@ impl TextManager {
         text.reveal_carry = 0;
         text.applied_visible_chars = 0;
         text.reveal_queue.clear();
-        text.full_buffer.fill(0);
+        text.full_buffer = Vec::new();
         text.layout_dirty = true;
         text.line_head_forbidden_chars.clear();
         text.dirty = true;
@@ -3249,14 +3401,14 @@ impl TextManager {
         self.items[id as usize].set_horizon_space(space);
     }
 
-    /// Render a slot when needed and return (backing_w, backing_h, display_w, display_h). Pixels stay owned by the text item.
+    /// Render a slot when needed and return the surface update required by GraphBuff.
     pub fn rasterize_slot_if_needed(
         &mut self,
         id: i32,
         fonts: &FontEnumerator,
         gaiji: &GaijiManager,
         force: bool,
-    ) -> Result<Option<(u32, u32, u32, u32)>> {
+    ) -> Result<Option<TextSlotSurfaceUpdate>> {
         if !(0..32).contains(&id) {
             return Ok(None);
         }
@@ -3264,26 +3416,52 @@ impl TextManager {
         if !t.loaded {
             return Ok(None);
         }
-        let display_w = t.w as u32;
-        let display_h = t.h as u32;
-        let (w, h) = t.raster_dimensions();
-        let expected = (w as usize)
-            .checked_mul(h as usize)
+
+        let needs_update = force || t.dirty || t.layout_dirty;
+        if !needs_update {
+            return Ok(None);
+        }
+
+        if t.content_items.is_empty() && t.content_text.is_empty() {
+            t.release_surfaces();
+            t.layout_dirty = false;
+            t.dirty = false;
+            return Ok(Some(TextSlotSurfaceUpdate::Clear));
+        }
+
+        if t.layout_dirty || t.pixel_buffer.is_empty() {
+            t.rasterize_full(fonts, gaiji)?;
+        }
+
+        if t.pixel_buffer.is_empty() || t.surface_width_px == 0 || t.surface_height_px == 0 {
+            t.dirty = false;
+            return Ok(Some(TextSlotSurfaceUpdate::Clear));
+        }
+
+        let expected = (t.surface_width_px as usize)
+            .checked_mul(t.surface_height_px as usize)
             .and_then(|v| v.checked_mul(4))
             .ok_or_else(|| anyhow!("rasterize_slot_if_needed: size overflow"))?;
         if t.pixel_buffer.len() != expected {
-            bail!("rasterize_slot_if_needed: invalid buffer length");
+            bail!(
+                "rasterize_slot_if_needed: invalid buffer length: got {}, expected {}",
+                t.pixel_buffer.len(),
+                expected
+            );
         }
-        let needs_raster = t.layout_dirty || t.full_buffer.len() != expected;
-        let needs_upload = force || t.dirty || needs_raster;
-        if !needs_upload {
-            return Ok(None);
-        }
-        if needs_raster {
-            t.rasterize_full(fonts, gaiji)?;
-        }
+
+        let info = TextSlotSurfaceInfo {
+            width: t.surface_width_px,
+            height: t.surface_height_px,
+            display_width: t.w as u32,
+            display_height: t.h as u32,
+            origin_x_px: t.surface_origin_x_px,
+            origin_y_px: t.surface_origin_y_px,
+            raster_scale: t.effective_render_scale(),
+            can_transfer: t.speed == 0 || t.reveal_is_complete(),
+        };
         t.dirty = false;
-        Ok(Some((w, h, display_w, display_h)))
+        Ok(Some(TextSlotSurfaceUpdate::Pixels(info)))
     }
 
     pub fn slot_rgba_bytes(&self, id: i32) -> Option<&[u8]> {
@@ -3291,10 +3469,27 @@ impl TextManager {
             return None;
         }
         let t = &self.items[id as usize];
-        if !t.loaded {
+        if !t.loaded || t.pixel_buffer.is_empty() {
             return None;
         }
         Some(&t.pixel_buffer)
+    }
+
+    pub fn take_slot_rgba(&mut self, id: i32) -> Option<Vec<u8>> {
+        if !(0..32).contains(&id) {
+            return None;
+        }
+        let t = &mut self.items[id as usize];
+        if !t.loaded || t.pixel_buffer.is_empty() {
+            return None;
+        }
+        let pixels = core::mem::take(&mut t.pixel_buffer);
+        if t.reveal_is_complete() {
+            t.full_buffer = Vec::new();
+            t.reveal_queue.clear();
+            t.applied_visible_chars = t.visible_chars.min(t.total_chars);
+        }
+        Some(pixels)
     }
 }
 
@@ -3440,7 +3635,7 @@ impl TextItem {
         self.speed = snap.speed;
         self.render_scale = 1.0;
         self.loaded = snap.loaded;
-        self.pixel_buffer.clear();
+        self.release_surfaces();
         self.dirty = snap.dirty;
         self.elapsed = snap.elapsed;
         self.total_chars = snap.total_chars;
@@ -3450,8 +3645,6 @@ impl TextItem {
         self.pending_wait_ms = snap.pending_wait_ms;
         self.pending_special_wait = snap.pending_special_wait;
         self.reveal_carry = 0;
-        self.full_buffer.clear();
-        self.reveal_queue.clear();
         self.applied_visible_chars = 0;
         self.layout_dirty = true;
 
@@ -3466,19 +3659,8 @@ impl TextItem {
             self.visible_chars = self.total_chars;
         }
 
-        // Buffer size must match w/h.
-        self.ensure_buffer();
-
-        // Snapshots no longer duplicate the fully rendered RGBA buffer.
-        // Re-render lazily when pixels were omitted or inconsistent.
-        let expected = (self.w as usize)
-            .checked_mul(self.h as usize)
-            .and_then(|v| v.checked_mul(4))
-            .unwrap_or(0);
-        if snap.pixel_buffer.is_empty() || self.pixel_buffer.len() != expected {
-            self.pixel_buffer = vec![0; expected];
-            self.dirty = true;
-        }
+        // Pixel surfaces are rebuilt lazily at the current platform render scale.
+        self.dirty = true;
     }
 }
 
@@ -3499,8 +3681,110 @@ impl TextManager {
         let n = self.items.len().min(snap.items.len());
         for i in 0..n {
             self.items[i].apply_snapshot_v1(&snap.items[i]);
+            self.items[i].set_render_scale(self.render_scale);
         }
 
         self.readed_text = snap.readed_text.clone();
+    }
+}
+
+#[cfg(test)]
+mod hidpi_surface_tests {
+    use super::*;
+
+    #[test]
+    fn text_buff_does_not_allocate_hidpi_surfaces_before_print() {
+        let mut manager = TextManager::new();
+        manager.set_render_scale(3.5);
+        manager.set_text_buff(20, 810, 120);
+
+        let item = &manager.items[20];
+        assert!(item.loaded);
+        assert_eq!(item.raster_dimensions(), (2835, 420));
+        assert!(item.pixel_buffer.is_empty());
+        assert!(item.full_buffer.is_empty());
+        assert_eq!(item.pixel_buffer.capacity(), 0);
+        assert_eq!(item.full_buffer.capacity(), 0);
+    }
+
+    #[test]
+    fn text_clear_releases_retained_surfaces() {
+        let mut manager = TextManager::new();
+        manager.set_text_buff(20, 810, 120);
+        {
+            let item = &mut manager.items[20];
+            item.pixel_buffer = vec![1; 1024];
+            item.full_buffer = vec![2; 2048];
+            item.surface_width_px = 16;
+            item.surface_height_px = 16;
+        }
+
+        manager.set_text_clear(20);
+        let item = &manager.items[20];
+        assert!(item.pixel_buffer.is_empty());
+        assert!(item.full_buffer.is_empty());
+        assert_eq!(item.pixel_buffer.capacity(), 0);
+        assert_eq!(item.full_buffer.capacity(), 0);
+        assert!(item.dirty);
+        assert!(item.loaded);
+    }
+
+    #[test]
+    fn alpha_crop_keeps_only_nontransparent_pixels() {
+        let width = 6;
+        let height = 4;
+        let mut pixels = vec![0u8; width * height * 4];
+        for y in 1..3 {
+            for x in 2..5 {
+                let idx = (y * width + x) * 4;
+                pixels[idx] = 10;
+                pixels[idx + 3] = 255;
+            }
+        }
+
+        let bounds = TextItem::alpha_bounds(&pixels, width as u32, height as u32).unwrap();
+        assert_eq!((bounds.x, bounds.y, bounds.w, bounds.h), (1, 0, 5, 4));
+        let cropped = TextItem::crop_rgba(pixels, width as u32, height as u32, bounds);
+        assert_eq!(cropped.len(), 5 * 4 * 4);
+        assert_eq!(cropped.chunks_exact(4).filter(|px| px[3] != 0).count(), 3 * 2);
+    }
+
+    #[test]
+    fn text_hidpi_toggle_releases_surfaces_for_rerasterization() {
+        let mut manager = TextManager::new();
+        manager.set_render_scale(3.5);
+        manager.set_text_buff(20, 810, 120);
+        {
+            let item = &mut manager.items[20];
+            item.pixel_buffer = vec![1; 1024];
+            item.full_buffer = vec![2; 2048];
+            item.layout_dirty = false;
+        }
+
+        manager.set_hidpi_enabled(false);
+        let item = &manager.items[20];
+        assert!(item.pixel_buffer.is_empty());
+        assert!(item.full_buffer.is_empty());
+        assert!(item.layout_dirty);
+        assert!(item.dirty);
+    }
+
+    #[test]
+    fn text_hidpi_toggle_preserves_device_scale_for_reenable() {
+        let mut manager = TextManager::new();
+        manager.set_render_scale(3.5);
+        manager.set_text_buff(20, 810, 120);
+        assert_eq!(manager.items[20].raster_dimensions(), (2835, 420));
+
+        manager.set_hidpi_enabled(false);
+        assert!(!manager.hidpi_enabled());
+        assert_eq!(manager.items[20].raster_dimensions(), (810, 120));
+
+        manager.set_render_scale(2.0);
+        assert_eq!(manager.items[20].raster_dimensions(), (810, 120));
+
+        manager.set_hidpi_enabled(true);
+        assert!(manager.hidpi_enabled());
+        assert_eq!(manager.items[20].raster_dimensions(), (1620, 240));
     }
 }

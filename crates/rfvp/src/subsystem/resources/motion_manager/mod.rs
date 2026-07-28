@@ -35,7 +35,7 @@ use super::parts_manager::PartsManager;
 use super::parts_manager::PartsManagerSnapshotV1;
 use super::prim::{PrimManager, INVAILD_PRIM_HANDLE};
 use super::prim::{PrimManagerSnapshotV1, PrimSnapshotV1};
-use super::text_manager::TextManager;
+use super::text_manager::{TextManager, TextSlotSurfaceUpdate};
 use super::text_manager::TextManagerSnapshotV1;
 use crate::subsystem::resources::color_manager::ColorManager;
 use crate::subsystem::resources::prim::{Prim, PrimType};
@@ -1038,32 +1038,71 @@ impl MotionManager {
         if self.text_slot_has_active_fadeout_alpha(slot) {
             return Ok(());
         }
+
         let graph_id: u16 = 4064u16 + slot as u16;
-        let uploaded = {
-            let (text_manager, gaiji_manager, textures) = (
-                &mut self.text_manager,
-                &self.gaiji_manager,
-                &mut self.textures,
-            );
-            if let Some((w, h, display_w, display_h)) =
-                text_manager.rasterize_slot_if_needed(slot, fonts, gaiji_manager, force_render)?
-            {
-                if let Some(rgba) = text_manager.slot_rgba_bytes(slot) {
-                    textures[graph_id as usize]
-                        .load_from_buff_ref_with_display_size(rgba, w, h, display_w, display_h)?;
-                    true
-                } else {
-                    false
+        let update = self.text_manager.rasterize_slot_if_needed(
+            slot,
+            fonts,
+            &self.gaiji_manager,
+            force_render,
+        )?;
+
+        match update {
+            None => return Ok(()),
+            Some(TextSlotSurfaceUpdate::Clear) => {
+                let graph = &self.textures[graph_id as usize];
+                if graph.get_texture_ready() || graph.get_texture().is_some() {
+                    self.unload_graph(graph_id);
+                    self.refresh_prims(graph_id);
                 }
-            } else {
-                false
             }
-        };
-        if uploaded {
-            self.refresh_prims(graph_id);
+            Some(TextSlotSurfaceUpdate::Pixels(info)) => {
+                let graph = &self.textures[graph_id as usize];
+                if graph.get_texture_ready()
+                    && (graph.get_width() as u32 != info.width
+                        || graph.get_height() as u32 != info.height)
+                {
+                    self.pending_gpu_graph_unloads.push(graph_id);
+                }
+                if info.can_transfer {
+                    if let Some(rgba) = self.text_manager.take_slot_rgba(slot) {
+                        self.textures[graph_id as usize].load_text_from_buff_with_display_size(
+                            rgba,
+                            info.width,
+                            info.height,
+                            info.display_width,
+                            info.display_height,
+                            info.origin_x_px,
+                            info.origin_y_px,
+                            info.raster_scale,
+                        )?;
+                    } else {
+                        return Ok(());
+                    }
+                } else {
+                    let (text_manager, textures) = (&self.text_manager, &mut self.textures);
+                    if let Some(rgba) = text_manager.slot_rgba_bytes(slot) {
+                        textures[graph_id as usize]
+                            .load_text_from_buff_ref_with_display_size(
+                                rgba,
+                                info.width,
+                                info.height,
+                                info.display_width,
+                                info.display_height,
+                                info.origin_x_px,
+                                info.origin_y_px,
+                                info.raster_scale,
+                            )?;
+                    } else {
+                        return Ok(());
+                    }
+                }
+                self.refresh_prims(graph_id);
+            }
         }
         Ok(())
     }
+
 }
 
 impl MotionManager {
@@ -1158,6 +1197,11 @@ impl MotionManager {
     pub fn capture_snapshot_v1(&self) -> MotionManagerSnapshotV1 {
         let mut textures: Vec<GraphBuffSnapshotV1> = Vec::new();
         for (id, gb) in self.textures.iter().enumerate() {
+            // Text surfaces are rebuilt from TextManager state after load. Omitting the reserved
+            // text GraphBuff range avoids embedding large HiDPI RGBA surfaces in save states.
+            if (4064..=4095).contains(&id) {
+                continue;
+            }
             if gb.texture_ready || gb.texture.is_some() || !gb.texture_path.is_empty() {
                 textures.push(gb.capture_snapshot_with_id(id as u16));
             }

@@ -23,6 +23,9 @@ private func rfvp_ios_resize(_ handle: UnsafeMutableRawPointer?, _ widthPx: UInt
 @_silgen_name("rfvp_ios_destroy")
 private func rfvp_ios_destroy(_ handle: UnsafeMutableRawPointer?) -> Void
 
+@_silgen_name("rfvp_ios_set_text_hidpi")
+private func rfvp_ios_set_text_hidpi(_ handle: UnsafeMutableRawPointer?, _ enabled: Int32) -> Void
+
 @_silgen_name("rfvp_ios_touch")
 private func rfvp_ios_touch(_ handle: UnsafeMutableRawPointer?, _ phase: Int32, _ xPoints: Double, _ yPoints: Double) -> Void
 
@@ -309,6 +312,11 @@ final class RFVPPlayerViewController: UIViewController {
         if handle == nil {
             onExit()
         }
+    }
+
+    func setTextHidpiEnabled(_ enabled: Bool) {
+        guard let handle else { return }
+        rfvp_ios_set_text_hidpi(handle, enabled ? 1 : 0)
     }
 
     private func startDisplayLink() {

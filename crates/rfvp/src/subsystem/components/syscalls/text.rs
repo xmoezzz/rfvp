@@ -67,7 +67,7 @@ pub fn text_buff(
         .text_manager
         .set_text_buff(id, ww, hh);
 
-    // Upload the cleared buffer to Graph(4064 + slot) immediately.
+    // Synchronize the empty slot with Graph(4064 + slot) without allocating a backing surface.
     let _ = game_data
         .motion_manager
         .text_upload_slot(id, &game_data.fontface_manager, false);

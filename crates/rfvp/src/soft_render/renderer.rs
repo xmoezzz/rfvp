@@ -451,38 +451,18 @@ impl SoftRenderer {
 
         let attr = prim.get_attr();
         let use_rect = (attr & 1) != 0;
-        let display_w = graph.get_display_width() as f32;
-        let display_h = graph.get_display_height() as f32;
-        let tex_scale_x = if display_w > 0.0 {
-            tw as f32 / display_w
-        } else {
-            1.0
-        };
-        let tex_scale_y = if display_h > 0.0 {
-            th as f32 / display_h
-        } else {
-            1.0
-        };
-        let (w, h, u, v, tex_w, tex_h) = if use_rect {
-            let mut w = prim.get_w() as f32;
-            let mut h = prim.get_h() as f32;
-            if w <= 0.0 {
-                w = display_w;
-            }
-            if h <= 0.0 {
-                h = display_h;
-            }
-            let w = w.min(display_w);
-            let h = h.min(display_h);
-            let u = prim.get_u() as f32;
-            let v = prim.get_v() as f32;
-            (w, h, u, v, w * tex_scale_x, h * tex_scale_y)
-        } else {
-            (display_w, display_h, 0.0, 0.0, tw as f32, th as f32)
+        let Some(region) = graph.text_texture_region(
+            tw,
+            th,
+            use_rect,
+            prim.get_u() as f32,
+            prim.get_v() as f32,
+            prim.get_w() as f32,
+            prim.get_h() as f32,
+        ) else {
+            return Ok(());
         };
 
-        let tex_u = u * tex_scale_x;
-        let tex_v = v * tex_scale_y;
         let (pivot_x, pivot_y) = if (attr & 2) != 0 {
             (prim.get_opx() as f32, prim.get_opy() as f32)
         } else {
@@ -494,8 +474,8 @@ impl SoftRenderer {
             parent_y,
             draw_x,
             draw_y,
-            graph.get_offset_x() as f32,
-            graph.get_offset_y() as f32,
+            graph.get_offset_x() as f32 + region.draw_x,
+            graph.get_offset_y() as f32 + region.draw_y,
             pivot_x,
             pivot_y,
             v3d_x,
@@ -504,10 +484,13 @@ impl SoftRenderer {
         );
         self.draw_textured_quad(
             model,
-            w,
-            h,
-            vec2(tex_u / tw as f32, tex_v / th as f32),
-            vec2((tex_u + tex_w) / tw as f32, (tex_v + tex_h) / th as f32),
+            region.draw_w,
+            region.draw_h,
+            vec2(region.tex_x / tw as f32, region.tex_y / th as f32),
+            vec2(
+                (region.tex_x + region.tex_w) / tw as f32,
+                (region.tex_y + region.tex_h) / th as f32,
+            ),
             vec4(1.0, 1.0, 1.0, draw_alpha),
             TextureRef::Graph {
                 graph_id,

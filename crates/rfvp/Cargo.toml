@@ -51,6 +51,7 @@ ultraviolet = { version = "0.9.2", optional = true }
 futures = { version = "0.3.30", optional = true }
 fern = { version = "0.6.2", features = ["colored"], optional = true }
 chrono = { version = "0.4.35", optional = true }
+clap = { version = "4", features = ["derive"], optional = true }
 
 flate2 = { version = "=1.0.28", optional = true }
 miniz_oxide = { version = "0.7.4", default-features = false, features = ["with-alloc"], optional = true }
@@ -178,7 +179,7 @@ runtime-core-deps = [
 ]
 
 # Existing wgpu renderer. Enabled by default for backward compatibility.
-gpu-render = ["runtime-core-deps", "dep:winit", "dep:wgpu", "dep:egui", "dep:egui-wgpu", "dep:android-activity", "dep:ndk-context", "random", "cursor-ani", "zlib-flate2", "logging"]
+gpu-render = ["runtime-core-deps", "dep:clap", "dep:winit", "dep:wgpu", "dep:egui", "dep:egui-wgpu", "dep:android-activity", "dep:ndk-context", "random", "cursor-ani", "zlib-flate2", "logging"]
 
 # CPU/software rendering backend core. This is platform-independent and is used
 # by both desktop software rendering and rfvp-os/UEFI-style builds.

@@ -217,6 +217,16 @@ pub unsafe extern "C" fn rfvp_android_touch(handle: *mut c_void, phase: i32, x_p
     app.host_touch_android(phase, x_px, y_px);
 }
 
+/// Enable or disable HiDPI text backing surfaces without changing the Android create ABI.
+#[no_mangle]
+pub unsafe extern "C" fn rfvp_android_set_text_hidpi(handle: *mut c_void, enabled: i32) {
+    if handle.is_null() {
+        return;
+    }
+    let app: &mut App = &mut *(handle as *mut App);
+    app.set_text_hidpi_enabled(enabled != 0);
+}
+
 /// Destroy an Android host-driven instance.
 #[no_mangle]
 pub unsafe extern "C" fn rfvp_android_destroy(handle: *mut c_void) {

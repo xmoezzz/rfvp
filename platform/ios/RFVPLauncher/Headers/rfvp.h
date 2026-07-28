@@ -7,6 +7,9 @@ extern "C" {
 // Legacy entry point (winit runloop). Do NOT use on iOS embedded/SwiftUI.
 void rfvp_run_entry(const char* game_root_utf8, const char* nls_utf8);
 
+// Sets the default for instances created after this call.
+void rfvp_set_text_hidpi_enabled(int enabled);
+
 // iOS host-mode entry points (SwiftUI/UIKit drives the runloop).
 // `ui_view` must be a UIView* whose backing layer is CAMetalLayer.
 void* rfvp_ios_create(
@@ -34,6 +37,9 @@ void rfvp_ios_mouse_wheel(void* handle, int delta, double x_points, double y_poi
 
 // key: 0 Escape. phase: 0 down, 2 up, 3 cancelled/up.
 void rfvp_ios_key(void* handle, int key, int phase);
+
+// enabled: 0 disables HiDPI text backing, non-zero enables it.
+void rfvp_ios_set_text_hidpi(void* handle, int enabled);
 
 void rfvp_ios_destroy(void* handle);
 

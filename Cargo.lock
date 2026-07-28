@@ -3792,6 +3792,7 @@ dependencies = [
  "byteorder",
  "bytes",
  "chrono",
+ "clap",
  "console_error_panic_hook",
  "core_maths",
  "cpal",

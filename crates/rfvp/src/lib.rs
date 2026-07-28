@@ -957,6 +957,8 @@ use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 #[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 use std::ptr::null_mut;
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 use crate::app::App;
@@ -983,6 +985,22 @@ use log::LevelFilter;
 use winit::platform::pump_events::PumpStatus;
 
 #[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
+static TEXT_HIDPI_DEFAULT: AtomicBool = AtomicBool::new(true);
+
+/// Set the default text HiDPI mode for instances created after this call.
+/// Existing host-driven instances should use their handle-specific setter.
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
+#[no_mangle]
+pub extern "C" fn rfvp_set_text_hidpi_enabled(enabled: i32) {
+    TEXT_HIDPI_DEFAULT.store(enabled != 0, Ordering::Relaxed);
+}
+
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
+fn default_text_hidpi_enabled() -> bool {
+    TEXT_HIDPI_DEFAULT.load(Ordering::Relaxed)
+}
+
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 fn run_rfvp(game_root: &str, nls: Nls) -> Result<()> {
     set_base_path(game_root);
     let parser = load_script(nls)?;
@@ -996,6 +1014,7 @@ fn run_rfvp(game_root: &str, nls: Nls) -> Result<()> {
         .with_window_title(&title)
         .with_window_size(size)
         .with_parser(parser)
+        .with_text_hidpi_enabled(default_text_hidpi_enabled())
         .with_vfs(nls)?
         .run();
 
@@ -1064,6 +1083,7 @@ pub unsafe extern "C" fn rfvp_pump_create(
         .with_window_title(&title)
         .with_window_size(size)
         .with_parser(parser)
+        .with_text_hidpi_enabled(default_text_hidpi_enabled())
         .with_vfs(nls)
     {
         Ok(b) => b,
@@ -1108,6 +1128,24 @@ pub unsafe extern "C" fn rfvp_pump_step(handle: *mut RfvpPumpHandle, timeout_ms:
         PumpStatus::Continue => 0,
         _ => 1,
     }
+}
+
+/// Enable or disable HiDPI text backing surfaces for a pump-driven instance.
+#[cfg(all(
+    not(feature = "no_std"),
+    any(target_os = "macos", target_os = "windows", target_os = "linux")
+))]
+#[cfg(feature = "gpu-render")]
+#[no_mangle]
+pub unsafe extern "C" fn rfvp_pump_set_text_hidpi(
+    handle: *mut RfvpPumpHandle,
+    enabled: i32,
+) {
+    if handle.is_null() {
+        return;
+    }
+    let h = &mut *handle;
+    h.inst.set_text_hidpi_enabled(enabled != 0);
 }
 
 /// Destroy a pump-driven instance created by `rfvp_pump_create`.

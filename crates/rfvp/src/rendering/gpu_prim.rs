@@ -669,63 +669,56 @@ impl GpuPrimRenderer {
                             if tw > 0 && th > 0 {
                                 let attr = draw_prim.get_attr();
                                 let use_rect = (attr & 1) != 0;
-                                let display_w = g.get_display_width() as f32;
-                                let display_h = g.get_display_height() as f32;
-                                let tex_scale_x = if display_w > 0.0 {
-                                    tw as f32 / display_w
-                                } else {
-                                    1.0
-                                };
-                                let tex_scale_y = if display_h > 0.0 {
-                                    th as f32 / display_h
-                                } else {
-                                    1.0
-                                };
-                                let (w, h, u, v, tex_w, tex_h) = if use_rect {
-                                    let mut w = draw_prim.get_w() as f32;
-                                    let mut h = draw_prim.get_h() as f32;
-                                    if w <= 0.0 {
-                                        w = display_w;
-                                    }
-                                    if h <= 0.0 {
-                                        h = display_h;
-                                    }
-                                    let w = w.min(display_w);
-                                    let h = h.min(display_h);
-                                    let u = draw_prim.get_u() as f32;
-                                    let v = draw_prim.get_v() as f32;
-                                    (w, h, u, v, w * tex_scale_x, h * tex_scale_y)
-                                } else {
-                                    (display_w, display_h, 0.0, 0.0, tw as f32, th as f32)
-                                };
+                                if let Some(region) = g.text_texture_region(
+                                    tw,
+                                    th,
+                                    use_rect,
+                                    draw_prim.get_u() as f32,
+                                    draw_prim.get_v() as f32,
+                                    draw_prim.get_w() as f32,
+                                    draw_prim.get_h() as f32,
+                                ) {
+                                    let uv0 = vec2(
+                                        region.tex_x / tw as f32,
+                                        region.tex_y / th as f32,
+                                    );
+                                    let uv1 = vec2(
+                                        (region.tex_x + region.tex_w) / tw as f32,
+                                        (region.tex_y + region.tex_h) / th as f32,
+                                    );
+                                    let color = vec4(1.0, 1.0, 1.0, draw_alpha);
+                                    let off_x = g.get_offset_x() as f32 + region.draw_x;
+                                    let off_y = g.get_offset_y() as f32 + region.draw_y;
+                                    let (pivot_x, pivot_y) = if (attr & 2) != 0 {
+                                        (draw_prim.get_opx() as f32, draw_prim.get_opy() as f32)
+                                    } else {
+                                        (g.get_u() as f32, g.get_v() as f32)
+                                    };
+                                    let model = self.build_draw_model(
+                                        &draw_prim,
+                                        parent_x,
+                                        parent_y,
+                                        draw_x,
+                                        draw_y,
+                                        off_x,
+                                        off_y,
+                                        pivot_x,
+                                        pivot_y,
+                                        v3d_x,
+                                        v3d_y,
+                                        v3d_z,
+                                    );
 
-                                let tex_u = u * tex_scale_x;
-                                let tex_v = v * tex_scale_y;
-                                let uv0 = vec2(tex_u / tw as f32, tex_v / th as f32);
-                                let uv1 =
-                                    vec2((tex_u + tex_w) / tw as f32, (tex_v + tex_h) / th as f32);
-                                let color = vec4(1.0, 1.0, 1.0, draw_alpha);
-                                let off_x = g.get_offset_x() as f32;
-                                let off_y = g.get_offset_y() as f32;
-                                let (pivot_x, pivot_y) = if (attr & 2) != 0 {
-                                    (draw_prim.get_opx() as f32, draw_prim.get_opy() as f32)
-                                } else {
-                                    (g.get_u() as f32, g.get_v() as f32)
-                                };
-                                let model = self.build_draw_model(
-                                    &draw_prim, parent_x, parent_y, draw_x, draw_y, off_x, off_y,
-                                    pivot_x, pivot_y, v3d_x, v3d_y, v3d_z,
-                                );
-
-                                self.emit_sprite_vertices(
-                                    model,
-                                    w,
-                                    h,
-                                    uv0,
-                                    uv1,
-                                    color,
-                                    DrawTextureKey::Graph(graph_id),
-                                );
+                                    self.emit_sprite_vertices(
+                                        model,
+                                        region.draw_w,
+                                        region.draw_h,
+                                        uv0,
+                                        uv1,
+                                        color,
+                                        DrawTextureKey::Graph(graph_id),
+                                    );
+                                }
                             }
                         }
                     }

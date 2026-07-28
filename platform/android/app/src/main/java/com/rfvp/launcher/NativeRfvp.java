@@ -62,6 +62,9 @@ public final class NativeRfvp {
     /** Inject a single-finger touch event (coordinates in physical pixels). */
     public static native void touch(long handle, int phase, double xPx, double yPx);
 
+    /** Enable or disable HiDPI text backing without recreating the engine instance. */
+    public static native void setTextHidpi(long handle, boolean enabled);
+
     /** Destroy the instance. */
     public static native void destroy(long handle);
 }
