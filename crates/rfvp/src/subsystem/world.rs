@@ -606,6 +606,7 @@ lazy_static::lazy_static! {
         m.insert("SoundMasterVol".into(), Box::new(SoundMasterVol));
 
         m.insert("AudioLoad".into(), Box::new(AudioLoad));
+        m.insert("AudioLoad2".into(), Box::new(AudioLoad)); // workaround for steam, non-official patch
         m.insert("AudioPlay".into(), Box::new(AudioPlay));
         m.insert("AudioSilentOn".into(), Box::new(AudioSilentOn));
         m.insert("AudioStop".into(), Box::new(AudioStop));
@@ -666,6 +667,8 @@ lazy_static::lazy_static! {
         // graph apis
         m.insert("GraphLoad".into(), Box::new(GraphLoad));
         m.insert("GraphRGB".into(), Box::new(GraphRGB));
+
+        m.insert("GraphLoad2".into(), Box::new(GraphLoad)); // workaround for steam, non-official patch
 
         // gaiji apis
         m.insert("GaijiLoad".into(), Box::new(GaijiLoad));
