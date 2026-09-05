@@ -193,6 +193,15 @@ impl InputManager {
         self.input_state = 0;
         self.input_down = 0;
         self.input_up = 0;
+
+        // rfvp stages edge/repeat events until begin_frame(). The original engine has no
+        // separate pending layer: InputFlash resets the producer state and the visible
+        // edge/repeat state atomically, so pre-flash events cannot reappear next frame.
+        self.input_down_pending = 0;
+        self.input_up_pending = 0;
+        self.input_repeat_pending = 0;
+        // Do not clear wheel_pending/wheel_value: the original InputFlash leaves
+        // InputState::wheel_value untouched.
     }
 
     pub fn suppress_next_mouse_click(&mut self) {
@@ -578,5 +587,40 @@ impl InputManager {
         self.input_up_pending = 0;
         self.input_repeat_pending = 0;
         self.wheel_pending = 0;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn input_flash_discards_staged_edges_repeat_and_event_queue() {
+        let mut input = InputManager::new();
+
+        input.notify_mouse_down(KeyCode::MouseLeft);
+        input.notify_mouse_up(KeyCode::MouseLeft);
+        input.notify_keycode_down(KeyCode::Space, false);
+        input.notify_keycode_up(KeyCode::Space);
+
+        input.set_flash();
+        input.begin_frame();
+
+        assert_eq!(input.get_input_state(), 0);
+        assert_eq!(input.get_input_down(), 0);
+        assert_eq!(input.get_input_up(), 0);
+        assert_eq!(input.get_repeat(), 0);
+        assert!(input.get_event().is_none());
+    }
+
+    #[test]
+    fn input_flash_preserves_wheel_state_like_original_engine() {
+        let mut input = InputManager::new();
+
+        input.notify_mouse_wheel(120);
+        input.set_flash();
+        input.begin_frame();
+
+        assert_eq!(input.get_wheel_value(), 120);
     }
 }
