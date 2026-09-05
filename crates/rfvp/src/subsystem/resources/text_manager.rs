@@ -3125,9 +3125,6 @@ impl TextManager {
                 }
                 t.dirty = true;
             }
-            if t.reveal_is_complete() {
-                t.sync_wait_active = false;
-            }
         }
     }
 
@@ -3705,6 +3702,27 @@ mod hidpi_surface_tests {
         assert!(item.full_buffer.is_empty());
         assert_eq!(item.pixel_buffer.capacity(), 0);
         assert_eq!(item.full_buffer.capacity(), 0);
+    }
+
+    #[test]
+    fn force_reveal_preserves_sync_waiter_until_collected() {
+        let mut manager = TextManager::new();
+        manager.set_text_buff(0, 100, 40);
+        {
+            let item = &mut manager.items[0];
+            item.total_chars = 10;
+            item.visible_chars = 3;
+            item.wait_points.clear();
+            item.next_wait_index = 0;
+            item.pending_wait_ms = 0;
+            item.pending_special_wait = false;
+        }
+
+        manager.arm_sync_print_wait(0, 42);
+        manager.force_reveal_all_non_suspended();
+
+        assert_eq!(manager.collect_completed_sync_print_waiters(), vec![42]);
+        assert!(manager.collect_completed_sync_print_waiters().is_empty());
     }
 
     #[test]
