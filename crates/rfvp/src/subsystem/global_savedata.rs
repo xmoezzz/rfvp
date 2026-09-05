@@ -26,6 +26,9 @@ const MAX_GLOBAL_PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
 pub struct GlobalSaveDataV1 {
     pub version: u16,
 
+    // HCB first-region count. The original engine uses this as the base
+    // offset of the global/system region; normal save slots serialize the
+    // first region, while the global save serializes the second region.
     pub non_volatile_global_count: u16,
     pub volatile_global_count: u16,
     pub volatile_globals: Vec<Variant>,
@@ -48,18 +51,20 @@ pub struct GlobalSaveDataV1 {
 
 impl GlobalSaveDataV1 {
     pub fn capture(game_data: &GameData) -> Self {
-        let (non_volatile_global_count, _volatile_global_count) = {
+        let (non_volatile_global_count, volatile_global_count, volatile_globals) = {
             let g = GLOBAL.lock().unwrap();
-            (g.non_volatile_count(), g.volatile_count())
+            (
+                g.non_volatile_count(),
+                g.volatile_count(),
+                g.snapshot_volatile_globals(),
+            )
         };
 
         GlobalSaveDataV1 {
             version: 1,
             non_volatile_global_count,
-            // Keep the V1 binary layout/fields for compatibility, but do not persist
-            // volatile globals. The original global save should not carry ephemeral globals.
-            volatile_global_count: 0,
-            volatile_globals: Vec::new(),
+            volatile_global_count,
+            volatile_globals,
             flags: game_data.flag_manager.clone(),
             readed_text: game_data.motion_manager.text_manager.readed_text.clone(),
             thumb_width: game_data.save_manager.get_thumb_width(),
@@ -94,6 +99,15 @@ impl GlobalSaveDataV1 {
             }
         }
 
+        {
+            let mut g = GLOBAL.lock().unwrap();
+            g.restore_volatile_globals(
+                self.non_volatile_global_count,
+                self.volatile_global_count,
+                &self.volatile_globals,
+            );
+        }
+
         // Non-critical engine state.
         game_data
             .save_manager
@@ -110,14 +124,8 @@ impl GlobalSaveDataV1 {
             .fontface_manager
             .set_current_font_name(&self.current_font_name);
 
-        // Do not restore volatile globals from global save. Keep the V1 fields only so
-        // existing files remain decodable; volatile globals are intentionally treated as
-        // non-persistent runtime state.
-        let _ = (
-            self.non_volatile_global_count,
-            self.volatile_global_count,
-            &self.volatile_globals,
-        );
+        // The first HCB global region is deliberately not restored here.
+        // The original engine restores that region from normal save slots.
     }
 }
 

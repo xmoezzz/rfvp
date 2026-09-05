@@ -67,6 +67,8 @@ impl Global {
         self.volatile_count
     }
 
+    /// Snapshot the first HCB global region. The original engine serializes
+    /// this region as part of normal save slots.
     pub fn snapshot_non_volatile(&self) -> Vec<Variant> {
         let mut out: Vec<Variant> = Vec::with_capacity(self.none_volatile_count as usize);
         for i in 0..self.none_volatile_count {
@@ -84,6 +86,8 @@ impl Global {
         // Missing entries remain unchanged.
     }
 
+    /// Snapshot the second HCB global region. Despite the historical rfvp
+    /// name, the original engine serializes this region in `save/save.bin`.
     pub fn snapshot_volatile_globals(&self) -> Vec<Variant> {
         let mut out: Vec<Variant> = Vec::with_capacity(self.volatile_count as usize);
         let base = self.none_volatile_count;
