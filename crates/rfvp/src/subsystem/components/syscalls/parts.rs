@@ -264,9 +264,11 @@ pub fn parts_motion_test(game_data: &mut GameData, id: &Variant) -> Result<Varia
         return Ok(Variant::Nil);
     }
 
-    Ok(Variant::Int(
-        game_data.motion_manager.test_parts_motion(id as u8) as i32,
-    ))
+    Ok(if game_data.motion_manager.test_parts_motion(id as u8) {
+        Variant::True
+    } else {
+        Variant::Nil
+    })
 }
 
 pub struct PartsAssign;

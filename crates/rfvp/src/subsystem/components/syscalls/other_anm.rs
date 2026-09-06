@@ -232,11 +232,11 @@ pub fn dissolve(
             #[cfg(not(feature = "old_school"))]
             graph.load_mask(s, buff)?;
             game_data.motion_manager.set_dissolve_mask_graph(graph);
-            // IDA (original engine): for mask dissolve, args[2] is *not* a boolean direction.
-            // The engine selects mode by checking whether args[2] is Nil:
-            //   dis_wait = (args[2].Type == Nil) + 4  => 4 or 5
-            // i.e. Nil triggers the in-out variant (5), otherwise the single-phase variant (4).
-            if matches!(inout, Variant::Nil) {
+            // Original engine (Dissolve @ 0x43A010): mask mode is selected from
+            // the Variant type of args[2]:
+            //   Type == True -> dis_wait = 5
+            //   otherwise    -> dis_wait = 4
+            if matches!(inout, Variant::True) {
                 game_data
                     .motion_manager
                     .start_dissolve(duration as u32, DissolveType::MaskFadeInOut);

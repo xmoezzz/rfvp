@@ -51,9 +51,10 @@ pub fn history_set(game_data: &mut GameData, fnid: &Variant, value: &Variant) ->
             }
         },
         Ok(HistoryFunction::Voice) => match value.as_int() {
-            Some(value) => {
+            Some(value) if value >= 0 => {
                 game_data.history_manager.set_voice(value);
             }
+            Some(_) => {}
             _ => {
                 log::error!("history_set: unexpected value for set_voice : {:?}", value);
             }

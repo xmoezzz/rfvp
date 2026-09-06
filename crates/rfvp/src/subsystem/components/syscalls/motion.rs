@@ -43,34 +43,31 @@ pub fn motion_alpha(
     reverse: &Variant,
 ) -> Result<Variant> {
     let id = match id {
-        Variant::Int(id) => *id as i16,
+        Variant::Int(id) if (1..4096).contains(id) => *id as i16,
+        Variant::Int(_) => {
+            log::error!("prim_id must be between 1 and 4095");
+            return Ok(Variant::Nil);
+        }
         _ => {
             log::error!("Invalid alpha motion id");
             return Ok(Variant::Nil);
         }
     };
 
-    if !(1..4096).contains(&id) {
-        log::error!("prim_id must be between 1 and 4096");
-        return Ok(Variant::Nil);
-    }
+    let current_alpha = game_data
+        .motion_manager
+        .prim_manager
+        .get_prim(id)
+        .get_alpha();
 
     let src_alpha = match src_alpha {
-        Variant::Int(src_alpha) => *src_alpha as u8,
-        _ => game_data
-            .motion_manager
-            .prim_manager
-            .get_prim(id)
-            .get_alpha(),
+        Variant::Int(src_alpha) if (0..=255).contains(src_alpha) => *src_alpha as u8,
+        _ => current_alpha,
     };
 
     let dst_alpha = match dst_alpha {
-        Variant::Int(dst_alpha) => *dst_alpha as u8,
-        _ => game_data
-            .motion_manager
-            .prim_manager
-            .get_prim(id)
-            .get_alpha(),
+        Variant::Int(dst_alpha) if (0..=255).contains(dst_alpha) => *dst_alpha as u8,
+        _ => current_alpha,
     };
 
     let duration = match duration {
@@ -215,17 +212,16 @@ pub fn motion_move(
         return Ok(Variant::Nil);
     }
 
-    // Default for move motion is linear (1). Nil means "use default".
-    let typ = int_or_default(typ, 0);
-
-    let typ = match typ.try_into() {
-        Ok(MoveMotionType::Linear) => MoveMotionType::Linear,
-        Ok(MoveMotionType::Accelerate) => MoveMotionType::Accelerate,
-        Ok(MoveMotionType::Decelerate) => MoveMotionType::Decelerate,
-        Ok(MoveMotionType::Rebound) => MoveMotionType::Rebound,
-        Ok(MoveMotionType::Bounce) => MoveMotionType::Bounce,
-        // Type 0 is reserved as "None" (unused) in the motion container.
-        _ => MoveMotionType::Linear,
+    let typ = match typ {
+        Variant::Int(typ) => match MoveMotionType::try_from(*typ) {
+            Ok(MoveMotionType::Linear) => MoveMotionType::Linear,
+            Ok(MoveMotionType::Accelerate) => MoveMotionType::Accelerate,
+            Ok(MoveMotionType::Decelerate) => MoveMotionType::Decelerate,
+            Ok(MoveMotionType::Rebound) => MoveMotionType::Rebound,
+            Ok(MoveMotionType::Bounce) => MoveMotionType::Bounce,
+            _ => return Ok(Variant::Nil),
+        },
+        _ => return Ok(Variant::Nil),
     };
 
     game_data.motion_manager.set_move_motion(
@@ -337,17 +333,16 @@ pub fn motion_move_r(
         return Ok(Variant::Nil);
     }
 
-    // Default for rotation motion is linear (1). Nil means "use default".
-    let typ = int_or_default(typ, 0);
-
-    let typ = match typ.try_into() {
-        Ok(RotationMotionType::Linear) => RotationMotionType::Linear,
-        Ok(RotationMotionType::Accelerate) => RotationMotionType::Accelerate,
-        Ok(RotationMotionType::Decelerate) => RotationMotionType::Decelerate,
-        Ok(RotationMotionType::Rebound) => RotationMotionType::Rebound,
-        Ok(RotationMotionType::Bounce) => RotationMotionType::Bounce,
-        // Type 0 is reserved as "None" (unused) in the motion container.
-        _ => RotationMotionType::Linear,
+    let typ = match typ {
+        Variant::Int(typ) => match RotationMotionType::try_from(*typ) {
+            Ok(RotationMotionType::Linear) => RotationMotionType::Linear,
+            Ok(RotationMotionType::Accelerate) => RotationMotionType::Accelerate,
+            Ok(RotationMotionType::Decelerate) => RotationMotionType::Decelerate,
+            Ok(RotationMotionType::Rebound) => RotationMotionType::Rebound,
+            Ok(RotationMotionType::Bounce) => RotationMotionType::Bounce,
+            _ => return Ok(Variant::Nil),
+        },
+        _ => return Ok(Variant::Nil),
     };
 
     game_data.motion_manager.set_rotation_motion(
@@ -482,17 +477,16 @@ pub fn motion_move_s2(
         return Ok(Variant::Nil);
     }
 
-    // Default for scale motion is linear (1). Nil means "use default".
-    let typ = int_or_default(typ, 0);
-
-    let typ = match typ.try_into() {
-        Ok(ScaleMotionType::Linear) => ScaleMotionType::Linear,
-        Ok(ScaleMotionType::Accelerate) => ScaleMotionType::Accelerate,
-        Ok(ScaleMotionType::Decelerate) => ScaleMotionType::Decelerate,
-        Ok(ScaleMotionType::Rebound) => ScaleMotionType::Rebound,
-        Ok(ScaleMotionType::Bounce) => ScaleMotionType::Bounce,
-        // Type 0 is reserved as "None" (unused) in the motion container.
-        _ => ScaleMotionType::Linear,
+    let typ = match typ {
+        Variant::Int(typ) => match ScaleMotionType::try_from(*typ) {
+            Ok(ScaleMotionType::Linear) => ScaleMotionType::Linear,
+            Ok(ScaleMotionType::Accelerate) => ScaleMotionType::Accelerate,
+            Ok(ScaleMotionType::Decelerate) => ScaleMotionType::Decelerate,
+            Ok(ScaleMotionType::Rebound) => ScaleMotionType::Rebound,
+            Ok(ScaleMotionType::Bounce) => ScaleMotionType::Bounce,
+            _ => return Ok(Variant::Nil),
+        },
+        _ => return Ok(Variant::Nil),
     };
 
     game_data.motion_manager.set_scale_motion(
@@ -606,17 +600,16 @@ pub fn motion_move_z(
         return Ok(Variant::Nil);
     }
 
-    // Default for z motion is linear (1). Nil means "use default".
-    let typ = int_or_default(typ, 0);
-
-    let typ = match typ.try_into() {
-        Ok(ZMotionType::Linear) => ZMotionType::Linear,
-        Ok(ZMotionType::Accelerate) => ZMotionType::Accelerate,
-        Ok(ZMotionType::Decelerate) => ZMotionType::Decelerate,
-        Ok(ZMotionType::Rebound) => ZMotionType::Rebound,
-        Ok(ZMotionType::Bounce) => ZMotionType::Bounce,
-        // Type 0 is reserved as "None" (unused) in the motion container.
-        _ => ZMotionType::Linear,
+    let typ = match typ {
+        Variant::Int(typ) => match ZMotionType::try_from(*typ) {
+            Ok(ZMotionType::Linear) => ZMotionType::Linear,
+            Ok(ZMotionType::Accelerate) => ZMotionType::Accelerate,
+            Ok(ZMotionType::Decelerate) => ZMotionType::Decelerate,
+            Ok(ZMotionType::Rebound) => ZMotionType::Rebound,
+            Ok(ZMotionType::Bounce) => ZMotionType::Bounce,
+            _ => return Ok(Variant::Nil),
+        },
+        _ => return Ok(Variant::Nil),
     };
 
     game_data.motion_manager.set_z_motion(
@@ -675,27 +668,22 @@ pub fn motion_move_z_test(game_data: &GameData, id: &Variant) -> Result<Variant>
 
 pub fn motion_pause(game_data: &mut GameData, id: &Variant, pause: &Variant) -> Result<Variant> {
     let id = match id {
-        Variant::Int(id) => *id as i16,
+        Variant::Int(id) if (0..4096).contains(id) => *id as i16,
+        Variant::Int(_) => {
+            log::error!("prim_id must be between 0 and 4095");
+            return Ok(Variant::Nil);
+        }
         _ => {
             log::error!("Invalid id");
             return Ok(Variant::Nil);
         }
     };
 
-    if !(0..=4096).contains(&id) {
-        log::error!("prim_id must be between 0 and 4096");
-        return Ok(Variant::Nil);
-    }
-
     let mut prim = game_data.motion_manager.prim_manager.get_prim(id);
     match pause {
-        Variant::Int(b) => {
-            if *b == 0 {
-                prim.set_paused(false);
-            } else {
-                prim.set_paused(true);
-            }
-        }
+        Variant::Int(0) => prim.set_paused(false),
+        Variant::Int(1) => prim.set_paused(true),
+        Variant::Int(_) => return Ok(Variant::Nil),
         Variant::Nil => {
             return Ok(Variant::Int(prim.get_paused() as i32));
         }
@@ -758,11 +746,16 @@ pub fn v3d_motion(
         return Ok(Variant::Nil);
     }
 
-    // Default for v3d motion is linear (1). Nil means "use default".
-    let typ_i32 = int_or_default(typ, 1);
-    let typ = match V3dMotionType::try_from(typ_i32) {
-        Ok(V3dMotionType::None) | Err(_) => V3dMotionType::Linear,
-        Ok(t) => t,
+    let typ = match typ {
+        Variant::Int(typ) => match V3dMotionType::try_from(*typ) {
+            Ok(V3dMotionType::Linear) => V3dMotionType::Linear,
+            Ok(V3dMotionType::Accelerate) => V3dMotionType::Accelerate,
+            Ok(V3dMotionType::Decelerate) => V3dMotionType::Decelerate,
+            Ok(V3dMotionType::Rebound) => V3dMotionType::Rebound,
+            Ok(V3dMotionType::Bounce) => V3dMotionType::Bounce,
+            _ => return Ok(Variant::Nil),
+        },
+        _ => return Ok(Variant::Nil),
     };
 
     // In the original script layer, this argument behaves like a presence flag
@@ -778,13 +771,9 @@ pub fn v3d_motion(
 
 pub fn v3d_motion_pause(game_data: &mut GameData, pause: &Variant) -> Result<Variant> {
     match pause {
-        Variant::Int(b) => {
-            if *b == 0 {
-                game_data.motion_manager.set_v3d_motion_paused(false);
-            } else {
-                game_data.motion_manager.set_v3d_motion_paused(true);
-            }
-        }
+        Variant::Int(0) => game_data.motion_manager.set_v3d_motion_paused(false),
+        Variant::Int(1) => game_data.motion_manager.set_v3d_motion_paused(true),
+        Variant::Int(_) => return Ok(Variant::Nil),
         Variant::Nil => {
             return Ok(Variant::Int(
                 game_data.motion_manager.get_v3d_motion_paused() as i32,
@@ -1236,11 +1225,10 @@ pub struct MotionAnimTest;
 impl Syscaller for MotionAnimTest {
     fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
         let prim_id = get_var!(args, 0).as_int().unwrap_or(0) as u32;
-        let v = if game_data.motion_manager.test_anim_motion(prim_id) {
-            1
+        Ok(if game_data.motion_manager.test_anim_motion(prim_id) {
+            Variant::True
         } else {
-            0
-        };
-        Ok(Variant::Int(v))
+            Variant::Nil
+        })
     }
 }

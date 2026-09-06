@@ -394,14 +394,14 @@ impl Syscaller for DissolveWait {
         //   - DissolveWait(nil): returns true if dissolve-wait is active (used as a polling predicate).
         //   - DissolveWait(non-nil): blocks the current context until dissolve completes.
         //
-        // We approximate the engine's `dis_wait` flag as "any dissolve transition in progress".
+        // IDA: this syscall tests Scene::dis_wait directly.  DissolveType maps the
+        // original dis_wait values 0..=6, so Static (1) is still observable as
+        // active here.  Dissolve2 is an rfvp-internal overlay and is not part of
+        // the original syscall's predicate.
         use crate::subsystem::resources::motion_manager::DissolveType;
 
         let dissolve_type = game_data.motion_manager.get_dissolve_type();
-        let dissolve2_transitioning = game_data.motion_manager.is_dissolve2_transitioning();
-        let dis_wait = !(dissolve_type == DissolveType::None
-            || dissolve_type == DissolveType::Static)
-            || dissolve2_transitioning;
+        let dis_wait = dissolve_type != DissolveType::None;
 
         let arg0 = args.get(0).unwrap_or(&Variant::Nil);
         if arg0.is_nil() {

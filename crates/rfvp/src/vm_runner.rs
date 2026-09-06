@@ -161,7 +161,6 @@ impl VmRunner {
         // In the original engine, dissolve is a global visual state that can unblock VM waits.
         uefi_vm_stage!("[UEFI] VmRunner::tick before dissolve state");
         let dissolve_type = game.motion_manager.get_dissolve_type();
-        let dissolve2_transitioning = game.motion_manager.is_dissolve2_transitioning();
         uefi_vm_stage!("[UEFI] VmRunner::tick after dissolve state");
 
         let report = VmTickReport::default();
@@ -180,12 +179,7 @@ impl VmRunner {
             }
 
             uefi_vm_stage!("[UEFI] VmRunner::tick before advance_timers tid={}", tid);
-            self.advance_timers_and_state(
-                tid,
-                dissolve_type,
-                dissolve2_transitioning,
-                frame_time_ms,
-            );
+            self.advance_timers_and_state(tid, dissolve_type, frame_time_ms);
             uefi_vm_stage!("[UEFI] VmRunner::tick after advance_timers tid={}", tid);
 
             let status = self.tm.get_context_status(tid);
@@ -264,7 +258,6 @@ impl VmRunner {
         &mut self,
         tid: u32,
         dissolve_type: DissolveType,
-        dissolve2_transitioning: bool,
         frame_time_ms: u64,
     ) {
         let status = self.tm.get_context_status(tid);
@@ -300,10 +293,11 @@ impl VmRunner {
             }
         }
 
-        // Dissolve wait is unblocked when dissolve is completed / static, and dissolve2 is not transitioning.
+        // Original engine (exec_script_bytecode @ 0x445440): DISSOLVE_WAIT is
+        // cleared solely when Scene::dis_wait <= 1.  Dissolve2 is an rfvp-internal
+        // overlay and must not participate in the script-visible wait condition.
         if status.contains(ThreadState::CONTEXT_STATUS_DISSOLVE_WAIT)
             && (dissolve_type == DissolveType::None || dissolve_type == DissolveType::Static)
-            && !dissolve2_transitioning
         {
             let mut new_status = status.clone();
             new_status.remove(ThreadState::CONTEXT_STATUS_DISSOLVE_WAIT);
