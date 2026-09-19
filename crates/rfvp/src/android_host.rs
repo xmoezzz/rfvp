@@ -227,6 +227,30 @@ pub unsafe extern "C" fn rfvp_android_set_text_hidpi(handle: *mut c_void, enable
     app.set_text_hidpi_enabled(enabled != 0);
 }
 
+/// Inject a key event (Windows VK semantics, aligned with the Siglus host).
+///
+/// `phase`: 0 = down, 1 = up.
+#[no_mangle]
+pub unsafe extern "C" fn rfvp_android_key(handle: *mut c_void, vk_code: i32, phase: i32) {
+    if handle.is_null() {
+        return;
+    }
+    let app: &mut App = &mut *(handle as *mut App);
+    app.host_key_android(vk_code, phase);
+}
+
+/// Enable or disable the system CJK fallback font stack without changing the Android create ABI.
+///
+/// Must be called after `rfvp_android_create`; enabling triggers a one-shot system font scan.
+#[no_mangle]
+pub unsafe extern "C" fn rfvp_android_set_system_font(handle: *mut c_void, enabled: i32) {
+    if handle.is_null() {
+        return;
+    }
+    let app: &mut App = &mut *(handle as *mut App);
+    app.set_system_font_fallback_enabled(enabled != 0);
+}
+
 /// Destroy an Android host-driven instance.
 #[no_mangle]
 pub unsafe extern "C" fn rfvp_android_destroy(handle: *mut c_void) {
