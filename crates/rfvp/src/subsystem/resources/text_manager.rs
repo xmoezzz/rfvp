@@ -745,6 +745,18 @@ impl FontEnumerator {
         self.system_fallback_enabled = enabled;
     }
 
+    /// Load system CJK fallback fonts on demand.
+    ///
+    /// Used by host-driven platforms that toggle the fallback after engine
+    /// creation (e.g. the Android host calls this once from the host ABI).
+    /// No-op when the fallback is disabled or the scan already ran.
+    pub fn load_system_fallback_fonts(&mut self) {
+        if !self.system_fallback_enabled {
+            return;
+        }
+        self.init_system_fallback_fonts();
+    }
+
     pub fn init_fontface(&mut self) -> Result<()> {
         let mut path = app_base_path().join("font");
         if !path.exists() {
@@ -1058,6 +1070,8 @@ impl FontEnumerator {
     }
 
     pub fn set_system_font_fallback_enabled(&mut self, _enabled: bool) {}
+
+    pub fn load_system_fallback_fonts(&mut self) {}
 
     pub fn init_fontface(&mut self) -> Result<()> {
         if self.default_font.is_some() {
