@@ -698,6 +698,9 @@ pub struct FontEnumerator {
 
     system_fontface_id: i32,
     current_font_name: String,
+    // Host-provided "force this font for all rendering" override (Android/iOS hosts).
+    // Index into `fonts`; cleared on font re-scan to avoid dangling ids.
+    forced_font_id: Option<i32>,
 }
 
 #[cfg(not(feature = "no_std"))]
@@ -738,6 +741,7 @@ impl FontEnumerator {
             system_fallback_enabled: false,
             system_fontface_id: FONTFACE_MS_GOTHIC,
             current_font_name: "MS Gothic".to_string(),
+            forced_font_id: None,
         }
     }
 
@@ -757,7 +761,64 @@ impl FontEnumerator {
         self.init_system_fallback_fonts();
     }
 
+    /// Append a font file at runtime (host-provided custom font).
+    ///
+    /// Returns the new font id (0-based index into the user font list), or
+    /// `None` when the file is missing/invalid/unsupported.
+    pub fn add_font_file(&mut self, path: &Path) -> Option<i32> {
+        match load_font_file(path) {
+            Ok(Some(loaded)) => {
+                log::info!(
+                    "Added custom font face '{}' from {} (id={})",
+                    loaded.name,
+                    path.display(),
+                    self.fonts.len()
+                );
+                self.fonts.push(loaded);
+                Some((self.fonts.len() - 1) as i32)
+            }
+            Ok(None) => None,
+            Err(e) => {
+                log::warn!("Failed to add font {}: {}", path.display(), e);
+                None
+            }
+        }
+    }
+
+    /// Force a user font (by id) as the primary font for all rendering.
+    ///
+    /// While forced, scripts' `TextFontSet` requests and the built-in MS
+    /// faces are ignored in favor of this font; missing glyphs still fall
+    /// back to the remaining loaded fonts, system fallbacks and built-ins.
+    /// `None` (or an invalid id) restores the default behavior.
+    pub fn set_forced_font(&mut self, id: Option<i32>) {
+        self.forced_font_id = match id {
+            Some(idx) if idx >= 0 && (idx as usize) < self.fonts.len() => Some(idx),
+            _ => None,
+        };
+    }
+
+    pub fn forced_font_id(&self) -> Option<i32> {
+        self.forced_font_id
+    }
+
+    fn is_font_forced(&self) -> bool {
+        self.forced_font_id
+            .map(|idx| (idx as usize) < self.fonts.len())
+            .unwrap_or(false)
+    }
+
+    fn forced_font(&self) -> Option<Font> {
+        self.forced_font_id
+            .and_then(|idx| self.fonts.get(idx as usize))
+            .map(|loaded| loaded.font.clone())
+    }
+
     pub fn init_fontface(&mut self) -> Result<()> {
+        // Re-scanning rebuilds the user font list, so any previously forced id
+        // would dangle; hosts re-apply the forced font after re-initialization.
+        self.forced_font_id = None;
+
         let mut path = app_base_path().join("font");
         if !path.exists() {
             // Android/Linux file systems are case-sensitive; many games ship `FONT`/`Font`.
@@ -925,6 +986,10 @@ impl FontEnumerator {
     /// - id < 0: original engine fixed fontface ids. These constants must not move.
     /// - id >= 0: enumerated user/private fonts, 0-based, matching TextFontCount/TextFontName loops.
     pub fn get_font(&self, id: i32) -> Font {
+        // Host-forced font takes precedence over every script/face request.
+        if let Some(forced) = self.forced_font() {
+            return forced;
+        }
         match id {
             FONTFACE_CURRENT => self.resolve_current_font(),
             FONTFACE_MS_GOTHIC => self.sys_ms_gothic.clone(),
@@ -945,12 +1010,18 @@ impl FontEnumerator {
 
     fn get_font_fallback_set(&self, id: i32) -> FontFallbackSet {
         let primary = self.get_font(id);
-        let prefer_game_cjk = match id {
-            FONTFACE_MS_GOTHIC | FONTFACE_MS_MINCHO | FONTFACE_MS_PGOTHIC | FONTFACE_MS_PMINCHO => {
-                true
+        let prefer_game_cjk = if self.is_font_forced() {
+            // The forced font is already the primary; do not re-order CJK
+            // fallbacks around it.
+            false
+        } else {
+            match id {
+                FONTFACE_MS_GOTHIC | FONTFACE_MS_MINCHO | FONTFACE_MS_PGOTHIC | FONTFACE_MS_PMINCHO => {
+                    true
+                }
+                FONTFACE_CURRENT => !self.current_font_is_user_loaded(),
+                _ => false,
             }
-            FONTFACE_CURRENT => !self.current_font_is_user_loaded(),
-            _ => false,
         };
         let mut preferred_cjk = if prefer_game_cjk {
             Vec::with_capacity(self.fonts.len() + self.system_fallback_fonts.len())
@@ -1072,6 +1143,16 @@ impl FontEnumerator {
     pub fn set_system_font_fallback_enabled(&mut self, _enabled: bool) {}
 
     pub fn load_system_fallback_fonts(&mut self) {}
+
+    pub fn add_font_file(&mut self, _path: &Path) -> Option<i32> {
+        None
+    }
+
+    pub fn set_forced_font(&mut self, _id: Option<i32>) {}
+
+    pub fn forced_font_id(&self) -> Option<i32> {
+        None
+    }
 
     pub fn init_fontface(&mut self) -> Result<()> {
         if self.default_font.is_some() {
@@ -3818,5 +3899,42 @@ mod hidpi_surface_tests {
         manager.set_hidpi_enabled(true);
         assert!(manager.hidpi_enabled());
         assert_eq!(manager.items[20].raster_dimensions(), (1620, 240));
+    }
+}
+
+#[cfg(all(test, not(feature = "no_std")))]
+mod font_enumerator_tests {
+    use super::*;
+
+    #[test]
+    fn add_font_file_returns_id_and_force_normalizes() {
+        let dir = std::env::temp_dir().join("rfvp_font_force_test");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("MSGOTHIC.TTF");
+        std::fs::write(&path, include_bytes!("./fonts/MSGOTHIC.TTF")).unwrap();
+
+        let mut fonts = FontEnumerator::new();
+        assert_eq!(fonts.get_font_count(), 0);
+
+        let id = fonts.add_font_file(&path).expect("font should load");
+        assert_eq!(id, 0);
+        assert_eq!(fonts.get_font_count(), 1);
+
+        fonts.set_forced_font(Some(0));
+        assert_eq!(fonts.forced_font_id(), Some(0));
+        assert!(fonts.is_font_forced());
+
+        // Invalid ids normalize to "no forced font".
+        fonts.set_forced_font(Some(99));
+        assert_eq!(fonts.forced_font_id(), None);
+        fonts.set_forced_font(Some(-1));
+        assert_eq!(fonts.forced_font_id(), None);
+
+        // Re-scanning clears the forced id to avoid dangling indices.
+        fonts.set_forced_font(Some(0));
+        let _ = fonts.init_fontface();
+        assert_eq!(fonts.forced_font_id(), None);
+
+        assert_eq!(fonts.add_font_file(&dir.join("missing.ttf")), None);
     }
 }

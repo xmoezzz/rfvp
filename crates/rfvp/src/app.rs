@@ -1457,6 +1457,22 @@ impl App {
         }
     }
 
+    /// Append a host-provided font file at runtime.
+    ///
+    /// Returns the new user font id (>= 0) or `None` when the file is
+    /// missing/invalid. Used by the Android host for user-selected fonts.
+    pub fn add_font_file(&mut self, path: &Path) -> Option<i32> {
+        let mut gd = gd_write(&self.game_data);
+        gd.fontface_manager.add_font_file(path)
+    }
+
+    /// Force a user font (by id from [`App::add_font_file`]) as the primary
+    /// font for all rendering; `None` restores the script-selected fonts.
+    pub fn set_forced_font(&mut self, id: Option<i32>) {
+        let mut gd = gd_write(&self.game_data);
+        gd.fontface_manager.set_forced_font(id);
+    }
+
     /// Step the engine once in a host-driven environment (e.g. SwiftUI/UIKit on iOS).
     ///
     /// The host is responsible for calling this at a stable cadence (e.g. via CADisplayLink).
