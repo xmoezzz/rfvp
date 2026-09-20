@@ -251,6 +251,39 @@ pub unsafe extern "C" fn rfvp_android_set_system_font(handle: *mut c_void, enabl
     app.set_system_font_fallback_enabled(enabled != 0);
 }
 
+/// Append a user font file at runtime.
+///
+/// Returns the new font id (>= 0) on success, or -1 when the file is
+/// missing/invalid or the host passed a null handle/path.
+#[no_mangle]
+pub unsafe extern "C" fn rfvp_android_add_font(
+    handle: *mut c_void,
+    font_path_utf8: *const c_char,
+) -> i32 {
+    if handle.is_null() {
+        return -1;
+    }
+    let Some(path) = cstr_opt(font_path_utf8) else {
+        return -1;
+    };
+    let app: &mut App = &mut *(handle as *mut App);
+    match app.add_font_file(std::path::Path::new(&path)) {
+        Some(id) => id,
+        None => -1,
+    }
+}
+
+/// Force a user font (id from [`rfvp_android_add_font`]) as the primary font
+/// for all rendering; `font_id < 0` clears the override.
+#[no_mangle]
+pub unsafe extern "C" fn rfvp_android_set_forced_font(handle: *mut c_void, font_id: i32) {
+    if handle.is_null() {
+        return;
+    }
+    let app: &mut App = &mut *(handle as *mut App);
+    app.set_forced_font(if font_id < 0 { None } else { Some(font_id) });
+}
+
 /// Destroy an Android host-driven instance.
 #[no_mangle]
 pub unsafe extern "C" fn rfvp_android_destroy(handle: *mut c_void) {
