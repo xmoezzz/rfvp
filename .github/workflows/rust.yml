@@ -503,7 +503,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4.0.4
+        with:
+          packages: "platform-tools"
 
       - name: Install Android components (platform/ndk)
         run: |
