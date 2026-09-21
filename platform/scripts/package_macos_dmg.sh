@@ -5,7 +5,6 @@ set -euo pipefail
 #
 # Creates a DMG from dist/macos/RFVP.app using hdiutil.
 
-
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 APP_PATH="${ROOT_DIR}/dist/macos/RFVP.app"
 OUT_DIR="${ROOT_DIR}/dist/macos"
@@ -13,7 +12,10 @@ DMG_NAME="${DMG_NAME:-RFVP}"
 DMG_PATH="${OUT_DIR}/${DMG_NAME}.dmg"
 STAGING="${OUT_DIR}/_dmg_staging"
 
-[[ -d "${APP_PATH}" ]] || { echo "ERROR: Missing ${APP_PATH}. Run package_macos_app.sh first."; exit 1; }
+[[ -d "${APP_PATH}" ]] || {
+  echo "ERROR: Missing ${APP_PATH}. Run package_macos_app.sh first."
+  exit 1
+}
 
 rm -rf "${STAGING}"
 mkdir -p "${STAGING}"
@@ -24,8 +26,23 @@ cp -R "${APP_PATH}" "${STAGING}/RFVP.app"
 # Add /Applications link at DMG root (drag-to-install target)
 ln -sf /Applications "${STAGING}/Applications"
 
+STAGING_KB="$(du -sk "${STAGING}" | awk '{print $1}')"
+CONTENT_MB=$(( (STAGING_KB + 1023) / 1024 ))
+SIZE_MB=$(( CONTENT_MB + CONTENT_MB / 4 + 128 ))
+
+echo "[macos] DMG content: ${CONTENT_MB} MiB"
+echo "[macos] DMG image size: ${SIZE_MB} MiB"
+
 rm -f "${DMG_PATH}"
-hdiutil create -volname "${DMG_NAME}" -srcfolder "${STAGING}" -ov -format UDZO "${DMG_PATH}"
+
+hdiutil create \
+  -volname "${DMG_NAME}" \
+  -srcfolder "${STAGING}" \
+  -size "${SIZE_MB}m" \
+  -ov \
+  -format UDZO \
+  "${DMG_PATH}"
 
 rm -rf "${STAGING}"
+
 echo "[macos] OK: ${DMG_PATH}"
