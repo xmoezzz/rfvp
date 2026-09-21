@@ -1411,19 +1411,25 @@ impl App {
         Ok(())
     }
     pub fn find_hcb(game_path: impl AsRef<Path>) -> Result<PathBuf> {
-        let mut path = game_path.as_ref().to_path_buf();
-        path.push("*.hcb");
+        let dir = game_path.as_ref().to_path_buf();
 
-        let matches: Vec<_> = glob::glob(&path.to_string_lossy())?.flatten().collect();
+        // Prefer translated BCH patch scripts (`*.bch`, same HCB container
+        // format, produced by CHS/CHT patches) and fall back to the original
+        // `*.hcb` script.
+        for pattern in ["*.bch", "*.hcb"] {
+            let mut path = dir.clone();
+            path.push(pattern);
 
-        if matches.is_empty() {
-            anyhow::bail!(
-                "No hcb file found in the game directory: {}",
-                game_path.as_ref().display()
-            );
+            let matches: Vec<_> = glob::glob(&path.to_string_lossy())?.flatten().collect();
+            if !matches.is_empty() {
+                return Ok(matches[0].to_path_buf());
+            }
         }
 
-        Ok(matches[0].to_path_buf())
+        anyhow::bail!(
+            "No hcb/bch file found in the game directory: {}",
+            game_path.as_ref().display()
+        );
     }
 
     pub fn set_text_hidpi_enabled(&mut self, enabled: bool) {
@@ -1436,6 +1442,35 @@ impl App {
     pub fn text_hidpi_enabled(&self) -> bool {
         let gd = gd_read(&self.game_data);
         gd.motion_manager.text_manager.hidpi_enabled()
+    }
+
+    /// Toggle the system CJK fallback font stack at runtime.
+    ///
+    /// Host-driven platforms (Android/iOS) use this via their host ABI after
+    /// engine creation. Enabling triggers a one-shot system font scan.
+    pub fn set_system_font_fallback_enabled(&mut self, enabled: bool) {
+        let mut gd = gd_write(&self.game_data);
+        gd.fontface_manager
+            .set_system_font_fallback_enabled(enabled);
+        if enabled {
+            gd.fontface_manager.load_system_fallback_fonts();
+        }
+    }
+
+    /// Append a host-provided font file at runtime.
+    ///
+    /// Returns the new user font id (>= 0) or `None` when the file is
+    /// missing/invalid. Used by the Android host for user-selected fonts.
+    pub fn add_font_file(&mut self, path: &Path) -> Option<i32> {
+        let mut gd = gd_write(&self.game_data);
+        gd.fontface_manager.add_font_file(path)
+    }
+
+    /// Force a user font (by id from [`App::add_font_file`]) as the primary
+    /// font for all rendering; `None` restores the script-selected fonts.
+    pub fn set_forced_font(&mut self, id: Option<i32>) {
+        let mut gd = gd_write(&self.game_data);
+        gd.fontface_manager.set_forced_font(id);
     }
 
     /// Step the engine once in a host-driven environment (e.g. SwiftUI/UIKit on iOS).
@@ -1750,6 +1785,43 @@ impl App {
             }
         }
 
+    }
+
+    /// Inject a key event from an Android host.
+    ///
+    /// Key codes use Windows VK semantics (aligned with the Siglus host):
+    /// `0x1B` Escape, `0x0D` Enter, `0x20` Space, `0x25..0x28` arrows,
+    /// `0x11` Control. Unknown codes are ignored.
+    ///
+    /// `phase`: 0 = down, 1 = up.
+    #[cfg(target_os = "android")]
+    pub fn host_key_android(&mut self, vk_code: i32, phase: i32) {
+        use winit::keyboard::{Key, NamedKey};
+
+        let key = match vk_code {
+            0x1B => Key::Named(NamedKey::Escape),
+            0x0D => Key::Named(NamedKey::Enter),
+            0x20 => Key::Named(NamedKey::Space),
+            0x25 => Key::Named(NamedKey::ArrowLeft),
+            0x26 => Key::Named(NamedKey::ArrowUp),
+            0x27 => Key::Named(NamedKey::ArrowRight),
+            0x28 => Key::Named(NamedKey::ArrowDown),
+            0x11 => Key::Named(NamedKey::Control),
+            _ => return,
+        };
+
+        if self.exit_confirm_ui.is_active() || self.legacy_save_load_ui.is_active() {
+            return;
+        }
+
+        {
+            let mut gd = gd_write(&self.game_data);
+            match phase {
+                0 => gd.inputs_manager.notify_keydown(key, false),
+                1 => gd.inputs_manager.notify_keyup(key),
+                _ => {}
+            }
+        }
     }
 
     /// Inject a single-finger touch event from an Android host.
