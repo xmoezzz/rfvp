@@ -127,7 +127,9 @@ impl AnzuScene {
     }
 
     fn update_parts_motions(&mut self, game_data: &mut GameData, elapsed: i64) {
-        game_data.motion_manager.update_parts_motions(elapsed);
+        game_data
+            .motion_manager
+            .update_parts_motions(elapsed, &game_data.vfs);
     }
 
     fn update_snow_motions(&mut self, game_data: &mut GameData, elapsed: i64) {

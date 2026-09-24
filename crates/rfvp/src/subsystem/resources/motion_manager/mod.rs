@@ -32,6 +32,7 @@ pub use super::motion_manager::s2_move::{ScaleMotionContainer, ScaleMotionType};
 pub use super::motion_manager::v3d::{V3dMotionContainer, V3dMotionType};
 pub use super::motion_manager::z_move::{ZMotionContainer, ZMotionType};
 use super::parts_manager::PartsManager;
+use super::vfs::Vfs;
 use super::parts_manager::PartsManagerSnapshotV1;
 use super::prim::{PrimManager, INVAILD_PRIM_HANDLE};
 use super::prim::{PrimManagerSnapshotV1, PrimSnapshotV1};
@@ -182,7 +183,7 @@ impl MotionManager {
     }
 
     /// Advance PartsMotion timers and apply completed entries to their destination primitives.
-    pub fn update_parts_motions(&mut self, elapsed: i64) {
+    pub fn update_parts_motions(&mut self, elapsed: i64, vfs: &Vfs) {
         // The original engine passes a *negative* elapsed in "Ctrl/ControlPulse" fast-forward
         // mode. For PartsMotion, a negative elapsed means: skip interpolation and commit the
         // final bitmap immediately.
@@ -203,7 +204,7 @@ impl MotionManager {
         }
 
         for (parts_id, entry_id) in completed {
-            if let Err(e) = self.draw_parts_to_texture(parts_id, entry_id as u32) {
+            if let Err(e) = self.draw_parts_to_texture(parts_id, entry_id as u32, vfs) {
                 log::warn!(
                     "update_parts_motions: failed to apply parts_id={} entry_id={}: {}",
                     parts_id,
@@ -545,7 +546,7 @@ impl MotionManager {
         &self.textures[id as usize]
     }
 
-    pub fn draw_parts_to_texture(&mut self, parts_id: u8, entry_id: u32) -> Result<()> {
+    pub fn draw_parts_to_texture(&mut self, parts_id: u8, entry_id: u32, vfs: &Vfs) -> Result<()> {
         let parts = self.parts_manager.get_mut().get(parts_id);
 
         // Best-effort behavior: if the parts buffer is absent, do nothing.
@@ -567,6 +568,8 @@ impl MotionManager {
         if !texture.get_texture_ready() {
             return Ok(());
         }
+        // The overlay is applied to CPU pixels; restore them if they were evicted after upload.
+        texture.ensure_cpu_pixels(vfs)?;
 
         // Signed offsets (negative offsets are allowed and handled via clipping).
         let dx = parts.get_offset_x_i16() as i32;
@@ -593,7 +596,8 @@ impl MotionManager {
         }
 
         // The destination GraphBuff pixels changed; bump generation so GPU cache can refresh.
-        texture.mark_dirty();
+        // They no longer match the source file, so they must stay resident.
+        texture.mark_pixels_modified();
 
         Ok(())
     }
@@ -696,9 +700,10 @@ impl MotionManager {
                     return false;
                 }
 
-                if let Some(tex) = texture.get_texture() {
-                    let pixel = tex.get_pixel(adjusted_x as u32, adjusted_y as u32);
-                    if pixel.0[3] != 0 {
+                if let Some(alpha) =
+                    texture.hit_alpha(adjusted_x as u32, adjusted_y as u32)
+                {
+                    if alpha != 0 {
                         return true;
                     }
                 }
@@ -773,9 +778,36 @@ impl MotionManager {
         self.pending_gpu_graph_unloads.push(id);
     }
 
-    pub fn graph_color_tone(&mut self, id: u16, r: i32, g: i32, b: i32) {
+    pub fn graph_color_tone(&mut self, id: u16, r: i32, g: i32, b: i32, vfs: &Vfs) {
         let graph = &mut self.textures[id as usize];
+        // Color tone rewrites CPU pixels; restore them if they were evicted after upload.
+        if let Err(e) = graph.ensure_cpu_pixels(vfs) {
+            log::error!("graph_color_tone: failed to restore pixels for graph {}: {:#}", id, e);
+            return;
+        }
         graph.set_color_tone(r, g, b);
+    }
+
+    /// Drop CPU copies of graphs the GPU renderer already holds at their current generation.
+    /// `uploaded(graph_id, generation)` reports whether the GPU copy is current.
+    pub fn evict_uploaded_cpu_pixels(&mut self, uploaded: impl Fn(u16, u64) -> bool) {
+        for (id, graph) in self.textures.iter_mut().enumerate() {
+            if graph.can_evict_cpu_pixels() && uploaded(id as u16, graph.get_generation()) {
+                graph.evict_cpu_pixels();
+            }
+        }
+    }
+
+    /// Re-decode evicted graphs whose GPU copy is missing or stale, so the renderer can upload
+    /// them again.
+    pub fn restore_evicted_cpu_pixels(&mut self, vfs: &Vfs, uploaded: impl Fn(u16, u64) -> bool) {
+        for (id, graph) in self.textures.iter_mut().enumerate() {
+            if graph.is_cpu_evicted() && !uploaded(id as u16, graph.get_generation()) {
+                if let Err(e) = graph.ensure_cpu_pixels(vfs) {
+                    log::error!("restore_evicted_cpu_pixels: graph {}: {:#}", id, e);
+                }
+            }
+        }
     }
 
     fn text_slot_has_active_fadeout_alpha(&self, slot: i32) -> bool {

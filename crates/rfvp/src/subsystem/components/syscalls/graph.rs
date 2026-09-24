@@ -1076,7 +1076,7 @@ pub fn graph_rgb(
 
     game_data
         .motion_manager
-        .graph_color_tone(id as u16, r, g, b);
+        .graph_color_tone(id as u16, r, g, b, &game_data.vfs);
 
     Ok(Variant::Nil)
 }

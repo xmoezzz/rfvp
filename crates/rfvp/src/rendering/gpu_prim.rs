@@ -168,9 +168,31 @@ impl GpuPrimRenderer {
     fn prune_unloaded_graph_cache(&mut self, graphs: &[GraphBuff]) {
         self.graph_cache
             .retain(|graph_id, _| match graphs.get(*graph_id as usize) {
-                Some(graph) => graph.get_texture_ready() && graph.get_texture().is_some(),
+                Some(graph) => {
+                    graph.get_texture_ready()
+                        && (graph.get_texture().is_some() || graph.is_cpu_evicted())
+                }
                 None => false,
             });
+    }
+
+    /// Whether the GPU holds `graph_id` at `generation` (so its CPU copy may be evicted).
+    pub fn is_graph_uploaded(&self, graph_id: u16, generation: u64) -> bool {
+        self.graph_cache
+            .get(&graph_id)
+            .map_or(false, |e| e.generation == generation)
+    }
+
+    /// Pixel size of a graph's image; falls back to the GPU texture when CPU pixels are evicted.
+    fn graph_pixel_size(&self, graph_id: u16, g: &GraphBuff) -> (u32, u32) {
+        match g.get_texture().as_ref() {
+            Some(img) => img.dimensions(),
+            None if g.is_cpu_evicted() => self
+                .graph_cache
+                .get(&graph_id)
+                .map_or((0, 0), |e| e.texture.size()),
+            None => (0, 0),
+        }
     }
 
     fn reload_debug_tile_cfg(&mut self) {
@@ -567,10 +589,7 @@ impl GpuPrimRenderer {
                         self.push_debug_tile(draw_id, graph_id, DebugPrimTileKind::Sprt, Some(g));
                         self.upload_graph_if_needed(resources, graph_id, g);
                         if self.graph_cache.contains_key(&graph_id) {
-                            let (tw, th) = match g.get_texture().as_ref() {
-                                Some(img) => img.dimensions(),
-                                None => (0, 0),
-                            };
+                            let (tw, th) = self.graph_pixel_size(graph_id, g);
                             if tw > 0 && th > 0 {
                                 let attr = draw_prim.get_attr();
                                 let use_rect = (attr & 1) != 0;
@@ -662,10 +681,7 @@ impl GpuPrimRenderer {
                         self.push_debug_tile(draw_id, graph_id, DebugPrimTileKind::Text, Some(g));
                         self.upload_graph_if_needed(resources, graph_id, g);
                         if self.graph_cache.contains_key(&graph_id) {
-                            let (tw, th) = match g.get_texture().as_ref() {
-                                Some(img) => img.dimensions(),
-                                None => (0, 0),
-                            };
+                            let (tw, th) = self.graph_pixel_size(graph_id, g);
                             if tw > 0 && th > 0 {
                                 let attr = draw_prim.get_attr();
                                 let use_rect = (attr & 1) != 0;
@@ -782,10 +798,7 @@ impl GpuPrimRenderer {
                                     if !self.graph_cache.contains_key(&graph_id) {
                                         continue;
                                     }
-                                    let (tw, th) = match g.get_texture().as_ref() {
-                                        Some(img) => img.dimensions(),
-                                        None => (0, 0),
-                                    };
+                                    let (tw, th) = self.graph_pixel_size(graph_id, g);
                                     if tw == 0 || th == 0 {
                                         continue;
                                     }
