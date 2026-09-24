@@ -1400,11 +1400,19 @@ impl TextItem {
     }
 
     fn effective_render_scale(&self) -> f32 {
-        if self.render_scale.is_finite() && self.render_scale > 1.0 {
+        let scale = if self.render_scale.is_finite() && self.render_scale > 1.0 {
             self.render_scale
         } else {
-            1.0
+            return 1.0;
+        };
+        // HiDPI must never push a text surface past MAX_HIDPI_TEXT_SURFACE_DIM on either axis.
+        // Large script TextBuffs (scrolling logs, full-screen pages) would otherwise multiply into
+        // hundreds of MB across the CPU raster, reveal cache, GraphBuff copy and GPU texture.
+        let longest = self.w.max(self.h) as f32;
+        if longest <= 0.0 || longest * scale <= MAX_HIDPI_TEXT_SURFACE_DIM {
+            return scale;
         }
+        (MAX_HIDPI_TEXT_SURFACE_DIM / longest).clamp(1.0, scale)
     }
 
     fn raster_dimensions(&self) -> (u32, u32) {
@@ -3068,6 +3076,9 @@ impl Default for TextItem {
     }
 }
 
+/// Upper bound (in pixels, per axis) for HiDPI text backing surfaces.
+const MAX_HIDPI_TEXT_SURFACE_DIM: f32 = 4096.0;
+
 #[derive(Debug, Copy, Clone)]
 pub struct TextSlotSurfaceInfo {
     pub width: u32,
@@ -3783,6 +3794,22 @@ impl TextManager {
 #[cfg(test)]
 mod hidpi_surface_tests {
     use super::*;
+
+    #[test]
+    fn hidpi_scale_is_capped_for_large_text_buffs() {
+        let mut manager = TextManager::new();
+        manager.set_render_scale(3.0);
+        manager.set_text_buff(0, 1280, 720);
+        assert_eq!(manager.items[0].raster_dimensions(), (3840, 2160));
+
+        manager.set_text_buff(1, 1280, 4000);
+        let (w, h) = manager.items[1].raster_dimensions();
+        assert!(h <= MAX_HIDPI_TEXT_SURFACE_DIM as u32 && w < 3840);
+
+        // Logical sizes above the cap are never downscaled below 1:1.
+        manager.set_text_buff(2, 640, 5000);
+        assert_eq!(manager.items[2].raster_dimensions(), (640, 5000));
+    }
 
     #[test]
     fn text_buff_does_not_allocate_hidpi_surfaces_before_print() {
