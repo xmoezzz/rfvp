@@ -37,6 +37,9 @@ pub struct SePlayer {
     se_tracks: [TrackHandle; SE_SLOT_COUNT],
     se_slots: [Option<StaticSoundHandle>; SE_SLOT_COUNT],
     se_datas: [Option<StaticSoundData>; SE_SLOT_COUNT],
+    /// Decoded PCM was released by an unload; `se_names` still holds the source so a later play
+    /// can re-decode it on demand.
+    se_released: [bool; SE_SLOT_COUNT],
     se_kinds: [Option<i32>; SE_SLOT_COUNT],
     se_names: [Option<String>; SE_SLOT_COUNT],
     se_type_volumes: [f32; SOUND_TYPE_COUNT],
@@ -64,6 +67,7 @@ impl SePlayer {
             se_tracks,
             se_slots: [(); SE_SLOT_COUNT].map(|_| None),
             se_datas: [(); SE_SLOT_COUNT].map(|_| None),
+            se_released: [false; SE_SLOT_COUNT],
             se_kinds: [(); SE_SLOT_COUNT].map(|_| None),
             se_names: [(); SE_SLOT_COUNT].map(|_| None),
             se_type_volumes: [1.0; SOUND_TYPE_COUNT],
@@ -79,7 +83,34 @@ impl SePlayer {
         let cursor = std::io::Cursor::new(se);
         let sound = StaticSoundData::from_cursor(cursor)?;
         self.se_datas[slot] = Some(sound);
+        self.se_released[slot] = false;
         Ok(())
+    }
+
+    /// Script-level unload (`SoundLoad(ch, nil)`): stop the slot and drop its decoded PCM.
+    ///
+    /// Decoded SE data is f32 PCM (~10x the compressed size) and scripts rarely reuse unloaded
+    /// slots, so keeping it resident across 256 slots wastes a lot of memory. The slot name is
+    /// kept so snapshots and a later play behave exactly as before (see `released_path`).
+    pub fn unload(&mut self, slot: i32, fade_out: Tween) {
+        let slot_usize = slot as usize;
+        if self.se_slots[slot_usize].is_some() {
+            self.stop(slot, fade_out);
+        }
+        if self.se_datas[slot_usize].take().is_some() && self.se_names[slot_usize].is_some() {
+            self.se_released[slot_usize] = true;
+        }
+    }
+
+    /// Source path of a slot whose decoded data was released by `unload`, if it must be reloaded
+    /// before playing.
+    pub fn released_path(&self, slot: i32) -> Option<&str> {
+        let slot = slot as usize;
+        if self.se_released[slot] && self.se_datas[slot].is_none() {
+            self.se_names[slot].as_deref()
+        } else {
+            None
+        }
     }
 
     pub fn load_named(
@@ -340,6 +371,7 @@ impl SePlayer {
         for i in 0..SE_SLOT_COUNT {
             self.stop(i as i32, Tween::default());
             self.se_datas[i] = None;
+            self.se_released[i] = false;
             self.se_kinds[i] = None;
             self.se_names[i] = None;
             self.se_muted[i] = false;

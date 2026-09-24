@@ -79,6 +79,17 @@ pub struct GraphBuff {
 
     /// Track how this graph was populated so it can be restored correctly.
     pub load_kind: GraphBuffLoadKind,
+
+    /// CPU pixels are byte-identical to decoding `texture_path` (no GraphRGB / parts overlay
+    /// has modified them), so they can be dropped and re-decoded from the VFS on demand.
+    cpu_pristine: bool,
+    /// CPU pixels were dropped after the GPU upload (see `evict_cpu_pixels`).
+    cpu_evicted: bool,
+    /// Alpha coverage (1 bit per pixel) kept for hit tests while CPU pixels are evicted.
+    /// `None` while evicted means the image has no alpha channel (fully opaque).
+    hit_mask: Option<Vec<u64>>,
+    /// Pixel dimensions of the evicted image.
+    evicted_dims: (u32, u32),
 }
 
 impl GraphBuff {
@@ -103,6 +114,10 @@ impl GraphBuff {
             text_raster_scale: 0.0,
             generation: 0,
             load_kind: GraphBuffLoadKind::Unknown,
+            cpu_pristine: false,
+            cpu_evicted: false,
+            hit_mask: None,
+            evicted_dims: (0, 0),
         }
     }
 
@@ -114,6 +129,13 @@ impl GraphBuff {
     #[inline]
     pub fn mark_dirty(&mut self) {
         self.generation = self.generation.wrapping_add(1);
+    }
+
+    /// Mark CPU pixels as modified in place (e.g. a parts overlay), so they are never evicted.
+    #[inline]
+    pub fn mark_pixels_modified(&mut self) {
+        self.cpu_pristine = false;
+        self.mark_dirty();
     }
 
     pub fn get_r_value(&self) -> u8 {
@@ -334,7 +356,92 @@ impl GraphBuff {
         self.text_origin_y_px = 0;
         self.text_raster_scale = 0.0;
         self.load_kind = GraphBuffLoadKind::Unknown;
+        self.cpu_pristine = false;
+        self.cpu_evicted = false;
+        self.hit_mask = None;
         self.mark_dirty();
+    }
+
+    /// Whether the CPU copy may be dropped once the GPU holds this graph.
+    ///
+    /// Only unmodified NVSG images loaded from a VFS path qualify: they can be restored exactly
+    /// by re-decoding the file. Raw RGBA (text, movie, save UI) and gaiji glyphs are read back on
+    /// the CPU and are never evicted.
+    pub fn can_evict_cpu_pixels(&self) -> bool {
+        self.texture_ready
+            && self.texture.is_some()
+            && self.cpu_pristine
+            && !self.texture_path.is_empty()
+            && matches!(
+                self.load_kind,
+                GraphBuffLoadKind::Texture | GraphBuffLoadKind::Mask
+            )
+    }
+
+    pub fn is_cpu_evicted(&self) -> bool {
+        self.cpu_evicted
+    }
+
+    /// Drop the CPU copy of an already-uploaded graph, keeping a 1-bit alpha mask for hit tests.
+    /// Does not bump `generation`: the GPU texture stays valid.
+    pub fn evict_cpu_pixels(&mut self) {
+        if !self.can_evict_cpu_pixels() {
+            return;
+        }
+        let Some(img) = self.texture.take() else {
+            return;
+        };
+        self.hit_mask = build_hit_mask(&img);
+        self.evicted_dims = img.dimensions();
+        self.cpu_evicted = true;
+    }
+
+    /// Restore CPU pixels dropped by `evict_cpu_pixels` by re-decoding the source file.
+    /// The result is identical to the evicted pixels, so `generation` is left unchanged.
+    pub fn ensure_cpu_pixels(&mut self, vfs: &Vfs) -> Result<()> {
+        if !self.cpu_evicted {
+            return Ok(());
+        }
+        let buff = vfs.read_file(&self.texture_path)?;
+        let mut nvsg_texture = NvsgTexture::new(&self.texture_path);
+        match self.load_kind {
+            GraphBuffLoadKind::Mask => nvsg_texture
+                .read_texture(&buff, |typ| typ == super::texture::TextureType::Single8Bit)?,
+            _ => nvsg_texture.read_texture(&buff, |typ| {
+                typ == super::texture::TextureType::Single24Bit
+                    || typ == super::texture::TextureType::Single32Bit
+            })?,
+        }
+        self.texture = Some(nvsg_texture.get_texture(0)?);
+        self.cpu_evicted = false;
+        self.hit_mask = None;
+        Ok(())
+    }
+
+    /// Alpha at a pixel, for hit tests. Works while CPU pixels are evicted.
+    pub fn hit_alpha(&self, x: u32, y: u32) -> Option<u8> {
+        if let Some(tex) = self.texture.as_ref() {
+            let (w, h) = tex.dimensions();
+            if x >= w || y >= h {
+                return None;
+            }
+            return Some(tex.get_pixel(x, y).0[3]);
+        }
+        if !self.cpu_evicted {
+            return None;
+        }
+        let (w, h) = self.evicted_dims;
+        if x >= w || y >= h {
+            return None;
+        }
+        match self.hit_mask.as_ref() {
+            None => Some(255),
+            Some(mask) => {
+                let idx = (y as usize) * (w as usize) + x as usize;
+                let set = mask.get(idx / 64).map_or(false, |word| word & (1u64 << (idx % 64)) != 0);
+                Some(if set { 255 } else { 0 })
+            }
+        }
     }
 
     pub fn load_texture(&mut self, file_name: &str, buff: Vec<u8>) -> Result<()> {
@@ -361,6 +468,7 @@ impl GraphBuff {
         self.v = nvsg_texture.get_v();
         self.texture_path = file_name.to_string();
         self.load_kind = GraphBuffLoadKind::Texture;
+        self.cpu_pristine = true;
         self.mark_dirty();
 
         Ok(())
@@ -435,6 +543,7 @@ impl GraphBuff {
         self.v = nvsg_texture.get_v();
         self.texture_path = file_name.to_string();
         self.load_kind = GraphBuffLoadKind::Mask;
+        self.cpu_pristine = true;
         self.mark_dirty();
 
         Ok(())
@@ -711,6 +820,9 @@ impl GraphBuff {
         };
         self.mark_dirty();
         self.load_kind = GraphBuffLoadKind::RawRgba;
+        self.cpu_pristine = false;
+        self.cpu_evicted = false;
+        self.hit_mask = None;
         Ok(())
     }
 
@@ -774,6 +886,7 @@ impl GraphBuff {
         self.r_value = r_adj as u8;
         self.g_value = g_adj as u8;
         self.b_value = b_adj as u8;
+        self.cpu_pristine = false;
         self.mark_dirty();
     }
 }
@@ -785,6 +898,35 @@ fn inverse_scale_old_school_u16(value: u16, scale: f32) -> u16 {
     } else {
         ((value as f32 / scale).floor() as u32).min(u16::MAX as u32) as u16
     }
+}
+
+/// 1-bit alpha coverage (alpha != 0) for hit tests; `None` when the image has no alpha channel.
+fn build_hit_mask(img: &DynamicImage) -> Option<Vec<u64>> {
+    let (w, h) = img.dimensions();
+    let n = (w as usize) * (h as usize);
+    let mut mask = vec![0u64; (n + 63) / 64];
+    match img {
+        DynamicImage::ImageRgba8(rgba) => {
+            for (i, px) in rgba.as_raw().chunks_exact(4).enumerate() {
+                if px[3] != 0 {
+                    mask[i / 64] |= 1u64 << (i % 64);
+                }
+            }
+        }
+        DynamicImage::ImageLumaA8(_) => {
+            for y in 0..h {
+                for x in 0..w {
+                    if img.get_pixel(x, y).0[3] != 0 {
+                        let i = (y as usize) * (w as usize) + x as usize;
+                        mask[i / 64] |= 1u64 << (i % 64);
+                    }
+                }
+            }
+        }
+        #[allow(unreachable_patterns)]
+        _ => return None,
+    }
+    Some(mask)
 }
 
 pub fn copy_rect(
@@ -1118,5 +1260,77 @@ mod hidpi_text_region_tests {
         assert!((region.draw_h - 26.0).abs() < 0.0001);
         assert!((region.tex_w - 175.0).abs() < 0.0001);
         assert!((region.tex_h - 91.0).abs() < 0.0001);
+    }
+}
+
+#[cfg(test)]
+mod cpu_eviction_tests {
+    use super::*;
+
+    fn file_backed_rgba(w: u32, h: u32) -> GraphBuff {
+        let mut img = image::RgbaImage::new(w, h);
+        // Opaque only at (1, 0) and (w-1, h-1).
+        img.put_pixel(1, 0, image::Rgba([10, 20, 30, 255]));
+        img.put_pixel(w - 1, h - 1, image::Rgba([1, 1, 1, 7]));
+        let mut g = GraphBuff::new();
+        g.texture = Some(DynamicImage::ImageRgba8(img));
+        g.texture_ready = true;
+        g.texture_path = "bg/test".to_string();
+        g.width = w as u16;
+        g.height = h as u16;
+        g.load_kind = GraphBuffLoadKind::Texture;
+        g.cpu_pristine = true;
+        g
+    }
+
+    #[test]
+    fn eviction_keeps_hit_test_alpha_and_generation() {
+        let mut g = file_backed_rgba(70, 3);
+        let expected: Vec<Option<u8>> = (0..3)
+            .flat_map(|y| (0..70).map(move |x| (x, y)))
+            .map(|(x, y)| g.hit_alpha(x, y).map(|a| if a != 0 { 255 } else { 0 }))
+            .collect();
+        let gen = g.get_generation();
+
+        assert!(g.can_evict_cpu_pixels());
+        g.evict_cpu_pixels();
+        assert!(g.get_texture().is_none());
+        assert!(g.is_cpu_evicted());
+        assert_eq!(g.get_generation(), gen);
+
+        let got: Vec<Option<u8>> = (0..3)
+            .flat_map(|y| (0..70).map(move |x| (x, y)))
+            .map(|(x, y)| g.hit_alpha(x, y))
+            .collect();
+        assert_eq!(got, expected);
+        assert_eq!(g.hit_alpha(70, 0), None);
+    }
+
+    #[test]
+    fn opaque_images_hit_everywhere_after_eviction() {
+        let mut g = file_backed_rgba(4, 4);
+        g.texture = Some(DynamicImage::ImageRgb8(image::RgbImage::new(4, 4)));
+        g.evict_cpu_pixels();
+        assert!(g.is_cpu_evicted());
+        assert_eq!(g.hit_alpha(3, 3), Some(255));
+    }
+
+    #[test]
+    fn modified_or_raw_graphs_are_never_evicted() {
+        let mut g = file_backed_rgba(4, 4);
+        g.mark_pixels_modified();
+        assert!(!g.can_evict_cpu_pixels());
+        g.evict_cpu_pixels();
+        assert!(g.get_texture().is_some());
+
+        let mut raw = GraphBuff::new();
+        raw.load_from_buff(vec![0u8; 16], 2, 2).unwrap();
+        assert!(!raw.can_evict_cpu_pixels());
+
+        let mut unloaded = file_backed_rgba(4, 4);
+        unloaded.evict_cpu_pixels();
+        unloaded.unload();
+        assert!(!unloaded.is_cpu_evicted());
+        assert_eq!(unloaded.hit_alpha(0, 0), None);
     }
 }

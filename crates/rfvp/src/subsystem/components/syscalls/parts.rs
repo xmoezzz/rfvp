@@ -118,7 +118,7 @@ pub fn parts_select(game_data: &mut GameData, id: &Variant, entry_id: &Variant) 
         if entry_id_u32 < 256 {
             if let Err(e) = game_data
                 .motion_manager
-                .draw_parts_to_texture(id as u8, entry_id_u32)
+                .draw_parts_to_texture(id as u8, entry_id_u32, &game_data.vfs)
             {
                 // IDA: draw failure is non-fatal; still cancels the motion slot.
                 let _ = e;

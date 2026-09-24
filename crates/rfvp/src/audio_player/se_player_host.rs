@@ -159,6 +159,16 @@ impl SePlayer {
         }
     }
 
+    /// Script-level unload (`SoundLoad(ch, nil)`). This backend keeps no large decoded data, so
+    /// unloading is just a stop.
+    pub fn unload(&mut self, slot: i32, fade_out: Tween) {
+        self.stop(slot, fade_out);
+    }
+
+    pub fn released_path(&self, _slot: i32) -> Option<&str> {
+        None
+    }
+
     pub fn stop_all(&mut self, fade_out: Tween) {
         for slot in 0..SE_SLOT_COUNT {
             self.stop(slot as i32, fade_out);

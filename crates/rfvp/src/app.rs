@@ -872,6 +872,15 @@ impl App {
             for graph_id in gd.motion_manager.take_pending_gpu_graph_unloads() {
                 self.prim_renderer.remove_graph_cache(graph_id);
             }
+            // Graphs whose CPU pixels were evicted must be re-decoded if the GPU copy went away.
+            {
+                let gd = &mut **gd;
+                let renderer = &self.prim_renderer;
+                gd.motion_manager
+                    .restore_evicted_cpu_pixels(&gd.vfs, |id, gen| {
+                        renderer.is_graph_uploaded(id, gen)
+                    });
+            }
             let surface_size = (self.surface_config.width, self.surface_config.height);
             self.legacy_save_load_ui.update(
                 &self.resources,
@@ -963,6 +972,15 @@ impl App {
             } else {
                 None
             };
+        }
+
+        // Drop CPU copies of file-backed images that are now resident on the GPU. On unified-memory
+        // devices (iOS/Android) the CPU copy otherwise doubles the memory cost of every image.
+        {
+            let mut gd = gd_write(&self.game_data);
+            let renderer = &self.prim_renderer;
+            gd.motion_manager
+                .evict_uploaded_cpu_pixels(|id, gen| renderer.is_graph_uploaded(id, gen));
         }
 
         // Save thumbnail capture request (resolved after the virtual pass).
