@@ -303,7 +303,7 @@ pub fn sound_load(game_data: &mut GameData, channel: &Variant, path: &Variant) -
         }
         // unload channel
         Variant::Nil => {
-            game_data.se_player_mut().stop(channel, Tween::default());
+            game_data.se_player_mut().unload(channel, Tween::default());
             return Ok(Variant::Nil);
         }
         _ => {
@@ -360,6 +360,19 @@ pub fn sound_play(
         duration: core::time::Duration::from_millis(fadein as u64),
         ..Default::default()
     };
+
+    // Re-decode a slot whose PCM was released by SoundLoad(ch, nil), preserving the old
+    // behavior of replaying the last loaded sound.
+    if let Some(path) = game_data.se_player_ref().released_path(channel).map(|p| p.to_string()) {
+        match game_data.vfs_load_file(&path) {
+            Ok(data) => {
+                if let Err(e) = game_data.se_player_mut().load_named(channel, path, data) {
+                    log::error!("sound_play: reload {:?}", e);
+                }
+            }
+            Err(e) => log::error!("sound_play: reload {:?}", e),
+        }
+    }
 
     if let Err(e) = game_data
         .se_player_mut()

@@ -209,23 +209,9 @@ impl GpuTexture {
             _ => std::borrow::Cow::Owned(img.to_rgba8().into_raw()),
         };
 
+        // Queue::write_texture has no COPY_BYTES_PER_ROW_ALIGNMENT requirement, so upload the
+        // tightly packed rows directly instead of building a padded full-size copy per update.
         let bytes_per_row = 4u32.saturating_mul(src_w);
-        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-        let padded_bytes_per_row = ((bytes_per_row + align - 1) / align) * align;
-
-        let data: std::borrow::Cow<'_, [u8]> = if padded_bytes_per_row == bytes_per_row {
-            raw
-        } else {
-            // Pad each row to meet wgpu's alignment requirement.
-            let mut out = vec![0u8; (padded_bytes_per_row as usize) * (src_h as usize)];
-            for y in 0..(src_h as usize) {
-                let src_off = y * (bytes_per_row as usize);
-                let dst_off = y * (padded_bytes_per_row as usize);
-                out[dst_off..dst_off + (bytes_per_row as usize)]
-                    .copy_from_slice(&raw[src_off..src_off + (bytes_per_row as usize)]);
-            }
-            std::borrow::Cow::Owned(out)
-        };
 
         resources.queue.write_texture(
             wgpu::ImageCopyTexture {
@@ -234,10 +220,10 @@ impl GpuTexture {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &data,
+            &raw,
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: Some(padded_bytes_per_row),
+                bytes_per_row: Some(bytes_per_row),
                 rows_per_image: Some(src_h),
             },
             wgpu::Extent3d {
