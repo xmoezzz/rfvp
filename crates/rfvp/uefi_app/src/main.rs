@@ -23,6 +23,19 @@ use uefi_raw::protocol::console::{
 };
 use uefi_raw::{Boolean, Status as RawStatus};
 
+/// The UEFI std shipped with rustc >= 1.99 calls `wcslen` from `env::var` and
+/// `env::current_dir`, but there is no libc to provide it here. `wchar_t` is 16 bits on UEFI.
+///
+/// Volatile reads keep LLVM from turning the loop back into a call to `wcslen` itself.
+#[no_mangle]
+pub unsafe extern "C" fn wcslen(s: *const u16) -> usize {
+    let mut len = 0;
+    while core::ptr::read_volatile(s.add(len)) != 0 {
+        len += 1;
+    }
+    len
+}
+
 const DEFAULT_PROJECT_DIR: &str = r"\rfvp";
 const DEFAULT_HCB_PATH: &str = r"\rfvp\Snow.hcb";
 const FRAMEBUFFER_DIAGNOSTICS_ENABLED: bool = false;
