@@ -65,27 +65,32 @@ The Rust API documentation for this project is available here:
 
 
 ### Supported Platforms and Packaging Types
-| Platform | Packaging Type(s) Supported                                | Launcher | Standalone Executable | Architectures                       |
-| -------- | ---------------------------------------------------------- | -------: | --------------------: | ----------------------------------- |
-| macOS    | App Bundle (`.app`) and DMG (`.dmg`)                          |      Yes |                    No | Universal       |
-| iOS      | Unsigned IPA (`.ipa`, AltStore) |      Yes |                    No | arm64   |
-| Android  | APK (`.apk`)                                               |      Yes |                    No | arm64-v8a, x86_64                   |
-| Windows  | Standalone EXE                                             |       No |                   Yes | x86_64, arm64                       |
-| Linux    | Standalone                                                 |       No |                   Yes | x86_64, aarch64 |
-| WASM     | Bundle                                            |      Yes |                    No | **Any architecture** (via WASI)          |
-| FreeBSD  | Standalone                                                 |       No |                   Yes | x86_64 |
-| UEFI     | Standalone EFI (`.efi`)                                             |       No |                   Yes | x86_64, arm64                       |
-| PS Vita  | Standalone (`.eboot`)                                               |       No |                   Yes | armv7                   |
-| PSP      | Standalone (`.eboot`)                                               |       No |                   Yes | MIPS R4000                 |
-| PS3      | Static Library (`.a`)                                               |       No |                   Yes | PPC64BE                   |
-| PS2      | Static Library (`.a`)                                               |       No |                   Yes | MIPS R5900                   |
-| Switch    | Standalone (`.nro`)                                               |       No |                   Yes | arm64-v8a                   |
-| Wii U      | Standalone (`.rpx`)                                               |       No |                   Yes | PowerPC 750CL                 |
-| Wii      | Standalone (`.dol`)                                               |       No |                   Yes | PowerPC 750CL                  |
-| 3DS      | Standalone (`.3dsx`)                                               |       No |                   Yes | arm6k                    |
+| Platform | Packaging Type(s) Supported                                | Launcher | Standalone Executable | Architectures                       | Status |
+| -------- | ---------------------------------------------------------- | -------: | --------------------: | ----------------------------------- | -------- |
+| macOS    | App Bundle (`.app`) and DMG (`.dmg`)                          |      Yes |                    No | Universal       | Supported |
+| iOS      | Unsigned IPA (`.ipa`, AltStore) |      Yes |                    No | arm64   | Supported |
+| Android  | APK (`.apk`)                                               |      Yes |                    No | arm64-v8a, x86_64                   | Supported |
+| Windows  | Standalone EXE                                             |       No |                   Yes | x86_64, arm64                       | Supported |
+| Linux    | Standalone                                                 |       No |                   Yes | x86_64, aarch64 | Supported |
+| WASM     | Bundle                                            |      Yes |                    No | **Any architecture** (via WASI)          | Supported |
+| FreeBSD  | Standalone                                                 |       No |                   Yes | x86_64 | Supported |
+| UEFI     | Standalone EFI (`.efi`)                                             |       No |                   Yes | x86_64, arm64                       | Supported |
+| PS Vita  | Standalone (`.eboot`)                                               |       No |                   Yes | armv7                   | Experimental |
+| PSP      | Standalone (`.eboot`)                                               |       No |                   Yes | MIPS R4000                 | Skeleton |
+| PS3      | Static Library (`.a`)                                               |       No |                   Yes | PPC64BE                   | Skeleton |
+| PS2      | Static Library (`.a`)                                               |       No |                   Yes | MIPS R5900                   | Skeleton |
+| Switch    | Standalone (`.nro`)                                               |       No |                   Yes | arm64-v8a                   | Experimental |
+| Wii U      | Standalone (`.rpx`)                                               |       No |                   Yes | PowerPC 750CL                 | Skeleton |
+| Wii      | Standalone (`.dol`)                                               |       No |                   Yes | PowerPC 750CL                  | Skeleton |
+| 3DS      | Standalone (`.3dsx`)                                               |       No |                   Yes | arm6k                    | Skeleton |
 
 
 * Since this is a Rust project, it should be possible to build for many other platforms as well.
+
+**Status**
+* **Supported**: built by CI on every push.
+* **Experimental** (PS Vita, Switch): `rfvp-psv` and `rfvp-horizon` are the real console targets. They have not been tested on hardware yet and are expected to need a reduced-resolution build.
+* **Skeleton** (PSP, PS3, PS2, Wii U, Wii, 3DS): host crates that exist so the `no_std` core surface has a place to plug in. They are untested and not built by CI; expect to rebuild them at a lower resolution before they are usable.
 
 ### As Library
 * Normal Mode: Provide full capabilities of the engine, including using `winit` for event handling and `wgpu` for rendering. This mode is suitable for modern platforms.
