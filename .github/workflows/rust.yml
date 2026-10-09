@@ -281,6 +281,27 @@ jobs:
           path: dist/wasm/rfvp-wasm.zip
           if-no-files-found: error
 
+  no_std:
+    name: no_std core
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-uefi
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      # The Vita and Switch hosts build against this surface. Use a target without unwinding
+      # so the check does not need a panic handler.
+      - name: Check no_std core
+        run: cargo check -p rfvp --no-default-features --features no_std --lib --target x86_64-unknown-uefi
+
   uefi:
     name: uefi
     runs-on: ubuntu-22.04

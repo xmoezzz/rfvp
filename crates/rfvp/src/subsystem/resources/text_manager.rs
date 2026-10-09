@@ -11,6 +11,8 @@ use std::{
     fs,
     path::{Path, PathBuf},
 };
+#[cfg(feature = "no_std")]
+use crate::path::Path;
 
 use super::gaiji_manager::GaijiManager;
 #[cfg(not(feature = "no_std"))]
