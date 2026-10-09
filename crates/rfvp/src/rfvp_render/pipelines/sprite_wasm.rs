@@ -12,8 +12,27 @@ const PC_STRIDE: u64 = 256;
 const PC_RING_SLOTS: u64 = 4096;
 const PC_RING_SIZE: u64 = PC_STRIDE * PC_RING_SLOTS;
 
+/// Additive blending as used by the original engine for blend=1 prims:
+/// SRCBLEND = SRCALPHA, DESTBLEND = ONE.
+fn additive_blend_state() -> wgpu::BlendState {
+    wgpu::BlendState {
+        color: wgpu::BlendComponent {
+            src_factor: wgpu::BlendFactor::SrcAlpha,
+            dst_factor: wgpu::BlendFactor::One,
+            operation: wgpu::BlendOperation::Add,
+        },
+        // Additive layers must not change the destination coverage.
+        alpha: wgpu::BlendComponent {
+            src_factor: wgpu::BlendFactor::Zero,
+            dst_factor: wgpu::BlendFactor::One,
+            operation: wgpu::BlendOperation::Add,
+        },
+    }
+}
+
 pub struct SpritePipeline {
     pipeline: wgpu::RenderPipeline,
+    pipeline_additive: wgpu::RenderPipeline,
     queue: Arc<wgpu::Queue>,
     pc_buffer: wgpu::Buffer,
     pc_bind_group: wgpu::BindGroup,
@@ -95,39 +114,44 @@ impl SpritePipeline {
             ],
         };
 
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("rfvp_render.sprite_pipeline.wasm"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: "vs_main",
-                buffers: &[vertex_layout],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: "fs_main",
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: target_format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-        });
+        let make_pipeline = |blend: wgpu::BlendState| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("rfvp_render.sprite_pipeline.wasm"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: "vs_main",
+                    buffers: &[vertex_layout.clone()],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: "fs_main",
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: target_format,
+                        blend: Some(blend),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    unclipped_depth: false,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+            })
+        };
+        let pipeline = make_pipeline(wgpu::BlendState::ALPHA_BLENDING);
+        let pipeline_additive = make_pipeline(additive_blend_state());
 
         Self {
             pipeline,
+            pipeline_additive,
             queue: queue.clone(),
             pc_buffer,
             pc_bind_group,
@@ -148,7 +172,23 @@ impl SpritePipeline {
         tex: &'a TextureBindGroup,
         transform: Mat4,
     ) {
-        pass.set_pipeline(&self.pipeline);
+        self.draw_blended(pass, src, tex, transform, false);
+    }
+
+    /// Draw with either normal alpha blending or additive blending (`PrimSetBlend(id, 1)`).
+    pub fn draw_blended<'a>(
+        &'a self,
+        pass: &mut wgpu::RenderPass<'a>,
+        src: VertexSource<'a>,
+        tex: &'a TextureBindGroup,
+        transform: Mat4,
+        additive: bool,
+    ) {
+        pass.set_pipeline(if additive {
+            &self.pipeline_additive
+        } else {
+            &self.pipeline
+        });
         pass.set_bind_group(0, tex.raw(), &[]);
         let m = transform.to_cols_array();
         let pc_offset = self.next_pc_offset();

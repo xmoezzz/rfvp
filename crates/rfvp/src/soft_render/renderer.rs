@@ -20,6 +20,9 @@ pub struct SoftRenderer {
     virtual_size: (u32, u32),
     framebuffer: SoftFramebuffer,
     stats: SoftRendererStats,
+    /// Blend mode of the prim being rasterized: `PrimSetBlend(id, 1)` is additive
+    /// (SRCALPHA/ONE) in the original engine.
+    additive: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -45,6 +48,7 @@ impl SoftRenderer {
             virtual_size: (width.max(1), height.max(1)),
             framebuffer: SoftFramebuffer::new(width.max(1), height.max(1), format)?,
             stats: SoftRendererStats::default(),
+            additive: false,
         })
     }
 
@@ -226,6 +230,7 @@ impl SoftRenderer {
 
         let draw_prim = prim_manager.get_prim_immutable(draw_id);
         let first_child = draw_prim.get_first_child_idx();
+        self.additive = draw_prim.get_blend();
 
         match draw_prim.get_type() {
             PrimType::PrimTypeGroup | PrimType::PrimTypeNone => {}
@@ -744,6 +749,7 @@ impl SoftRenderer {
     }
 
     fn fill_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: Vec4) {
+        self.additive = false;
         let model = Mat4::from_translation(vec3(x, y, 0.0));
         let _ = self.draw_textured_quad(
             model,
@@ -846,13 +852,22 @@ impl SoftRenderer {
                 pixels[off + 3] as f32 / 255.0,
             ),
         };
-        let inv = 1.0 - src_a;
-        let out = vec4(
-            src.x.clamp(0.0, 1.0) * src_a + dr * inv,
-            src.y.clamp(0.0, 1.0) * src_a + dg * inv,
-            src.z.clamp(0.0, 1.0) * src_a + db * inv,
-            src_a + da * inv,
-        );
+        let out = if self.additive {
+            vec4(
+                src.x.clamp(0.0, 1.0) * src_a + dr,
+                src.y.clamp(0.0, 1.0) * src_a + dg,
+                src.z.clamp(0.0, 1.0) * src_a + db,
+                da,
+            )
+        } else {
+            let inv = 1.0 - src_a;
+            vec4(
+                src.x.clamp(0.0, 1.0) * src_a + dr * inv,
+                src.y.clamp(0.0, 1.0) * src_a + dg * inv,
+                src.z.clamp(0.0, 1.0) * src_a + db * inv,
+                src_a + da * inv,
+            )
+        };
         let r = (out.x.clamp(0.0, 1.0) * 255.0).round() as u8;
         let g = (out.y.clamp(0.0, 1.0) * 255.0).round() as u8;
         let b = (out.z.clamp(0.0, 1.0) * 255.0).round() as u8;

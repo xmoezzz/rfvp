@@ -29,6 +29,8 @@ enum DrawTextureKey {
 #[derive(Clone, Debug)]
 struct DrawItem {
     tex: DrawTextureKey,
+    /// `PrimSetBlend(id, 1)`: SRCALPHA/ONE instead of SRCALPHA/INVSRCALPHA.
+    additive: bool,
     vertex_range: std::ops::Range<u32>,
 }
 
@@ -447,6 +449,7 @@ impl GpuPrimRenderer {
         uv1: Vec2,
         color: Vec4,
         tex: DrawTextureKey,
+        additive: bool,
     ) {
         let base = self.vertices.len() as u32;
 
@@ -480,6 +483,7 @@ impl GpuPrimRenderer {
         self.vertices.extend_from_slice(&[v0, v1, v2, v2, v1, v3]);
         self.draws.push(DrawItem {
             tex,
+            additive,
             vertex_range: base..base + 6,
         });
     }
@@ -666,6 +670,7 @@ impl GpuPrimRenderer {
                                     uv1,
                                     color,
                                     DrawTextureKey::Graph(graph_id),
+                                    draw_prim.get_blend(),
                                 );
                             }
                         }
@@ -733,6 +738,7 @@ impl GpuPrimRenderer {
                                         uv1,
                                         color,
                                         DrawTextureKey::Graph(graph_id),
+                                        draw_prim.get_blend(),
                                     );
                                 }
                             }
@@ -824,6 +830,7 @@ impl GpuPrimRenderer {
                                         vec2(tile_w / tw as f32, tile_h / th as f32),
                                         color,
                                         DrawTextureKey::Graph(graph_id),
+                                        draw_prim.get_blend(),
                                     );
                                 }
                             }
@@ -864,6 +871,7 @@ impl GpuPrimRenderer {
                         vec2(0.5, 0.5),
                         color,
                         DrawTextureKey::White,
+                        draw_prim.get_blend(),
                     );
                 }
             }
@@ -986,7 +994,13 @@ impl GpuPrimRenderer {
     ) {
         for item in items {
             let src = self.vb.vertex_source_slice(item.vertex_range.clone());
-            sprite_pipeline.draw(render_pass, src, self.texture_bind_group(item.tex), proj);
+            sprite_pipeline.draw_blended(
+                render_pass,
+                src,
+                self.texture_bind_group(item.tex),
+                proj,
+                item.additive,
+            );
         }
     }
 

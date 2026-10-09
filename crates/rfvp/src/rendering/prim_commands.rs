@@ -193,6 +193,15 @@ fn build_draw_model(
     }
 }
 
+/// `PrimSetBlend(id, 1)` selects additive blending (SRCALPHA/ONE) in the original engine.
+fn prim_blend(prim: &Prim) -> CommandBlendMode {
+    if prim.get_blend() {
+        CommandBlendMode::Add
+    } else {
+        CommandBlendMode::Normal
+    }
+}
+
 fn emit_sprite(
     commands: &mut Vec<RenderCommand>,
     hit_proxies: &mut HitProxyTable,
@@ -205,6 +214,7 @@ fn emit_sprite(
     uv1: Vec2,
     color: Vec4,
     texture: DrawTextureKey,
+    blend: CommandBlendMode,
 ) -> RfvpResult<()> {
     let p0 = model.transform_point3(vec3(0.0, dst_h, 0.0));
     let p1 = model.transform_point3(vec3(0.0, 0.0, 0.0));
@@ -232,7 +242,7 @@ fn emit_sprite(
         },
         dst: rect,
         color: rgba8_from_vec4(color),
-        blend: CommandBlendMode::Normal,
+        blend,
         effect_id: 0,
         clip: None,
         vertices,
@@ -554,6 +564,7 @@ where
                     vec2(0.5, 0.5),
                     rgba,
                     DrawTextureKey::White,
+                    prim_blend(&draw_prim),
                 )?;
             }
         }
@@ -750,6 +761,7 @@ fn emit_graph_sprite(
         uv1,
         color,
         DrawTextureKey::Graph(graph_id),
+        prim_blend(prim),
     )
 }
 
@@ -856,6 +868,7 @@ where
             vec2(tile_w / tw as f32, tile_h / th as f32),
             vec4(1.0, 1.0, 1.0, alpha),
             DrawTextureKey::Graph(graph_id),
+            prim_blend(prim),
         )?;
     }
 
