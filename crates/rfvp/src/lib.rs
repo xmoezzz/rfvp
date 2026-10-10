@@ -906,10 +906,6 @@ pub mod legacy_save_load_ui;
 pub(crate) mod platform_random;
 pub(crate) mod platform_time;
 pub mod rendering;
-#[cfg(not(feature = "no_std"))]
-pub mod rfvp_audio;
-#[cfg(feature = "no_std")]
-#[path = "rfvp_audio_no_std.rs"]
 pub mod rfvp_audio;
 #[cfg(all(not(feature = "no_std"), feature = "rfvp-os"))]
 pub mod rfvp_os_host;

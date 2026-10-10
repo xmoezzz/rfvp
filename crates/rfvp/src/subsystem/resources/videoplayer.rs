@@ -19,10 +19,9 @@ use std::sync::{
 
 use anyhow::{anyhow, Context, Result};
 
-use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings};
-use kira::Tween;
-
-use crate::rfvp_audio::AudioManager;
+use crate::host_api::{AudioParams, AudioStreamId};
+use crate::rfvp_audio::{AudioManager, SoundSource, Tween};
+use crate::subsystem::resources::vfs::Vfs;
 
 use na_mpeg2_decoder::{MpegAvEvent, MpegAvPipeline};
 
@@ -82,8 +81,8 @@ struct Mp4Playback {
 
     // Audio (decoded to a WAV container and played via Kira).
     audio_manager: Option<Arc<AudioManager>>,
-    audio_data: Option<StaticSoundData>,
-    audio_handle: Option<StaticSoundHandle>,
+    audio_data: Option<Arc<[u8]>>,
+    audio_playing: bool,
     audio_started: bool,
 }
 
@@ -106,11 +105,7 @@ impl Mp4Playback {
                     }
                     Some(_) => match decode_mp4_audio_to_wav_bytes(&mp4_path) {
                         Ok(Some(wav_bytes)) => {
-                            let cursor = std::io::Cursor::new(wav_bytes);
-                            Some(
-                                StaticSoundData::from_cursor(cursor)
-                                    .context("kira StaticSoundData::from_cursor")?,
-                            )
+                            Some(Arc::from(wav_bytes))
                         }
                         Ok(None) => {
                             log::warn!(
@@ -140,7 +135,7 @@ impl Mp4Playback {
             mp4_path: mp4_path.as_ref().to_path_buf(),
             audio_manager,
             audio_data,
-            audio_handle: None,
+            audio_playing: false,
             audio_started: false,
         })
     }
@@ -158,10 +153,7 @@ impl Mp4Playback {
             return;
         };
 
-        // NOTE: Movie audio is typically non-looping.
-        let settings = StaticSoundSettings::new().volume(1.0);
-        let handle = am.play(data.with_settings(settings));
-        self.audio_handle = Some(handle);
+        self.audio_playing = start_movie_audio(am, data);
     }
 
     fn next_due_frame(&mut self) -> Option<video_sys::VideoFrame> {
@@ -212,8 +204,10 @@ impl Mp4Playback {
         self.stream.stop();
 
         // Stop audio promptly.
-        if let Some(mut h) = self.audio_handle.take() {
-            h.stop(Tween::default());
+        if std::mem::take(&mut self.audio_playing) {
+            if let Some(am) = self.audio_manager.as_ref() {
+                stop_movie_audio(am);
+            }
         }
     }
 }
@@ -250,8 +244,8 @@ struct WmvPlayback {
 
     // Audio (decoded to a WAV container and played via Kira).
     audio_manager: Option<Arc<AudioManager>>,
-    audio_data: Option<StaticSoundData>,
-    audio_handle: Option<StaticSoundHandle>,
+    audio_data: Option<Arc<[u8]>>,
+    audio_playing: bool,
     audio_started: bool,
 }
 
@@ -275,11 +269,7 @@ impl WmvPlayback {
                     }
                     Some(_) => match decode_wmv_audio_to_wav_bytes(&wmv_path) {
                         Ok(Some(wav_bytes)) => {
-                            let cursor = std::io::Cursor::new(wav_bytes);
-                            Some(
-                                StaticSoundData::from_cursor(cursor)
-                                    .context("kira StaticSoundData::from_cursor")?,
-                            )
+                            Some(Arc::from(wav_bytes))
                         }
                         Ok(None) => {
                             log::warn!(
@@ -366,7 +356,7 @@ impl WmvPlayback {
             screen_h,
             audio_manager,
             audio_data,
-            audio_handle: None,
+            audio_playing: false,
             audio_started: false,
         })
     }
@@ -384,9 +374,7 @@ impl WmvPlayback {
             return;
         };
 
-        let settings = StaticSoundSettings::new().volume(1.0);
-        let handle = am.play(data.with_settings(settings));
-        self.audio_handle = Some(handle);
+        self.audio_playing = start_movie_audio(am, data);
     }
 
     fn next_due_frame(&mut self) -> Option<WmvRgbaFrame> {
@@ -453,8 +441,10 @@ impl WmvPlayback {
     fn stop_and_cleanup(mut self) {
         self.stop_flag.store(true, Ordering::Relaxed);
 
-        if let Some(mut h) = self.audio_handle.take() {
-            h.stop(Tween::default());
+        if std::mem::take(&mut self.audio_playing) {
+            if let Some(am) = self.audio_manager.as_ref() {
+                stop_movie_audio(am);
+            }
         }
     }
 }
@@ -491,8 +481,8 @@ struct MpegPlayback {
 
     // Audio (decoded to a WAV container and played via Kira).
     audio_manager: Option<Arc<AudioManager>>,
-    audio_data: Option<StaticSoundData>,
-    audio_handle: Option<StaticSoundHandle>,
+    audio_data: Option<Arc<[u8]>>,
+    audio_playing: bool,
     audio_started: bool,
 }
 
@@ -516,11 +506,7 @@ impl MpegPlayback {
                     }
                     Some(_) => match decode_mpeg_audio_to_wav_bytes(&mpeg_path) {
                         Ok(Some(wav_bytes)) => {
-                            let cursor = std::io::Cursor::new(wav_bytes);
-                            Some(
-                                StaticSoundData::from_cursor(cursor)
-                                    .context("kira StaticSoundData::from_cursor")?,
-                            )
+                            Some(Arc::from(wav_bytes))
                         }
                         Ok(None) => {
                             log::warn!(
@@ -639,7 +625,7 @@ impl MpegPlayback {
             screen_h,
             audio_manager,
             audio_data,
-            audio_handle: None,
+            audio_playing: false,
             audio_started: false,
         })
     }
@@ -657,9 +643,7 @@ impl MpegPlayback {
             return;
         };
 
-        let settings = StaticSoundSettings::new().volume(1.0);
-        let handle = am.play(data.with_settings(settings));
-        self.audio_handle = Some(handle);
+        self.audio_playing = start_movie_audio(am, data);
     }
 
     fn next_due_frame(&mut self) -> Option<MpegRgbaFrame> {
@@ -719,8 +703,10 @@ impl MpegPlayback {
     fn stop_and_cleanup(mut self) {
         self.stop_flag.store(true, Ordering::Relaxed);
 
-        if let Some(mut h) = self.audio_handle.take() {
-            h.stop(Tween::default());
+        if std::mem::take(&mut self.audio_playing) {
+            if let Some(am) = self.audio_manager.as_ref() {
+                stop_movie_audio(am);
+            }
         }
     }
 }
@@ -1297,4 +1283,35 @@ fn build_wav_pcm16le(samples: &[i16], channels: u16, sample_rate: u32) -> Vec<u8
     }
 
     out
+}
+
+/// Play a movie's soundtrack (a WAV decoded from the movie) through the audio backend.
+/// Returns whether it started; the movie plays on without it otherwise.
+fn start_movie_audio(audio: &AudioManager, wav: Arc<[u8]>) -> bool {
+    // The soundtrack is in memory; no game files are read.
+    let vfs = Vfs::default();
+    let backend = audio.backend();
+    let started = backend
+        .load(AudioStreamId::MOVIE, &SoundSource::Bytes(wav), &vfs)
+        .and_then(|()| {
+            backend.play(
+                AudioStreamId::MOVIE,
+                AudioParams {
+                    volume: 1.0,
+                    pan: 0.0,
+                    repeat: false,
+                },
+                Tween::default(),
+                &vfs,
+            )
+        });
+    if let Err(e) = &started {
+        log::warn!("Movie audio could not be played: {e:?}");
+    }
+    started.is_ok()
+}
+
+fn stop_movie_audio(audio: &AudioManager) {
+    audio.backend().stop(AudioStreamId::MOVIE, Tween::default());
+    audio.backend().unload(AudioStreamId::MOVIE);
 }

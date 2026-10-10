@@ -23,6 +23,9 @@ impl AudioStreamId {
         Self(SE_STREAM_ID_BASE + slot as u32)
     }
 
+    /// The soundtrack of the movie playing, if any.
+    pub const MOVIE: Self = Self(0x2000);
+
     pub const fn slot_kind(self) -> Option<AudioSlotKind> {
         if self.0 < BGM_LOGICAL_SLOT_COUNT as u32 {
             Some(AudioSlotKind::Bgm)
@@ -60,7 +63,9 @@ pub struct AudioStreamDesc {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AudioParams {
+    /// Linear gain: 0 is silent, 1 is the sound as recorded.
     pub volume: f32,
+    /// -1 is the left speaker only, 0 the center, 1 the right speaker only.
     pub pan: f32,
     pub repeat: bool,
 }
