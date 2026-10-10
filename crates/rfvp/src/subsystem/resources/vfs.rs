@@ -154,6 +154,9 @@ pub struct VfsFile {
     pub entries: StableHashMap<String, VfsEntry>,
     pub nls: Nls,
     pack: PackHandle,
+    /// Entry names by their lowercase form. Scripts do not match the case of the names in the
+    /// packs (`title_bg1_a` for `title_bg1_A`); the original engine, on Windows, ignores case.
+    lowercase: StableHashMap<String, String>,
 }
 
 impl VfsFile {
@@ -164,6 +167,10 @@ impl VfsFile {
     ) -> Result<Self> {
         let (file_count, filename_table_size, entries) =
             Self::parse_source(source.as_ref(), nls)?;
+        let lowercase = entries
+            .keys()
+            .map(|name| (name.to_ascii_lowercase(), name.clone()))
+            .collect();
         Ok(Self {
             path: PathBuf::from(format!("{folder_name}.bin").as_str()),
             folder_name,
@@ -172,6 +179,7 @@ impl VfsFile {
             entries,
             nls,
             pack: PackHandle(source),
+            lowercase,
         })
     }
 
@@ -271,6 +279,11 @@ impl VfsFile {
         let ent = self
             .entries
             .get(name)
+            .or_else(|| {
+                self.lowercase
+                    .get(&name.to_ascii_lowercase())
+                    .and_then(|real| self.entries.get(real))
+            })
             .ok_or_else(|| anyhow!("file not found in host pack {}: {}", self.folder_name, name))?;
         let end = ent
             .offset
@@ -543,6 +556,14 @@ mod tests {
         vfs.add_pack_bytes("graph", pack("a", b"from the pack")).unwrap();
         vfs.set_loose_dir(Some(dir(&[("graph/other", b"loose")])));
         assert_eq!(vfs.read_file("graph/a").unwrap(), b"from the pack");
+    }
+
+    #[test]
+    fn pack_entries_are_found_whatever_the_case() {
+        let mut vfs = Vfs::new(Nls::ShiftJIS).unwrap();
+        vfs.add_pack_bytes("graph", pack("title_bg1_A", b"background")).unwrap();
+        assert_eq!(vfs.read_file("graph/title_bg1_a").unwrap(), b"background");
+        assert_eq!(vfs.read_file("GRAPH/Title_BG1_a").unwrap(), b"background");
     }
 
     #[test]
