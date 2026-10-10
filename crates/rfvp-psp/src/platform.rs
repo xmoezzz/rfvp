@@ -341,6 +341,7 @@ unsafe extern "C" fn fs_write_all(
     let Some(path) = c_path(path, path_len) else {
         return PspStatus::InvalidArgument.as_i32();
     };
+    make_parent_dirs(&path);
     let flags = sys::IoOpenFlags::WR_ONLY | sys::IoOpenFlags::CREAT | sys::IoOpenFlags::TRUNC;
     let fd = sys::sceIoOpen(path.as_ptr(), flags, 0o666);
     if fd.0 < 0 {
@@ -360,6 +361,19 @@ unsafe extern "C" fn fs_write_all(
         return PspStatus::Io.as_i32();
     }
     PspStatus::Ok.as_i32()
+}
+
+/// Create every directory on the way to the NUL-terminated `path` (the file itself is not
+/// touched). Directories that already exist are fine.
+unsafe fn make_parent_dirs(path: &[u8]) {
+    let mut dir = path.to_vec();
+    for i in 1..path.len().saturating_sub(1) {
+        if path[i] == b'/' && path[i - 1] != b':' && path[i - 1] != b'/' {
+            dir[i] = 0;
+            let _ = sys::sceIoMkdir(dir.as_ptr(), 0o777);
+            dir[i] = b'/';
+        }
+    }
 }
 
 unsafe extern "C" fn fs_enumerate_by_extension(
