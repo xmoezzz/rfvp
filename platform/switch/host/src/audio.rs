@@ -170,7 +170,7 @@ struct HorizonMasterOutput {
 impl HorizonMasterOutput {
     fn open() -> RfvpResult<Self> {
         let manager = service::new_service_object::<AudioOutManagerService>()
-            .map_err(|_| RfvpError::Backend)?;
+            .map_err(crate::backend_error("opening the audio service"))?;
         let in_name = AudioInterfaceName::new();
         let mut out_name = AudioInterfaceName::new();
         let params = AudioRequestParameters {
@@ -185,7 +185,7 @@ impl HorizonMasterOutput {
                 sf::AppletResourceUserId::new(0),
                 sf::CopyHandle::from(svc::CURRENT_PROCESS_PSEUDO_HANDLE),
             )
-            .map_err(|_| RfvpError::Backend)?;
+            .map_err(crate::backend_error("opening audio output"))?;
         let actual_format = match response.sample_format {
             PcmFormat::Int16 | PcmFormat::Float => response.sample_format,
             _ => return Err(RfvpError::InvalidData),
@@ -210,7 +210,7 @@ impl HorizonMasterOutput {
         Self::append_chunk(&self.out, &mut chunk)?;
         self.chunks.push(chunk);
         if !self.playing {
-            self.out.start().map_err(|_| RfvpError::Backend)?;
+            self.out.start().map_err(crate::backend_error("starting audio output"))?;
             self.playing = true;
         }
         Ok(())
@@ -227,13 +227,13 @@ impl HorizonMasterOutput {
                     sf::InAutoSelectBuffer::from_var(&chunk.buffer),
                     chunk.buffer_ptr(),
                 )
-                .map_err(|_| RfvpError::Backend)?;
+                .map_err(crate::backend_error("appending an audio buffer"))?;
             } else {
                 out.append_buffer(
                     sf::InMapAliasBuffer::from_var(&chunk.buffer),
                     chunk.buffer_ptr(),
                 )
-                .map_err(|_| RfvpError::Backend)?;
+                .map_err(crate::backend_error("appending an audio buffer (old firmware)"))?;
             }
         }
         chunk.queued = true;
@@ -257,7 +257,7 @@ impl HorizonMasterOutput {
                     .get_released_buffers_auto(sf::OutAutoSelectBuffer::from_mut_array(
                         &mut released,
                     ))
-                    .map_err(|_| RfvpError::Backend)? as usize;
+                    .map_err(crate::backend_error("collecting released audio buffers"))? as usize;
                 for buffer in released.iter().take(cmp::min(count, RELEASED_BUFFER_BATCH)) {
                     if buffer.sample_buffer.is_null() {
                         continue;
@@ -278,7 +278,7 @@ impl HorizonMasterOutput {
                 let count = self
                     .out
                     .get_released_buffers(sf::OutMapAliasBuffer::from_mut_array(&mut released))
-                    .map_err(|_| RfvpError::Backend)? as usize;
+                    .map_err(crate::backend_error("collecting released audio buffers (old firmware)"))? as usize;
                 for ptr in released
                     .iter()
                     .copied()

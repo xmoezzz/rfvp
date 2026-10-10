@@ -32,6 +32,9 @@ const DEBUG_FLAG_FILE: &str = "sdmc:/switch/rfvp/debug.txt";
 const DEBUG_REPORT_FILE: &str = "sdmc:/switch/rfvp/debug_report.txt";
 /// Frames between two reports.
 const DEBUG_REPORT_EVERY: u32 = 60;
+/// The debug report also saves the screen here, every `DEBUG_SCREEN_EVERY` frames.
+const DEBUG_SCREEN_FILE: &str = "sdmc:/switch/rfvp/debug_screen.bmp";
+const DEBUG_SCREEN_EVERY: u32 = 300;
 
 /// A line in the system log, which an emulator shows. Used to follow how far startup got.
 fn trace(message: &str) {
@@ -108,16 +111,17 @@ fn read_nls(app: &mut HorizonApp) -> Nls {
     }
 }
 
-fn report_error(app: &mut HorizonApp, what: &str) {
+fn report_error(app: &mut HorizonApp, what: &str, err: Option<rfvp::host_api::RfvpError>) {
     let detail = app
         .core()
         .last_error_detail()
         .map(String::from)
         .unwrap_or_default();
     let text = format!(
-        "{what}\ngame directory: {DEFAULT_GAME_ROOT}\n{detail}\n\
+        "{what}{}\ngame directory: {DEFAULT_GAME_ROOT}\n{detail}\n\
          The game directory needs the game's .hcb script and .bin packs, plus a CJK font \
          named default.ttf.\n\nlog:\n{}",
+        err.map(|err| format!(" ({err:?})")).unwrap_or_default(),
         rfvp::ring_log::dump()
     );
     let _ = app.host().fs().write_all(ERROR_FILE, text.as_bytes());
@@ -145,7 +149,7 @@ pub fn main() -> Result<()> {
     };
     if let Err(err) = app.boot(boot) {
         trace("rfvp: the game could not be loaded");
-        report_error(&mut app, "the game could not be loaded");
+        report_error(&mut app, "the game could not be loaded", Some(err));
         return Err(horizon_status_to_result_code(err));
     }
     trace("rfvp: the game is loaded, running");
@@ -160,7 +164,7 @@ pub fn main() -> Result<()> {
     // paces this loop.
     loop {
         if let Err(err) = app.run_frame() {
-            report_error(&mut app, "the game stopped with an error");
+            report_error(&mut app, "the game stopped with an error", Some(err));
             return Err(horizon_status_to_result_code(err));
         }
         if app.quit_requested() {
@@ -169,7 +173,7 @@ pub fn main() -> Result<()> {
 
         frames += 1;
         if frames == 1 {
-                    trace("rfvp: the first frame was drawn");
+            trace("rfvp: the first frame was drawn");
         }
         if debug {
             let now = app.host().clock().ticks_us();
@@ -189,6 +193,10 @@ pub fn main() -> Result<()> {
                     rfvp::ring_log::dump()
                 );
                 let _ = app.host().fs().write_all(DEBUG_REPORT_FILE, text.as_bytes());
+                if frames % DEBUG_SCREEN_EVERY == 0 {
+                    let bmp = app.host().renderer_ref().screen_bmp();
+                    let _ = app.host().fs().write_all(DEBUG_SCREEN_FILE, &bmp);
+                }
                 window_started_us = now;
                 worst_us = 0;
             }

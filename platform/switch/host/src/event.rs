@@ -59,7 +59,7 @@ impl HorizonInput {
             | hid::NpadStyleTag::JoyLeft()
             | hid::NpadStyleTag::JoyRight();
         let context =
-            input::Context::new(supported_style_tags, 1).map_err(|_| RfvpError::Backend)?;
+            input::Context::new(supported_style_tags, 1).map_err(crate::backend_error("setting up input"))?;
         Ok(Self {
             context,
             cursor_x: SCREEN_WIDTH / 2,

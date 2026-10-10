@@ -2955,7 +2955,6 @@ dependencies = [
 [[package]]
 name = "nx"
 version = "0.5.0"
-source = "git+https://github.com/aarch64-switch-rs/nx#62a39b6f2bcb41115bab069a3f8a82f903649dfe"
 dependencies = [
  "arrayvec",
  "atomic_enum",
@@ -2979,7 +2978,6 @@ dependencies = [
 [[package]]
 name = "nx-derive"
 version = "0.1.0"
-source = "git+https://github.com/aarch64-switch-rs/nx#62a39b6f2bcb41115bab069a3f8a82f903649dfe"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3891,6 +3889,7 @@ name = "rfvp-horizon"
 version = "0.1.0"
 dependencies = [
  "cc",
+ "log 0.4.29",
  "nx",
  "rfvp",
 ]

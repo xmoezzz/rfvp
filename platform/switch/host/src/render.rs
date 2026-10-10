@@ -46,6 +46,29 @@ impl HorizonRenderer {
     }
 
     /// Map a point on the screen to the game's virtual coordinates.
+    /// The last composed screen as a 32-bit BMP, for the debug report.
+    pub fn screen_bmp(&self) -> alloc::vec::Vec<u8> {
+        let (width, height) = (DISPLAY_WIDTH as usize, DISPLAY_HEIGHT as usize);
+        let image_size = width * height * 4;
+        let mut bmp = alloc::vec::Vec::with_capacity(54 + image_size);
+        bmp.extend_from_slice(b"BM");
+        bmp.extend_from_slice(&((54 + image_size) as u32).to_le_bytes());
+        bmp.extend_from_slice(&0u32.to_le_bytes());
+        bmp.extend_from_slice(&54u32.to_le_bytes());
+        bmp.extend_from_slice(&40u32.to_le_bytes());
+        bmp.extend_from_slice(&(width as i32).to_le_bytes());
+        // Negative height: rows top to bottom.
+        bmp.extend_from_slice(&(-(height as i32)).to_le_bytes());
+        bmp.extend_from_slice(&1u16.to_le_bytes());
+        bmp.extend_from_slice(&32u16.to_le_bytes());
+        bmp.extend_from_slice(&[0; 24]);
+        for pixel in self.raster.frame() {
+            let [r, g, b, a] = pixel.to_ne_bytes();
+            bmp.extend_from_slice(&[b, g, r, a]);
+        }
+        bmp
+    }
+
     pub fn screen_to_virtual(&self, x: f32, y: f32) -> (f32, f32) {
         self.raster.output_to_virtual(x, y)
     }
@@ -55,18 +78,20 @@ impl HorizonRenderer {
             return Ok(());
         }
         let gpu_ctx = gpu::Context::new(
-            gpu::NvDrvServiceKind::Applet,
-            gpu::ViServiceKind::System,
+            // The application services: vi:s/nvdrv:a are privileged, and an emulator (or a
+            // title without system permissions) refuses them.
+            gpu::NvDrvServiceKind::Application,
+            gpu::ViServiceKind::Application,
             0x800000,
         )
-        .map_err(|_| RfvpError::Backend)?;
+        .map_err(crate::backend_error("creating the GPU context"))?;
         let canvas = CanvasManager::new_stray(
             Arc::new(RwLock::new(gpu_ctx)),
             Default::default(),
             BUFFER_COUNT,
             gpu::BlockLinearHeights::FourGobs,
         )
-        .map_err(|_| RfvpError::Backend)?;
+        .map_err(crate::backend_error("creating the canvas"))?;
         self.canvas = Some(canvas);
         Ok(())
     }
@@ -133,20 +158,20 @@ impl RfvpRenderer for HorizonRenderer {
         canvas
             .render(None, |canvas| {
                 for (index, pixel) in frame.iter().enumerate() {
-                    // The rasterizer's pixels are `r, g, b, a` bytes; the canvas wants the same
-                    // bytes with `a` as the lowest field, which is a byte swap.
+                    // The rasterizer's pixels are `r, g, b, a` bytes, the canvas's A8B8G8R8
+                    // layout (see platform/switch/patches/README.md).
                     canvas.draw_single(
                         (index % width) as i32,
                         (index / width) as i32,
-                        RGBA8::from_bits(pixel.swap_bytes()),
+                        RGBA8::from_bits(*pixel),
                         AlphaBlend::None,
                     );
                 }
                 Ok(())
             })
-            .map_err(|_| RfvpError::Backend)?;
+            .map_err(crate::backend_error("drawing the frame to the canvas"))?;
         canvas
             .wait_vsync_event(None)
-            .map_err(|_| RfvpError::Backend)
+            .map_err(crate::backend_error("waiting for vsync"))
     }
 }
