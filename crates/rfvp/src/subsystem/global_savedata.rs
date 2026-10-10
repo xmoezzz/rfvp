@@ -8,16 +8,12 @@ use alloc::{
 };
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-#[cfg(not(feature = "no_std"))]
-use std::path::PathBuf;
 
 use crate::script::global::GLOBAL;
 use crate::script::Variant;
 use crate::subsystem::resources::flag_manager::FlagManager;
 use crate::subsystem::snapshot_codec;
 use crate::subsystem::world::GameData;
-#[cfg(not(feature = "no_std"))]
-use crate::utils::file::app_base_path;
 
 const MAX_GLOBAL_PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
 
@@ -131,14 +127,6 @@ impl GlobalSaveDataV1 {
 /// Where the global save is kept, relative to the game's directory.
 pub const GLOBAL_SAVE_STORAGE_PATH: &str = "save/rfvp_global.bin";
 
-#[cfg(not(feature = "no_std"))]
-pub fn global_savedata_path() -> PathBuf {
-    app_base_path()
-        .get_path()
-        .join("save")
-        .join("rfvp_global.bin")
-}
-
 /// The global save as it is written to disk: the encoded state followed by its footer.
 pub fn encode_global_savedata_v1(game_data: &GameData) -> Result<Vec<u8>> {
     let snap = GlobalSaveDataV1::capture(game_data);
@@ -154,19 +142,6 @@ pub fn encode_global_savedata_v1(game_data: &GameData) -> Result<Vec<u8>> {
     Ok(out)
 }
 
-#[cfg(not(feature = "no_std"))]
-pub fn save_global_savedata_v1(game_data: &GameData) -> Result<()> {
-    let out = encode_global_savedata_v1(game_data)?;
-    let path = global_savedata_path();
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(&parent)
-            .with_context(|| format!("create_dir_all {}", parent.display()))?;
-    }
-    std::fs::write(&path, &out).with_context(|| format!("write {}", path.display()))?;
-    Ok(())
-}
-
-#[cfg(feature = "no_std")]
 pub fn save_global_savedata_v1(game_data: &GameData) -> Result<()> {
     let Some(storage) = game_data.save_manager.storage() else {
         return Ok(());
@@ -177,17 +152,6 @@ pub fn save_global_savedata_v1(game_data: &GameData) -> Result<()> {
         .map_err(|err| anyhow::anyhow!("write {GLOBAL_SAVE_STORAGE_PATH}: {err:?}"))
 }
 
-#[cfg(not(feature = "no_std"))]
-pub fn try_load_global_savedata_v1(game_data: &mut GameData) -> Result<bool> {
-    let path = global_savedata_path();
-    if !path.exists() {
-        return Ok(false);
-    }
-    let bytes = std::fs::read(&path).with_context(|| format!("read {}", path.display()))?;
-    apply_global_savedata_bytes(game_data, &bytes)
-}
-
-#[cfg(feature = "no_std")]
 pub fn try_load_global_savedata_v1(game_data: &mut GameData) -> Result<bool> {
     let Some(storage) = game_data.save_manager.storage().cloned() else {
         return Ok(false);

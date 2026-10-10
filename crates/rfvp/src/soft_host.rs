@@ -196,6 +196,9 @@ impl SoftHost {
     ) -> Result<Self> {
         let mut world = boxed_default_game_data();
         world.vfs = crate::utils::file::desktop_vfs(args.nls)?;
+        world
+            .save_manager
+            .set_storage(Some(crate::utils::file::desktop_storage()));
         world.nls = parser.nls;
         world.set_can_fullscreen(false);
         world.set_window(EngineWindow::new(

@@ -1,14 +1,10 @@
 #[cfg(feature = "no_std")]
 use alloc::vec::Vec;
 use anyhow::Result;
-#[cfg(not(feature = "no_std"))]
-use std::fs;
 
 #[cfg(not(feature = "no_std"))]
 use crate::debug_ui;
 use crate::script::{context::ThreadState, parser::Parser};
-#[cfg(not(feature = "no_std"))]
-use crate::subsystem::resources::save_manager::SaveItem;
 use crate::subsystem::resources::{
     motion_manager::DissolveType, thread_manager::ThreadManager, thread_wrapper::ThreadRequest,
 };
@@ -27,15 +23,7 @@ macro_rules! uefi_vm_stage {
 
 /// The bytes of a save slot's file.
 fn read_slot_for_load(game: &GameData, slot: u32) -> Result<Vec<u8>> {
-    #[cfg(not(feature = "no_std"))]
-    {
-        let path = SaveItem::resolve_save_path_for_read(slot);
-        fs::read(&path).map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))
-    }
-    #[cfg(feature = "no_std")]
-    {
-        game.save_manager.read_slot_file(slot)
-    }
+    game.save_manager.read_slot_file(slot)
 }
 
 /// Drives the script VM (which is coroutine-based, not OS-thread based).

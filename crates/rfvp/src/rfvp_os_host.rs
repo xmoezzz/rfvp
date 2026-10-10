@@ -327,6 +327,7 @@ impl RfvpOsRuntime {
         uefi_stage!("[UEFI] after boxed_default_game_data");
         uefi_stage!("[UEFI] before Vfs::new");
         world.vfs = uefi_vfs(config.nls)?;
+        world.save_manager.set_storage(save_storage());
         uefi_stage!("[UEFI] after Vfs::new");
         world.nls = parser.nls;
         world.set_can_fullscreen(false);
@@ -817,6 +818,17 @@ fn find_hcb(config: &RfvpOsConfig) -> AnyResult<&'static str> {
 #[cfg(not(target_os = "uefi"))]
 fn uefi_vfs(nls: Nls) -> AnyResult<Vfs> {
     crate::utils::file::desktop_vfs(nls)
+}
+
+/// UEFI builds have no writable save location yet; saves last for the session.
+#[cfg(target_os = "uefi")]
+fn save_storage() -> Option<Arc<dyn crate::host_api::RfvpStorage>> {
+    None
+}
+
+#[cfg(not(target_os = "uefi"))]
+fn save_storage() -> Option<Arc<dyn crate::host_api::RfvpStorage>> {
+    Some(crate::utils::file::desktop_storage())
 }
 
 /// The game's files on the boot volume, under `\rfvp`. UEFI file systems are not listed reliably,

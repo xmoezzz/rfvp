@@ -1167,6 +1167,8 @@ impl App {
 
             let mut gd = gd_write(&self.game_data);
             let nls = gd.get_nls();
+            gd.save_manager
+                .set_wall_time(Some(crate::utils::file::local_wall_time()));
             let state_snap = crate::subsystem::save_state::SaveStateSnapshotV1::capture(&mut gd);
 
             if slot == u32::MAX {
@@ -2130,6 +2132,9 @@ impl AppBuilder {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn with_vfs(mut self, nls: Nls) -> anyhow::Result<Self> {
         self.world.vfs = crate::utils::file::desktop_vfs(nls)?;
+        self.world
+            .save_manager
+            .set_storage(Some(crate::utils::file::desktop_storage()));
         Ok(self)
     }
 

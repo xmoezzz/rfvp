@@ -130,6 +130,28 @@ pub fn desktop_vfs(
     crate::subsystem::resources::vfs::Vfs::from_dir(nls, std::sync::Arc::new(dir))
 }
 
+/// Where a desktop keeps saves: the game directory (they go in its `save/` folder).
+#[cfg(not(any(target_os = "uefi", target_arch = "wasm32")))]
+pub fn desktop_storage() -> std::sync::Arc<dyn crate::host_api::RfvpStorage> {
+    std::sync::Arc::new(crate::host_api::std_fs::StdDir::new(
+        app_base_path().get_path().clone(),
+    ))
+}
+
+/// The local date and time, stamped on saves.
+pub fn local_wall_time() -> crate::host_api::WallTime {
+    use chrono::{Datelike, Timelike};
+    let now = chrono::Local::now();
+    crate::host_api::WallTime {
+        year: now.year().clamp(0, u16::MAX as i32) as u16,
+        month: now.month() as u8,
+        day: now.day() as u8,
+        day_of_week: now.weekday().num_days_from_sunday() as u8,
+        hour: now.hour() as u8,
+        minute: now.minute() as u8,
+    }
+}
+
 /// Loose `cursor*.ani` files that make up the game's mouse cursors.
 ///
 /// They sit next to the game rather than in a pack, so look in every directory that can be the
