@@ -15,6 +15,7 @@ pub mod global_savedata;
 pub mod package;
 pub mod resources;
 pub mod save_state;
+pub mod snapshot_codec;
 pub mod scene;
 pub(crate) mod scheduler;
 pub mod state;

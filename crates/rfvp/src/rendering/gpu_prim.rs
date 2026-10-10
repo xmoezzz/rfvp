@@ -538,7 +538,15 @@ impl GpuPrimRenderer {
 
         let mut draw_id = prim_id;
         let mut sprt = base_prim.get_sprt();
+        // A sprite chain that loops back on itself must not hang the frame.
+        let mut sprt_steps = 0u32;
         while sprt != -1 {
+            sprt_steps += 1;
+            if sprt_steps > 4096 {
+                log::error!("collect_tree: sprt chain loops under prim_id {prim_id}");
+                visit[prim_idx] = 2;
+                return;
+            }
             if sprt < 0 || sprt >= 4096 {
                 log::error!("collect_tree: invalid sprt id {sprt} under prim_id {prim_id}");
                 visit[prim_idx] = 2;

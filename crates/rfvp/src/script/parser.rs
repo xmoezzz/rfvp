@@ -710,7 +710,7 @@ impl<F: crate::host_api::RfvpFile> HcbByteSource for PagedHcbSource<F> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "no_std")))]
 mod tests {
     use super::*;
     use std::path::Path;

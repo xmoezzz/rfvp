@@ -91,6 +91,9 @@ pub struct Vertex2D {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DrawSpriteCommand {
     pub texture: TextureId,
+    /// The four corners of the sprite in triangle-strip order: the sprite is the triangles
+    /// `(0, 1, 2)` and `(2, 1, 3)`. For an axis-aligned sprite that is left/bottom, left/top,
+    /// right/bottom, right/top. Drawing `(0, 2, 3)` as the second triangle leaves a hole.
     pub vertices: [Vertex2D; 4],
     pub blend: BlendMode,
     pub filter: TextureFilter,
@@ -127,6 +130,13 @@ pub trait RfvpRenderer {
     fn end_frame(&mut self) -> RfvpResult<()>;
 
     fn present(&mut self) -> RfvpResult<()>;
+
+    /// The game frame drawn last, scaled to `width` x `height` and returned as RGBA8, for the
+    /// thumbnail of a save. A renderer that cannot read its frame back returns `None` and the
+    /// thumbnail is left blank.
+    fn capture_thumbnail(&mut self, _width: u32, _height: u32) -> Option<Vec<u8>> {
+        None
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

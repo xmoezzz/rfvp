@@ -36,6 +36,8 @@ log = { version = "0.4.20", optional = true }
 serde = { version = "1.0.196", default-features = false, optional = true }
 serde_json = { version = "1.0.113", optional = true }
 bincode = { version = "1.3.3", optional = true }
+# Save-state encoding for the no_std builds, where bincode (std only) is not available.
+postcard = { version = "1", default-features = false, features = ["alloc"], optional = true }
 twofloat = { version = "0.7.0", default-features = false, optional = true }
 winit = {version = "0.30.5", features = ["rwh_05"], optional = true}
 wgpu = { version = "0.19.1", features = ["spirv"], optional = true }
@@ -126,6 +128,7 @@ no_std = [
     "dep:log",
     "dep:miniz_oxide",
     "dep:petitset",
+    "dep:postcard",
     "dep:serde",
     "dep:spin",
     "dep:twofloat",

@@ -6,20 +6,19 @@ use alloc::{
     vec,
     vec::Vec,
 };
-use anyhow::{bail, Context, Result};
-#[cfg(not(feature = "no_std"))]
-use bincode::Options;
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+#[cfg(not(feature = "no_std"))]
 use std::path::PathBuf;
 
 use crate::script::global::GLOBAL;
 use crate::script::Variant;
 use crate::subsystem::resources::flag_manager::FlagManager;
+use crate::subsystem::snapshot_codec;
 use crate::subsystem::world::GameData;
+#[cfg(not(feature = "no_std"))]
 use crate::utils::file::app_base_path;
 
-const GLOBAL_SAVE_MAGIC: [u8; 4] = *b"RFVG";
-const GLOBAL_SAVE_FOOTER_LEN: usize = 8; // u32 payload_len + 4-byte magic
 const MAX_GLOBAL_PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -129,14 +128,10 @@ impl GlobalSaveDataV1 {
     }
 }
 
-#[cfg(not(feature = "no_std"))]
-fn bincode_opts() -> impl bincode::Options {
-    bincode::DefaultOptions::new()
-        .with_fixint_encoding()
-        .with_little_endian()
-        .reject_trailing_bytes()
-}
+/// Where the global save is kept, relative to the game's directory.
+pub const GLOBAL_SAVE_STORAGE_PATH: &str = "save/rfvp_global.bin";
 
+#[cfg(not(feature = "no_std"))]
 pub fn global_savedata_path() -> PathBuf {
     app_base_path()
         .get_path()
@@ -144,49 +139,42 @@ pub fn global_savedata_path() -> PathBuf {
         .join("rfvp_global.bin")
 }
 
-#[cfg(feature = "no_std")]
-pub fn save_global_savedata_v1(_game_data: &GameData) -> Result<()> {
-    bail!("GlobalSaveDataV1 host persistence is not wired to the no_std file-system adapter")
+/// The global save as it is written to disk: the encoded state followed by its footer.
+pub fn encode_global_savedata_v1(game_data: &GameData) -> Result<Vec<u8>> {
+    let snap = GlobalSaveDataV1::capture(game_data);
+    let payload = snapshot_codec::encode(&snap).context("serialize GlobalSaveDataV1")?;
+    let mut out = Vec::with_capacity(payload.len() + snapshot_codec::FOOTER_LEN);
+    snapshot_codec::append_chunk(
+        &mut out,
+        &payload,
+        snapshot_codec::GLOBAL_MAGIC,
+        MAX_GLOBAL_PAYLOAD_BYTES,
+    )
+    .context("GlobalSaveDataV1")?;
+    Ok(out)
 }
 
 #[cfg(not(feature = "no_std"))]
 pub fn save_global_savedata_v1(game_data: &GameData) -> Result<()> {
-    let snap = GlobalSaveDataV1::capture(game_data);
-    let payload = bincode_opts()
-        .serialize(&snap)
-        .context("serialize GlobalSaveDataV1")?;
-
-    if payload.len() > MAX_GLOBAL_PAYLOAD_BYTES {
-        bail!(
-            "GlobalSaveDataV1 payload too large: {} bytes (max {})",
-            payload.len(),
-            MAX_GLOBAL_PAYLOAD_BYTES
-        );
-    }
-
-    let len_u32: u32 = payload
-        .len()
-        .try_into()
-        .context("payload length overflow")?;
-
-    let mut out = Vec::with_capacity(payload.len() + GLOBAL_SAVE_FOOTER_LEN);
-    out.extend_from_slice(&payload);
-    out.extend_from_slice(&len_u32.to_le_bytes());
-    out.extend_from_slice(&GLOBAL_SAVE_MAGIC);
-
+    let out = encode_global_savedata_v1(game_data)?;
     let path = global_savedata_path();
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(&parent)
             .with_context(|| format!("create_dir_all {}", parent.display()))?;
     }
     std::fs::write(&path, &out).with_context(|| format!("write {}", path.display()))?;
-
     Ok(())
 }
 
 #[cfg(feature = "no_std")]
-pub fn try_load_global_savedata_v1(_game_data: &mut GameData) -> Result<bool> {
-    Ok(false)
+pub fn save_global_savedata_v1(game_data: &GameData) -> Result<()> {
+    let Some(storage) = game_data.save_manager.storage() else {
+        return Ok(());
+    };
+    let out = encode_global_savedata_v1(game_data)?;
+    storage
+        .write(GLOBAL_SAVE_STORAGE_PATH, &out)
+        .map_err(|err| anyhow::anyhow!("write {GLOBAL_SAVE_STORAGE_PATH}: {err:?}"))
 }
 
 #[cfg(not(feature = "no_std"))]
@@ -195,70 +183,47 @@ pub fn try_load_global_savedata_v1(game_data: &mut GameData) -> Result<bool> {
     if !path.exists() {
         return Ok(false);
     }
-
     let bytes = std::fs::read(&path).with_context(|| format!("read {}", path.display()))?;
-    let Some(snap) = try_decode_global_savedata_v1(&bytes)? else {
+    apply_global_savedata_bytes(game_data, &bytes)
+}
+
+#[cfg(feature = "no_std")]
+pub fn try_load_global_savedata_v1(game_data: &mut GameData) -> Result<bool> {
+    let Some(storage) = game_data.save_manager.storage().cloned() else {
         return Ok(false);
     };
+    if !storage.exists(GLOBAL_SAVE_STORAGE_PATH) {
+        return Ok(false);
+    }
+    let bytes = storage
+        .read(GLOBAL_SAVE_STORAGE_PATH)
+        .map_err(|err| anyhow::anyhow!("read {GLOBAL_SAVE_STORAGE_PATH}: {err:?}"))?;
+    apply_global_savedata_bytes(game_data, &bytes)
+}
 
+fn apply_global_savedata_bytes(game_data: &mut GameData, bytes: &[u8]) -> Result<bool> {
+    let Some(snap) = try_decode_global_savedata_v1(bytes)? else {
+        return Ok(false);
+    };
     if snap.version != 1 {
         log::warn!("GlobalSaveData: unsupported version: {}", snap.version);
         return Ok(false);
     }
-
     snap.apply(game_data);
     Ok(true)
 }
 
-#[cfg(feature = "no_std")]
-pub fn try_decode_global_savedata_v1(_file_bytes: &[u8]) -> Result<Option<GlobalSaveDataV1>> {
-    Ok(None)
-}
-
-#[cfg(not(feature = "no_std"))]
 pub fn try_decode_global_savedata_v1(file_bytes: &[u8]) -> Result<Option<GlobalSaveDataV1>> {
-    if file_bytes.len() < GLOBAL_SAVE_FOOTER_LEN {
+    let Some(payload) = snapshot_codec::find_chunk(
+        file_bytes,
+        snapshot_codec::GLOBAL_MAGIC,
+        MAX_GLOBAL_PAYLOAD_BYTES,
+    )
+    .context("GlobalSaveDataV1")?
+    else {
         return Ok(None);
-    }
-
-    let magic_pos = file_bytes.len() - 4;
-    if file_bytes[magic_pos..] != GLOBAL_SAVE_MAGIC {
-        return Ok(None);
-    }
-
-    let len_pos = file_bytes.len() - GLOBAL_SAVE_FOOTER_LEN;
-    let payload_len = u32::from_le_bytes([
-        file_bytes[len_pos],
-        file_bytes[len_pos + 1],
-        file_bytes[len_pos + 2],
-        file_bytes[len_pos + 3],
-    ]) as usize;
-
-    if payload_len > MAX_GLOBAL_PAYLOAD_BYTES {
-        bail!(
-            "GlobalSaveDataV1 payload length {} exceeds max {}",
-            payload_len,
-            MAX_GLOBAL_PAYLOAD_BYTES
-        );
-    }
-
-    if file_bytes.len() < GLOBAL_SAVE_FOOTER_LEN + payload_len {
-        bail!(
-            "GlobalSaveDataV1 footer present but payload is truncated: file={} need={} payload_len={} footer={}",
-            file_bytes.len(),
-            GLOBAL_SAVE_FOOTER_LEN + payload_len,
-            payload_len,
-            GLOBAL_SAVE_FOOTER_LEN
-        );
-    }
-
-    let payload_start = file_bytes.len() - GLOBAL_SAVE_FOOTER_LEN - payload_len;
-    let payload_end = payload_start + payload_len;
-    let payload = &file_bytes[payload_start..payload_end];
-
-    let snap: GlobalSaveDataV1 = bincode_opts()
-        .deserialize(payload)
-        .context("deserialize GlobalSaveDataV1")?;
-
+    };
+    let snap: GlobalSaveDataV1 =
+        snapshot_codec::decode(payload).context("deserialize GlobalSaveDataV1")?;
     Ok(Some(snap))
 }

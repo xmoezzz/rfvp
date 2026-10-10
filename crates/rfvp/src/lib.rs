@@ -857,6 +857,12 @@ compile_error!("feature `no_std` is an independent core-library build and must n
 
 pub mod host_api;
 
+#[cfg(all(test, feature = "no_std"))]
+mod no_std_harness;
+
+#[cfg(feature = "no_std")]
+pub mod ring_log;
+
 #[cfg(feature = "no_std")]
 pub mod no_std_core;
 

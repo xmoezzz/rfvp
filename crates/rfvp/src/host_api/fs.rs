@@ -1,4 +1,5 @@
 use alloc::string::String;
+use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 use super::error::{RfvpError, RfvpResult};
@@ -57,6 +58,32 @@ pub trait RfvpFile {
     }
 }
 
+/// Whole-file storage for the player's own data (saves), shared with the game state.
+///
+/// Paths are relative to the game's directory, with `/` separators (`save/rfvp_s000.bin`);
+/// `write` creates the directories it needs. A host that cannot persist anything simply does not
+/// provide one (see [`RfvpFileSystem::storage`]) and saves stay in memory for the session.
+pub trait RfvpStorage: Send + Sync {
+    fn read(&self, path: &str) -> RfvpResult<Vec<u8>>;
+
+    /// The first `max_len` bytes of the file (all of it if it is shorter). Reading just the head
+    /// of a save is enough to list it, and saves can be over a megabyte.
+    fn read_prefix(&self, path: &str, max_len: usize) -> RfvpResult<Vec<u8>> {
+        let mut bytes = self.read(path)?;
+        bytes.truncate(max_len);
+        Ok(bytes)
+    }
+
+    fn write(&self, path: &str, bytes: &[u8]) -> RfvpResult<()>;
+
+    fn exists(&self, path: &str) -> bool;
+
+    fn remove(&self, path: &str) -> RfvpResult<()>;
+
+    /// Names (not paths) of the files directly inside `dir`.
+    fn list(&self, dir: &str) -> RfvpResult<Vec<String>>;
+}
+
 pub trait RfvpFileSystem {
     type File: RfvpFile;
 
@@ -72,6 +99,18 @@ pub trait RfvpFileSystem {
 
     fn write_all(&mut self, _path: &str, _bytes: &[u8]) -> RfvpResult<()> {
         Err(RfvpError::Unsupported)
+    }
+
+    /// Storage for the player's saves, if this host can persist them.
+    fn storage(&mut self) -> Option<Arc<dyn RfvpStorage>> {
+        None
+    }
+
+    /// Read access to the game's own directory, for assets that are loose files instead of in a
+    /// pack (a folder such as `graph/` next to the `.bin` files). Paths are relative to the
+    /// game directory.
+    fn game_files(&mut self) -> Option<Arc<dyn RfvpStorage>> {
+        None
     }
 
     fn metadata(&mut self, path: &str) -> RfvpResult<RfvpFileInfo>;

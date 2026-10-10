@@ -214,7 +214,14 @@ impl SoftRenderer {
 
         let mut draw_id = prim_id;
         let mut sprt = base_prim.get_sprt();
+        // A sprite chain that loops back on itself must not hang the frame.
+        let mut sprt_steps = 0u32;
         while sprt != -1 {
+            sprt_steps += 1;
+            if sprt_steps > 4096 {
+                visit[prim_idx] = 2;
+                return Ok(());
+            }
             if sprt < 0 || sprt >= 4096 {
                 visit[prim_idx] = 2;
                 return Ok(());

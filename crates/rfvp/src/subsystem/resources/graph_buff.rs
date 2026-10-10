@@ -1195,7 +1195,7 @@ impl GraphBuff {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "no_std")))]
 mod hidpi_text_region_tests {
     use super::*;
 
@@ -1263,7 +1263,7 @@ mod hidpi_text_region_tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "no_std")))]
 mod cpu_eviction_tests {
     use super::*;
 

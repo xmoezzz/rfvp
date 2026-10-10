@@ -1,4 +1,3 @@
-#[cfg(not(feature = "old_school"))]
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
@@ -6,7 +5,7 @@ use alloc::vec::Vec;
 use crate::font::Font;
 use crate::host_api::{
     FatalErrorCode, HitProxyTable, PlatformCallbacks, RfvpAudio, RfvpClock, RfvpError, RfvpEvent,
-    RfvpFile, RfvpFileInfo, RfvpFileSystem, RfvpHost, RfvpLogLevel, RfvpResult,
+    RfvpFile, RfvpFileInfo, RfvpFileSystem, RfvpHost, RfvpLogLevel, RfvpRenderer, RfvpResult,
 };
 use crate::rendering::prim_commands::{render_motion_to_host, HostPrimRenderCache};
 use crate::script::global::GLOBAL;
@@ -119,6 +118,23 @@ pub struct RfvpCore {
     hit_proxies: HitProxyTable,
     last_error: Option<RfvpError>,
     last_error_detail: Option<String>,
+    /// Hash of the global save as last written, so an unchanged one is not written again.
+    last_global_save_hash: Option<u64>,
+    /// Time since the global save was last looked at.
+    us_since_global_save: u64,
+}
+
+/// How often the global save (read-text marks, flags) is written during play. Consoles are often
+/// left through the home button or by power, so it cannot wait for a clean exit.
+const GLOBAL_SAVE_INTERVAL_US: u64 = 120_000_000;
+
+fn fnv1a(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf2_9ce4_8422_2325u64;
+    for &byte in bytes {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
 }
 
 impl RfvpCore {
@@ -138,7 +154,25 @@ impl RfvpCore {
             hit_proxies: HitProxyTable::default(),
             last_error: None,
             last_error_detail: None,
+            last_global_save_hash: None,
+            us_since_global_save: 0,
         }
+    }
+
+    /// The script VM's state, for tests.
+    #[cfg(test)]
+    pub(crate) fn vm_state(
+        &self,
+    ) -> Option<crate::subsystem::resources::thread_manager::ThreadManagerSnapshotV1> {
+        self.vm_runner
+            .as_ref()
+            .map(|vm| vm.thread_manager().capture_snapshot_v1())
+    }
+
+    /// The game state, for tests that drive the engine directly.
+    #[cfg(test)]
+    pub(crate) fn game_data_mut(&mut self) -> &mut GameData {
+        &mut self.game_data
     }
 
     pub fn config(&self) -> RfvpCoreConfig {
@@ -290,12 +324,21 @@ impl RfvpCore {
         vfs.add_loose_file(&hcb.path, hcb.bytes.clone());
 
         let mut game_data = GameData::default();
+        game_data.save_manager.set_storage(host.fs().storage());
         #[cfg(feature = "old_school")]
         game_data.set_old_school_scale(old_school_scale);
         game_data.fontface_manager = FontEnumerator::from_default_font(default_font);
         game_data.vfs = vfs;
         game_data.nls = boot.nls;
         game_data.set_window(Window::new(screen, 1.0));
+        match crate::subsystem::global_savedata::try_load_global_savedata_v1(&mut game_data) {
+            Ok(true) => host.log(RfvpLogLevel::Info, "restored the global save"),
+            Ok(false) => {}
+            Err(err) => host.log(
+                RfvpLogLevel::Warn,
+                &format!("could not read the global save: {err:#}"),
+            ),
+        }
 
         let mut vm_runner =
             VmRunner::new(crate::subsystem::resources::thread_manager::ThreadManager::new());
@@ -341,6 +384,7 @@ impl RfvpCore {
         if quit_requested {
             self.quit_requested = true;
             host.log(RfvpLogLevel::Info, "quit requested by host event");
+            self.save_global_if_changed(host);
         }
 
         crate::platform_time::set_host_time_us(now);
@@ -360,7 +404,14 @@ impl RfvpCore {
             scene.update_after_vm(&mut self.game_data, frame_time_ms);
 
             self.flush_audio(host)?;
+            // A SaveWrite whose payload was prepared earlier needs no capture of this frame.
+            self.commit_prepared_save(host);
             self.render_game_frame(host)?;
+            self.capture_pending_save(host);
+            self.us_since_global_save = self.us_since_global_save.saturating_add(elapsed_us);
+            if self.us_since_global_save >= GLOBAL_SAVE_INTERVAL_US {
+                self.save_global_if_changed(host);
+            }
         } else if self.run_state == RfvpCoreRunState::BootFailed {
             return Err(self.last_error.unwrap_or(RfvpError::InvalidData));
         }
@@ -371,6 +422,100 @@ impl RfvpCore {
             consumed_events,
             elapsed_us,
         })
+    }
+
+    /// Write the global save (flags, read-text marks) if it changed since it was last written.
+    fn save_global_if_changed<H: RfvpHost>(&mut self, host: &mut H) {
+        self.us_since_global_save = 0;
+        let Some(storage) = self.game_data.save_manager.storage().cloned() else {
+            return;
+        };
+        let bytes = match crate::subsystem::global_savedata::encode_global_savedata_v1(
+            &self.game_data,
+        ) {
+            Ok(bytes) => bytes,
+            Err(err) => {
+                host.log(
+                    RfvpLogLevel::Warn,
+                    &format!("could not encode the global save: {err:#}"),
+                );
+                return;
+            }
+        };
+        let hash = fnv1a(&bytes);
+        if self.last_global_save_hash == Some(hash) {
+            return;
+        }
+        match storage.write(crate::subsystem::global_savedata::GLOBAL_SAVE_STORAGE_PATH, &bytes) {
+            Ok(()) => self.last_global_save_hash = Some(hash),
+            Err(err) => host.log(
+                RfvpLogLevel::Warn,
+                &format!("could not write the global save: {err:?}"),
+            ),
+        }
+    }
+
+    /// Commit a `SaveWrite(slot)` whose payload `SaveCreate(3, ..)` prepared earlier.
+    fn commit_prepared_save<H: RfvpHost>(&mut self, host: &mut H) {
+        let nls = self.game_data.get_nls();
+        match self.game_data.save_manager.try_commit_local_savedata(nls) {
+            Ok(true) => {
+                self.game_data.save_manager.consume_save_write_result();
+                self.save_global_if_changed(host);
+            }
+            Ok(false) => {}
+            Err(err) => {
+                host.log(RfvpLogLevel::Error, &format!("could not write the save: {err:#}"));
+                self.game_data.save_manager.consume_save_write_result();
+            }
+        }
+    }
+
+    /// If a save asked for the current frame, take its thumbnail and the engine state now, and
+    /// write the slot (or prepare the payload for a later `SaveWrite`).
+    fn capture_pending_save<H: RfvpHost>(&mut self, host: &mut H) {
+        let Some((slot, thumb_w, thumb_h)) = self.game_data.save_manager.pending_save_capture()
+        else {
+            return;
+        };
+        let expected = thumb_w as usize * thumb_h as usize * 4;
+        let thumb = match host.renderer().capture_thumbnail(thumb_w, thumb_h) {
+            Some(thumb) if thumb.len() == expected => thumb,
+            // A renderer that cannot read its frame back leaves the thumbnail blank.
+            _ => alloc::vec![0u8; expected],
+        };
+        self.game_data
+            .save_manager
+            .set_wall_time(host.clock().wall_time());
+        let nls = self.game_data.get_nls();
+        let snap = crate::subsystem::save_state::SaveStateSnapshotV1::capture(&mut self.game_data);
+
+        let result = if slot == u32::MAX {
+            // SaveCreate(3, ..): prepare the payload in memory, and commit it if SaveWrite has
+            // already named a slot.
+            self.game_data
+                .save_manager
+                .finalize_local_savedata_prepare(nls.clone(), thumb_w, thumb_h, &thumb, Some(&snap))
+                .and_then(|()| {
+                    if self.game_data.save_manager.try_commit_local_savedata(nls)? {
+                        self.game_data.save_manager.consume_save_write_result();
+                        self.save_global_if_changed(host);
+                    }
+                    Ok(())
+                })
+        } else {
+            self.game_data
+                .save_manager
+                .finalize_save_write(nls, thumb_w, thumb_h, &thumb, Some(&snap))
+                .map(|()| {
+                    self.game_data.save_manager.consume_save_write_result();
+                    self.save_global_if_changed(host);
+                })
+        };
+        if let Err(err) = result {
+            host.log(RfvpLogLevel::Error, &format!("could not save: {err:#}"));
+            self.game_data.save_manager.consume_save_write_result();
+        }
     }
 
     pub fn render_empty_frame<H: RfvpHost>(&mut self, host: &mut H) -> RfvpResult<()> {
@@ -414,6 +559,32 @@ impl RfvpCore {
                     self.game_data.inputs_manager.notify_mouse_up(
                         crate::subsystem::resources::input_manager::KeyCode::MouseLeft,
                     );
+                }
+                RfvpEvent::PointerDown {
+                    button: crate::host_api::PointerButton::Right,
+                    ..
+                } => {
+                    self.game_data.inputs_manager.notify_mouse_down(
+                        crate::subsystem::resources::input_manager::KeyCode::MouseRight,
+                    );
+                }
+                RfvpEvent::PointerUp {
+                    button: crate::host_api::PointerButton::Right,
+                    ..
+                } => {
+                    self.game_data.inputs_manager.notify_mouse_up(
+                        crate::subsystem::resources::input_manager::KeyCode::MouseRight,
+                    );
+                }
+                RfvpEvent::KeyDown { key, repeat, .. } => {
+                    if let Some(code) = engine_key(key) {
+                        self.game_data.inputs_manager.notify_keycode_down(code, repeat);
+                    }
+                }
+                RfvpEvent::KeyUp { key, .. } => {
+                    if let Some(code) = engine_key(key) {
+                        self.game_data.inputs_manager.notify_keycode_up(code);
+                    }
                 }
                 RfvpEvent::Wheel { delta_y, .. } => {
                     self.game_data.inputs_manager.notify_mouse_wheel(delta_y);
@@ -676,8 +847,53 @@ struct LoadedHcb {
     info: RfvpFileInfo,
 }
 
-fn build_host_vfs<H: RfvpHost>(host: &mut H, boot: RfvpBootConfig<'_>) -> RfvpResult<Vfs> {
+/// The engine's own key for a host key, if it has one.
+fn engine_key(key: crate::host_api::KeyCode) -> Option<crate::subsystem::resources::input_manager::KeyCode> {
+    use crate::host_api::KeyCode as Host;
+    use crate::subsystem::resources::input_manager::KeyCode as Engine;
+    Some(match key {
+        Host::Escape => Engine::Esc,
+        Host::Return => Engine::Enter,
+        Host::Space => Engine::Space,
+        Host::Tab => Engine::Tab,
+        Host::Up => Engine::UpArrow,
+        Host::Down => Engine::DownArrow,
+        Host::Left => Engine::LeftArrow,
+        Host::Right => Engine::RightArrow,
+        Host::Shift => Engine::Shift,
+        Host::Control => Engine::Ctrl,
+        Host::Function(n) => match n {
+            1 => Engine::F1,
+            2 => Engine::F2,
+            3 => Engine::F3,
+            4 => Engine::F4,
+            5 => Engine::F5,
+            6 => Engine::F6,
+            7 => Engine::F7,
+            8 => Engine::F8,
+            9 => Engine::F9,
+            10 => Engine::F10,
+            11 => Engine::F11,
+            12 => Engine::F12,
+            _ => return None,
+        },
+        _ => return None,
+    })
+}
+
+/// Whether `path` is inside a directory named `save` (case-insensitive).
+fn is_in_save_dir(path: &str) -> bool {
+    let mut parts: Vec<&str> = path.split(|c| c == '/' || c == '\\').collect();
+    parts.pop(); // the file name
+    parts.iter().any(|part| part.eq_ignore_ascii_case("save"))
+}
+
+fn build_host_vfs<H: RfvpHost>(host: &mut H, boot: RfvpBootConfig<'_>) -> RfvpResult<Vfs>
+where
+    <<H as RfvpHost>::FileSystem as RfvpFileSystem>::File: 'static,
+{
     let mut vfs = Vfs::new(boot.nls).map_err(|_| RfvpError::InvalidData)?;
+    vfs.set_loose_dir(host.fs().game_files());
     #[cfg(feature = "old_school")]
     {
         let _ = host;
@@ -690,7 +906,8 @@ fn build_host_vfs<H: RfvpHost>(host: &mut H, boot: RfvpBootConfig<'_>) -> RfvpRe
         let mut packs = Vec::new();
         {
             let visitor = &mut |path: &str, info: RfvpFileInfo| -> RfvpResult<()> {
-                if info.kind == crate::host_api::RfvpFileKind::File {
+                // Save files are `.bin` too, but they are not packs.
+                if info.kind == crate::host_api::RfvpFileKind::File && !is_in_save_dir(path) {
                     packs.push(path.to_string());
                 }
                 Ok(())
@@ -699,21 +916,24 @@ fn build_host_vfs<H: RfvpHost>(host: &mut H, boot: RfvpBootConfig<'_>) -> RfvpRe
                 .enumerate_by_extension(boot.asset_root, "bin", visitor)?;
         }
         for path in packs {
-            let mut file = host.fs().open(&path)?;
-            let bytes = file.read_to_vec(usize::MAX)?;
+            // Packs can be over a gigabyte: keep the file open and read entries on demand.
+            let file = host.fs().open(&path)?;
+            let source = alloc::sync::Arc::new(
+                crate::subsystem::resources::vfs::HostPackFile::new(file)?,
+            );
             let folder = path
                 .rsplit('/')
                 .next()
                 .unwrap_or(path.as_str())
                 .strip_suffix(".bin")
                 .unwrap_or(path.as_str());
-            vfs.add_pack_bytes(folder, bytes).map_err(|err| {
+            // A file that is not a valid pack must not stop the game from starting.
+            if let Err(err) = vfs.add_pack_source(folder, source) {
                 host.log(
                     RfvpLogLevel::Warn,
-                    &format!("failed to parse host pack {path}: {err}"),
+                    &format!("skipping {path}, not a valid pack: {err}"),
                 );
-                RfvpError::InvalidData
-            })?;
+            }
         }
         Ok(vfs)
     }

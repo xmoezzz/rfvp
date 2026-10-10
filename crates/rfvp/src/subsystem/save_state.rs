@@ -7,28 +7,17 @@ use alloc::{
     vec::Vec,
 };
 use anyhow::{bail, Context, Result};
-#[cfg(not(feature = "no_std"))]
-use bincode::Options;
 use serde::{Deserialize, Serialize};
 
 use crate::audio_player::{BgmPlayerSnapshotV1, SePlayerSnapshotV1};
 use crate::script::global::GLOBAL;
 use crate::script::Variant;
 use crate::subsystem::resources::motion_manager::MotionManagerSnapshotV1;
+use crate::subsystem::snapshot_codec;
 use crate::subsystem::resources::thread_manager::{ThreadManager, ThreadManagerSnapshotV1};
 use crate::subsystem::world::GameData;
 
-const SAVE_STATE_MAGIC: [u8; 4] = *b"RFVS";
-const SAVE_STATE_FOOTER_LEN: usize = 8; // u32 payload_len + 4-byte magic
 const MAX_STATE_PAYLOAD_BYTES: usize = 64 * 1024 * 1024;
-
-#[cfg(not(feature = "no_std"))]
-fn bincode_opts() -> impl bincode::Options {
-    bincode::DefaultOptions::new()
-        .with_fixint_encoding()
-        .with_little_endian()
-        .reject_trailing_bytes()
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioSnapshotV1 {
@@ -103,91 +92,57 @@ impl SaveStateSnapshotV1 {
 }
 
 pub fn append_state_chunk_v1(out: &mut Vec<u8>, snap: &SaveStateSnapshotV1) -> Result<()> {
-    #[cfg(feature = "no_std")]
-    {
-        let _ = (out, snap);
-        bail!("SaveStateSnapshotV1 serialization requires the std desktop bincode adapter");
-    }
-
-    #[cfg(not(feature = "no_std"))]
-    {
-        let payload = bincode_opts()
-            .serialize(snap)
-            .context("serialize SaveStateSnapshotV1")?;
-
-        if payload.len() > MAX_STATE_PAYLOAD_BYTES {
-            bail!(
-                "SaveStateSnapshotV1 payload too large: {} bytes (max {})",
-                payload.len(),
-                MAX_STATE_PAYLOAD_BYTES
-            );
-        }
-
-        let len_u32: u32 = payload
-            .len()
-            .try_into()
-            .context("payload length overflow")?;
-        out.extend_from_slice(&payload);
-        out.extend_from_slice(&len_u32.to_le_bytes());
-        out.extend_from_slice(&SAVE_STATE_MAGIC);
-        Ok(())
-    }
+    let payload = snapshot_codec::encode(snap).context("serialize SaveStateSnapshotV1")?;
+    snapshot_codec::append_chunk(
+        out,
+        &payload,
+        snapshot_codec::STATE_MAGIC,
+        MAX_STATE_PAYLOAD_BYTES,
+    )
+    .context("SaveStateSnapshotV1")
 }
 
 pub fn try_decode_state_chunk_v1(file_bytes: &[u8]) -> Result<Option<SaveStateSnapshotV1>> {
-    #[cfg(feature = "no_std")]
-    {
-        let _ = file_bytes;
+    let Some(payload) = snapshot_codec::find_chunk(
+        file_bytes,
+        snapshot_codec::STATE_MAGIC,
+        MAX_STATE_PAYLOAD_BYTES,
+    )
+    .context("SaveStateSnapshotV1")?
+    else {
         return Ok(None);
+    };
+    let snap: SaveStateSnapshotV1 =
+        snapshot_codec::decode(payload).context("deserialize SaveStateSnapshotV1")?;
+    if snap.version != 1 {
+        bail!("unsupported SaveStateSnapshotV1 version: {}", snap.version);
     }
+    Ok(Some(snap))
+}
 
-    #[cfg(not(feature = "no_std"))]
-    {
-        if file_bytes.len() < SAVE_STATE_FOOTER_LEN {
-            return Ok(None);
-        }
+#[cfg(all(test, not(feature = "no_std")))]
+mod tests {
+    use super::*;
 
-        let magic_pos = file_bytes.len() - 4;
-        if file_bytes[magic_pos..] != SAVE_STATE_MAGIC {
-            return Ok(None);
-        }
+    /// Slot files written by the desktop build must keep loading. Point `RFVP_TEST_SAVE` at a
+    /// real `rfvp_sNNN.bin` to check one; without it the test does nothing.
+    #[test]
+    fn a_desktop_slot_file_still_decodes() {
+        let Ok(path) = std::env::var("RFVP_TEST_SAVE") else {
+            return;
+        };
+        let bytes = std::fs::read(&path).expect("read the save");
+        let snap = try_decode_state_chunk_v1(&bytes)
+            .expect("decode")
+            .expect("the save has no state chunk");
+        assert_eq!(snap.version, 1);
+        println!("{path}: {} graphs, {} contexts", snap.motion.textures.len(), snap.vm.contexts.len());
 
-        let len_pos = file_bytes.len() - SAVE_STATE_FOOTER_LEN;
-        let payload_len = u32::from_le_bytes([
-            file_bytes[len_pos],
-            file_bytes[len_pos + 1],
-            file_bytes[len_pos + 2],
-            file_bytes[len_pos + 3],
-        ]) as usize;
-
-        if payload_len > MAX_STATE_PAYLOAD_BYTES {
-            bail!(
-                "SaveState footer present but payload length {} exceeds max {}",
-                payload_len,
-                MAX_STATE_PAYLOAD_BYTES
-            );
-        }
-
-        if file_bytes.len() < SAVE_STATE_FOOTER_LEN + payload_len {
-            bail!(
-            "SaveState footer present but payload is truncated: file={} need={} payload_len={} footer={}",
-            file_bytes.len(),
-            SAVE_STATE_FOOTER_LEN + payload_len,
-            payload_len,
-            SAVE_STATE_FOOTER_LEN
-        );
-        }
-
-        let payload_start = file_bytes.len() - SAVE_STATE_FOOTER_LEN - payload_len;
-        let payload_end = payload_start + payload_len;
-        let payload = &file_bytes[payload_start..payload_end];
-
-        let snap: SaveStateSnapshotV1 = bincode_opts()
-            .deserialize(payload)
-            .context("deserialize SaveStateSnapshotV1")?;
-        if snap.version != 1 {
-            bail!("unsupported SaveStateSnapshotV1 version: {}", snap.version);
-        }
-        Ok(Some(snap))
+        // Writing it back out and reading that again gives the same state.
+        let mut again = Vec::new();
+        append_state_chunk_v1(&mut again, &snap).expect("encode");
+        let back = try_decode_state_chunk_v1(&again).expect("decode again").expect("no chunk");
+        assert_eq!(back.motion.textures.len(), snap.motion.textures.len());
+        assert_eq!(back.vm.contexts.len(), snap.vm.contexts.len());
     }
 }

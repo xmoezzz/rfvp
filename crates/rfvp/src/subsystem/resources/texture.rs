@@ -511,7 +511,7 @@ struct HZC1HDR {
     header_length: u32,
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(feature = "no_std")))]
 mod tests {
     use super::*;
     use std::path::Path;
