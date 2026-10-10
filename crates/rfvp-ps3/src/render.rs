@@ -345,7 +345,7 @@ impl RfvpRenderer for PS3Renderer {
             pixels: texture.pixels.clone(),
         };
         self.render_triangle(&local_texture, command, [0, 1, 2]);
-        self.render_triangle(&local_texture, command, [0, 2, 3]);
+        self.render_triangle(&local_texture, command, [2, 1, 3]);
         Ok(())
     }
 

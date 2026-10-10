@@ -583,7 +583,7 @@ static int three_ds_renderer_draw_sprite(void *ctx, const RawDrawSpriteCommand *
     if (status != RFVP_THREE_DS_OK) {
         return status;
     }
-    return draw_triangle(backend, texture, command, 0, 2, 3);
+    return draw_triangle(backend, texture, command, 2, 1, 3);
 }
 
 static int three_ds_renderer_draw_solid(void *ctx, const RawDrawSolidCommand *command) {

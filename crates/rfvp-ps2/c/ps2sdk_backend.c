@@ -568,7 +568,7 @@ static int ps2_renderer_draw_sprite(void *ctx, const RawDrawSpriteCommand *comma
     if (status != RFVP_PS2_OK) {
         return status;
     }
-    return draw_triangle(backend, texture, command, 0, 2, 3);
+    return draw_triangle(backend, texture, command, 2, 1, 3);
 }
 
 static int ps2_renderer_draw_solid(void *ctx, const RawDrawSolidCommand *command) {
