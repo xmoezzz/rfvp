@@ -661,6 +661,62 @@ static int32_t rfvp_c_enumerate_by_extension(void *ctx, const uint8_t *root, siz
     return rfvp_enumerate_dir_recursive(full_root, "", ext, visitor_ctx, visitor);
 }
 
+/* The files (not directories) directly inside `dir`, a path relative to the game folder ("" for
+ * the folder itself). The VFS lists each directory once to find loose files. */
+int32_t rfvp_psv_c_list_files(const uint8_t *dir, size_t dir_len, void *visitor_ctx, RawEnumerateByExtensionVisitorFn visitor) {
+    if (visitor == NULL) {
+        return RFVP_PSV_INVALID_ARGUMENT;
+    }
+    char full_dir[RFVP_PSV_MAX_PATH];
+    if (dir_len == 0u) {
+        const char *root = g_rfvp_psv.fs.root[0] != '\0' ? g_rfvp_psv.fs.root : ".";
+        size_t len = strlen(root);
+        if (len >= sizeof(full_dir)) {
+            return RFVP_PSV_CAPACITY_EXCEEDED;
+        }
+        memcpy(full_dir, root, len + 1u);
+    } else {
+        int32_t status = rfvp_build_full_path(dir, dir_len, full_dir, sizeof(full_dir));
+        if (status != RFVP_PSV_OK) {
+            return status;
+        }
+    }
+    size_t full_len = strlen(full_dir);
+    while (full_len > 0u && (full_dir[full_len - 1u] == '/' || full_dir[full_len - 1u] == '\\')) {
+        full_dir[--full_len] = '\0';
+    }
+#if defined(RFVP_PSV_VITASDK_BACKEND)
+    SceUID handle = sceIoDopen(full_dir);
+    if (handle < 0) {
+        return RFVP_PSV_NOT_FOUND;
+    }
+    for (;;) {
+        SceIoDirent entry;
+        memset(&entry, 0, sizeof(entry));
+        int rc = sceIoDread(handle, &entry);
+        if (rc <= 0) {
+            break;
+        }
+        if (SCE_S_ISDIR(entry.d_stat.st_mode)) {
+            continue;
+        }
+        RawFileInfo info;
+        info.len = (uint64_t)entry.d_stat.st_size;
+        info.kind = RAW_FILE_KIND_FILE;
+        int32_t status = visitor(visitor_ctx, (const uint8_t *)entry.d_name, strlen(entry.d_name), info);
+        if (status != RFVP_PSV_OK) {
+            sceIoDclose(handle);
+            return status;
+        }
+    }
+    sceIoDclose(handle);
+    return RFVP_PSV_OK;
+#else
+    (void)visitor_ctx;
+    return RFVP_PSV_UNSUPPORTED;
+#endif
+}
+
 static uint8_t rfvp_clamp_u8_from_float(float value) {
     if (value <= 0.0f) {
         return 0u;

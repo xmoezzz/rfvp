@@ -7,6 +7,7 @@ fn main() {
     println!("cargo:rerun-if-changed=c/rfvp_psv_c.h");
     println!("cargo:rerun-if-changed=c/rfvp_psv_c.c");
     println!("cargo:rerun-if-changed=c/rfvp_psv_vitasdk.c");
+    println!("cargo:rerun-if-changed=c/rfvp_psv_gpu.c");
     println!("cargo:rerun-if-changed=../rfvp/vendor/rfvp_ogg_vorbis.c");
     println!("cargo:rerun-if-changed=../rfvp/vendor/rfvp_ogg_vorbis.h");
     println!("cargo:rerun-if-changed=../rfvp/vendor/stb_vorbis.c");
@@ -56,6 +57,7 @@ fn build_vitasdk_c_glue() {
 
     let c_obj = out_dir.join("rfvp_psv_c.o");
     let vitasdk_obj = out_dir.join("rfvp_psv_vitasdk.o");
+    let gpu_obj = out_dir.join("rfvp_psv_gpu.o");
     let ogg_obj = out_dir.join("rfvp_ogg_vorbis.o");
     let archive = out_dir.join("librfvp_psv_c_glue.a");
 
@@ -70,6 +72,13 @@ fn build_vitasdk_c_glue() {
         &compiler,
         "c/rfvp_psv_vitasdk.c",
         &vitasdk_obj,
+        &[Path::new("c"), include_dir.as_path()],
+        &["RFVP_PSV_VITASDK_BACKEND"],
+    );
+    compile_c(
+        &compiler,
+        "c/rfvp_psv_gpu.c",
+        &gpu_obj,
         &[Path::new("c"), include_dir.as_path()],
         &["RFVP_PSV_VITASDK_BACKEND"],
     );
@@ -95,6 +104,7 @@ fn build_vitasdk_c_glue() {
             .arg(&archive)
             .arg(&c_obj)
             .arg(&vitasdk_obj)
+            .arg(&gpu_obj)
             .arg(&ogg_obj),
         "arm-vita-eabi-ar failed",
     );
@@ -106,6 +116,12 @@ fn build_vitasdk_c_glue() {
     println!("cargo:rustc-link-search=native={}", out_dir.display());
     println!("cargo:rustc-link-lib=static=rfvp_psv_c_glue");
     println!("cargo:rustc-link-search=native={}", lib_dir.display());
+    // The GPU renderer (rfvp_psv_gpu.c): vita2d, linked statically, and what it uses.
+    println!("cargo:rustc-link-lib=static=vita2d");
+    println!("cargo:rustc-link-lib=SceGxm_stub");
+    println!("cargo:rustc-link-lib=SceSysmodule_stub");
+    println!("cargo:rustc-link-lib=SceAppUtil_stub");
+    println!("cargo:rustc-link-lib=SceAppMgr_stub");
     println!("cargo:rustc-link-lib=SceDisplay_stub");
     println!("cargo:rustc-link-lib=SceCommonDialog_stub");
     println!("cargo:rustc-link-lib=SceCtrl_stub");
@@ -114,6 +130,7 @@ fn build_vitasdk_c_glue() {
     println!("cargo:rustc-link-lib=SceAudio_stub");
     println!("cargo:rustc-link-lib=SceIofilemgr_stub");
     println!("cargo:rustc-link-lib=SceLibKernel_stub");
+    println!("cargo:rustc-link-lib=SceKernelThreadMgr_stub");
 }
 
 fn compile_c(compiler: &Path, source: &str, object: &Path, includes: &[&Path], defines: &[&str]) {

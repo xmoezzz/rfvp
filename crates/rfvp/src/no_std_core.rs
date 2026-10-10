@@ -324,7 +324,9 @@ impl RfvpCore {
         vfs.add_loose_file(&hcb.path, hcb.bytes.clone());
 
         let mut game_data = GameData::default();
-        game_data.save_manager.set_storage(host.fs().storage());
+        game_data
+            .save_manager
+            .set_storage(game_save_storage(host, &hcb.path, &parser.get_title()));
         #[cfg(feature = "old_school")]
         game_data.set_old_school_scale(old_school_scale);
         game_data.fontface_manager = FontEnumerator::from_default_font(default_font);
@@ -846,6 +848,60 @@ fn find_hcb_info<H: RfvpHost>(
     };
     let manifest = found.into_iter().skip(1).collect();
     Ok((path, info, manifest))
+}
+
+/// Where this game's saves go: its own folder in the platform's data directory
+/// (`saves/<script name>-<title hash>/`), or the game directory on a host without one.
+///
+/// The folder is named after the game, not the script's bytes, so a patched or translated script
+/// keeps its saves. Saves an earlier build kept in the game directory (`save/`) are copied over the
+/// first time; the originals are left where they are.
+fn game_save_storage<H: RfvpHost>(
+    host: &mut H,
+    hcb_path: &str,
+    title: &str,
+) -> Option<alloc::sync::Arc<dyn crate::host_api::RfvpStorage>> {
+    let legacy = host.fs().storage();
+    let Some(base) = host.fs().save_storage() else {
+        return legacy;
+    };
+    let saves: alloc::sync::Arc<dyn crate::host_api::RfvpStorage> = alloc::sync::Arc::new(
+        crate::host_api::SubdirStorage::new(base, &format!("saves/{}", game_save_key(hcb_path, title))),
+    );
+    if let Some(legacy) = legacy {
+        let fresh = saves.list("save").map_or(true, |names| names.is_empty());
+        if fresh {
+            for name in legacy.list("save").unwrap_or_default() {
+                let path = format!("save/{name}");
+                if let Ok(bytes) = legacy.read(&path) {
+                    let _ = saves.write(&path, &bytes);
+                }
+            }
+        }
+    }
+    Some(saves)
+}
+
+/// A folder name for a game: the script's file name (letters, digits, `-` and `_`) and a hash of
+/// the game's title, which tells apart two games whose scripts are named alike.
+fn game_save_key(hcb_path: &str, title: &str) -> String {
+    let file = hcb_path.rsplit(['/', '\\']).next().unwrap_or(hcb_path);
+    let stem = file.rsplit_once('.').map_or(file, |(stem, _)| stem);
+    let mut key: String = stem
+        .chars()
+        .map(|c| c.to_ascii_lowercase())
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .take(32)
+        .collect();
+    if key.is_empty() {
+        key.push_str("game");
+    }
+    // FNV-1a.
+    let mut hash: u32 = 0x811c_9dc5;
+    for byte in title.bytes() {
+        hash = (hash ^ byte as u32).wrapping_mul(0x0100_0193);
+    }
+    format!("{key}-{hash:08x}")
 }
 
 struct LoadedHcb {

@@ -794,9 +794,9 @@ fn convert_nvsg(bytes: &[u8], profile: &Profile) -> Result<Vec<u8>> {
         .read_exact(&mut payload)
         .context("decompress NVSG zlib payload")?;
 
-    let new_w = scale_round(header.width as u32, profile.scale_num, profile.scale_den);
-    let new_h = scale_round(header.height as u32, profile.scale_num, profile.scale_den);
-    ensure!(new_w > 0 && new_h > 0, "scaled NVSG dimensions became zero");
+    // A tiny image (a 1-3 pixel line or dot) would round to nothing; keep at least one pixel.
+    let new_w = scale_round(header.width as u32, profile.scale_num, profile.scale_den).max(1);
+    let new_h = scale_round(header.height as u32, profile.scale_num, profile.scale_den).max(1);
     ensure!(
         new_w <= u16::MAX as u32 && new_h <= u16::MAX as u32,
         "scaled NVSG dimensions exceed u16"

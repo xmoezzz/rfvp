@@ -123,6 +123,13 @@ pub trait RfvpFileSystem {
         None
     }
 
+    /// The platform's own data directory, where each game gets a folder for its saves
+    /// (`saves/<game>/`), so that putting another game in the game directory loses nothing. A
+    /// host without one keeps the saves in the game directory (`storage`).
+    fn save_storage(&mut self) -> Option<Arc<dyn RfvpStorage>> {
+        None
+    }
+
     /// Read access to the game's own directory, for assets that are loose files instead of in a
     /// pack (a folder such as `graph/` next to the `.bin` files). Paths are relative to the
     /// game directory.
@@ -163,5 +170,59 @@ impl RfvpAssetPath {
 
     pub fn as_str(&self) -> &str {
         &self.inner
+    }
+}
+
+/// A directory inside another storage: every path is taken relative to `prefix`.
+pub struct SubdirStorage {
+    inner: Arc<dyn RfvpStorage>,
+    prefix: String,
+}
+
+impl SubdirStorage {
+    pub fn new(inner: Arc<dyn RfvpStorage>, prefix: &str) -> Self {
+        Self {
+            inner,
+            prefix: String::from(prefix.trim_matches('/')),
+        }
+    }
+
+    fn path(&self, path: &str) -> String {
+        let path = path.trim_start_matches('/');
+        if path.is_empty() {
+            self.prefix.clone()
+        } else {
+            alloc::format!("{}/{}", self.prefix, path)
+        }
+    }
+}
+
+impl RfvpStorage for SubdirStorage {
+    fn read(&self, path: &str) -> RfvpResult<Vec<u8>> {
+        self.inner.read(&self.path(path))
+    }
+
+    fn read_prefix(&self, path: &str, max_len: usize) -> RfvpResult<Vec<u8>> {
+        self.inner.read_prefix(&self.path(path), max_len)
+    }
+
+    fn write(&self, path: &str, bytes: &[u8]) -> RfvpResult<()> {
+        self.inner.write(&self.path(path), bytes)
+    }
+
+    fn exists(&self, path: &str) -> bool {
+        self.inner.exists(&self.path(path))
+    }
+
+    fn remove(&self, path: &str) -> RfvpResult<()> {
+        self.inner.remove(&self.path(path))
+    }
+
+    fn list(&self, dir: &str) -> RfvpResult<Vec<String>> {
+        self.inner.list(&self.path(dir))
+    }
+
+    fn open(&self, path: &str) -> RfvpResult<Box<dyn RfvpFile + Send>> {
+        self.inner.open(&self.path(path))
     }
 }

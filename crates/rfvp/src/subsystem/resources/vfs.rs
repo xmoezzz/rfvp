@@ -322,8 +322,44 @@ impl VfsFile {
     }
 }
 
-#[derive(Clone)]
-struct LooseDir(Arc<dyn RfvpStorage>);
+/// The game directory, for assets shipped as loose files. Each directory is listed once, the
+/// first time something in it is asked for: asking the file system about every asset the game
+/// opens costs a system call each (and an emulator log line on a console).
+struct LooseDir {
+    storage: Arc<dyn RfvpStorage>,
+    /// Lowercase directory -> (lowercase name -> name on disk).
+    listings: Mutex<StableHashMap<String, StableHashMap<String, String>>>,
+}
+
+impl LooseDir {
+    fn new(storage: Arc<dyn RfvpStorage>) -> Self {
+        Self {
+            storage,
+            listings: Mutex::new(StableHashMap::default()),
+        }
+    }
+
+    /// The path on disk of `path` (as the script wrote it, `/`-separated), if the game directory
+    /// has it. Names are matched without regard to case, as the original engine on Windows does.
+    fn find(&self, path: &str) -> Option<String> {
+        let (dir, name) = path.rsplit_once('/').unwrap_or(("", path));
+        let mut listings = self.listings.lock().ok()?;
+        let listing = listings.entry(dir.to_ascii_lowercase()).or_insert_with(|| {
+            self.storage
+                .list(dir)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|name| (name.to_ascii_lowercase(), name))
+                .collect()
+        });
+        let real = listing.get(&name.to_ascii_lowercase())?;
+        Some(if dir.is_empty() {
+            real.clone()
+        } else {
+            format!("{dir}/{real}")
+        })
+    }
+}
 
 impl fmt::Debug for LooseDir {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -362,7 +398,7 @@ impl Vfs {
     /// Look for assets in the game directory too. A loose file wins over the same name in a pack,
     /// which is how patches and translations override a game's files.
     pub fn set_loose_dir(&mut self, dir: Option<Arc<dyn RfvpStorage>>) {
-        self.loose_dir = dir.map(LooseDir);
+        self.loose_dir = dir.map(LooseDir::new);
     }
 
     /// A VFS over a game directory: its `.bin` packs (read on demand) and its loose files.
@@ -422,8 +458,8 @@ impl Vfs {
             // The name as the script wrote it: the card may care about case.
             let on_disk = path.trim_start_matches("./").replace('\\', "/");
             let on_disk = on_disk.trim_start_matches('/');
-            if dir.0.exists(on_disk) {
-                return open_loose(dir.0.as_ref(), on_disk);
+            if let Some(real) = dir.find(on_disk) {
+                return open_loose(dir.storage.as_ref(), &real);
             }
         }
 
@@ -504,8 +540,15 @@ mod tests {
         fn remove(&self, _path: &str) -> RfvpResult<()> {
             Err(RfvpError::Unsupported)
         }
-        fn list(&self, _dir: &str) -> RfvpResult<Vec<String>> {
-            Ok(Vec::new())
+        fn list(&self, dir: &str) -> RfvpResult<Vec<String>> {
+            Ok(self
+                .0
+                .keys()
+                .filter_map(|path| {
+                    let (parent, name) = path.rsplit_once('/').unwrap_or(("", path));
+                    (parent == dir).then(|| name.to_string())
+                })
+                .collect())
         }
     }
 
@@ -539,6 +582,14 @@ mod tests {
         // Backslashes and a leading ./ are how some scripts write it.
         assert_eq!(vfs.read_file("graph\\BG001").unwrap(), b"image bytes");
         assert!(vfs.read_file("graph/missing").is_err());
+    }
+
+    #[test]
+    fn loose_files_are_found_whatever_the_case() {
+        let mut vfs = Vfs::new(Nls::ShiftJIS).unwrap();
+        vfs.set_loose_dir(Some(dir(&[("graph/Title_BG", b"bg"), ("akaseka.hcb", b"script")])));
+        assert_eq!(vfs.read_file("graph/title_bg").unwrap(), b"bg");
+        assert_eq!(vfs.read_file("AKASEKA.HCB").unwrap(), b"script");
     }
 
     #[test]

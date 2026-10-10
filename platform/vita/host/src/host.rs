@@ -22,7 +22,7 @@ impl PsvHost {
         Self {
             fs: PsvFileSystem::new(raw.fs_ctx, raw.fs),
             renderer: PsvRenderer::new(),
-            audio: PsvAudio::new(raw.audio_ctx, raw.audio),
+            audio: PsvAudio::new(),
             clock: PsvClock::new(raw.clock_ctx, raw.clock),
             log_ctx: raw.log_ctx,
             log: raw.log,

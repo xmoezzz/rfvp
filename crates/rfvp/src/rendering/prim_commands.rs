@@ -13,7 +13,7 @@ use crate::host_api::{
 use crate::subsystem::resources::{
     color_manager::ColorManager,
     graph_buff::GraphBuff,
-    motion_manager::{snow::SnowMotion, MotionManager},
+    motion_manager::{snow::SnowMotion, DissolveType, MotionManager},
     prim::{Prim, PrimManager, PrimType},
 };
 
@@ -347,6 +347,46 @@ where
         &mut visit,
         0,
     )?;
+
+    // Between the two trees, as the desktop renderer does: the scene dissolve (a full-screen
+    // color fade), then dissolve2 (the engine's own fades around save, load and transitions).
+    // Mask dissolves are not drawn yet, on any platform.
+    let dissolve_alpha = match motion.get_dissolve_type() {
+        DissolveType::Static | DissolveType::ColoredFadeIn | DissolveType::ColoredFadeOut => {
+            Some((motion.get_dissolve_color_id(), motion.get_dissolve_alpha()))
+        }
+        _ => None,
+    };
+    let fades = [
+        dissolve_alpha,
+        Some((motion.get_dissolve2_color_id(), motion.get_dissolve2_alpha())),
+    ];
+    for (color_id, alpha) in fades.into_iter().flatten() {
+        if alpha <= 0.0 {
+            continue;
+        }
+        let c = motion.color_manager.get_entry(color_id as u8);
+        let color = vec4(
+            c.get_r() as f32 / 255.0,
+            c.get_g() as f32 / 255.0,
+            c.get_b() as f32 / 255.0,
+            (c.get_a() as f32 / 255.0) * alpha,
+        );
+        emit_sprite(
+            &mut frame.commands,
+            &mut frame.hit_proxies,
+            &mut order,
+            -1,
+            Mat4::IDENTITY,
+            virtual_size.0 as f32,
+            virtual_size.1 as f32,
+            vec2(0.5, 0.5),
+            vec2(0.5, 0.5),
+            color,
+            DrawTextureKey::White,
+            CommandBlendMode::Normal,
+        )?;
+    }
 
     let root = prim_manager.get_custom_root_prim_id() as i16;
     if root != 0 {

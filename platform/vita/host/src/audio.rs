@@ -1,15 +1,13 @@
-use core::ffi::c_void;
+use core::cell::UnsafeCell;
+use core::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
 
+use alloc::boxed::Box;
 use alloc::vec::Vec;
 use rfvp::host_api::{
     AudioParams, AudioSampleFormat, AudioStreamDesc, AudioStreamId, EncodedAudioKind, RfvpAudio,
     RfvpError, RfvpResult, SoftAudioConfig, SoftAudioMixer, SoftAudioVorbis,
 };
 
-use crate::raw::{RawAudioParams, RawAudioSampleFormat, RawAudioStreamDesc, RawAudioVTable};
-use crate::status::status_to_result;
-
-const MASTER_STREAM_ID: AudioStreamId = AudioStreamId(0);
 const OUTPUT_SAMPLE_RATE: u32 = 48_000;
 const MIX_FRAMES: usize = 1024;
 
@@ -37,16 +35,68 @@ extern "C" {
     fn rfvp_ogg_close(decoder: *mut RfvpOggVorbis);
 }
 
+/// The mixer, shared with the audio thread (`rfvp_psv_audio_thread` in rfvp_psv_vitasdk.c), which
+/// pulls a buffer from it every ~21 ms while the game loop changes what plays.
+struct SharedMixer {
+    locked: AtomicBool,
+    mixer: UnsafeCell<SoftAudioMixer<PsvVorbisBackend>>,
+    chunk: UnsafeCell<Vec<i16>>,
+}
+
+impl SharedMixer {
+    fn with<R>(&self, f: impl FnOnce(&mut SoftAudioMixer<PsvVorbisBackend>, &mut Vec<i16>) -> R) -> R {
+        while self
+            .locked
+            .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            core::hint::spin_loop();
+        }
+        // SAFETY: the lock above gives this thread sole access until it is released below.
+        let result = f(unsafe { &mut *self.mixer.get() }, unsafe { &mut *self.chunk.get() });
+        self.locked.store(false, Ordering::Release);
+        result
+    }
+}
+
+// SAFETY: every access to the cells goes through `with`, under the lock.
+unsafe impl Sync for SharedMixer {}
+
+/// The mixer the audio thread reads, or null when there is none.
+static SHARED: AtomicPtr<SharedMixer> = AtomicPtr::new(core::ptr::null_mut());
+
+extern "C" {
+    fn rfvp_psv_audio_thread_start();
+    fn rfvp_psv_audio_thread_stop();
+}
+
+/// Called by the audio thread: the next `frames` frames of 48 kHz stereo, silence when nothing
+/// plays.
+#[no_mangle]
+pub unsafe extern "C" fn rfvp_psv_audio_pull(dst: *mut i16, frames: usize) {
+    let out = unsafe { core::slice::from_raw_parts_mut(dst, frames * 2) };
+    let shared = SHARED.load(Ordering::Acquire);
+    if shared.is_null() {
+        out.fill(0);
+        return;
+    }
+    unsafe { &*shared }.with(|mixer, chunk| {
+        for part in out.chunks_mut(MIX_FRAMES * 2) {
+            match mixer.mix_next(chunk) {
+                Ok(true) => part.copy_from_slice(&chunk[..part.len()]),
+                _ => part.fill(0),
+            }
+        }
+    });
+}
+
 pub struct PsvAudio {
-    ctx: *mut c_void,
-    vtable: RawAudioVTable,
-    mixer: SoftAudioMixer<PsvVorbisBackend>,
-    master_created: bool,
-    master_buffer: Vec<i16>,
+    shared: Box<SharedMixer>,
+    started: bool,
 }
 
 impl PsvAudio {
-    pub fn new(ctx: *mut c_void, vtable: RawAudioVTable) -> Self {
+    pub fn new() -> Self {
         let config = SoftAudioConfig {
             output_sample_rate: OUTPUT_SAMPLE_RATE,
             mix_frames: MIX_FRAMES,
@@ -55,69 +105,33 @@ impl PsvAudio {
             max_active_total: 24,
         };
         Self {
-            ctx,
-            vtable,
-            mixer: SoftAudioMixer::new(PsvVorbisBackend, config),
-            master_created: false,
-            master_buffer: Vec::new(),
+            shared: Box::new(SharedMixer {
+                locked: AtomicBool::new(false),
+                mixer: UnsafeCell::new(SoftAudioMixer::new(PsvVorbisBackend, config)),
+                chunk: UnsafeCell::new(alloc::vec![0; MIX_FRAMES * 2]),
+            }),
+            started: false,
         }
     }
 
-    fn ensure_master_stream(&mut self) -> RfvpResult<()> {
-        if self.master_created {
-            return Ok(());
-        }
-        let desc = AudioStreamDesc {
-            sample_rate: OUTPUT_SAMPLE_RATE,
-            channels: 2,
-            sample_format: AudioSampleFormat::I16,
-        };
-        let status = unsafe {
-            (self.vtable.create_stream)(
-                self.ctx,
-                MASTER_STREAM_ID.0,
-                audio_stream_desc_to_raw(desc),
-            )
-        };
-        status_to_result(status)?;
-        self.master_created = true;
-        Ok(())
+    fn mixer<R>(&mut self, f: impl FnOnce(&mut SoftAudioMixer<PsvVorbisBackend>) -> R) -> R {
+        self.shared.with(|mixer, _| f(mixer))
     }
+}
 
-    fn submit_master(&mut self, samples: &[i16]) -> RfvpResult<()> {
-        let status = unsafe {
-            (self.vtable.submit_i16)(
-                self.ctx,
-                MASTER_STREAM_ID.0,
-                samples.as_ptr(),
-                samples.len(),
-            )
-        };
-        status_to_result(status)?;
-        let status = unsafe {
-            (self.vtable.play)(
-                self.ctx,
-                MASTER_STREAM_ID.0,
-                audio_params_to_raw(AudioParams {
-                    volume: 1.0,
-                    pan: 0.0,
-                    repeat: false,
-                }),
-            )
-        };
-        status_to_result(status)
+impl Default for PsvAudio {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 impl Drop for PsvAudio {
     fn drop(&mut self) {
-        self.mixer.shutdown();
-        if self.master_created {
-            unsafe {
-                (self.vtable.destroy_stream)(self.ctx, MASTER_STREAM_ID.0);
-            }
-            self.master_created = false;
+        if self.started {
+            unsafe { rfvp_psv_audio_thread_stop() };
+            SHARED.store(core::ptr::null_mut(), Ordering::Release);
         }
+        self.mixer(|mixer| mixer.shutdown());
     }
 }
 
@@ -128,64 +142,57 @@ impl RfvpAudio for PsvAudio {
         kind: EncodedAudioKind,
         bytes: &[u8],
     ) -> RfvpResult<()> {
-        self.mixer.load_encoded(id, kind, bytes)
+        self.mixer(|m| m.load_encoded(id, kind, bytes))
     }
 
     fn create_stream(&mut self, id: AudioStreamId, desc: AudioStreamDesc) -> RfvpResult<()> {
-        self.mixer.create_stream(id, desc)
+        self.mixer(|m| m.create_stream(id, desc))
     }
 
     fn submit_i16(&mut self, id: AudioStreamId, samples: &[i16]) -> RfvpResult<()> {
-        self.mixer.submit_i16(id, samples)
+        self.mixer(|m| m.submit_i16(id, samples))
     }
 
     fn submit_f32(&mut self, id: AudioStreamId, samples: &[f32]) -> RfvpResult<()> {
-        self.mixer.submit_f32(id, samples)
+        self.mixer(|m| m.submit_f32(id, samples))
     }
 
     fn play(&mut self, id: AudioStreamId, params: AudioParams, fade_in_ms: u32) -> RfvpResult<()> {
-        self.mixer.play(id, params, fade_in_ms)
+        self.mixer(|m| m.play(id, params, fade_in_ms))
     }
 
     fn stop(&mut self, id: AudioStreamId, fade_ms: u32) -> RfvpResult<()> {
-        self.mixer.stop(id, fade_ms)
+        self.mixer(|m| m.stop(id, fade_ms))
     }
 
     fn pause(&mut self, id: AudioStreamId) -> RfvpResult<()> {
-        self.mixer.pause(id)
+        self.mixer(|m| m.pause(id))
     }
 
     fn resume(&mut self, id: AudioStreamId) -> RfvpResult<()> {
-        self.mixer.resume(id)
+        self.mixer(|m| m.resume(id))
     }
 
     fn set_params(&mut self, id: AudioStreamId, params: AudioParams) -> RfvpResult<()> {
-        self.mixer.set_params(id, params)
+        self.mixer(|m| m.set_params(id, params))
     }
 
     fn set_master_volume(&mut self, volume: f32) -> RfvpResult<()> {
-        self.mixer.set_master_volume(volume)
+        self.mixer(|m| m.set_master_volume(volume))
     }
 
     fn destroy_stream(&mut self, id: AudioStreamId) {
-        self.mixer.destroy_stream(id);
+        self.mixer(|m| m.destroy_stream(id));
     }
 
-    fn tick(&mut self, delta_us: u64) -> RfvpResult<()> {
-        self.ensure_master_stream()?;
-        let needed = MIX_FRAMES
-            .checked_mul(2)
-            .ok_or(RfvpError::CapacityExceeded)?;
-        if self.master_buffer.len() != needed {
-            self.master_buffer.resize(needed, 0);
+    /// The audio thread mixes at the device's pace; this only starts it, the first time.
+    fn tick(&mut self, _delta_us: u64) -> RfvpResult<()> {
+        if !self.started {
+            SHARED.store(&*self.shared as *const SharedMixer as *mut SharedMixer, Ordering::Release);
+            unsafe { rfvp_psv_audio_thread_start() };
+            self.started = true;
         }
-        let active = self.mixer.mix_next(&mut self.master_buffer)?;
-        if active {
-            let samples = self.master_buffer.clone();
-            self.submit_master(&samples)?;
-        }
-        let status = unsafe { (self.vtable.tick)(self.ctx, delta_us) };
-        status_to_result(status)
+        Ok(())
     }
 }
 
@@ -256,26 +263,3 @@ impl SoftAudioVorbis for PsvVorbisBackend {
     }
 }
 
-fn audio_sample_format_to_raw(value: AudioSampleFormat) -> RawAudioSampleFormat {
-    match value {
-        AudioSampleFormat::I16 => RawAudioSampleFormat::I16,
-        AudioSampleFormat::F32 => RawAudioSampleFormat::F32,
-    }
-}
-
-fn audio_stream_desc_to_raw(value: AudioStreamDesc) -> RawAudioStreamDesc {
-    RawAudioStreamDesc {
-        sample_rate: value.sample_rate,
-        channels: value.channels,
-        sample_format: audio_sample_format_to_raw(value.sample_format),
-    }
-}
-
-fn audio_params_to_raw(value: AudioParams) -> RawAudioParams {
-    RawAudioParams {
-        volume: value.volume,
-        pan: value.pan,
-        repeat: u8::from(value.repeat),
-        _padding: [0; 3],
-    }
-}

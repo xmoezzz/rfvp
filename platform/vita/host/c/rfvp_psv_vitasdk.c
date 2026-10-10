@@ -1,12 +1,18 @@
 #include "rfvp_psv_c.h"
 
+int32_t rfvp_psv_gpu_init(void);
+void rfvp_psv_gpu_fini(void);
+
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
 
+#include <psp2/audioout.h>
 #include <psp2/ctrl.h>
 #include <psp2/display.h>
 #include <psp2/kernel/processmgr.h>
+#include <psp2/kernel/sysmem.h>
+#include <psp2/kernel/threadmgr.h>
 #include <psp2/rtc.h>
 #include <psp2/touch.h>
 
@@ -49,68 +55,70 @@ typedef struct RfvpPsvVitasdkState {
     uint32_t previous_buttons;
 } RfvpPsvVitasdkState;
 
-static uint32_t g_rfvp_psv_display[RFVP_PSV_VITASDK_SCREEN_WIDTH * RFVP_PSV_VITASDK_SCREEN_HEIGHT] __attribute__((aligned(64)));
 
 static RfvpPsvVitasdkState g_rfvp_psv_vitasdk = {
     .cursor_x = (int32_t)(RFVP_PSV_VITASDK_SCREEN_WIDTH / 2u),
     .cursor_y = (int32_t)(RFVP_PSV_VITASDK_SCREEN_HEIGHT / 2u),
 };
 
-static int32_t rfvp_psv_vitasdk_present_callback(
-    void *ctx,
-    const uint8_t *rgba8,
-    uint32_t width,
-    uint32_t height,
-    uint32_t stride_bytes
-) {
-    (void)ctx;
-    if (rgba8 == NULL || width == 0u || height == 0u || stride_bytes < width * 4u) {
-        return RFVP_PSV_INVALID_ARGUMENT;
-    }
-    if (!g_rfvp_psv_vitasdk.display_ready) {
-        return RFVP_PSV_BACKEND;
-    }
+/* ---- Audio thread -------------------------------------------------------------------------
+ * sceAudioOutOutput blocks until the device takes the next buffer (about 21 ms here). Called from
+ * the game loop it held every frame to that, which with the vblank wait gave 30 fps; so a thread
+ * of its own pulls mixed audio from the engine (rfvp_psv_audio_pull) and feeds the device. */
 
-    const uint32_t out_w = RFVP_PSV_VITASDK_SCREEN_WIDTH;
-    const uint32_t out_h = RFVP_PSV_VITASDK_SCREEN_HEIGHT;
-    uint8_t *dst = (uint8_t *)g_rfvp_psv_display;
-    const uint32_t dst_stride = out_w * 4u;
+#define RFVP_PSV_AUDIO_THREAD_FRAMES 1024
+extern void rfvp_psv_audio_pull(int16_t *dst, size_t frames);
 
-    if (width == out_w && height == out_h && stride_bytes == dst_stride) {
-        memcpy(dst, rgba8, (size_t)out_h * (size_t)dst_stride);
-    } else {
-        for (uint32_t y = 0u; y < out_h; ++y) {
-            uint32_t src_y = (uint32_t)(((uint64_t)y * (uint64_t)height) / (uint64_t)out_h);
-            const uint8_t *src_row = rgba8 + (size_t)src_y * (size_t)stride_bytes;
-            uint8_t *dst_row = dst + (size_t)y * (size_t)dst_stride;
-            for (uint32_t x = 0u; x < out_w; ++x) {
-                uint32_t src_x = (uint32_t)(((uint64_t)x * (uint64_t)width) / (uint64_t)out_w);
-                const uint8_t *src_px = src_row + (size_t)src_x * 4u;
-                uint8_t *dst_px = dst_row + (size_t)x * 4u;
-                dst_px[0] = src_px[0];
-                dst_px[1] = src_px[1];
-                dst_px[2] = src_px[2];
-                dst_px[3] = src_px[3];
-            }
-        }
+static volatile int g_rfvp_audio_run;
+static SceUID g_rfvp_audio_thread = -1;
+static int16_t g_rfvp_audio_buffers[2][RFVP_PSV_AUDIO_THREAD_FRAMES * 2] __attribute__((aligned(64)));
+
+static int rfvp_psv_audio_thread(SceSize args, void *argp) {
+    (void)args;
+    (void)argp;
+    int port = sceAudioOutOpenPort(SCE_AUDIO_OUT_PORT_TYPE_MAIN, RFVP_PSV_AUDIO_THREAD_FRAMES, 48000,
+                                   SCE_AUDIO_OUT_MODE_STEREO);
+    if (port < 0) {
+        return sceKernelExitDeleteThread(0);
     }
-
-    SceDisplayFrameBuf framebuf;
-    memset(&framebuf, 0, sizeof(framebuf));
-    framebuf.size = sizeof(SceDisplayFrameBuf);
-    framebuf.base = (void *)g_rfvp_psv_display;
-    framebuf.pitch = RFVP_PSV_VITASDK_SCREEN_WIDTH;
-    framebuf.pixelformat = SCE_DISPLAY_PIXELFORMAT_A8B8G8R8;
-    framebuf.width = RFVP_PSV_VITASDK_SCREEN_WIDTH;
-    framebuf.height = RFVP_PSV_VITASDK_SCREEN_HEIGHT;
-
-    int rc = sceDisplaySetFrameBuf(&framebuf, SCE_DISPLAY_SETBUF_NEXTFRAME);
-    if (rc < 0) {
-        return RFVP_PSV_BACKEND;
+    int vol[2] = { SCE_AUDIO_VOLUME_0DB, SCE_AUDIO_VOLUME_0DB };
+    sceAudioOutSetVolume(port, SCE_AUDIO_VOLUME_FLAG_L_CH | SCE_AUDIO_VOLUME_FLAG_R_CH, vol);
+    int which = 0;
+    while (g_rfvp_audio_run) {
+        rfvp_psv_audio_pull(g_rfvp_audio_buffers[which], RFVP_PSV_AUDIO_THREAD_FRAMES);
+        sceAudioOutOutput(port, g_rfvp_audio_buffers[which]);
+        which ^= 1;
     }
-    sceDisplayWaitVblankStart();
-    return RFVP_PSV_OK;
+    sceAudioOutOutput(port, NULL);
+    sceAudioOutReleasePort(port);
+    return sceKernelExitDeleteThread(0);
 }
+
+void rfvp_psv_audio_thread_start(void) {
+    if (g_rfvp_audio_thread >= 0) {
+        return;
+    }
+    g_rfvp_audio_run = 1;
+    /* Above the game loop's priority, so audio keeps up when a frame is slow. */
+    SceUID thread = sceKernelCreateThread("rfvp_audio", rfvp_psv_audio_thread, 0x10000100 - 10, 0x10000,
+                                          0, 0, NULL);
+    if (thread < 0) {
+        g_rfvp_audio_run = 0;
+        return;
+    }
+    g_rfvp_audio_thread = thread;
+    sceKernelStartThread(thread, 0, NULL);
+}
+
+void rfvp_psv_audio_thread_stop(void) {
+    if (g_rfvp_audio_thread < 0) {
+        return;
+    }
+    g_rfvp_audio_run = 0;
+    sceKernelWaitThreadEnd(g_rfvp_audio_thread, NULL, NULL);
+    g_rfvp_audio_thread = -1;
+}
+
 
 static int32_t rfvp_psv_vitasdk_push_cursor_move(PsvApp *app) {
     return rfvp_psv_app_push_pointer_move(
@@ -319,32 +327,18 @@ void rfvp_psv_vitasdk_init(void) {
     sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
     sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_START);
 
-    memset(g_rfvp_psv_display, 0, sizeof(g_rfvp_psv_display));
-
-    SceDisplayFrameBuf framebuf;
-    memset(&framebuf, 0, sizeof(framebuf));
-    framebuf.size = sizeof(SceDisplayFrameBuf);
-    framebuf.base = (void *)g_rfvp_psv_display;
-    framebuf.pitch = RFVP_PSV_VITASDK_SCREEN_WIDTH;
-    framebuf.pixelformat = SCE_DISPLAY_PIXELFORMAT_A8B8G8R8;
-    framebuf.width = RFVP_PSV_VITASDK_SCREEN_WIDTH;
-    framebuf.height = RFVP_PSV_VITASDK_SCREEN_HEIGHT;
-
-    int rc = sceDisplaySetFrameBuf(&framebuf, SCE_DISPLAY_SETBUF_IMMEDIATE);
-    if (rc < 0) {
-        sceKernelExitProcess(rc);
+    if (rfvp_psv_gpu_init() != 0) {
+        sceKernelExitProcess(-1);
     }
-
     g_rfvp_psv_vitasdk.display_ready = 1;
-    rfvp_psv_c_set_present_callback(rfvp_psv_vitasdk_present_callback, NULL);
 }
 
 void rfvp_psv_vitasdk_fini(void) {
     rfvp_psv_c_audio_shutdown();
     rfvp_psv_c_renderer_shutdown();
-    rfvp_psv_c_set_present_callback(NULL, NULL);
+
     sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_STOP);
-    sceDisplaySetFrameBuf(NULL, SCE_DISPLAY_SETBUF_IMMEDIATE);
+    rfvp_psv_gpu_fini();
     g_rfvp_psv_vitasdk.display_ready = 0;
 }
 

@@ -155,26 +155,16 @@ impl RfvpStorage for PsvStorage {
     }
 
     fn list(&self, dir: &str) -> RfvpResult<Vec<String>> {
-        let Some(enumerate) = self.vtable.enumerate_by_extension else {
-            return Err(RfvpError::Unsupported);
-        };
         let mut names: Vec<String> = Vec::new();
-        let mut visitor = |path: &str, info: RfvpFileInfo| -> RfvpResult<()> {
-            if info.kind == RfvpFileKind::File && info.len > 0 {
-                let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
-                names.push(String::from(name));
-            }
+        let mut visitor = |name: &str, _info: RfvpFileInfo| -> RfvpResult<()> {
+            names.push(String::from(name));
             Ok(())
         };
         let mut bridge = VisitorBridge { visitor: &mut visitor };
-        // Saves are `.bin` files, which is all that is looked for.
         let status = unsafe {
-            enumerate(
-                self.ctx,
+            rfvp_psv_c_list_files(
                 dir.as_ptr(),
                 dir.len(),
-                b"bin".as_ptr(),
-                3,
                 (&mut bridge as *mut VisitorBridge<'_>).cast::<c_void>(),
                 enumerate_visitor_bridge,
             )
@@ -277,6 +267,17 @@ fn raw_file_info_to_rfvp(info: RawFileInfo) -> RfvpFileInfo {
 
 struct VisitorBridge<'a> {
     visitor: &'a mut dyn FnMut(&str, RfvpFileInfo) -> RfvpResult<()>,
+}
+
+
+extern "C" {
+    /// The files directly in a directory of the game folder (rfvp_psv_c.c).
+    fn rfvp_psv_c_list_files(
+        dir: *const u8,
+        dir_len: usize,
+        visitor_ctx: *mut c_void,
+        visitor: crate::raw::RawEnumerateByExtensionVisitorFn,
+    ) -> i32;
 }
 
 unsafe extern "C" fn enumerate_visitor_bridge(

@@ -127,6 +127,35 @@ fn downscale(src: &SoftTexture, new_width: u32, new_height: u32) -> ScaledCopy {
     }
 }
 
+/// Shrink RGBA8 pixels (`width` x `height`, rows packed) to `new_width` x `new_height` with the
+/// same box filter the rasterizer uses for its shrunk copies: transparent pixels do not bleed
+/// their color. For hosts that keep textures at screen resolution.
+pub fn downscale_rgba8(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    new_width: u32,
+    new_height: u32,
+) -> Vec<u8> {
+    let count = width as usize * height as usize;
+    let tex = SoftTexture {
+        width,
+        height,
+        format: PixelFormat::Rgba8,
+        pixels: (0..count.min(pixels.len() / 4))
+            .map(|i| convert_pixel(PixelFormat::Rgba8, pixels, i))
+            .collect(),
+        opaque: false,
+        scaled: None,
+    };
+    let small = downscale(&tex, new_width.max(1), new_height.max(1));
+    let mut out = Vec::with_capacity(small.pixels.len() * 4);
+    for p in small.pixels {
+        out.extend_from_slice(&p.to_le_bytes());
+    }
+    out
+}
+
 /// Linear blend of two pixels, `w` in `0..=256`, two channels at a time.
 #[inline]
 fn lerp_pixels(a: u32, b: u32, w: u32) -> u32 {

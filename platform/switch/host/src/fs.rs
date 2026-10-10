@@ -219,6 +219,13 @@ impl RfvpFileSystem for HorizonFileSystem {
         self.storage()
     }
 
+    /// `sdmc:/switch/rfvp`: each game keeps its saves in `saves/<game>/` there.
+    fn save_storage(&mut self) -> Option<Arc<dyn RfvpStorage>> {
+        Some(Arc::new(HorizonStorage {
+            root: String::from("sdmc:/switch/rfvp"),
+        }))
+    }
+
     fn open(&mut self, path: &str) -> RfvpResult<Self::File> {
         HorizonFile::open(&self.full_path(path)?, c"rb")
     }

@@ -27,6 +27,7 @@ pub use event::{InputModifiers, KeyCode, PointerButton, RfvpEvent};
 pub use soft_raster::SoftRaster;
 pub use fs::{
     RfvpAssetPath, RfvpFile, RfvpFileInfo, RfvpFileKind, RfvpFileSystem, RfvpStorage,
+    SubdirStorage,
 };
 #[cfg(feature = "no_std")]
 pub use host::{FatalErrorCallback, FatalErrorCode, PlatformCallbacks};
