@@ -34,8 +34,14 @@ struct Opaque {
 /// Create a WMV2 decoder.
 ///
 /// `extradata` is copied.
-#[no_mangle]
-pub extern "C" fn wmv2_decoder_create(
+///
+/// # Safety
+///
+/// If `extradata` is non-null and `extradata_len` is nonzero, it must point to
+/// `extradata_len` initialized bytes in one allocation, readable and unchanged
+/// for this call. The length must not exceed `isize::MAX`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wmv2_decoder_create(
     width: u32,
     height: u32,
     extradata: *const u8,
@@ -57,8 +63,15 @@ pub extern "C" fn wmv2_decoder_create(
     Box::into_raw(opaque) as *mut c_void
 }
 
-#[no_mangle]
-pub extern "C" fn wmv2_decoder_destroy(handle: *mut c_void) {
+/// Destroy a WMV2 decoder. A null handle is ignored.
+///
+/// # Safety
+///
+/// A non-null `handle` must be a live handle returned by `wmv2_decoder_create`.
+/// No other call may use it concurrently. After this call, neither the handle
+/// nor any frame pointers obtained from it may be used.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wmv2_decoder_destroy(handle: *mut c_void) {
     if handle.is_null() {
         return;
     }
@@ -74,8 +87,17 @@ pub extern "C" fn wmv2_decoder_destroy(handle: *mut c_void) {
 ///   0  = no frame (header not found)
 ///  -1  = invalid arguments
 ///  -2  = decode error
-#[no_mangle]
-pub extern "C" fn wmv2_decoder_decode(
+///
+/// # Safety
+///
+/// A non-null `handle` must be a live handle returned by `wmv2_decoder_create`,
+/// with exclusive access for this call. When all arguments pass the null and
+/// length checks, `payload` must point to `payload_len` initialized bytes in
+/// one allocation, readable and unchanged for this call. The length must not
+/// exceed `isize::MAX`, and the payload must not overlap decoder-owned memory.
+/// Previously returned frame pointers must not be accessed during this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wmv2_decoder_decode(
     handle: *mut c_void,
     payload: *const u8,
     payload_len: usize,
@@ -109,14 +131,26 @@ pub extern "C" fn wmv2_decoder_decode(
 
 /// Get the most recently decoded frame view.
 ///
-/// The returned pointers remain valid until the next successful decode call.
+/// The returned pointers may be read until the next decode or destroy call.
+/// They must not be used to modify the frame data.
 ///
 /// Returns:
 ///   1  = success
 ///   0  = no decoded frame available
 ///  -1  = invalid arguments
-#[no_mangle]
-pub extern "C" fn wmv2_decoder_get_frame(handle: *mut c_void, out: *mut Wmv2FrameView) -> i32 {
+///
+/// # Safety
+///
+/// A non-null `handle` must be a live handle returned by `wmv2_decoder_create`,
+/// with exclusive access for this call. If both pointers are non-null, `out`
+/// must be aligned and valid for writing one `Wmv2FrameView`, and must not
+/// overlap decoder-owned memory. No other access to `out` may occur during
+/// this call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn wmv2_decoder_get_frame(
+    handle: *mut c_void,
+    out: *mut Wmv2FrameView,
+) -> i32 {
     if handle.is_null() || out.is_null() {
         return -1;
     }

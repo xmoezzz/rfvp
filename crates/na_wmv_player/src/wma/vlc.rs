@@ -72,7 +72,7 @@ fn build_table(
 
     for i in 0..nb_codes {
         let mut n = codes[i].bits as i32;
-        let mut code = codes[i].code;
+        let code = codes[i].code;
         let symbol = codes[i].symbol;
 
         if n <= table_nb_bits {
@@ -185,7 +185,7 @@ fn vlc_common_end(vlc: &mut Vlc, nb_bits: i32, codes: &mut [VlcCode], flags: i32
         let mut i: usize = 0;
         while i < codes.len() {
             let mut n = codes[i].bits as i32;
-            let mut code = codes[i].code;
+            let code = codes[i].code;
             let symbol = codes[i].symbol;
 
             let base = table_index as usize;
@@ -328,7 +328,7 @@ pub fn ff_vlc_init_sparse(
     // Copy entries with len > nb_bits first.
     for pass in 0..2 {
         for i in 0..nb_codes {
-            let len = get_data_u32(bits, bits_wrap, i, bits_size) as u32;
+            let len = get_data_u32(bits, bits_wrap, i, bits_size);
             let cond = if pass == 0 {
                 len > nb_bits as u32
             } else {
@@ -391,7 +391,7 @@ pub fn ff_vlc_init_from_lengths(
     let len_max: i32 = 32.min(3 * nb_bits);
 
     for i in 0..nb_codes {
-        let len = lens[(i * lens_wrap as usize)] as i32;
+        let len = lens[i * lens_wrap as usize] as i32;
         if len > 0 {
             let sym_u = if let Some(symtab) = symbols {
                 get_data_u16(symtab, symbols_wrap, i, symbols_size) as u32

@@ -25,8 +25,22 @@ impl std::fmt::Display for Guid {
         write!(
             f,
             "{:02X}{:02X}{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}",
-            b[3], b[2], b[1], b[0], b[5], b[4], b[7], b[6], b[8], b[9], b[10], b[11], b[12],
-            b[13], b[14], b[15]
+            b[3],
+            b[2],
+            b[1],
+            b[0],
+            b[5],
+            b[4],
+            b[7],
+            b[6],
+            b[8],
+            b[9],
+            b[10],
+            b[11],
+            b[12],
+            b[13],
+            b[14],
+            b[15]
         )
     }
 }
@@ -145,6 +159,8 @@ pub struct AsfFile {
     pub packet_size: u32,     // upstream: s->packet_size = hdr.max_pktsize
     pub min_packet_size: u32, // upstream: hdr.min_pktsize
     pub preroll_ms: u32,      // upstream: hdr.preroll
+    /// ASF file play duration after subtracting preroll.
+    pub play_duration_ms: Option<u64>,
 
     is_audio_stream: [bool; 128],
     audio_descramble: [AsfAudioDescramble; 128],
@@ -174,6 +190,7 @@ impl AsfFile {
         let mut min_pktsize = 0u32;
         let mut max_pktsize = 0u32;
         let mut preroll_ms = 0u32;
+        let mut play_time_100ns = 0u64;
 
         let header_end = hdr.size;
         let mut pos = 24u64 + 4 + 1 + 1;
@@ -186,7 +203,8 @@ impl AsfFile {
                 // ASFMainHeader: we follow upstream's `asf_read_file_properties`.
                 reader.seek(SeekFrom::Current(16 + 8 + 8))?; // file_id + file_size + create_time
                 packet_count = reader.read_u64::<LittleEndian>()?; // data_packets_count
-                reader.seek(SeekFrom::Current(8 + 8))?; // play_time + send_time
+                play_time_100ns = reader.read_u64::<LittleEndian>()?;
+                let _send_time = reader.read_u64::<LittleEndian>()?;
 
                 // preroll is a QWORD in ASF; upstream uses the low 32 bits.
                 preroll_ms = reader.read_u32::<LittleEndian>()?;
@@ -222,11 +240,7 @@ impl AsfFile {
                     reader.read_exact(&mut four_cc)?;
                     reader.seek(SeekFrom::Current(20))?;
 
-                    let extra_len = if fmt_data_size > 40 {
-                        fmt_data_size - 40
-                    } else {
-                        0
-                    };
+                    let extra_len = fmt_data_size.saturating_sub(40);
                     let mut extra_data = vec![0u8; extra_len];
                     reader.read_exact(&mut extra_data)?;
 
@@ -275,13 +289,12 @@ impl AsfFile {
                         let _ds_data_size = reader.read_u16::<LittleEndian>()?;
                         let _ds_silence = reader.read_u8()?;
 
-                        if ds_span > 1 {
-                            if ds_chunk_size == 0
+                        if ds_span > 1
+                            && (ds_chunk_size == 0
                                 || (ds_packet_size / ds_chunk_size) <= 1
-                                || (ds_packet_size % ds_chunk_size) != 0
-                            {
-                                ds_span = 0;
-                            }
+                                || !ds_packet_size.is_multiple_of(ds_chunk_size))
+                        {
+                            ds_span = 0;
                         }
                     }
 
@@ -336,6 +349,8 @@ impl AsfFile {
             packet_size: max_pktsize,
             min_packet_size: min_pktsize,
             preroll_ms,
+            play_duration_ms: (play_time_100ns > 0)
+                .then_some((play_time_100ns / 10_000).saturating_sub(preroll_ms as u64)),
             is_audio_stream,
             audio_descramble,
             streams: std::array::from_fn(|_| AsfStreamState::default()),
@@ -356,7 +371,7 @@ impl AsfFile {
         if data.len() != packet_size.saturating_mul(span) {
             return data;
         }
-        if packet_size % chunk_size != 0 {
+        if !packet_size.is_multiple_of(chunk_size) {
             return data;
         }
         let chunks_per_packet = packet_size / chunk_size;
@@ -427,7 +442,7 @@ impl AsfFile {
         match reader.read_exact(&mut buf) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-                return Err(DecoderError::EndOfStream)
+                return Err(DecoderError::EndOfStream);
             }
             Err(e) => return Err(DecoderError::Io(e)),
         }

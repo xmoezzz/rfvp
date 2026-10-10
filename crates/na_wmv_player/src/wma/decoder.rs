@@ -7,7 +7,7 @@ use super::bitstream::GetBitContext;
 use super::common::ff_wma_get_frame_len_bits;
 use super::mdct::MdctNaive;
 use super::tables;
-use super::vlc::{ff_vlc_init_from_lengths, ff_vlc_init_sparse, get_vlc2, Vlc, VlcElem};
+use super::vlc::{Vlc, VlcElem, ff_vlc_init_from_lengths, ff_vlc_init_sparse, get_vlc2};
 
 const BLOCK_MIN_BITS: i32 = 7;
 const BLOCK_MAX_BITS: i32 = 11;
@@ -31,6 +31,15 @@ const EXPMAX: i32 = (19 + EXPVLCBITS - 1) / EXPVLCBITS;
 
 const HGAINVLCBITS: i32 = 9;
 const HGAINMAX: i32 = (13 + HGAINVLCBITS - 1) / HGAINVLCBITS;
+
+/// Translate FFmpeg's `ptab[last_exp]`, where `ptab = pow_tab + 60`,
+/// into a bounds-checked Rust index into the full POW_TAB.  Negative
+/// exponents down to -60 are valid: e.g. `ptab[-1]` is `pow_tab[59]`.
+fn exponent_pow_tab_index(last_exp: i32) -> Option<usize> {
+    let idx = last_exp.checked_add(60)?;
+    let idx = usize::try_from(idx).ok()?;
+    (idx < tables::POW_TAB.len()).then_some(idx)
+}
 
 /// A decoded PCM chunk.
 #[derive(Debug, Clone)]
@@ -126,6 +135,13 @@ pub struct WmaDecoder {
     last_superframe: Vec<u8>,
     last_bitoffset: usize,
     last_superframe_len: usize,
+
+    // ASF media objects are not guaranteed to be one codec packet each.
+    // WMAv1/v2 itself is block_align packetized, so retain bytes until a
+    // complete codec packet is available instead of silently truncating an
+    // assembled ASF object to its first block_align bytes.
+    pending_packet_bytes: Vec<u8>,
+    pending_packet_pts_ms: Option<u32>,
     eof_done: bool,
 
     // Noise.
@@ -244,7 +260,7 @@ fn wma_window_apply(
         let bsize = (frame_len_bits - block_len_bits) as usize;
         let win = &windows[bsize];
         for i in 0..block_len {
-            out[i] = in_buf[i] * win[i] + out[i];
+            out[i] += in_buf[i] * win[i];
         }
     } else {
         let prev_len = 1usize << prev_block_len_bits;
@@ -253,7 +269,7 @@ fn wma_window_apply(
         let win = &windows[bsize];
         for i in 0..prev_len {
             let idx = n + i;
-            out[idx] = in_buf[idx] * win[i] + out[idx];
+            out[idx] += in_buf[idx] * win[i];
         }
         out[n + prev_len..n + prev_len + n]
             .copy_from_slice(&in_buf[n + prev_len..n + prev_len + n]);
@@ -274,13 +290,19 @@ fn wma_window_apply(
         let next_len = 1usize << next_block_len_bits;
         let n = (block_len - next_len) / 2;
         let bsize = (frame_len_bits - next_block_len_bits) as usize;
-        out2[n + next_len..n + next_len + n]
-            .copy_from_slice(&in_buf[n + next_len..n + next_len + n]);
+
+        // FFmpeg wma_window(): when the following block is shorter, the
+        // right half consists of an unwindowed prefix, the short falling
+        // window, then zero padding.  Copying the *tail* here (the old port)
+        // carries stale MDCT samples into the overlap-add region and produces
+        // a click/stutter exactly at long -> short block transitions.
+        out2[..n].copy_from_slice(&in_buf[..n]);
         vector_fmul_reverse(
             &mut out2[n..n + next_len],
             &in_buf[n..n + next_len],
             &windows[bsize],
         );
+        out2[n + next_len..n + next_len + n].fill(0.0);
     }
 }
 
@@ -293,7 +315,7 @@ impl WmaDecoder {
                 return Err(DecoderError::Unsupported(format!(
                     "unsupported WMA format tag: 0x{:04x}",
                     info.format_tag
-                )))
+                )));
             }
         };
 
@@ -329,12 +351,12 @@ impl WmaDecoder {
         let use_bit_reservoir = (flags2 & 0x0002) != 0;
 
         // upstream quirk (issue1503).
-        if let WmaVersion::V2 = version {
-            if extradata.len() >= 8 {
-                let v = u16::from_le_bytes([extradata[4], extradata[5]]);
-                if v == 0x000d && use_variable_block_len {
-                    use_variable_block_len = false;
-                }
+        if let WmaVersion::V2 = version
+            && extradata.len() >= 8
+        {
+            let v = u16::from_le_bytes([extradata[4], extradata[5]]);
+            if v == 0x000d && use_variable_block_len {
+                use_variable_block_len = false;
             }
         }
 
@@ -402,6 +424,8 @@ impl WmaDecoder {
             last_superframe: vec![0u8; MAX_CODED_SUPERFRAME_SIZE + 64],
             last_bitoffset: 0,
             last_superframe_len: 0,
+            pending_packet_bytes: Vec::new(),
+            pending_packet_pts_ms: None,
             eof_done: false,
 
             noise_table: vec![0f32; NOISE_TAB_SIZE],
@@ -435,38 +459,91 @@ impl WmaDecoder {
         self.frame_len
     }
 
-    /// Decode one ASF packet payload (usually `block_align` bytes).
+    /// Decode one assembled ASF audio media object.
+    ///
+    /// ASF demuxing returns complete media objects, while WMAv1/v2 decoding is
+    /// defined on fixed `block_align` codec packets. A media object may contain
+    /// several codec packets (and a codec packet may be completed by bytes from
+    /// the next object), so packetize the byte stream here exactly once before
+    /// entering the FFmpeg-derived superframe decoder.
     pub fn decode_packet(&mut self, pkt: &[u8], pts_ms: u32) -> Result<Option<PcmFrameF32>> {
         if pkt.is_empty() {
-            if self.eof_done {
-                return Ok(None);
+            return self.flush(pts_ms);
+        }
+
+        if self.eof_done {
+            return Err(DecoderError::InvalidData(
+                "WMAv1/2 data supplied after decoder flush".into(),
+            ));
+        }
+
+        if self.pending_packet_bytes.is_empty() {
+            self.pending_packet_pts_ms = Some(pts_ms);
+        }
+        self.pending_packet_bytes.extend_from_slice(pkt);
+
+        let output_pts_ms = self.pending_packet_pts_ms.unwrap_or(pts_ms);
+        let block_align = self.block_align as usize;
+        let mut output = Vec::new();
+
+        while self.pending_packet_bytes.len() >= block_align {
+            // Use split_off instead of drain so large ASF media objects do not
+            // repeatedly shift the remaining compressed data.
+            let rest = self.pending_packet_bytes.split_off(block_align);
+            let block = std::mem::replace(&mut self.pending_packet_bytes, rest);
+
+            if let Some(frame) = self.decode_codec_packet(&block, output_pts_ms)? {
+                output.extend_from_slice(&frame.samples);
             }
-            // Flush delayed samples.
-            self.eof_done = true;
-            let mut out = Vec::with_capacity(self.frame_len * self.channels);
-            for i in 0..self.frame_len {
-                for ch in 0..self.channels {
-                    out.push(self.frame_out[ch][i]);
-                }
+
+            if self.pending_packet_bytes.is_empty() {
+                self.pending_packet_pts_ms = None;
             }
-            self.last_superframe_len = 0;
-            return Ok(Some(PcmFrameF32 {
-                pts_ms,
+        }
+
+        if output.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(PcmFrameF32 {
+                pts_ms: output_pts_ms,
                 sample_rate: self.sample_rate,
                 channels: self.channels as u16,
-                samples: out,
-            }));
+                samples: output,
+            }))
         }
+    }
 
-        if pkt.len() < self.block_align as usize {
-            return Err(DecoderError::InvalidData(format!(
-                "Input packet size too small ({} < {})",
-                pkt.len(),
-                self.block_align
-            )));
+    fn flush(&mut self, pts_ms: u32) -> Result<Option<PcmFrameF32>> {
+        if self.eof_done {
+            return Ok(None);
         }
+        self.eof_done = true;
 
-        let buf = &pkt[..self.block_align as usize];
+        // A complete ASF stream should end on a WMAv1/v2 block_align boundary.
+        // Do not attempt to decode a short tail as a packet: doing so destroys
+        // bit-reservoir state and was one source of misleading frame errors.
+        self.pending_packet_bytes.clear();
+        self.pending_packet_pts_ms = None;
+
+        // Match wmadec's delayed overlap output at EOF.
+        let mut out = Vec::with_capacity(self.frame_len * self.channels);
+        for i in 0..self.frame_len {
+            for ch in 0..self.channels {
+                out.push(self.frame_out[ch][i]);
+            }
+        }
+        self.last_superframe_len = 0;
+        Ok(Some(PcmFrameF32 {
+            pts_ms,
+            sample_rate: self.sample_rate,
+            channels: self.channels as u16,
+            samples: out,
+        }))
+    }
+
+    /// Decode exactly one WMAv1/v2 `block_align` codec packet.
+    fn decode_codec_packet(&mut self, buf: &[u8], pts_ms: u32) -> Result<Option<PcmFrameF32>> {
+        debug_assert_eq!(buf.len(), self.block_align as usize);
 
         let mut gb = GetBitContext::new(buf);
 
@@ -476,7 +553,7 @@ impl WmaDecoder {
             // super frame header
             gb.skip_bits(4)?; // super frame index
             let mut nf = gb.get_bits(4)? as i32;
-            nf -= if self.last_superframe_len <= 0 { 1 } else { 0 };
+            nf -= if self.last_superframe_len == 0 { 1 } else { 0 };
             nb_frames = nf;
             if nb_frames <= 0 {
                 let is_error = nb_frames < 0 || gb.bits_left() <= 8;
@@ -542,14 +619,21 @@ impl WmaDecoder {
 
                 // Decode the previous frame.
                 let total_bits = self.last_superframe_len * 8 + bit_offset;
-                let need_bytes = (total_bits + 7) / 8;
+                let need_bytes = total_bits.div_ceil(8);
                 // Avoid borrowing `self` across the decode call.
                 let sf_bytes: Vec<u8> = self.last_superframe[..need_bytes].to_vec();
-                let mut gb2 = GetBitContext::new(&sf_bytes);
+                // FFmpeg initializes this reservoir reader with the exact bit
+                // length, not the rounded-up byte length.  GetBitContext still
+                // provides its normal eight zero-padding bits for look-ahead.
+                let mut gb2 = GetBitContext::new_bits(&sf_bytes, total_bits)?;
                 if self.last_bitoffset > 0 {
                     gb2.skip_bits(self.last_bitoffset)?;
                 }
-                self.reset_block_lengths = true;
+                // Do not reset the variable-block-length state here.  This is
+                // the frame that started at the end of the previous codec
+                // packet, and WMA carries prev/current/next block lengths
+                // across that packet boundary.  FFmpeg's wmadec deliberately
+                // only resets before the first wholly-new frame below.
                 self.wma_decode_frame(&mut gb2, &mut samples, samples_offset)?;
                 samples_offset += self.frame_len;
                 nb_frames -= 1;
@@ -587,7 +671,10 @@ impl WmaDecoder {
             self.last_superframe_len = len;
             self.last_superframe[..len].copy_from_slice(&buf[pos2..pos2 + len]);
         } else {
-            self.reset_block_lengths = true;
+            // With no bit reservoir there is no superframe boundary at which
+            // FFmpeg resets variable block lengths.  Keep the rolling
+            // prev/current/next state between codec packets.  The initial
+            // decoder state is already reset by ff_wma_init().
             self.wma_decode_frame(&mut gb, &mut samples, samples_offset)?;
             samples_offset += self.frame_len;
         }
@@ -610,7 +697,7 @@ impl WmaDecoder {
     }
 
     fn wma_decode_init(&mut self, flags2: i32) -> Result<()> {
-        // Initialize MDCT contexts (naive) like wma_decode_init.
+        // Initialize inverse MDCT plans for each WMA block size.
         let scale = 1.0f64 / 32768.0f64;
         self.mdct.clear();
         for i in 0..self.nb_block_sizes {
@@ -1124,17 +1211,32 @@ impl WmaDecoder {
         while q < q_end {
             let code = get_vlc2(gb, &self.exp_vlc.table, EXPVLCBITS, EXPMAX)?;
             last_exp += code - 60;
-            if (last_exp as i32 + 60) as usize >= tables::POW_TAB.len() {
-                return Err(DecoderError::InvalidData(format!(
-                    "Exponent out of range: {last_exp}"
-                )));
-            }
-            let v = ptab[last_exp as usize];
+            let pow_idx = exponent_pow_tab_index(last_exp).ok_or_else(|| {
+                DecoderError::InvalidData(format!("Exponent out of range: {last_exp}"))
+            })?;
+            let v = tables::POW_TAB[pow_idx];
             if v > max_scale {
                 max_scale = v;
             }
+
+            // Upstream's ptr++ is safe because the exponent-band tables are
+            // fixed codec tables whose sizes sum exactly to block_len.  Keep
+            // the Rust port fail-closed instead of panicking if a future table
+            // translation ever violates that invariant again.
+            if ptr_idx >= self.exponent_sizes[bsize] {
+                return Err(DecoderError::InvalidData(format!(
+                    "exponent band table exhausted: bsize={bsize} block_len={} q={q} bands={}",
+                    self.block_len, self.exponent_sizes[bsize]
+                )));
+            }
             let n = bands[ptr_idx] as usize;
             ptr_idx += 1;
+            if q + n > q_end {
+                return Err(DecoderError::InvalidData(format!(
+                    "exponent band table overrun: bsize={bsize} block_len={} q={q} band={n}",
+                    self.block_len
+                )));
+            }
             for _ in 0..n {
                 self.exponents[ch][q] = v;
                 q += 1;
@@ -1194,7 +1296,15 @@ impl WmaDecoder {
 
         self.block_len = 1usize << self.block_len_bits;
         if self.block_pos + self.block_len > self.frame_len {
-            return Err(DecoderError::InvalidData("frame_len overflow".into()));
+            return Err(DecoderError::InvalidData(format!(
+                "frame_len overflow: block_pos={} block_len={} frame_len={} prev_bits={} block_bits={} next_bits={}",
+                self.block_pos,
+                self.block_len,
+                self.frame_len,
+                self.prev_block_len_bits,
+                self.block_len_bits,
+                self.next_block_len_bits,
+            )));
         }
 
         if self.channels == 2 {
@@ -1338,7 +1448,7 @@ impl WmaDecoder {
             if self.use_noise_coding {
                 // very low freqs: noise
                 for i in 0..self.coefs_start {
-                    let exp_idx = ((i << bsize) >> esize) as usize;
+                    let exp_idx = (i << bsize) >> esize;
                     let noise = self.noise_table[self.noise_index];
                     self.noise_index = (self.noise_index + 1) & (NOISE_TAB_SIZE - 1);
                     self.coefs[ch][coefs_pos] = noise * self.exponents[ch][exp_idx] * mult;
@@ -1423,7 +1533,7 @@ impl WmaDecoder {
 
                 let n = nb_coefs[ch] as usize;
                 for i in 0..n {
-                    let exp = self.exponents[ch][((i << bsize) >> esize)];
+                    let exp = self.exponents[ch][(i << bsize) >> esize];
                     let coef1 = self.coefs1[ch][i];
                     self.coefs[ch][coefs_pos] = coef1 * exp * mult;
                     coefs_pos += 1;
@@ -1518,5 +1628,24 @@ impl WmaDecoder {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod exponent_pow_tab_index_tests {
+    use super::exponent_pow_tab_index;
+
+    #[test]
+    fn accepts_full_ffmpeg_pow_tab_window() {
+        assert_eq!(exponent_pow_tab_index(-60), Some(0));
+        assert_eq!(exponent_pow_tab_index(-1), Some(59));
+        assert_eq!(exponent_pow_tab_index(0), Some(60));
+        assert_eq!(exponent_pow_tab_index(95), Some(155));
+    }
+
+    #[test]
+    fn rejects_exponents_outside_ffmpeg_pow_tab_window() {
+        assert_eq!(exponent_pow_tab_index(-61), None);
+        assert_eq!(exponent_pow_tab_index(96), None);
     }
 }

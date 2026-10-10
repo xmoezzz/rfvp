@@ -105,28 +105,26 @@ impl Wmv2FrameHeader {
 
         // upstream skipped-frame probe (P only):
         // if (pict_type != I && show_bits(1)) { ...; if (!run) return FRAME_SKIPPED; }
-        if frame_type == Wmv2FrameType::P {
-            if br.peek_bits(1)? == 1 {
-                let mut gb = br.clone();
-                let skip_type = gb.read_bits(2)?;
-                let mut run: i32 = if skip_type == SKIP_TYPE_COL {
-                    mb_w as i32
-                } else {
-                    mb_h as i32
-                };
+        if frame_type == Wmv2FrameType::P && br.peek_bits(1)? == 1 {
+            let mut gb = br.clone();
+            let skip_type = gb.read_bits(2)?;
+            let mut run: i32 = if skip_type == SKIP_TYPE_COL {
+                mb_w as i32
+            } else {
+                mb_h as i32
+            };
 
-                while run > 0 {
-                    let block = run.min(25);
-                    let bits = gb.read_bits(block as u8)?;
-                    if bits != ((1u32 << block) - 1) {
-                        break;
-                    }
-                    run -= block;
+            while run > 0 {
+                let block = run.min(25);
+                let bits = gb.read_bits(block as u8)?;
+                if bits != ((1u32 << block) - 1) {
+                    break;
                 }
+                run -= block;
+            }
 
-                if run == 0 {
-                    frame_skipped = true;
-                }
+            if run == 0 {
+                frame_skipped = true;
             }
         }
 

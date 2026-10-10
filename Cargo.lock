@@ -1590,6 +1590,15 @@ dependencies = [
 
 [[package]]
 name = "glam"
+version = "0.29.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8babf46d4c1c9d92deac9f7be466f76dfc4482b6452fc5024b5e8daf6ffeb3ee"
+dependencies = [
+ "mint",
+]
+
+[[package]]
+name = "glam"
 version = "0.30.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19fc433e8437a212d1b6f1e68c7824af3aed907da60afa994e7f542d18d12aa9"
@@ -2378,6 +2387,22 @@ name = "khronos_api"
 version = "3.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2db585e1d738fc771bf08a151420d3ed193d9d895a36df7f6f8a9456b911ddc"
+
+[[package]]
+name = "kira"
+version = "0.9.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fb5a9f9dff5e262540b628b00d5e1a772270a962d6869f8695bb24832ff3b394"
+dependencies = [
+ "cpal",
+ "glam 0.29.3",
+ "mint",
+ "paste",
+ "ringbuf 0.3.3",
+ "send_wrapper",
+ "symphonia",
+ "triple_buffer",
+]
 
 [[package]]
 name = "kira"
@@ -3841,7 +3866,7 @@ dependencies = [
  "image",
  "itertools 0.12.1",
  "js-sys",
- "kira",
+ "kira 0.10.8",
  "lazy_static",
  "log 0.4.29",
  "miniz_oxide 0.7.4",
@@ -3975,6 +4000,15 @@ name = "riff"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c601484456988d75017d86700d3743b949c21cdc7399f940c75e34680d185c5"
+
+[[package]]
+name = "ringbuf"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "79abed428d1fd2a128201cec72c5f6938e2da607c6f3745f769fabea399d950a"
+dependencies = [
+ "crossbeam-utils",
+]
 
 [[package]]
 name = "ringbuf"
@@ -6406,10 +6440,11 @@ dependencies = [
  "cpal",
  "crossbeam-channel",
  "env_logger 0.10.2",
+ "kira 0.9.6",
  "log 0.4.29",
  "png",
  "pollster 0.3.0",
- "ringbuf",
+ "ringbuf 0.4.8",
  "thiserror 1.0.69",
  "wgpu",
  "winit 0.29.15",

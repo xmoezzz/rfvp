@@ -18,6 +18,12 @@ pub struct VlcTree {
     nodes: Vec<Node>,
 }
 
+impl Default for VlcTree {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VlcTree {
     pub fn new() -> Self {
         VlcTree {

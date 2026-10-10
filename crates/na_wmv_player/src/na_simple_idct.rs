@@ -36,7 +36,7 @@ fn idct_row_cond_dc_int16_8bit(row: &mut [i16; 8]) {
         && row[6] == 0
         && row[7] == 0
     {
-        let t: i16 = (((row[0] as i32) << DC_SHIFT) as i16);
+        let t: i16 = ((row[0] as i32) << DC_SHIFT) as i16;
         *row = [t; 8];
         return;
     }
@@ -92,8 +92,8 @@ fn idct_row_cond_dc_int16_8bit(row: &mut [i16; 8]) {
 #[inline(always)]
 fn idct_sparse_col_int16_8bit(block: &mut [i16; 64], col: usize) {
     // Column elements are block[col + 8*r]
-    let c0 = block[col + 8 * 0] as i64;
-    let c1 = block[col + 8 * 1] as i64;
+    let c0 = block[col] as i64;
+    let c1 = block[col + 8] as i64;
     let c2 = block[col + 8 * 2] as i64;
     let c3 = block[col + 8 * 3] as i64;
     let c4 = block[col + 8 * 4] as i64;
@@ -142,8 +142,8 @@ fn idct_sparse_col_int16_8bit(block: &mut [i16; 64], col: usize) {
     }
 
     let cs = COL_SHIFT as i64;
-    block[col + 8 * 0] = ((a0 + b0) >> cs) as i16;
-    block[col + 8 * 1] = ((a1 + b1) >> cs) as i16;
+    block[col] = ((a0 + b0) >> cs) as i16;
+    block[col + 8] = ((a1 + b1) >> cs) as i16;
     block[col + 8 * 2] = ((a2 + b2) >> cs) as i16;
     block[col + 8 * 3] = ((a3 + b3) >> cs) as i16;
     block[col + 8 * 4] = ((a3 - b3) >> cs) as i16;
@@ -160,8 +160,8 @@ fn idct_sparse_col_add_int16_8bit(
     block: &[i16; 64],
     col: usize,
 ) {
-    let c0 = block[col + 8 * 0] as i64;
-    let c1 = block[col + 8 * 1] as i64;
+    let c0 = block[col] as i64;
+    let c1 = block[col + 8] as i64;
     let c2 = block[col + 8 * 2] as i64;
     let c3 = block[col + 8 * 3] as i64;
     let c4 = block[col + 8 * 4] as i64;
@@ -297,8 +297,8 @@ fn idct4col_add(
     col_idx: usize,
 ) {
     // col points to block + i (column i), but in upstream idct4col_add reads col[8*0..8*3]
-    let a0 = col[col_idx + 8 * 0] as i64;
-    let a1 = col[col_idx + 8 * 1] as i64;
+    let a0 = col[col_idx] as i64;
+    let a1 = col[col_idx + 8] as i64;
     let a2 = col[col_idx + 8 * 2] as i64;
     let a3 = col[col_idx + 8 * 3] as i64;
 
@@ -340,6 +340,96 @@ fn idct4row(row: &mut [i16; 8]) {
     row[1] = ((c2 + c3) >> R_SHIFT) as i16;
     row[2] = ((c2 - c3) >> R_SHIFT) as i16;
     row[3] = ((c0 - c1) >> R_SHIFT) as i16;
+}
+
+/// Transform one 8x4 coefficient half in place without adding it to a pixel
+/// destination.  This is the transform portion of FFmpeg's
+/// `ff_simple_idct84_add()` and is used by WMV3 Simple/Main when RES_FASTTX=0.
+///
+/// `row0` is 0 for the upper 8x4 half and 4 for the lower half.
+pub fn ff_simple_idct84_int16_8bit(block: &mut [i16; 64], row0: usize) {
+    debug_assert!(row0 == 0 || row0 == 4);
+
+    for r in row0..row0 + 4 {
+        let mut row = [0i16; 8];
+        row.copy_from_slice(&block[r * 8..r * 8 + 8]);
+        idct_row_cond_dc_int16_8bit(&mut row);
+        block[r * 8..r * 8 + 8].copy_from_slice(&row);
+    }
+
+    let src = *block;
+    for c in 0..8usize {
+        let a0 = src[row0 * 8 + c] as i64;
+        let a1 = src[(row0 + 1) * 8 + c] as i64;
+        let a2 = src[(row0 + 2) * 8 + c] as i64;
+        let a3 = src[(row0 + 3) * 8 + c] as i64;
+        let c0 = (a0 + a2) * C3 + (1i64 << (C_SHIFT - 1));
+        let c2 = (a0 - a2) * C3 + (1i64 << (C_SHIFT - 1));
+        let c1 = a1 * C1 + a3 * C2;
+        let c3 = a1 * C2 - a3 * C1;
+        block[row0 * 8 + c] = ((c0 + c1) >> C_SHIFT) as i16;
+        block[(row0 + 1) * 8 + c] = ((c2 + c3) >> C_SHIFT) as i16;
+        block[(row0 + 2) * 8 + c] = ((c2 - c3) >> C_SHIFT) as i16;
+        block[(row0 + 3) * 8 + c] = ((c0 - c1) >> C_SHIFT) as i16;
+    }
+}
+
+/// Transform one 4x8 coefficient half in place without adding it to a pixel
+/// destination.  This is the transform portion of FFmpeg's
+/// `ff_simple_idct48_add()` used by WMV3 Simple/Main when RES_FASTTX=0.
+///
+/// `col0` is 0 for the left half and 4 for the right half.
+pub fn ff_simple_idct48_int16_8bit(block: &mut [i16; 64], col0: usize) {
+    debug_assert!(col0 == 0 || col0 == 4);
+
+    for r in 0..8usize {
+        let mut row = [0i16; 8];
+        for c in 0..4usize {
+            row[c] = block[r * 8 + col0 + c];
+        }
+        idct4row(&mut row);
+        for c in 0..4usize {
+            block[r * 8 + col0 + c] = row[c];
+        }
+    }
+
+    for c in col0..col0 + 4 {
+        idct_sparse_col_int16_8bit(block, c);
+    }
+}
+
+/// Transform one 4x4 coefficient quadrant in place without adding it to a
+/// pixel destination.  This is the transform portion of FFmpeg's
+/// `ff_simple_idct44_add()` used by WMV3 Simple/Main when RES_FASTTX=0.
+pub fn ff_simple_idct44_int16_8bit(block: &mut [i16; 64], row0: usize, col0: usize) {
+    debug_assert!((row0 == 0 || row0 == 4) && (col0 == 0 || col0 == 4));
+
+    for r in row0..row0 + 4 {
+        let mut row = [0i16; 8];
+        for c in 0..4usize {
+            row[c] = block[r * 8 + col0 + c];
+        }
+        idct4row(&mut row);
+        for c in 0..4usize {
+            block[r * 8 + col0 + c] = row[c];
+        }
+    }
+
+    let src = *block;
+    for c in col0..col0 + 4 {
+        let a0 = src[row0 * 8 + c] as i64;
+        let a1 = src[(row0 + 1) * 8 + c] as i64;
+        let a2 = src[(row0 + 2) * 8 + c] as i64;
+        let a3 = src[(row0 + 3) * 8 + c] as i64;
+        let c0 = (a0 + a2) * C3 + (1i64 << (C_SHIFT - 1));
+        let c2 = (a0 - a2) * C3 + (1i64 << (C_SHIFT - 1));
+        let c1 = a1 * C1 + a3 * C2;
+        let c3 = a1 * C2 - a3 * C1;
+        block[row0 * 8 + c] = ((c0 + c1) >> C_SHIFT) as i16;
+        block[(row0 + 1) * 8 + c] = ((c2 + c3) >> C_SHIFT) as i16;
+        block[(row0 + 2) * 8 + c] = ((c2 - c3) >> C_SHIFT) as i16;
+        block[(row0 + 3) * 8 + c] = ((c0 - c1) >> C_SHIFT) as i16;
+    }
 }
 
 /// WMV2 ABT: add an 8x4 IDCT block (top or bottom half). Equivalent to upstream `ff_simple_idct84_add`.
