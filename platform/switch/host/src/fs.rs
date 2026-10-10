@@ -1,18 +1,16 @@
+//! Files on the SD card, through newlib's stdio (libnx mounts `sdmc:` before `main`).
+
 use alloc::format;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::ffi::{c_char, c_long, c_void, CStr};
 
-use nx::fs;
 use rfvp::host_api::{
     RfvpError, RfvpFile, RfvpFileInfo, RfvpFileKind, RfvpFileSystem, RfvpResult, RfvpStorage,
 };
 
-static FS_READY: AtomicBool = AtomicBool::new(false);
-
-/// Where the game's files live on the SD card when nothing else is configured.
-pub const DEFAULT_GAME_ROOT: &str = "sdmc:/switch/rfvp/game";
+use crate::ffi::{self, c_path, CFile};
 
 pub struct HorizonFileSystem {
     /// Relative paths are resolved against this directory.
@@ -20,34 +18,18 @@ pub struct HorizonFileSystem {
 }
 
 impl HorizonFileSystem {
-    pub fn new() -> Self {
-        Self::with_root(DEFAULT_GAME_ROOT)
-    }
-
     pub fn with_root(root: &str) -> Self {
         Self {
             root: String::from(root.trim_end_matches('/')),
         }
     }
 
-    pub fn root(&self) -> &str {
-        &self.root
+    pub fn exists(&mut self, path: &str) -> bool {
+        self.metadata(path).is_ok()
     }
 
-    fn ensure_ready(&mut self) -> RfvpResult<()> {
-        if FS_READY.load(Ordering::Acquire) {
-            return Ok(());
-        }
-        if !fs::is_fspsrv_session_initialized() {
-            fs::initialize_fspsrv_session().map_err(|_| RfvpError::Backend)?;
-        }
-        fs::mount_sd_card("sdmc").map_err(|_| RfvpError::Backend)?;
-        FS_READY.store(true, Ordering::Release);
-        Ok(())
-    }
-
-    fn horizon_path(&self, path: &str) -> RfvpResult<String> {
-        if path.is_empty() || path.as_bytes().iter().any(|b| *b == 0) {
+    fn full_path(&self, path: &str) -> RfvpResult<String> {
+        if path.is_empty() {
             return Err(RfvpError::InvalidArgument);
         }
         if path.contains(':') {
@@ -55,52 +37,129 @@ impl HorizonFileSystem {
         } else if path.starts_with('/') {
             Ok(format!("sdmc:{path}"))
         } else {
-            let relative = path.trim_start_matches("./");
-            Ok(format!("{}/{relative}", self.root))
+            Ok(format!("{}/{}", self.root, path.trim_start_matches("./")))
         }
     }
 }
 
-impl Default for HorizonFileSystem {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
+/// An open file; closed when dropped.
 pub struct HorizonFile {
-    file: fs::FileAccessor,
+    file: *mut CFile,
 }
 
 impl HorizonFile {
-    fn new(file: fs::FileAccessor) -> Self {
-        Self { file }
+    fn open(path: &str, mode: &CStr) -> RfvpResult<Self> {
+        let path = c_path(path).ok_or(RfvpError::InvalidArgument)?;
+        let file = unsafe { ffi::fopen(path.as_ptr() as *const c_char, mode.as_ptr()) };
+        if file.is_null() {
+            Err(RfvpError::NotFound)
+        } else {
+            Ok(Self { file })
+        }
+    }
+
+    fn write_all(&mut self, bytes: &[u8]) -> RfvpResult<()> {
+        let written = unsafe { ffi::fwrite(bytes.as_ptr() as *const c_void, 1, bytes.len(), self.file) };
+        if written == bytes.len() {
+            Ok(())
+        } else {
+            Err(RfvpError::Io)
+        }
     }
 }
+
+impl Drop for HorizonFile {
+    fn drop(&mut self) {
+        unsafe { ffi::fclose(self.file) };
+    }
+}
+
+// SAFETY: a `FILE` may be used from any thread; the VFS only touches it under a lock.
+unsafe impl Send for HorizonFile {}
 
 impl RfvpFile for HorizonFile {
     fn len(&mut self) -> RfvpResult<u64> {
-        self.file
-            .get_size()
-            .map(|len| len as u64)
-            .map_err(|_| RfvpError::Backend)
+        unsafe {
+            if ffi::fseek(self.file, 0, ffi::SEEK_END) != 0 {
+                return Err(RfvpError::Io);
+            }
+            let len = ffi::ftell(self.file);
+            if len < 0 {
+                return Err(RfvpError::Io);
+            }
+            Ok(len as u64)
+        }
     }
 
     fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> RfvpResult<usize> {
-        self.file
-            .seek(fs::SeekFrom::Start(offset))
-            .map_err(|_| RfvpError::Backend)?;
-        self.file.read_array(buf).map_err(|_| RfvpError::Backend)
+        let offset = c_long::try_from(offset).map_err(|_| RfvpError::InvalidArgument)?;
+        unsafe {
+            if ffi::fseek(self.file, offset, ffi::SEEK_SET) != 0 {
+                return Err(RfvpError::Io);
+            }
+            Ok(ffi::fread(buf.as_mut_ptr() as *mut c_void, 1, buf.len(), self.file))
+        }
     }
 }
 
-/// The player's saves, in a `save` directory next to the game files.
+fn write_file(path: &str, bytes: &[u8]) -> RfvpResult<()> {
+    create_parent_dirs(path);
+    HorizonFile::open(path, c"wb")
+        .map_err(|_| RfvpError::Io)?
+        .write_all(bytes)
+}
+
+/// What is at `path`: a file (with its size), a directory, or nothing.
+fn path_kind(path: &str) -> Option<RfvpFileInfo> {
+    let c = c_path(path)?;
+    let mut size = 0u64;
+    match unsafe { ffi::rfvp_switch_path_kind(c.as_ptr() as *const c_char, &mut size) } {
+        1 => Some(RfvpFileInfo::file(size)),
+        2 => Some(RfvpFileInfo {
+            len: 0,
+            kind: RfvpFileKind::Directory,
+        }),
+        _ => None,
+    }
+}
+
+/// The entries of a directory: name, whether it is a directory, size.
+fn list_dir(path: &str) -> RfvpResult<Vec<(String, bool, u64)>> {
+    unsafe extern "C" fn visit(ctx: *mut c_void, name: *const c_char, is_dir: bool, size: u64) {
+        let out = unsafe { &mut *(ctx as *mut Vec<(String, bool, u64)>) };
+        if let Ok(name) = unsafe { CStr::from_ptr(name) }.to_str() {
+            out.push((String::from(name), is_dir, size));
+        }
+    }
+    let c = c_path(path).ok_or(RfvpError::InvalidArgument)?;
+    let mut entries = Vec::new();
+    let status = unsafe {
+        ffi::rfvp_switch_list_dir(
+            c.as_ptr() as *const c_char,
+            visit,
+            &mut entries as *mut Vec<(String, bool, u64)> as *mut c_void,
+        )
+    };
+    if status == 0 {
+        Ok(entries)
+    } else {
+        Err(RfvpError::NotFound)
+    }
+}
+
+/// The game directory: the player's saves (in its `save` directory) and loose game files.
 pub struct HorizonStorage {
     root: String,
 }
 
 impl HorizonStorage {
     fn full(&self, path: &str) -> String {
-        format!("{}/{}", self.root, path.trim_start_matches('/'))
+        let path = path.trim_start_matches('/');
+        if path.is_empty() {
+            self.root.clone()
+        } else {
+            format!("{}/{}", self.root, path)
+        }
     }
 }
 
@@ -110,61 +169,40 @@ impl RfvpStorage for HorizonStorage {
     }
 
     fn read_prefix(&self, path: &str, max_len: usize) -> RfvpResult<Vec<u8>> {
-        let full = self.full(path);
-        let mut file = fs::open_file(&full, fs::FileOpenOption::Read())
-            .map_err(|_| RfvpError::NotFound)?;
-        let len = (file.get_size().map_err(|_| RfvpError::Backend)? as usize).min(max_len);
+        let mut file = HorizonFile::open(&self.full(path), c"rb")?;
+        let len = (file.len()? as usize).min(max_len);
         let mut out = alloc::vec![0u8; len];
-        file.seek(fs::SeekFrom::Start(0))
-            .map_err(|_| RfvpError::Backend)?;
-        let mut filled = 0;
-        while filled < len {
-            let read = file
-                .read_array(&mut out[filled..])
-                .map_err(|_| RfvpError::Backend)?;
-            if read == 0 {
-                return Err(RfvpError::EndOfFile);
-            }
-            filled += read;
-        }
+        file.read_exact_at(0, &mut out)?;
         Ok(out)
     }
 
     fn write(&self, path: &str, bytes: &[u8]) -> RfvpResult<()> {
-        let full = self.full(path);
-        create_parent_dirs(&full)?;
-        let _ = fs::remove_file(&full);
-        fs::create_file(&full, bytes.len(), fs::FileAttribute::None())
-            .map_err(|_| RfvpError::Backend)?;
-        let mut file =
-            fs::open_file(&full, fs::FileOpenOption::Write()).map_err(|_| RfvpError::Backend)?;
-        file.seek(fs::SeekFrom::Start(0))
-            .map_err(|_| RfvpError::Backend)?;
-        file.write_array::<u8, true>(bytes)
-            .map_err(|_| RfvpError::Backend)
+        write_file(&self.full(path), bytes)
     }
 
     fn exists(&self, path: &str) -> bool {
-        matches!(
-            fs::get_entry_type(&self.full(path)),
-            Ok(fs::DirectoryEntryType::File)
-        )
+        path_kind(&self.full(path)).is_some_and(|info| info.kind == RfvpFileKind::File)
     }
 
     fn remove(&self, path: &str) -> RfvpResult<()> {
-        fs::remove_file(&self.full(path)).map_err(|_| RfvpError::Backend)
+        let c = c_path(&self.full(path)).ok_or(RfvpError::InvalidArgument)?;
+        if unsafe { ffi::remove(c.as_ptr() as *const c_char) } == 0 {
+            Ok(())
+        } else {
+            Err(RfvpError::Io)
+        }
     }
 
     fn list(&self, dir: &str) -> RfvpResult<Vec<String>> {
-        let mut dir = fs::open_directory(&self.full(dir), fs::DirectoryOpenMode::ReadFiles())
-            .map_err(|_| RfvpError::NotFound)?;
-        let mut names = Vec::new();
-        while let Some(entry) = dir.read_next().map_err(|_| RfvpError::Backend)? {
-            if let Ok(name) = entry.name.get_str() {
-                names.push(String::from(name));
-            }
-        }
-        Ok(names)
+        Ok(list_dir(&self.full(dir))?
+            .into_iter()
+            .filter(|(_, is_dir, _)| !is_dir)
+            .map(|(name, _, _)| name)
+            .collect())
+    }
+
+    fn open(&self, path: &str) -> RfvpResult<alloc::boxed::Box<dyn RfvpFile + Send>> {
+        Ok(alloc::boxed::Box::new(HorizonFile::open(&self.full(path), c"rb")?))
     }
 }
 
@@ -172,7 +210,6 @@ impl RfvpFileSystem for HorizonFileSystem {
     type File = HorizonFile;
 
     fn storage(&mut self) -> Option<Arc<dyn RfvpStorage>> {
-        self.ensure_ready().ok()?;
         Some(Arc::new(HorizonStorage {
             root: self.root.clone(),
         }))
@@ -183,47 +220,15 @@ impl RfvpFileSystem for HorizonFileSystem {
     }
 
     fn open(&mut self, path: &str) -> RfvpResult<Self::File> {
-        self.ensure_ready()?;
-        let path = self.horizon_path(path)?;
-        fs::open_file(&path, fs::FileOpenOption::Read())
-            .map(HorizonFile::new)
-            .map_err(|_| RfvpError::NotFound)
+        HorizonFile::open(&self.full_path(path)?, c"rb")
     }
 
     fn write_all(&mut self, path: &str, bytes: &[u8]) -> RfvpResult<()> {
-        self.ensure_ready()?;
-        let path = self.horizon_path(path)?;
-        create_parent_dirs(&path)?;
-        let _ = fs::remove_file(&path);
-        fs::create_file(&path, bytes.len(), fs::FileAttribute::None())
-            .map_err(|_| RfvpError::Backend)?;
-        let mut file =
-            fs::open_file(&path, fs::FileOpenOption::Write()).map_err(|_| RfvpError::Backend)?;
-        file.seek(fs::SeekFrom::Start(0))
-            .map_err(|_| RfvpError::Backend)?;
-        file.write_array::<u8, true>(bytes)
-            .map_err(|_| RfvpError::Backend)
+        write_file(&self.full_path(path)?, bytes)
     }
 
     fn metadata(&mut self, path: &str) -> RfvpResult<RfvpFileInfo> {
-        self.ensure_ready()?;
-        let path = self.horizon_path(path)?;
-        let entry_type = fs::get_entry_type(&path).map_err(|_| RfvpError::NotFound)?;
-        match entry_type {
-            fs::DirectoryEntryType::File => {
-                let mut file = fs::open_file(&path, fs::FileOpenOption::Read())
-                    .map_err(|_| RfvpError::Backend)?;
-                let len = file.get_size().map_err(|_| RfvpError::Backend)? as u64;
-                Ok(RfvpFileInfo {
-                    len,
-                    kind: RfvpFileKind::File,
-                })
-            }
-            fs::DirectoryEntryType::Directory => Ok(RfvpFileInfo {
-                len: 0,
-                kind: RfvpFileKind::Directory,
-            }),
-        }
+        path_kind(&self.full_path(path)?).ok_or(RfvpError::NotFound)
     }
 
     fn enumerate_by_extension(
@@ -232,9 +237,7 @@ impl RfvpFileSystem for HorizonFileSystem {
         extension_without_dot: &str,
         visitor: &mut dyn FnMut(&str, RfvpFileInfo) -> RfvpResult<()>,
     ) -> RfvpResult<()> {
-        self.ensure_ready()?;
-        let root = self.horizon_path(root)?;
-        enumerate_dir_recursive(&root, extension_without_dot, visitor)
+        enumerate_dir_recursive(&self.full_path(root)?, extension_without_dot, visitor)
     }
 }
 
@@ -243,78 +246,33 @@ fn enumerate_dir_recursive(
     extension_without_dot: &str,
     visitor: &mut dyn FnMut(&str, RfvpFileInfo) -> RfvpResult<()>,
 ) -> RfvpResult<()> {
-    let mut dir = fs::open_directory(
-        root,
-        fs::DirectoryOpenMode::ReadDirectories() | fs::DirectoryOpenMode::ReadFiles(),
-    )
-    .map_err(|_| RfvpError::NotFound)?;
-
-    loop {
-        let entry = match dir.read_next().map_err(|_| RfvpError::Backend)? {
-            Some(entry) => entry,
-            None => break,
-        };
-        let name = entry.name.get_str().map_err(|_| RfvpError::InvalidData)?;
-        if name == "." || name == ".." {
-            continue;
-        }
-        let child = join_path(root, name);
-        match entry.entry_type {
-            fs::DirectoryEntryType::Directory => {
-                enumerate_dir_recursive(&child, extension_without_dot, visitor)?;
-            }
-            fs::DirectoryEntryType::File => {
-                if path_has_extension(&child, extension_without_dot) {
-                    visitor(
-                        &child,
-                        RfvpFileInfo {
-                            len: entry.file_size as u64,
-                            kind: RfvpFileKind::File,
-                        },
-                    )?;
-                }
-            }
+    for (name, is_dir, size) in list_dir(root)? {
+        let child = format!("{}/{}", root.trim_end_matches('/'), name);
+        if is_dir {
+            enumerate_dir_recursive(&child, extension_without_dot, visitor)?;
+        } else if child
+            .rfind('.')
+            .is_some_and(|pos| child[pos + 1..].eq_ignore_ascii_case(extension_without_dot))
+        {
+            visitor(&child, RfvpFileInfo::file(size))?;
         }
     }
-
     Ok(())
 }
 
-fn join_path(root: &str, name: &str) -> String {
-    if root.ends_with('/') {
-        format!("{root}{name}")
-    } else {
-        format!("{root}/{name}")
-    }
-}
-
-fn path_has_extension(path: &str, extension_without_dot: &str) -> bool {
-    let Some(pos) = path.rfind('.') else {
-        return false;
+fn create_parent_dirs(path: &str) {
+    let Some((prefix, rest)) = path.split_once(":/") else {
+        return;
     };
-    path[pos + 1..].eq_ignore_ascii_case(extension_without_dot)
-}
-
-fn create_parent_dirs(path: &str) -> RfvpResult<()> {
-    let Some(last_slash) = path.rfind('/') else {
-        return Ok(());
-    };
-    let dir = &path[..last_slash];
-    if dir.is_empty() || dir.ends_with(':') {
-        return Ok(());
-    }
-
-    let Some((prefix, rest)) = dir.split_once(":/") else {
-        return Ok(());
+    let Some((dir, _file)) = rest.rsplit_once('/') else {
+        return;
     };
     let mut current = format!("{prefix}:");
-    for part in rest.split('/') {
-        if part.is_empty() {
-            continue;
-        }
+    for part in dir.split('/').filter(|part| !part.is_empty()) {
         current.push('/');
         current.push_str(part);
-        let _ = fs::create_directory(&current);
+        if let Some(c) = c_path(&current) {
+            unsafe { ffi::mkdir(c.as_ptr() as *const c_char, 0o777) };
+        }
     }
-    Ok(())
 }

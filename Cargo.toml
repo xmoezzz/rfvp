@@ -14,9 +14,3 @@ members = [
     "platform/experimental/ps2",
     "platform/experimental/ps3",
 ]
-# Patched copies of dependencies, used through [patch] below; not workspace members.
-exclude = ["platform/switch/patches"]
-
-# nx with one call removed so the Switch port runs in Ryujinx; see platform/switch/patches/README.md.
-[patch."https://github.com/aarch64-switch-rs/nx"]
-nx = { path = "platform/switch/patches/nx" }

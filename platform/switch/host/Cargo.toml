@@ -10,26 +10,11 @@ build = "build.rs"
 [lib]
 name = "rfvp_horizon"
 path = "src/lib.rs"
-
-[[bin]]
-name = "rfvp-horizon"
-path = "src/main.rs"
-required-features = ["entrypoint"]
+# Linked into the libnx runtime (platform/switch/runtime/main.c).
+crate-type = ["staticlib"]
 
 [dependencies]
 rfvp = { path = "../../../crates/rfvp", default-features = false, features = ["no_std"] }
-nx = { git = "https://github.com/aarch64-switch-rs/nx", features = ["input", "canvas", "fs", "services"] }
-log = { version = "0.4", default-features = false }
 
 [build-dependencies]
 cc = "1"
-
-[features]
-default = []
-entrypoint = []
-
-[package.metadata.nx.nro.nacp]
-default_name = "rfvp-horizon"
-default_author = "xmoe"
-version = "0.1.0"
-application_id = "0x0100AAAABBBBCCCC"

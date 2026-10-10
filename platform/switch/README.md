@@ -1,9 +1,20 @@
-# rfvp-horizon
+# rfvp for Nintendo Switch
 
-The Nintendo Switch (Horizon OS) host for the `rfvp` `no_std` core. It builds a homebrew `.nro`.
+The Nintendo Switch port of the `rfvp` `no_std` core, as a homebrew `.nro`.
 
-**Status: experimental.** It compiles, and the core it runs has been played through a desktop test
-host (see below), but it has not been run on a Switch or an emulator yet.
+**Status: experimental.** It runs in Ryujinx at 60 fps with picture and sound; it has not been run
+on a console yet.
+
+## Layout
+
+- `runtime/main.c`: the libnx runtime. It owns the process loop, controller and touch input, audio
+  (audren/audrv) and the display (libnx's framebuffer on the default window; presenting waits for
+  vsync, which paces the loop at 60 fps). This is the path most homebrew takes, and the one
+  emulators handle.
+- `host/`: the engine side, a Rust static library (`rfvp-horizon`) linked into the runtime. It runs
+  one frame per call (`rfvp_switch_frame`), draws into the framebuffer the runtime lends it, mixes
+  audio when the runtime asks (`rfvp_switch_audio_render`), and reads files through newlib's stdio.
+- `aarch64-nintendo-switch-rfvp.json`: the Rust target for the library.
 
 ## Building
 
@@ -11,11 +22,11 @@ host (see below), but it has not been run on a Switch or an emulator yet.
 ./platform/switch/build_switch.sh       # -> target/rfvp-switch/switch/rfvp.nro
 ```
 
-You need [devkitPro](https://devkitpro.org) with devkitA64 (`DEVKITPRO`, default `/opt/devkitpro`)
-and rustup. The script installs the pinned nightly from `platform/consoles/toolchain.env`, so the
-build does not break when a newer nightly does.
+You need [devkitPro](https://devkitpro.org) with devkitA64, libnx and switch-tools (`DEVKITPRO`,
+default `/opt/devkitpro`) and rustup. The script installs the pinned nightly from
+`platform/consoles/toolchain.env`, so the build does not break when a newer nightly does.
 
-The port builds for `platform/switch/aarch64-nintendo-switch-rfvp.json`, a copy of the built-in
+The library builds for `aarch64-nintendo-switch-rfvp.json`, a copy of the built-in
 `aarch64-nintendo-switch-freestanding` target with `dynamic-linking` turned off. The stock target
 allows dynamic libraries, so rustc also tries to build `rfvp`'s `cdylib` (which the desktop and
 mobile packages need) and fails for lack of a global allocator.
@@ -35,7 +46,10 @@ Optionally `sdmc:/switch/rfvp/nls.txt` with `sjis` (default), `gbk` or `utf8`, f
 text encoding.
 
 The packs are read from the card as the game asks for them, not loaded into memory. If the game
-cannot start, the reason is written to `sdmc:/switch/rfvp/last_error.txt`.
+cannot start or stops, the reason is written to `sdmc:/switch/rfvp/last_error.txt`. If
+`sdmc:/switch/rfvp/debug.txt` exists, the port writes a report (frame rate, slowest frame, recent
+log) to `debug_report.txt` about once a second and the screen to `debug_screen.bmp` every five
+seconds. Log lines also go to the system debug output, which emulators show in their log.
 
 ## Controls
 
@@ -55,15 +69,14 @@ cannot start, the reason is written to `sdmc:/switch/rfvp/last_error.txt`.
 
 Saves go in `game/save/`: one `rfvp_sNNN.bin` per slot and `rfvp_global.bin` for the settings and
 read-text marks (written about every two minutes, after each save, and on quit). They are not
-interchangeable with the desktop build's saves, which use a different encoding.
-
-A save is stamped with the date `0000/00/00`: the Switch's clock service is not wired up.
+interchangeable with the desktop build's saves, which use a different encoding. Saves are stamped
+with the console's local time.
 
 ## Display
 
-The game is drawn with a software rasterizer (`rfvp::host_api::SoftRaster`) straight into a 1280x720
-framebuffer, with the game frame scaled and letterboxed as it is drawn, then copied to the screen
-once per frame. Rendering is behind the host API (`RfvpRenderer`), so a GPU renderer can replace it
+The game is drawn with a software rasterizer (`rfvp::host_api::SoftRaster`) into a 1280x720
+frame, with the game frame scaled and letterboxed as it is drawn, then copied into libnx's
+framebuffer once per frame. It blends in linear light, as the desktop GPU renderer does. Rendering is behind the host API (`RfvpRenderer`), so a GPU renderer can replace it
 without touching the core.
 
 ## Testing without a console

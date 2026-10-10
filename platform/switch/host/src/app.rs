@@ -1,40 +1,30 @@
 use rfvp::host_api::{RfvpEvent, RfvpResult};
 use rfvp::{RfvpBootConfig, RfvpCore, RfvpCoreConfig, RfvpTickResult};
 
-use crate::event::{HorizonEventQueue, HorizonInput};
+use crate::event::{HorizonInput, SwitchInput};
 use crate::host::HorizonHost;
 
 pub struct HorizonApp {
     core: RfvpCore,
     host: HorizonHost,
-    events: HorizonEventQueue,
+    events: alloc::vec::Vec<RfvpEvent>,
+    event_capacity: usize,
     input: HorizonInput,
 }
 
 impl HorizonApp {
-    pub fn new(config: RfvpCoreConfig, event_capacity: usize) -> RfvpResult<Self> {
-        Self::with_game_root(config, event_capacity, crate::fs::DEFAULT_GAME_ROOT)
-    }
-
-    pub fn with_game_root(
-        config: RfvpCoreConfig,
-        event_capacity: usize,
-        game_root: &str,
-    ) -> RfvpResult<Self> {
-        Ok(Self {
+    pub fn new(config: RfvpCoreConfig, event_capacity: usize, game_root: &str) -> Self {
+        Self {
             core: RfvpCore::new(config),
             host: HorizonHost::with_game_root(game_root),
-            events: HorizonEventQueue::new(event_capacity),
-            input: HorizonInput::new()?,
-        })
+            events: alloc::vec::Vec::new(),
+            event_capacity,
+            input: HorizonInput::new(),
+        }
     }
 
     pub fn core(&self) -> &RfvpCore {
         &self.core
-    }
-
-    pub fn core_mut(&mut self) -> &mut RfvpCore {
-        &mut self.core
     }
 
     pub fn host(&mut self) -> &mut HorizonHost {
@@ -44,14 +34,6 @@ impl HorizonApp {
     /// Load the game: find the script, open the resource packs and start the VM.
     pub fn boot(&mut self, config: RfvpBootConfig<'_>) -> RfvpResult<()> {
         self.core.boot(&mut self.host, config)
-    }
-
-    pub fn push_event(&mut self, event: RfvpEvent) -> RfvpResult<()> {
-        self.events.push(event)
-    }
-
-    pub fn poll_platform_events(&mut self) -> RfvpResult<()> {
-        self.input.poll(&mut self.events)
     }
 
     /// Pointer positions arrive in screen pixels; the game wants its own virtual coordinates
@@ -93,20 +75,16 @@ impl HorizonApp {
         }
     }
 
-    /// Run one frame: deliver input, advance the script and draw. The core draws and presents
-    /// the frame itself, which also paces the loop to the display.
-    pub fn tick(&mut self) -> RfvpResult<RfvpTickResult> {
-        self.poll_platform_events()?;
-        for index in 0..self.events.as_slice().len() {
-            let event = self.to_virtual(self.events.as_slice()[index]);
+    /// Run one frame: deliver this frame's input, advance the script and draw.
+    pub fn run_frame(&mut self, input: &SwitchInput) -> RfvpResult<RfvpTickResult> {
+        self.events.clear();
+        self.input.poll(input, &mut self.events);
+        self.events.truncate(self.event_capacity);
+        for index in 0..self.events.len() {
+            let event = self.to_virtual(self.events[index]);
             self.core.push_event(event)?;
         }
-        self.events.clear();
         self.core.tick(&mut self.host)
-    }
-
-    pub fn run_frame(&mut self) -> RfvpResult<RfvpTickResult> {
-        self.tick()
     }
 
     pub fn quit_requested(&self) -> bool {

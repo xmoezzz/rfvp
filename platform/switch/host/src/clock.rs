@@ -1,4 +1,4 @@
-use rfvp::host_api::RfvpClock;
+use rfvp::host_api::{RfvpClock, WallTime};
 
 pub struct HorizonClock;
 
@@ -16,10 +16,11 @@ impl Default for HorizonClock {
 
 impl RfvpClock for HorizonClock {
     fn ticks_us(&mut self) -> u64 {
-        // `nx::arm::get_system_tick_as_nanos` divides by zero on its first call, so convert the
-        // system tick here. The multiplication is done in 128 bits: the counter is large.
-        let ticks = nx::arm::get_system_tick() as u128;
-        let frequency = nx::arm::get_system_tick_frequency() as u128;
-        (ticks * 1_000_000 / frequency.max(1)) as u64
+        crate::ffi::ticks_us()
+    }
+
+    /// The console's local time, stamped on saves.
+    fn wall_time(&mut self) -> Option<WallTime> {
+        crate::ffi::wall_time()
     }
 }
