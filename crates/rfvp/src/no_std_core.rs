@@ -389,6 +389,13 @@ impl RfvpCore {
 
         crate::platform_time::set_host_time_us(now);
         host.audio().tick(elapsed_us)?;
+        {
+            let game = &mut self.game_data;
+            if let Err(err) = game.video_manager.tick(&mut game.motion_manager) {
+                host.log(RfvpLogLevel::Warn, &format!("movie stopped: {err:?}"));
+                game.video_manager.stop(&mut game.motion_manager);
+            }
+        }
         if let (Some(parser), Some(vm_runner)) = (self.parser.as_mut(), self.vm_runner.as_mut()) {
             let frame_time_ms = elapsed_us / 1_000;
             if let Err(err) = vm_runner.tick(&mut self.game_data, parser, frame_time_ms) {

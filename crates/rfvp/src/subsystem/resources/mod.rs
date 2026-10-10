@@ -23,37 +23,5 @@ pub mod thread_wrapper;
 pub mod time;
 pub mod timer_manager;
 pub mod vfs;
-#[cfg(all(
-    not(feature = "no_std"),
-    not(target_os = "uefi"),
-    not(target_arch = "wasm32"),
-    feature = "native-video",
-    feature = "audio"
-))]
-pub mod videoplayer;
-#[cfg(all(
-    any(
-        feature = "no_std",
-        feature = "native-video",
-        feature = "uefi-native-video"
-    ),
-    any(
-        feature = "no_std",
-        target_os = "uefi",
-        target_arch = "wasm32",
-        all(not(target_os = "uefi"), not(feature = "audio"))
-    )
-))]
-#[cfg(not(feature = "no_std"))]
-#[path = "videoplayer_wasm.rs"]
-pub mod videoplayer;
-#[cfg(feature = "no_std")]
-#[path = "videoplayer_host.rs"]
-pub mod videoplayer;
-#[cfg(all(
-    not(feature = "no_std"),
-    not(any(feature = "native-video", feature = "uefi-native-video"))
-))]
-#[path = "videoplayer_stub.rs"]
 pub mod videoplayer;
 pub mod window;

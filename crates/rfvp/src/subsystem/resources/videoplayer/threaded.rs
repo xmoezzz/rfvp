@@ -1,16 +1,7 @@
 use crate::platform_time::Instant;
-#[cfg(feature = "no_std")]
-use alloc::{
-    boxed::Box,
-    format,
-    string::{String, ToString},
-    vec,
-    vec::Vec,
-};
 use std::collections::VecDeque;
 use std::io::Read;
 use std::path::Path;
-#[cfg(feature = "mp4")]
 use std::path::PathBuf;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -42,26 +33,8 @@ use symphonia::core::probe::Hint;
 #[cfg(feature = "mp4")]
 use symphonia::default::{get_codecs, get_probe};
 
-use super::motion_manager::MotionManager;
-use super::prim::PrimType;
-
-/// GraphBuff slot reserved for Movie textures.
-///
-/// Text buffers use 4064..4095, so we pick 4063.
-pub const MOVIE_GRAPH_ID: u16 = 4063;
-
-/// Reserved primitive ids for the Movie layer.
-/// These are internal slots; public scripts generally operate on 1..=4095.
-pub const MOVIE_GROUP_PRIM_ID: i16 = 4095;
-pub const MOVIE_SPRT_PRIM_ID: i16 = 4094;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MovieMode {
-    /// Normal playback: video + audio while freezing other engine actions.
-    ModalWithAudio,
-    /// Render as a layer: video only, engine continues.
-    LayerNoAudio,
-}
+use super::{MovieFrame, MovieMode, MovieRequest, MovieSource};
+use crate::utils::file::app_base_path;
 
 /// Cap buffered decoded frames on the main thread.
 /// Each frame is screen-sized RGBA and can be huge; keeping this bounded prevents memory spikes.
@@ -711,237 +684,6 @@ impl MpegPlayback {
     }
 }
 
-#[derive(Debug)]
-enum Playback {
-    #[cfg(feature = "mp4")]
-    Mp4(Mp4Playback),
-    Wmv(WmvPlayback),
-    Mpeg(MpegPlayback),
-}
-
-/// A Movie manager that wires the syscall to the render tree.
-///
-/// MP4 decoding uses `video-sys` and yields RGBA frames.
-///
-/// WMV decoding uses the local ASF/WMV2 decoder crate (`wmv-decoder`) and yields YUV frames.
-/// For WMV, we convert+scale frames into a **screen-sized** RGBA buffer before uploading to the
-/// reserved GraphBuff. This avoids touching prim scale fields (which scripts may manipulate).
-#[derive(Debug, Default)]
-pub struct VideoPlayerManager {
-    playing: bool,
-    modal: bool,
-    playback: Option<Playback>,
-}
-
-impl VideoPlayerManager {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn is_playing(&self) -> bool {
-        self.playing
-    }
-
-    /// Whether a movie graph/resources are currently loaded.
-    ///
-    /// This matches the original engine's `is_loaded` flag used by `MovieState(1)`.
-    pub fn is_loaded(&self) -> bool {
-        self.playback.is_some()
-    }
-
-    pub fn is_modal_active(&self) -> bool {
-        self.playing && self.modal
-    }
-
-    pub fn start(
-        &mut self,
-        movie_path: impl AsRef<Path>,
-        mode: MovieMode,
-        screen_w: u32,
-        screen_h: u32,
-        motion: &mut MotionManager,
-        audio_manager: Option<Arc<AudioManager>>,
-    ) -> Result<()> {
-        // Replace any currently-playing movie.
-        if self.playing {
-            self.stop(motion);
-        }
-
-        let p = movie_path.as_ref();
-        let ext = p
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-
-        let playback = if ext == "wmv" || ext == "asf" {
-            Playback::Wmv(WmvPlayback::open_from_wmv_path(
-                p,
-                mode,
-                screen_w,
-                screen_h,
-                audio_manager,
-            )?)
-        } else if matches!(
-            ext.as_str(),
-            "mpg" | "mpeg" | "m2v" | "ts" | "ps" | "vob" | "dat"
-        ) {
-            Playback::Mpeg(MpegPlayback::open_from_mpeg_path(
-                p,
-                mode,
-                screen_w,
-                screen_h,
-                audio_manager,
-            )?)
-        } else {
-            #[cfg(feature = "mp4")]
-            {
-                Playback::Mp4(Mp4Playback::open_from_mp4_bytes(p, mode, audio_manager)?)
-            }
-            #[cfg(not(feature = "mp4"))]
-            {
-                return Err(anyhow!(
-                    "mp4 movie backend is disabled (build without feature \"mp4\")"
-                ));
-            }
-        };
-
-        self.playing = true;
-        self.modal = matches!(mode, MovieMode::ModalWithAudio);
-        self.playback = Some(playback);
-
-        self.ensure_layer(motion, screen_w as i16, screen_h as i16);
-
-        // Prime the first frame.
-        self.tick(motion)?;
-
-        Ok(())
-    }
-
-    pub fn tick(&mut self, motion: &mut MotionManager) -> Result<()> {
-        if !self.playing {
-            return Ok(());
-        }
-
-        let Some(pb) = self.playback.as_mut() else {
-            self.playing = false;
-            self.modal = false;
-            return Ok(());
-        };
-
-        match pb {
-            #[cfg(feature = "mp4")]
-            Playback::Mp4(mp4) => {
-                if let Some(frame) = mp4.next_due_frame() {
-                    if frame.pts_us != mp4.last_presented_pts {
-                        mp4.last_presented_pts = frame.pts_us;
-                        motion.load_texture_from_buff(
-                            MOVIE_GRAPH_ID,
-                            frame.data.into_vec(),
-                            frame.width,
-                            frame.height,
-                        )?;
-                        motion.refresh_prims(MOVIE_GRAPH_ID);
-                    }
-                }
-
-                if mp4.is_finished() {
-                    self.stop(motion);
-                }
-            }
-            Playback::Wmv(wmv) => {
-                if let Some(frame) = wmv.next_due_frame() {
-                    if frame.pts_ms != wmv.last_presented_pts_ms {
-                        wmv.last_presented_pts_ms = frame.pts_ms;
-                        motion.load_texture_from_buff(
-                            MOVIE_GRAPH_ID,
-                            frame.rgba,
-                            wmv.screen_w,
-                            wmv.screen_h,
-                        )?;
-                        motion.refresh_prims(MOVIE_GRAPH_ID);
-                    }
-                }
-
-                if wmv.is_finished() {
-                    self.stop(motion);
-                }
-            }
-            Playback::Mpeg(mpeg) => {
-                if let Some(frame) = mpeg.next_due_frame() {
-                    if frame.pts_ms != mpeg.last_presented_pts_ms {
-                        mpeg.last_presented_pts_ms = frame.pts_ms;
-                        motion.load_texture_from_buff(
-                            MOVIE_GRAPH_ID,
-                            frame.rgba,
-                            mpeg.screen_w,
-                            mpeg.screen_h,
-                        )?;
-                        motion.refresh_prims(MOVIE_GRAPH_ID);
-                    }
-                }
-
-                if mpeg.is_finished() {
-                    self.stop(motion);
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    pub fn stop(&mut self, motion: &mut MotionManager) {
-        self.playing = false;
-        self.modal = false;
-
-        // Hide and unlink the movie layer primitives.
-        // Keep the GraphBuff intact; it can be overwritten on next start.
-        let pm = &mut motion.prim_manager;
-        pm.prim_set_draw(MOVIE_SPRT_PRIM_ID as i32, 0);
-        pm.prim_set_draw(MOVIE_GROUP_PRIM_ID as i32, 0);
-        pm.unlink_prim(MOVIE_SPRT_PRIM_ID);
-        pm.unlink_prim(MOVIE_GROUP_PRIM_ID);
-
-        if let Some(pb) = self.playback.take() {
-            match pb {
-                #[cfg(feature = "mp4")]
-                Playback::Mp4(mp4) => mp4.stop_and_cleanup(),
-                Playback::Wmv(wmv) => wmv.stop_and_cleanup(),
-                Playback::Mpeg(mpeg) => mpeg.stop_and_cleanup(),
-            }
-        }
-    }
-
-    fn ensure_layer(&self, motion: &mut MotionManager, screen_w: i16, screen_h: i16) {
-        let pm = &mut motion.prim_manager;
-
-        // Match the original engine draw order: the movie layer belongs to the root=0 prim tree
-        // (drawn in the "root0" pass), not the custom/overlay root.
-        let root = 0i32;
-
-        // Group container.
-        pm.prim_init_with_type(MOVIE_GROUP_PRIM_ID, PrimType::PrimTypeGroup);
-        pm.prim_set_pos(MOVIE_GROUP_PRIM_ID as i32, 0, 0);
-        pm.prim_set_z(MOVIE_GROUP_PRIM_ID as i32, 32767);
-        pm.prim_set_draw(MOVIE_GROUP_PRIM_ID as i32, 1);
-
-        // Sprite: bind texture_id = -2 (movie).
-        pm.prim_init_with_type(MOVIE_SPRT_PRIM_ID, PrimType::PrimTypeSprt);
-        pm.prim_set_texture_id(MOVIE_SPRT_PRIM_ID as i32, -2);
-        pm.prim_set_uv(MOVIE_SPRT_PRIM_ID as i32, 0, 0);
-        pm.prim_set_pos(MOVIE_SPRT_PRIM_ID as i32, 0, 0);
-        pm.prim_set_size(MOVIE_SPRT_PRIM_ID as i32, screen_w as i32, screen_h as i32);
-        pm.prim_set_alpha(MOVIE_SPRT_PRIM_ID as i32, 255);
-        pm.prim_set_blend(MOVIE_SPRT_PRIM_ID as i32, 0);
-        pm.prim_set_z(MOVIE_SPRT_PRIM_ID as i32, 32767);
-        pm.prim_set_draw(MOVIE_SPRT_PRIM_ID as i32, 1);
-
-        // Attach sprite to movie group, then group to root (append-to-end semantics).
-        pm.set_prim_group_in(MOVIE_GROUP_PRIM_ID as i32, MOVIE_SPRT_PRIM_ID as i32);
-        pm.set_prim_group_in(root, MOVIE_GROUP_PRIM_ID as i32);
-    }
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // WMV video conversion (YUV420p -> RGBA) with scaling to screen size
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1314,4 +1056,218 @@ fn start_movie_audio(audio: &AudioManager, wav: Arc<[u8]>) -> bool {
 fn stop_movie_audio(audio: &AudioManager) {
     audio.backend().stop(AudioStreamId::MOVIE, Tween::default());
     audio.backend().unload(AudioStreamId::MOVIE);
+}
+
+#[cfg(feature = "mp4")]
+impl MovieSource for Mp4Playback {
+    fn next_frame(&mut self) -> Result<Option<MovieFrame>> {
+        let Some(frame) = self.next_due_frame() else {
+            return Ok(None);
+        };
+        if frame.pts_us == self.last_presented_pts {
+            return Ok(None);
+        }
+        self.last_presented_pts = frame.pts_us;
+        Ok(Some(MovieFrame {
+            rgba: frame.data.into_vec(),
+            width: frame.width,
+            height: frame.height,
+        }))
+    }
+
+    fn is_finished(&mut self) -> Result<bool> {
+        Ok(Mp4Playback::is_finished(self))
+    }
+
+    fn stop(self: Box<Self>) {
+        self.stop_and_cleanup();
+    }
+}
+
+impl MovieSource for WmvPlayback {
+    fn next_frame(&mut self) -> Result<Option<MovieFrame>> {
+        let Some(frame) = self.next_due_frame() else {
+            return Ok(None);
+        };
+        if frame.pts_ms == self.last_presented_pts_ms {
+            return Ok(None);
+        }
+        self.last_presented_pts_ms = frame.pts_ms;
+        Ok(Some(MovieFrame {
+            rgba: frame.rgba,
+            width: self.screen_w,
+            height: self.screen_h,
+        }))
+    }
+
+    fn is_finished(&mut self) -> Result<bool> {
+        Ok(WmvPlayback::is_finished(self))
+    }
+
+    fn stop(self: Box<Self>) {
+        self.stop_and_cleanup();
+    }
+}
+
+impl MovieSource for MpegPlayback {
+    fn next_frame(&mut self) -> Result<Option<MovieFrame>> {
+        let Some(frame) = self.next_due_frame() else {
+            return Ok(None);
+        };
+        if frame.pts_ms == self.last_presented_pts_ms {
+            return Ok(None);
+        }
+        self.last_presented_pts_ms = frame.pts_ms;
+        Ok(Some(MovieFrame {
+            rgba: frame.rgba,
+            width: self.screen_w,
+            height: self.screen_h,
+        }))
+    }
+
+    fn is_finished(&mut self) -> Result<bool> {
+        Ok(MpegPlayback::is_finished(self))
+    }
+
+    fn stop(self: Box<Self>) {
+        self.stop_and_cleanup();
+    }
+}
+
+/// Open a movie for the threaded decoders, which read a file: the movie itself when it is a
+/// loose file of the game, otherwise a copy extracted from its pack into a cache directory.
+pub(super) fn open(request: &MovieRequest<'_>) -> Result<Box<dyn MovieSource>> {
+    let path = resolve_movie_real_path(request.vfs, request.name)?;
+    let audio = request.audio.clone();
+    let (mode, screen_w, screen_h) = (request.mode, request.screen_w, request.screen_h);
+    let ext = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    if ext == "wmv" || ext == "asf" {
+        Ok(Box::new(WmvPlayback::open_from_wmv_path(
+            &path, mode, screen_w, screen_h, audio,
+        )?))
+    } else if matches!(
+        ext.as_str(),
+        "mpg" | "mpeg" | "m2v" | "ts" | "ps" | "vob" | "dat"
+    ) {
+        Ok(Box::new(MpegPlayback::open_from_mpeg_path(
+            &path, mode, screen_w, screen_h, audio,
+        )?))
+    } else {
+        #[cfg(feature = "mp4")]
+        {
+            Ok(Box::new(Mp4Playback::open_from_mp4_bytes(&path, mode, audio)?))
+        }
+        #[cfg(not(feature = "mp4"))]
+        {
+            let _ = (mode, audio);
+            Err(anyhow!(
+                "mp4 movie backend is disabled (build without feature \"mp4\")"
+            ))
+        }
+    }
+}
+
+fn safe_rel_path_from_vfs(path: &str) -> Result<PathBuf> {
+    use std::path::Component;
+
+    let mut out = PathBuf::new();
+    for c in Path::new(path).components() {
+        match c {
+            Component::Normal(s) => out.push(s),
+            Component::CurDir => {}
+            Component::RootDir | Component::Prefix(_) | Component::ParentDir => {
+                anyhow::bail!("invalid vfs path for cache: {path}");
+            }
+        }
+    }
+    if out.as_os_str().is_empty() {
+        anyhow::bail!("empty vfs path for cache: {path}");
+    }
+    Ok(out)
+}
+
+fn video_cache_root_dir() -> PathBuf {
+    let preferred = app_base_path()
+        .join(".rfvp_cache")
+        .join("video")
+        .get_path()
+        .clone();
+    if std::fs::create_dir_all(&preferred).is_ok() {
+        return preferred;
+    }
+
+    let fallback = std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join(".rfvp_cache")
+        .join("video");
+    let _ = std::fs::create_dir_all(&fallback);
+    fallback
+}
+
+fn resolve_movie_real_path(vfs: &Vfs, mapped: &str) -> Result<PathBuf> {
+    let fs_path = app_base_path().join(mapped).get_path().clone();
+    if fs_path.exists() {
+        return Ok(fs_path);
+    }
+
+    let cache_root = video_cache_root_dir();
+    let rel = safe_rel_path_from_vfs(mapped)?;
+    let cache_path = cache_root.join(rel);
+
+    if cache_path.exists() {
+        return Ok(cache_path);
+    }
+
+    if let Some(parent) = cache_path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("create cache dir {}", parent.display()))?;
+    }
+
+    let pid = std::process::id();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let tmp_name = match cache_path.file_name().and_then(|s| s.to_str()) {
+        Some(name) => format!("{name}.part_{pid}_{now}"),
+        None => format!("movie.part_{pid}_{now}"),
+    };
+    let tmp_path = cache_path.with_file_name(tmp_name);
+
+    {
+        let mut src = vfs
+            .open_stream(mapped)
+            .with_context(|| format!("vfs.open_stream({mapped})"))?;
+        let mut dst = std::fs::File::create(&tmp_path)
+            .with_context(|| format!("create cache tmp {}", tmp_path.display()))?;
+        std::io::copy(&mut src, &mut dst)
+            .with_context(|| format!("copy movie bytes to {}", tmp_path.display()))?;
+        let _ = dst.sync_all();
+    }
+
+    match std::fs::rename(&tmp_path, &cache_path) {
+        Ok(()) => {}
+        Err(e) if cache_path.exists() => {
+            let _ = std::fs::remove_file(&tmp_path);
+            log::debug!(
+                "Movie cache race: {} already exists ({e:?})",
+                cache_path.display()
+            );
+        }
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp_path);
+            return Err(anyhow!(
+                "rename cache tmp {} -> {}: {e}",
+                tmp_path.display(),
+                cache_path.display()
+            ));
+        }
+    }
+
+    Ok(cache_path)
 }

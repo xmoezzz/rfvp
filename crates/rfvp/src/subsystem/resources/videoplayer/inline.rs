@@ -1,11 +1,3 @@
-#[cfg(feature = "no_std")]
-use alloc::{
-    boxed::Box,
-    format,
-    string::{String, ToString},
-    vec,
-    vec::Vec,
-};
 use std::collections::VecDeque;
 use std::io::Cursor;
 use std::path::Path;
@@ -14,23 +6,11 @@ use std::sync::Arc;
 use anyhow::{anyhow, Context, Result};
 
 use crate::platform_time::Instant;
-use crate::rfvp_audio::AudioManager;
 
 use na_mpeg2_decoder::{MpegAvEvent, MpegAvPipeline};
 use wmv_decoder::AsfWmv2Decoder;
 
-use super::motion_manager::MotionManager;
-use super::prim::PrimType;
-
-pub const MOVIE_GRAPH_ID: u16 = 4063;
-pub const MOVIE_GROUP_PRIM_ID: i16 = 4095;
-pub const MOVIE_SPRT_PRIM_ID: i16 = 4094;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MovieMode {
-    ModalWithAudio,
-    LayerNoAudio,
-}
+use super::{MovieFrame, MovieRequest, MovieSource};
 
 const MAX_MOVIE_STASH_FRAMES: usize = 4;
 const MPEG_CHUNK_SIZE: usize = 64 * 1024;
@@ -265,188 +245,6 @@ impl MpegPlayback {
     fn stop_and_cleanup(self) {}
 }
 
-enum Playback {
-    Wmv(WmvPlayback),
-    Mpeg(MpegPlayback),
-}
-
-#[derive(Default)]
-pub struct VideoPlayerManager {
-    playing: bool,
-    modal: bool,
-    playback: Option<Playback>,
-}
-
-impl std::fmt::Debug for VideoPlayerManager {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("VideoPlayerManager")
-            .field("playing", &self.playing)
-            .field("modal", &self.modal)
-            .field("loaded", &self.playback.is_some())
-            .finish()
-    }
-}
-
-impl VideoPlayerManager {
-    pub fn new() -> Self {
-        Self::default()
-    }
-    pub fn is_playing(&self) -> bool {
-        self.playing
-    }
-    pub fn is_loaded(&self) -> bool {
-        self.playback.is_some()
-    }
-    pub fn is_modal_active(&self) -> bool {
-        self.playing && self.modal
-    }
-
-    pub fn start(
-        &mut self,
-        movie_path: impl AsRef<Path>,
-        mode: MovieMode,
-        screen_w: u32,
-        screen_h: u32,
-        motion: &mut MotionManager,
-        audio_manager: Option<Arc<AudioManager>>,
-    ) -> Result<()> {
-        let _ = (movie_path, mode, screen_w, screen_h, motion, audio_manager);
-        Err(anyhow!("wasm movie playback requires start_from_bytes"))
-    }
-
-    pub fn start_from_bytes(
-        &mut self,
-        movie_name: &str,
-        bytes: Vec<u8>,
-        mode: MovieMode,
-        screen_w: u32,
-        screen_h: u32,
-        motion: &mut MotionManager,
-        _audio_manager: Option<Arc<AudioManager>>,
-    ) -> Result<()> {
-        if self.playing {
-            self.stop(motion);
-        }
-
-        let ext = std::path::PathBuf::from(movie_name)
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-
-        let playback = if ext == "wmv" || ext == "asf" {
-            Playback::Wmv(WmvPlayback::open_from_bytes(bytes, screen_w, screen_h)?)
-        } else if matches!(
-            ext.as_str(),
-            "mpg" | "mpeg" | "m2v" | "ts" | "ps" | "vob" | "dat"
-        ) {
-            Playback::Mpeg(MpegPlayback::open_from_bytes(bytes, screen_w, screen_h)?)
-        } else {
-            return Err(anyhow!("unsupported wasm movie format: {movie_name}"));
-        };
-
-        if matches!(mode, MovieMode::ModalWithAudio) {
-            log::warn!("wasm movie audio is not implemented; playing video only: {movie_name}");
-        }
-
-        self.playing = true;
-        self.modal = matches!(mode, MovieMode::ModalWithAudio);
-        self.playback = Some(playback);
-        self.ensure_layer(motion, screen_w as i16, screen_h as i16);
-        self.tick(motion)?;
-        Ok(())
-    }
-
-    pub fn tick(&mut self, motion: &mut MotionManager) -> Result<()> {
-        if !self.playing {
-            return Ok(());
-        }
-        let Some(pb) = self.playback.as_mut() else {
-            self.playing = false;
-            self.modal = false;
-            return Ok(());
-        };
-
-        match pb {
-            Playback::Wmv(wmv) => {
-                if let Some(frame) = wmv.next_due_frame()? {
-                    if frame.pts_ms != wmv.last_presented_pts_ms {
-                        wmv.last_presented_pts_ms = frame.pts_ms;
-                        motion.load_texture_from_buff(
-                            MOVIE_GRAPH_ID,
-                            frame.rgba,
-                            wmv.screen_w,
-                            wmv.screen_h,
-                        )?;
-                        motion.refresh_prims(MOVIE_GRAPH_ID);
-                    }
-                }
-                if wmv.is_finished()? {
-                    self.stop(motion);
-                }
-            }
-            Playback::Mpeg(mpeg) => {
-                if let Some(frame) = mpeg.next_due_frame()? {
-                    if frame.pts_ms != mpeg.last_presented_pts_ms {
-                        mpeg.last_presented_pts_ms = frame.pts_ms;
-                        motion.load_texture_from_buff(
-                            MOVIE_GRAPH_ID,
-                            frame.rgba,
-                            mpeg.screen_w,
-                            mpeg.screen_h,
-                        )?;
-                        motion.refresh_prims(MOVIE_GRAPH_ID);
-                    }
-                }
-                if mpeg.is_finished()? {
-                    self.stop(motion);
-                }
-            }
-        }
-        Ok(())
-    }
-
-    pub fn stop(&mut self, motion: &mut MotionManager) {
-        self.playing = false;
-        self.modal = false;
-
-        let pm = &mut motion.prim_manager;
-        pm.prim_set_draw(MOVIE_SPRT_PRIM_ID as i32, 0);
-        pm.prim_set_draw(MOVIE_GROUP_PRIM_ID as i32, 0);
-        pm.unlink_prim(MOVIE_SPRT_PRIM_ID);
-        pm.unlink_prim(MOVIE_GROUP_PRIM_ID);
-
-        if let Some(pb) = self.playback.take() {
-            match pb {
-                Playback::Wmv(wmv) => wmv.stop_and_cleanup(),
-                Playback::Mpeg(mpeg) => mpeg.stop_and_cleanup(),
-            }
-        }
-    }
-
-    fn ensure_layer(&self, motion: &mut MotionManager, screen_w: i16, screen_h: i16) {
-        let pm = &mut motion.prim_manager;
-        let root = 0i32;
-
-        pm.prim_init_with_type(MOVIE_GROUP_PRIM_ID, PrimType::PrimTypeGroup);
-        pm.prim_set_pos(MOVIE_GROUP_PRIM_ID as i32, 0, 0);
-        pm.prim_set_z(MOVIE_GROUP_PRIM_ID as i32, 32767);
-        pm.prim_set_draw(MOVIE_GROUP_PRIM_ID as i32, 1);
-
-        pm.prim_init_with_type(MOVIE_SPRT_PRIM_ID, PrimType::PrimTypeSprt);
-        pm.prim_set_texture_id(MOVIE_SPRT_PRIM_ID as i32, -2);
-        pm.prim_set_uv(MOVIE_SPRT_PRIM_ID as i32, 0, 0);
-        pm.prim_set_pos(MOVIE_SPRT_PRIM_ID as i32, 0, 0);
-        pm.prim_set_size(MOVIE_SPRT_PRIM_ID as i32, screen_w as i32, screen_h as i32);
-        pm.prim_set_alpha(MOVIE_SPRT_PRIM_ID as i32, 255);
-        pm.prim_set_blend(MOVIE_SPRT_PRIM_ID as i32, 0);
-        pm.prim_set_z(MOVIE_SPRT_PRIM_ID as i32, 32767);
-        pm.prim_set_draw(MOVIE_SPRT_PRIM_ID as i32, 1);
-
-        pm.set_prim_group_in(MOVIE_GROUP_PRIM_ID as i32, MOVIE_SPRT_PRIM_ID as i32);
-        pm.set_prim_group_in(root, MOVIE_GROUP_PRIM_ID as i32);
-    }
-}
 
 #[inline]
 fn clamp_u8(v: i32) -> u8 {
@@ -532,4 +330,86 @@ fn rgba_scale_nearest(
             out[doff..doff + 4].copy_from_slice(&src[so..so + 4]);
         }
     }
+}
+
+impl MovieSource for WmvPlayback {
+    fn next_frame(&mut self) -> Result<Option<MovieFrame>> {
+        let Some(frame) = self.next_due_frame()? else {
+            return Ok(None);
+        };
+        if frame.pts_ms == self.last_presented_pts_ms {
+            return Ok(None);
+        }
+        self.last_presented_pts_ms = frame.pts_ms;
+        Ok(Some(MovieFrame {
+            rgba: frame.rgba,
+            width: self.screen_w,
+            height: self.screen_h,
+        }))
+    }
+
+    fn is_finished(&mut self) -> Result<bool> {
+        WmvPlayback::is_finished(self)
+    }
+
+    fn stop(self: Box<Self>) {
+        self.stop_and_cleanup();
+    }
+}
+
+impl MovieSource for MpegPlayback {
+    fn next_frame(&mut self) -> Result<Option<MovieFrame>> {
+        let Some(frame) = self.next_due_frame()? else {
+            return Ok(None);
+        };
+        if frame.pts_ms == self.last_presented_pts_ms {
+            return Ok(None);
+        }
+        self.last_presented_pts_ms = frame.pts_ms;
+        Ok(Some(MovieFrame {
+            rgba: frame.rgba,
+            width: self.screen_w,
+            height: self.screen_h,
+        }))
+    }
+
+    fn is_finished(&mut self) -> Result<bool> {
+        MpegPlayback::is_finished(self)
+    }
+
+    fn stop(self: Box<Self>) {
+        self.stop_and_cleanup();
+    }
+}
+
+/// Open a movie for the inline decoders, which take the whole file from the VFS.
+pub(super) fn open(request: &MovieRequest<'_>) -> Result<Box<dyn MovieSource>> {
+    let name = request.name;
+    let ext = std::path::Path::new(name)
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let is_wmv = ext == "wmv" || ext == "asf";
+    let is_mpeg = matches!(
+        ext.as_str(),
+        "mpg" | "mpeg" | "m2v" | "ts" | "ps" | "vob" | "dat"
+    );
+    if !is_wmv && !is_mpeg {
+        return Err(anyhow!("unsupported movie format for the inline decoders: {name}"));
+    }
+
+    let bytes = request
+        .vfs
+        .read_file(name)
+        .with_context(|| format!("read movie {name}"))?;
+    if request.audio.is_some() {
+        log::warn!("movie audio is not implemented for the inline decoders; playing video only: {name}");
+    }
+    let (w, h) = (request.screen_w, request.screen_h);
+    Ok(if is_wmv {
+        Box::new(WmvPlayback::open_from_bytes(bytes, w, h)?)
+    } else {
+        Box::new(MpegPlayback::open_from_bytes(bytes, w, h)?)
+    })
 }
