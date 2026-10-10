@@ -9,21 +9,17 @@ on:
     branches: [main]
     paths:
       - crates/rfvp/**
-      - crates/rfvp-horizon/**
-      - crates/rfvp-psv/**
+      - platform/switch/**
+      - platform/vita/**
       - platform/consoles/**
-      - platform/scripts/build_switch.sh
-      - platform/scripts/build_vita.sh
       - platform/docker/Dockerfile.homebrew-consoles
       - .github/workflows/consoles.yml
   pull_request:
     paths:
       - crates/rfvp/**
-      - crates/rfvp-horizon/**
-      - crates/rfvp-psv/**
+      - platform/switch/**
+      - platform/vita/**
       - platform/consoles/**
-      - platform/scripts/build_switch.sh
-      - platform/scripts/build_vita.sh
       - platform/docker/Dockerfile.homebrew-consoles
       - .github/workflows/consoles.yml
   workflow_dispatch:
@@ -48,11 +44,11 @@ jobs:
       matrix:
         include:
           - name: switch (nro)
-            script: platform/scripts/build_switch.sh
+            script: platform/switch/build_switch.sh
             artifact_name: rfvp-switch
             artifact_path: target/rfvp-switch/switch/rfvp.nro
           - name: psv (vpk)
-            script: platform/scripts/build_vita.sh
+            script: platform/vita/build_vita.sh
             artifact_name: rfvp-psv
             artifact_path: target/rfvp-psv/psv/rfvp.vpk
 

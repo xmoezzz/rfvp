@@ -2,4 +2,15 @@
 resolver = "3"
 members = [
     "crates/*",
+    # Console ports: each platform keeps its host crate, build script, target spec and notes
+    # under platform/<name>/ (see platform/README.md).
+    "platform/switch/host",
+    "platform/vita/host",
+    "platform/psp/host",
+    # Untested skeletons.
+    "platform/experimental/3ds",
+    "platform/experimental/wii",
+    "platform/experimental/wiiu",
+    "platform/experimental/ps2",
+    "platform/experimental/ps3",
 ]

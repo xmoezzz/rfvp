@@ -118,8 +118,8 @@ RUN set -eux; \
     cargo --version
 
 # Rust-side host build helpers.
-# cargo-psp is required by crates/rfvp-psp/build-psp.sh.
-# nightly-2025-03-19 and its rust-src are required by crates/rfvp-psp/build-psp.sh.
+# cargo-psp is required by platform/psp/build_psp.sh.
+# nightly-2025-03-19 and its rust-src are required by platform/psp/build_psp.sh.
 # cargo-nx is required for rfvp-horizon / Switch builds.
 # cargo-vita is required for rfvp-psv / PS Vita builds.
 RUN set -eux; \
