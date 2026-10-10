@@ -6,6 +6,7 @@ pub mod fs;
 pub mod host;
 pub mod render;
 pub mod soft_raster;
+mod srgb_tables;
 #[cfg(all(
     any(not(feature = "no_std"), test),
     not(target_os = "uefi"),

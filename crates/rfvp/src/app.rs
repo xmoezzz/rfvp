@@ -1050,6 +1050,12 @@ impl App {
             self.render_target
                 .encode_readback_rgba8(&self.resources.device, &mut encoder)
         });
+        // `RFVP_DUMP_FRAMES`: the frame as rendered, for comparing renderers.
+        let dump_path = frame_dump_path(self.debug_frame_no);
+        let dump_readback = dump_path.as_ref().map(|_| {
+            self.render_target
+                .encode_readback_rgba8(&self.resources.device, &mut encoder)
+        });
 
         // Pass 2: present to the swapchain with aspect-preserving scaling.
         let output = match self.surface.get_current_texture() {
@@ -1141,6 +1147,17 @@ impl App {
         }
 
         self.resources.queue.submit(Some(encoder.finish()));
+
+        if let (Some(readback), Some(path)) = (dump_readback, dump_path) {
+            let rgba = readback.map_to_rgba8(&self.resources.device);
+            match RgbaImage::from_raw(readback.width, readback.height, rgba) {
+                Some(img) => match img.save(&path) {
+                    Ok(()) => log::info!("frame dumped to {}", path.display()),
+                    Err(e) => log::warn!("frame dump to {} failed: {e}", path.display()),
+                },
+                None => log::warn!("frame dump: readback size mismatch"),
+            }
+        }
 
         if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_capture) {
             let src_w = readback.width.max(1);
@@ -3497,4 +3514,24 @@ mod tests {
         let hcb_path = App::find_hcb(filepath).unwrap();
         log::info!("{:?}", hcb_path);
     }
+}
+
+/// Where to write frame `frame`, if `RFVP_DUMP_FRAMES` (comma-separated frame numbers) asks for
+/// it. Files go in `RFVP_DUMP_DIR` (default: the working directory) as `frame_NNNNN.png`.
+#[cfg(not(target_arch = "wasm32"))]
+fn frame_dump_path(frame: u64) -> Option<std::path::PathBuf> {
+    let frames = std::env::var("RFVP_DUMP_FRAMES").ok()?;
+    if !frames
+        .split(',')
+        .any(|f| f.trim().parse::<u64>().ok() == Some(frame))
+    {
+        return None;
+    }
+    let dir = std::env::var("RFVP_DUMP_DIR").unwrap_or_else(|_| ".".into());
+    Some(std::path::Path::new(&dir).join(format!("frame_{frame:05}.png")))
+}
+
+#[cfg(target_arch = "wasm32")]
+fn frame_dump_path(_frame: u64) -> Option<std::path::PathBuf> {
+    None
 }

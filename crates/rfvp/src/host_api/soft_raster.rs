@@ -14,6 +14,7 @@ use alloc::vec::Vec;
 #[cfg(feature = "no_std")]
 use core_maths::CoreFloat;
 
+use super::srgb_tables::{FROM_LINEAR, TO_LINEAR};
 use super::error::{RfvpError, RfvpResult};
 use super::render::{
     BlendMode, ColorRgba, DrawSolidCommand, DrawSpriteCommand, PixelFormat, RectI32, RfvpRenderer,
@@ -134,30 +135,26 @@ fn lerp_pixels(a: u32, b: u32, w: u32) -> u32 {
     (rb & 0x00ff_00ff) | (ga & 0xff00_ff00)
 }
 
-/// `x / 255` for two packed channels (`0x00xx00xx`), exact for the sums used here.
+/// sRGB byte to linear light, 0..=65535.
 #[inline]
-fn div255_packed(x: u32) -> u32 {
-    let t = x + 0x0080_0080;
-    ((t + ((t >> 8) & 0x00ff_00ff)) >> 8) & 0x00ff_00ff
+fn lin(c: u32) -> u32 {
+    TO_LINEAR[c as usize] as u32
 }
 
-/// `src`'s color scaled by `a / 255`, alpha byte cleared.
+/// Linear light (0..=65535, larger is clamped) to an sRGB byte.
 #[inline]
-fn scale_rgb(src: u32, a: u32) -> u32 {
-    let rb = div255_packed((src & 0x00ff_00ff) * a);
-    let g = div255_packed(((src >> 8) & 0x0000_00ff) * a);
-    rb | (g << 8)
+fn enc(l: u32) -> u32 {
+    FROM_LINEAR[(l.min(65535) >> 4) as usize] as u32
 }
 
-/// Per-byte saturating add of the color bytes of `d` and `s`; the result is opaque.
+/// `s`'s color scaled by `a / 255` added to `d`, in linear light; the result is opaque.
 #[inline]
-fn add_saturating(d: u32, s: u32) -> u32 {
-    let d = d & 0x00ff_ffff;
-    let s = s & 0x00ff_ffff;
-    let sum = (d & 0x007f_7f7f) + (s & 0x007f_7f7f);
-    let wrapped = sum ^ ((d ^ s) & 0x0080_8080);
-    let overflow = ((d & s) | ((d | s) & !wrapped)) & 0x0080_8080;
-    wrapped | ((overflow >> 7) * 0xff) | 0xff00_0000
+fn add_linear(d: u32, s: u32, a: u32) -> u32 {
+    if a == 0 {
+        return d | 0xff00_0000;
+    }
+    let ch = |shift: u32| enc(lin((d >> shift) & 255) + lin((s >> shift) & 255) * a / 255);
+    pack(ch(0), ch(8), ch(16), 255)
 }
 
 /// How a sprite's vertex color changes its texels.
@@ -192,13 +189,12 @@ fn blit_row(dst: &mut [u32], texels: &[u32], mode: BlendMode, tint: Tint, opaque
         }
         (BlendMode::Add, Tint::None) => {
             for (d, &t) in dst.iter_mut().zip(texels) {
-                *d = add_saturating(*d, scale_rgb(t, t >> 24));
+                *d = add_linear(*d, t, t >> 24);
             }
         }
         (BlendMode::Add, Tint::Alpha(ta)) => {
             for (d, &t) in dst.iter_mut().zip(texels) {
-                let a = div255((t >> 24) * ta);
-                *d = add_saturating(*d, scale_rgb(t, a));
+                *d = add_linear(*d, t, div255((t >> 24) * ta));
             }
         }
         (mode, Tint::None) => {
@@ -220,7 +216,7 @@ fn blit_row(dst: &mut [u32], texels: &[u32], mode: BlendMode, tint: Tint, opaque
     }
 }
 
-/// `src` over `dst` with straight alpha, two channels at a time.
+/// `src` over `dst` with straight alpha, mixed in linear light like the GPU renderer.
 #[inline]
 fn over(dst: u32, src: u32) -> u32 {
     let sa = src >> 24;
@@ -231,9 +227,10 @@ fn over(dst: u32, src: u32) -> u32 {
         return dst;
     }
     let ia = 255 - sa;
-    let rb = div255_packed((src & 0x00ff_00ff) * sa + (dst & 0x00ff_00ff) * ia);
-    let g = div255_packed(((src >> 8) & 0x0000_00ff) * sa + ((dst >> 8) & 0x0000_00ff) * ia);
-    rb | (g << 8) | 0xff00_0000
+    let ch = |shift: u32| {
+        enc((lin((src >> shift) & 255) * sa + lin((dst >> shift) & 255) * ia) / 255)
+    };
+    pack(ch(0), ch(8), ch(16), 255)
 }
 
 #[inline]
@@ -289,52 +286,28 @@ fn source_bytes_per_pixel(format: PixelFormat) -> usize {
     }
 }
 
-/// Blend one source pixel (straight alpha, already tinted) over `dst`.
+/// Blend one source pixel (straight alpha, already tinted) over `dst`, in linear light like the
+/// GPU renderer (which draws sRGB textures into an sRGB target).
 #[inline]
 fn blend(dst: u32, src: [u32; 4], mode: BlendMode) -> u32 {
     let [sr, sg, sb, sa] = src;
-    let [dr, dg, db, _] = channels(dst);
     match mode {
         BlendMode::Opaque => pack(sr, sg, sb, 255),
-        BlendMode::Alpha => {
-            if sa == 255 {
-                return pack(sr, sg, sb, 255);
-            }
-            if sa == 0 {
-                return dst | 0xff00_0000;
-            }
+        BlendMode::Alpha => over(dst, pack(sr, sg, sb, sa)),
+        BlendMode::Add => add_linear(dst, pack(sr, sg, sb, 0), sa),
+        BlendMode::Multiply | BlendMode::Screen => {
             let ia = 255 - sa;
-            pack(
-                div255(sr * sa + dr * ia),
-                div255(sg * sa + dg * ia),
-                div255(sb * sa + db * ia),
-                255,
-            )
-        }
-        BlendMode::Add => pack(
-            (dr + div255(sr * sa)).min(255),
-            (dg + div255(sg * sa)).min(255),
-            (db + div255(sb * sa)).min(255),
-            255,
-        ),
-        BlendMode::Multiply => {
-            let ia = 255 - sa;
-            pack(
-                div255(dr * ia + div255(dr * sr) * sa),
-                div255(dg * ia + div255(dg * sg) * sa),
-                div255(db * ia + div255(db * sb) * sa),
-                255,
-            )
-        }
-        BlendMode::Screen => {
-            let ia = 255 - sa;
-            let screen = |d: u32, s: u32| 255 - div255((255 - d) * (255 - s));
-            pack(
-                div255(dr * ia + screen(dr, sr) * sa),
-                div255(dg * ia + screen(dg, sg) * sa),
-                div255(db * ia + screen(db, sb) * sa),
-                255,
-            )
+            let ch = |d: u32, s: u32| {
+                let (ld, ls) = (lin(d), lin(s));
+                let mixed = if mode == BlendMode::Multiply {
+                    ld * ls / 65535
+                } else {
+                    65535 - (65535 - ld) * (65535 - ls) / 65535
+                };
+                enc((ld * ia + mixed * sa) / 255)
+            };
+            let [dr, dg, db, _] = channels(dst);
+            pack(ch(dr, sr), ch(dg, sg), ch(db, sb), 255)
         }
     }
 }
@@ -1081,8 +1054,10 @@ mod tests {
         r.draw_sprite(&sprite(1, quad(0.0, 0.0, 16.0, 16.0), BlendMode::Add))
             .unwrap();
         let after = at(&r, 8, 8);
-        assert_eq!(after[0], before[0] + 100);
-        assert_eq!(after[1], before[1] + 50);
+        // Light adds up in linear light: 51 + 100 and 51 + 50 in sRGB bytes.
+        assert_eq!(before[0], 51);
+        assert!((after[0] as i32 - 112).abs() <= 1, "{after:?}");
+        assert!((after[1] as i32 - 72).abs() <= 1, "{after:?}");
         assert_eq!(after[2], before[2]);
     }
 
@@ -1094,7 +1069,8 @@ mod tests {
         r.draw_sprite(&sprite(1, quad(0.0, 0.0, 16.0, 16.0), BlendMode::Alpha))
             .unwrap();
         let px = at(&r, 8, 8);
-        assert!((px[0] as i32 - 128).abs() <= 1, "{px:?}");
+        // Half the light of white over black, in sRGB.
+        assert!((px[0] as i32 - 188).abs() <= 1, "{px:?}");
     }
 
     #[test]
@@ -1256,21 +1232,19 @@ mod tests {
     }
 
     #[test]
-    fn saturating_add_matches_per_channel_clamping() {
-        let values = [0u32, 1, 100, 127, 128, 129, 200, 254, 255];
-        for &a in &values {
-            for &b in &values {
-                for &c in &values {
-                    let d = pack(a, b, c, 255);
-                    let s = pack(c, a, b, 0);
-                    let got = channels(add_saturating(d, s));
-                    assert_eq!(
-                        got,
-                        [(a + c).min(255), (b + a).min(255), (c + b).min(255), 255],
-                        "{a} {b} {c}"
-                    );
-                }
-            }
+    fn blending_happens_in_linear_light_like_the_gpu_renderer() {
+        // Half-transparent black over white: half the light, which is sRGB 188, not 128.
+        let half_black = channels(over(pack(255, 255, 255, 255), pack(0, 0, 0, 128)));
+        assert_eq!(half_black, [187, 187, 187, 255]);
+        // The ends are exact.
+        assert_eq!(over(pack(10, 20, 30, 255), pack(1, 2, 3, 0)), pack(10, 20, 30, 255));
+        assert_eq!(over(pack(10, 20, 30, 255), pack(1, 2, 3, 255)), pack(1, 2, 3, 255));
+        // Adding: nothing at zero alpha, light adds up and clamps.
+        assert_eq!(add_linear(pack(40, 50, 60, 255), pack(255, 255, 255, 0), 0), pack(40, 50, 60, 255));
+        assert_eq!(channels(add_linear(pack(188, 0, 255, 255), pack(188, 255, 255, 0), 255)), [255, 255, 255, 255]);
+        // Every byte survives a trip through linear light.
+        for c in 0..=255 {
+            assert_eq!(enc(lin(c)), c);
         }
     }
 
@@ -1302,9 +1276,10 @@ mod tests {
         }
         r.draw_sprite(&sprite(1, v, BlendMode::Alpha)).unwrap();
         let px = at(&r, 8, 8);
-        assert!((px[0] as i32 - 100).abs() <= 2, "{px:?}");
-        assert!((px[1] as i32 - 50).abs() <= 2, "{px:?}");
-        assert!((px[2] as i32 - 127).abs() <= 2, "{px:?}");
+        // Half of each in linear light, as the GPU renderer mixes them.
+        assert!((px[0] as i32 - 146).abs() <= 2, "{px:?}");
+        assert!((px[1] as i32 - 71).abs() <= 2, "{px:?}");
+        assert!((px[2] as i32 - 188).abs() <= 2, "{px:?}");
     }
 
     #[test]
