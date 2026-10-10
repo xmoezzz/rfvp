@@ -2127,9 +2127,17 @@ impl AppBuilder {
         self
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn with_vfs(mut self, nls: Nls) -> anyhow::Result<Self> {
-        self.world.vfs = crate::subsystem::resources::vfs::Vfs::new(nls)?;
+        self.world.vfs = crate::utils::file::desktop_vfs(nls)?;
         Ok(self)
+    }
+
+    /// The browser build has no game folder on disk; it hands over its files with
+    /// [`Self::with_wasm_vfs`].
+    #[cfg(target_arch = "wasm32")]
+    pub fn with_vfs(self, _nls: Nls) -> anyhow::Result<Self> {
+        anyhow::bail!("the wasm build loads the game through with_wasm_vfs")
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -2603,7 +2611,8 @@ impl AppBuilder {
         self.world.nls = self.parser.nls.clone();
 
         let mut cursor_table = HashMap::new();
-        if let Ok(cursor_paths) = self.world.vfs.find_ani() {
+        {
+            let cursor_paths = crate::utils::file::find_loose_ani_cursors();
             let re = Regex::new(r"^([a-zA-Z_]+)(\d+)$").unwrap();
             for path in &cursor_paths {
                 // split cursor1.ani into `cursor` and `1`

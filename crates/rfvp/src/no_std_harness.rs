@@ -24,82 +24,15 @@ extern crate std as real_std;
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
-use real_std::os::unix::fs::FileExt;
 use real_std::path::{Path, PathBuf};
 use real_std::time::Instant;
 use real_std::{env, fs, println, process};
 
 use crate::host_api::soft_raster::SoftRaster;
+use crate::host_api::std_fs::{StdDir, StdFile};
 use crate::host_api::*;
 use crate::script::parser::Nls;
 use crate::{RfvpBootConfig, RfvpCore, RfvpCoreConfig};
-
-struct StdFile(fs::File);
-
-impl RfvpFile for StdFile {
-    fn len(&mut self) -> RfvpResult<u64> {
-        self.0
-            .metadata()
-            .map(|m| m.len())
-            .map_err(|_| RfvpError::Io)
-    }
-
-    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> RfvpResult<usize> {
-        self.0.read_at(buf, offset).map_err(|_| RfvpError::Io)
-    }
-}
-
-/// Saves go in a directory next to the game, as on the consoles.
-struct StdStorage {
-    root: PathBuf,
-}
-
-impl StdStorage {
-    fn resolve(&self, path: &str) -> PathBuf {
-        self.root.join(path)
-    }
-}
-
-impl RfvpStorage for StdStorage {
-    fn read(&self, path: &str) -> RfvpResult<Vec<u8>> {
-        fs::read(self.resolve(path)).map_err(|_| RfvpError::NotFound)
-    }
-
-    fn read_prefix(&self, path: &str, max_len: usize) -> RfvpResult<Vec<u8>> {
-        use real_std::io::Read;
-        let file = fs::File::open(self.resolve(path)).map_err(|_| RfvpError::NotFound)?;
-        let mut head = Vec::new();
-        file.take(max_len as u64)
-            .read_to_end(&mut head)
-            .map_err(|_| RfvpError::Io)?;
-        Ok(head)
-    }
-
-    fn write(&self, path: &str, bytes: &[u8]) -> RfvpResult<()> {
-        let resolved = self.resolve(path);
-        if let Some(parent) = resolved.parent() {
-            let _ = fs::create_dir_all(parent);
-        }
-        fs::write(resolved, bytes).map_err(|_| RfvpError::Io)
-    }
-
-    fn exists(&self, path: &str) -> bool {
-        self.resolve(path).is_file()
-    }
-
-    fn remove(&self, path: &str) -> RfvpResult<()> {
-        fs::remove_file(self.resolve(path)).map_err(|_| RfvpError::Io)
-    }
-
-    fn list(&self, dir: &str) -> RfvpResult<Vec<String>> {
-        let read = fs::read_dir(self.resolve(dir)).map_err(|_| RfvpError::NotFound)?;
-        Ok(read
-            .flatten()
-            .filter(|entry| entry.path().is_file())
-            .filter_map(|entry| entry.file_name().into_string().ok())
-            .collect())
-    }
-}
 
 struct StdFs {
     root: PathBuf,
@@ -138,13 +71,13 @@ impl RfvpFileSystem for StdFs {
     }
 
     fn game_files(&mut self) -> Option<alloc::sync::Arc<dyn RfvpStorage>> {
-        Some(alloc::sync::Arc::new(StdStorage { root: self.root.clone() }))
+        Some(alloc::sync::Arc::new(StdDir::new(self.root.clone())))
     }
 
     fn storage(&mut self) -> Option<alloc::sync::Arc<dyn RfvpStorage>> {
-        Some(alloc::sync::Arc::new(StdStorage {
-            root: self.save_root.clone().unwrap_or_else(|| self.root.clone()),
-        }))
+        Some(alloc::sync::Arc::new(StdDir::new(
+            self.save_root.clone().unwrap_or_else(|| self.root.clone()),
+        )))
     }
 
     fn write_all(&mut self, path: &str, bytes: &[u8]) -> RfvpResult<()> {

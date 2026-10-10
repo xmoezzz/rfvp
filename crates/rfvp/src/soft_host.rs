@@ -195,7 +195,7 @@ impl SoftHost {
         args: SoftHostArgs,
     ) -> Result<Self> {
         let mut world = boxed_default_game_data();
-        world.vfs = Vfs::new(args.nls)?;
+        world.vfs = crate::utils::file::desktop_vfs(args.nls)?;
         world.nls = parser.nls;
         world.set_can_fullscreen(false);
         world.set_window(EngineWindow::new(
@@ -214,7 +214,7 @@ impl SoftHost {
             log::error!("Failed to load global savedata: {:#}", e);
         }
 
-        let cursor_table = load_ani_cursor_table(event_loop, &world.vfs);
+        let cursor_table = load_ani_cursor_table(event_loop);
         log::info!("soft-render ANI cursor table size: {}", cursor_table.len());
         world.set_cursor_table(cursor_table);
         if world.has_cursor(1) {
@@ -484,11 +484,9 @@ fn present_framebuffer(
     Ok(())
 }
 
-fn load_ani_cursor_table(event_loop: &EventLoop<()>, vfs: &Vfs) -> HashMap<u32, CursorBundle> {
+fn load_ani_cursor_table(event_loop: &EventLoop<()>) -> HashMap<u32, CursorBundle> {
     let mut cursor_table = HashMap::new();
-    let Ok(cursor_paths) = vfs.find_ani() else {
-        return cursor_table;
-    };
+    let cursor_paths = crate::utils::file::find_loose_ani_cursors();
     let re = match Regex::new(r"^([a-zA-Z_]+)(\d+)$") {
         Ok(re) => re,
         Err(e) => {

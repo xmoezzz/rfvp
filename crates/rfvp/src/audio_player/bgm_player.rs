@@ -124,8 +124,7 @@ impl BgmPlayer {
     pub fn load_named(&mut self, slot: i32, name: impl Into<String>, vfs: &Vfs) -> Result<()> {
         let slot = slot as usize;
         let name = name.into();
-        let stream = vfs
-            .open_media_source(&name)
+        let stream = super::media_source::open(vfs, &name)
             .with_context(|| format!("open BGM stream from vfs: {}", name))?;
         let _ = StreamingSoundData::from_media_source(stream)
             .with_context(|| format!("decode BGM header from vfs stream: {}", name))?;
@@ -169,8 +168,7 @@ impl BgmPlayer {
     ) -> Result<StreamingSoundData<FromFileError>> {
         match source {
             BgmSource::VfsPath(path) => {
-                let stream = vfs
-                    .open_media_source(path)
+                let stream = super::media_source::open(vfs, path)
                     .with_context(|| format!("open BGM stream from vfs: {}", path))?;
                 Ok(StreamingSoundData::from_media_source(stream)
                     .with_context(|| format!("create streaming BGM from vfs: {}", path))?)

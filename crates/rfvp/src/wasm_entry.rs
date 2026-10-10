@@ -55,7 +55,7 @@ async fn start_rfvp_from_directory_impl(
     let parser = Parser::from_bytes(hcb, nls)
         .map_err(|e| JsValue::from_str(&format!("failed to parse hcb: {e:#}")))?;
 
-    let vfs = Vfs::from_wasm_app_path(nls, app_path)
+    let vfs = Vfs::from_dir(nls, std::sync::Arc::new(app_path))
         .map_err(|e| JsValue::from_str(&format!("failed to build wasm VFS: {e:#}")))?;
 
     let title = parser.get_title();

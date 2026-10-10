@@ -9,6 +9,8 @@ pub mod se_player;
 // Real kira-based players (desktop with audio feature)
 #[cfg(all(not(feature = "no_std"), feature = "audio", not(target_os = "uefi")))]
 pub mod bgm_player;
+#[cfg(all(not(feature = "no_std"), feature = "audio", not(target_os = "uefi")))]
+mod media_source;
 // Anzu-HAL players (UEFI with anzu-audio feature)
 #[cfg(all(not(feature = "no_std"), target_os = "uefi", feature = "anzu-audio"))]
 #[path = "bgm_player_anzu.rs"]

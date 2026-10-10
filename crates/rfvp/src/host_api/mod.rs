@@ -6,6 +6,14 @@ pub mod fs;
 pub mod host;
 pub mod render;
 pub mod soft_raster;
+#[cfg(all(
+    any(not(feature = "no_std"), test),
+    not(target_os = "uefi"),
+    not(target_arch = "wasm32")
+))]
+pub mod std_fs;
+#[cfg(all(not(feature = "no_std"), target_os = "uefi", feature = "rfvp-os"))]
+pub mod uefi_fs;
 
 pub use audio::{
     AudioParams, AudioSampleFormat, AudioSlotKind, AudioStreamDesc, AudioStreamId,

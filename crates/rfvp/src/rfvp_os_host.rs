@@ -326,7 +326,7 @@ impl RfvpOsRuntime {
         let mut world = boxed_default_game_data();
         uefi_stage!("[UEFI] after boxed_default_game_data");
         uefi_stage!("[UEFI] before Vfs::new");
-        world.vfs = Vfs::new(config.nls)?;
+        world.vfs = uefi_vfs(config.nls)?;
         uefi_stage!("[UEFI] after Vfs::new");
         world.nls = parser.nls;
         world.set_can_fullscreen(false);
@@ -812,4 +812,37 @@ fn find_hcb(config: &RfvpOsConfig) -> AnyResult<&'static str> {
         "No UEFI hcb path was provided for the game directory: {}",
         config.project_dir
     );
+}
+
+#[cfg(not(target_os = "uefi"))]
+fn uefi_vfs(nls: Nls) -> AnyResult<Vfs> {
+    crate::utils::file::desktop_vfs(nls)
+}
+
+/// The game's files on the boot volume, under `\rfvp`. UEFI file systems are not listed reliably,
+/// so the packs FVP games ship are opened by name.
+#[cfg(target_os = "uefi")]
+fn uefi_vfs(nls: Nls) -> AnyResult<Vfs> {
+    const UEFI_PACKS: &[&str] = &[
+        "graph_sd", "se_env", "bgm", "se", "se_sys", "graph_vis", "graph_bg", "voice", "graph_bs",
+        "graph", "etc",
+    ];
+
+    let dir = Arc::new(crate::host_api::uefi_fs::UefiDir::new("\\rfvp"));
+    let mut vfs = Vfs::new(nls)?;
+    for name in UEFI_PACKS {
+        let pack = crate::host_api::RfvpStorage::open(dir.as_ref(), &format!("{name}.bin"))
+            .map_err(|err| anyhow::anyhow!("{err:?}"))
+            .and_then(|file| {
+                crate::subsystem::resources::vfs::HostPackFile::new(file)
+                    .map_err(|err| anyhow::anyhow!("{err:?}"))
+            })
+            .and_then(|pack| vfs.add_pack_source(name, Arc::new(pack)));
+        match pack {
+            Ok(()) => log::info!("[UEFI] loaded VFS pack {name}.bin"),
+            Err(e) => log::warn!("[UEFI] failed to load VFS pack {name}.bin: {e:#}"),
+        }
+    }
+    vfs.set_loose_dir(Some(dir));
+    Ok(vfs)
 }

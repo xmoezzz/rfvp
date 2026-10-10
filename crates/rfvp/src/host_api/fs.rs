@@ -1,3 +1,4 @@
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -58,6 +59,16 @@ pub trait RfvpFile {
     }
 }
 
+impl<F: RfvpFile + ?Sized> RfvpFile for Box<F> {
+    fn len(&mut self) -> RfvpResult<u64> {
+        (**self).len()
+    }
+
+    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> RfvpResult<usize> {
+        (**self).read_at(offset, buf)
+    }
+}
+
 /// Whole-file storage for the player's own data (saves), shared with the game state.
 ///
 /// Paths are relative to the game's directory, with `/` separators (`save/rfvp_s000.bin`);
@@ -82,6 +93,12 @@ pub trait RfvpStorage: Send + Sync {
 
     /// Names (not paths) of the files directly inside `dir`.
     fn list(&self, dir: &str) -> RfvpResult<Vec<String>>;
+
+    /// Open a file to read parts of it on demand. A host that can should implement this: packs
+    /// and large loose assets (songs, movies) are then streamed instead of read whole.
+    fn open(&self, _path: &str) -> RfvpResult<Box<dyn RfvpFile + Send>> {
+        Err(RfvpError::Unsupported)
+    }
 }
 
 pub trait RfvpFileSystem {

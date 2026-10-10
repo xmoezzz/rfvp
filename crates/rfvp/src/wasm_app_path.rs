@@ -1,9 +1,10 @@
 #![cfg(target_arch = "wasm32")]
 
 use std::collections::BTreeMap;
-use std::io::{Read, Seek, SeekFrom};
 
 use anyhow::{Context, Result};
+
+use crate::host_api::{RfvpError, RfvpFile, RfvpResult, RfvpStorage};
 use js_sys::Uint8Array;
 use serde::Deserialize;
 use wasm_bindgen::prelude::*;
@@ -84,26 +85,9 @@ impl WasmAppPath {
             .with_context(|| format!("read wasm hcb {path}"))
     }
 
-    pub fn root_bin_files(&self) -> Vec<(String, WasmFileRef)> {
-        self.files
-            .iter()
-            .filter(|(path, _)| is_root_file(path) && path.ends_with(".bin"))
-            .map(|(path, file_ref)| (path.clone(), file_ref.clone()))
-            .collect()
-    }
-
     pub fn lookup(&self, path: &str) -> Option<&WasmFileRef> {
         let key = normalize_key(path);
         self.files.get(&key)
-    }
-
-    pub fn known_root_files_sample(&self) -> Vec<String> {
-        self.files
-            .keys()
-            .filter(|path| is_root_file(path))
-            .take(64)
-            .cloned()
-            .collect()
     }
 
     fn read_all(&self, file_ref: &WasmFileRef) -> Result<Vec<u8>> {
@@ -114,110 +98,63 @@ impl WasmAppPath {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct WasmRangeStream {
-    file_id: u32,
-    file_size: u64,
-    start: u64,
-    len: u64,
-    pos: u64,
-    cache_start: u64,
-    cache: Vec<u8>,
-}
+/// A selected file, read through the page's range requests.
+struct WasmFile(WasmFileRef);
 
-impl WasmRangeStream {
-    const CACHE_CHUNK: usize = 1024 * 1024;
-
-    pub fn new(file_ref: &WasmFileRef, start: u64, len: u64) -> Result<Self> {
-        let end = start
-            .checked_add(len)
-            .ok_or_else(|| anyhow::anyhow!("wasm range overflow"))?;
-        if end > file_ref.size {
-            anyhow::bail!(
-                "wasm range out of bounds: start={} len={} file_size={}",
-                start,
-                len,
-                file_ref.size
-            );
-        }
-        Ok(Self {
-            file_id: file_ref.id,
-            file_size: file_ref.size,
-            start,
-            len,
-            pos: 0,
-            cache_start: u64::MAX,
-            cache: Vec::new(),
-        })
+impl RfvpFile for WasmFile {
+    fn len(&mut self) -> RfvpResult<u64> {
+        Ok(self.0.size)
     }
 
-    fn clamp_pos(&self, p: i128) -> u64 {
-        if p <= 0 {
-            return 0;
-        }
-        let p = p as u128;
-        if p >= self.len as u128 {
-            return self.len;
-        }
-        p as u64
-    }
-
-    fn fill_cache(&mut self) -> std::io::Result<()> {
-        let absolute = self.start + self.pos;
-        let remaining = self.len - self.pos;
-        let to_read = (remaining as usize).min(Self::CACHE_CHUNK);
-        let bytes = wasm_read_range(self.file_id, absolute, to_read)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-        self.cache_start = self.pos;
-        self.cache = bytes;
-        Ok(())
-    }
-}
-
-impl Read for WasmRangeStream {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        if self.pos >= self.len || buf.is_empty() {
+    fn read_at(&mut self, offset: u64, buf: &mut [u8]) -> RfvpResult<usize> {
+        if offset >= self.0.size {
             return Ok(0);
         }
-
-        let mut written = 0usize;
-        while written < buf.len() && self.pos < self.len {
-            let cache_end = self.cache_start.saturating_add(self.cache.len() as u64);
-            if self.cache.is_empty() || self.pos < self.cache_start || self.pos >= cache_end {
-                self.fill_cache()?;
-                if self.cache.is_empty() {
-                    break;
-                }
-            }
-
-            let cache_offset = (self.pos - self.cache_start) as usize;
-            let available = self.cache.len().saturating_sub(cache_offset);
-            if available == 0 {
-                self.cache.clear();
-                continue;
-            }
-
-            let remaining_stream = (self.len - self.pos) as usize;
-            let to_copy = (buf.len() - written).min(available).min(remaining_stream);
-            buf[written..written + to_copy]
-                .copy_from_slice(&self.cache[cache_offset..cache_offset + to_copy]);
-            self.pos += to_copy as u64;
-            written += to_copy;
-        }
-
-        Ok(written)
+        let n = buf.len().min((self.0.size - offset) as usize);
+        let bytes = wasm_read_range(self.0.id, offset, n).map_err(|_| RfvpError::Io)?;
+        buf[..n].copy_from_slice(&bytes);
+        Ok(n)
     }
 }
 
-impl Seek for WasmRangeStream {
-    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
-        let next = match pos {
-            SeekFrom::Start(off) => self.clamp_pos(off as i128),
-            SeekFrom::End(delta) => self.clamp_pos(self.len as i128 + delta as i128),
-            SeekFrom::Current(delta) => self.clamp_pos(self.pos as i128 + delta as i128),
-        };
-        self.pos = next;
-        Ok(self.pos)
+/// The selected game directory, read-only. Names are matched without regard to case.
+impl RfvpStorage for WasmAppPath {
+    fn read(&self, path: &str) -> RfvpResult<Vec<u8>> {
+        let file_ref = self.lookup(path).ok_or(RfvpError::NotFound)?;
+        self.read_all(file_ref).map_err(|_| RfvpError::Io)
+    }
+
+    fn write(&self, _path: &str, _bytes: &[u8]) -> RfvpResult<()> {
+        Err(RfvpError::Unsupported)
+    }
+
+    fn exists(&self, path: &str) -> bool {
+        self.lookup(path).is_some()
+    }
+
+    fn remove(&self, _path: &str) -> RfvpResult<()> {
+        Err(RfvpError::Unsupported)
+    }
+
+    fn list(&self, dir: &str) -> RfvpResult<Vec<String>> {
+        let dir = normalize_key(dir);
+        Ok(self
+            .files
+            .keys()
+            .filter_map(|path| {
+                let name = if dir.is_empty() {
+                    path.as_str()
+                } else {
+                    path.strip_prefix(dir.as_str())?.strip_prefix('/')?
+                };
+                is_root_file(name).then(|| name.to_string())
+            })
+            .collect())
+    }
+
+    fn open(&self, path: &str) -> RfvpResult<Box<dyn RfvpFile + Send>> {
+        let file_ref = self.lookup(path).ok_or(RfvpError::NotFound)?;
+        Ok(Box::new(WasmFile(file_ref.clone())))
     }
 }
 

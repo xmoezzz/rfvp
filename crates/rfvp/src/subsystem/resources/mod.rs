@@ -26,10 +26,6 @@ pub mod thread_manager;
 pub mod thread_wrapper;
 pub mod time;
 pub mod timer_manager;
-#[cfg(not(feature = "no_std"))]
-pub mod vfs;
-#[cfg(feature = "no_std")]
-#[path = "vfs_host.rs"]
 pub mod vfs;
 #[cfg(all(
     not(feature = "no_std"),

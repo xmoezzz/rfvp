@@ -121,6 +121,88 @@ pub fn app_base_path() -> PathBuilder {
     }
 }
 
+/// The game's files on a desktop: the packs and loose files in [`app_base_path`].
+#[cfg(not(any(target_os = "uefi", target_arch = "wasm32")))]
+pub fn desktop_vfs(
+    nls: crate::script::parser::Nls,
+) -> anyhow::Result<crate::subsystem::resources::vfs::Vfs> {
+    let dir = crate::host_api::std_fs::StdDir::new(app_base_path().get_path().clone());
+    crate::subsystem::resources::vfs::Vfs::from_dir(nls, std::sync::Arc::new(dir))
+}
+
+/// Loose `cursor*.ani` files that make up the game's mouse cursors.
+///
+/// They sit next to the game rather than in a pack, so look in every directory that can be the
+/// game directory: the configured base path (`--project-dir` / `FVP_BASE_PATH` / exe dir), the
+/// directory of the `.hcb`, the working directory and the executable's directory.
+#[cfg(not(any(target_os = "uefi", target_arch = "wasm32")))]
+pub fn find_loose_ani_cursors() -> Vec<PathBuf> {
+    use std::collections::HashSet;
+    use std::fs;
+
+    let mut roots = Vec::new();
+    if let Some(root) = hcb_root_path() {
+        roots.push(root);
+    }
+    roots.push(app_base_path().get_path().clone());
+    if let Ok(cwd) = env::current_dir() {
+        roots.push(cwd);
+    }
+    if let Ok(exe) = env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            roots.push(parent.to_path_buf());
+        }
+    }
+
+    let mut seen_roots = HashSet::new();
+    let mut seen_files = HashSet::new();
+    let mut matches = Vec::new();
+    for root in roots {
+        if !seen_roots.insert(root.to_string_lossy().to_string()) {
+            continue;
+        }
+        let Ok(entries) = fs::read_dir(&root) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            let lower = name.to_ascii_lowercase();
+            if !(lower.starts_with("cursor") && lower.ends_with(".ani")) {
+                continue;
+            }
+            if seen_files.insert(path.to_string_lossy().to_string()) {
+                matches.push(path);
+            }
+        }
+    }
+
+    matches.sort();
+    if matches.is_empty() {
+        log::warn!(
+            "no loose ANI cursor files found; searched roots: {}",
+            seen_roots.into_iter().collect::<Vec<_>>().join(", ")
+        );
+    } else {
+        log::info!("found {} loose ANI cursor file(s)", matches.len());
+        for path in &matches {
+            log::info!("found ANI cursor: {}", path.display());
+        }
+    }
+    matches
+}
+
+/// Browsers and UEFI have no loose cursor files to look for.
+#[cfg(any(target_os = "uefi", target_arch = "wasm32"))]
+pub fn find_loose_ani_cursors() -> Vec<PathBuf> {
+    Vec::new()
+}
+
 /// Utils to help to build path and get them as String
 pub struct PathBuilder {
     path_buff: PathBuf,

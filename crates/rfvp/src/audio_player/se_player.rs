@@ -183,8 +183,7 @@ impl SePlayer {
     ) -> anyhow::Result<()> {
         let slot_usize = slot as usize;
         let name = name.into();
-        let stream = vfs
-            .open_media_source(&name)
+        let stream = super::media_source::open(vfs, &name)
             .with_context(|| format!("open SE stream from vfs: {}", name))?;
         // Validate the header now so a bad file fails at load time, as before.
         let _ = StreamingSoundData::from_media_source(stream)
@@ -255,8 +254,7 @@ impl SePlayer {
 
             let data = match source {
                 SeSource::VfsPath(path) => {
-                    let stream = vfs
-                        .open_media_source(path)
+                    let stream = super::media_source::open(vfs, path)
                         .with_context(|| format!("open SE stream from vfs: {}", path))?;
                     StreamingSoundData::from_media_source(stream)
                         .with_context(|| format!("create streaming SE from vfs: {}", path))?

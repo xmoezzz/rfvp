@@ -22,6 +22,8 @@ mod font;
 #[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 mod legacy_save_load_ui;
 #[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
+mod host_api;
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 mod rendering;
 #[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 mod rfvp_audio;
@@ -204,7 +206,7 @@ mod tests {
     fn test_audio_system() {
         std::env::set_var("FVP_TEST", "1");
         let mut world = GameData::default();
-        let vfs = crate::subsystem::resources::vfs::Vfs::new(Nls::ShiftJIS).unwrap();
+        let vfs = crate::utils::file::desktop_vfs(Nls::ShiftJIS).unwrap();
         let buff = vfs.read_file("bgm/001").unwrap();
         // is oggs?
         assert!(
@@ -229,7 +231,7 @@ mod tests {
     fn test_audio_system_mix() {
         std::env::set_var("FVP_TEST", "1");
         let mut world = GameData::default();
-        let vfs = crate::subsystem::resources::vfs::Vfs::new(Nls::ShiftJIS).unwrap();
+        let vfs = crate::utils::file::desktop_vfs(Nls::ShiftJIS).unwrap();
         let buff = vfs.read_file("bgm/001").unwrap();
         let buff2 = vfs.read_file("bgm/002").unwrap();
         // is oggs?
