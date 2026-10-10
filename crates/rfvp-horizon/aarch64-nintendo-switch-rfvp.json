@@ -1,0 +1,27 @@
+{
+  "arch": "aarch64",
+  "crt-objects-fallback": "false",
+  "data-layout": "e-m:e-p270:32:32-p271:32:32-p272:64:64-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128-Fn32",
+  "dynamic-linking": false,
+  "features": "+v8a,+neon,+crypto,+crc",
+  "link-script": "OUTPUT_FORMAT(elf64-littleaarch64)\nOUTPUT_ARCH(aarch64)\nENTRY(_start)\n\nPHDRS\n{\n  text PT_LOAD FLAGS(5);\n  rodata PT_LOAD FLAGS(4);\n  data PT_LOAD FLAGS(6);\n  dynamic PT_DYNAMIC;\n}\n\nSECTIONS\n{\n  . = 0;\n\n  .text : ALIGN(0x1000) {\n    HIDDEN(__text_start = .);\n    KEEP(*(.text.jmp))\n\n    . = 0x80;\n\n    *(.text .text.*)\n    *(.plt .plt.*)\n  }\n\n  /* Read-only sections */\n\n  . = ALIGN(0x1000);\n\n  .module_name : { *(.module_name) } :rodata\n\n  .rodata : { *(.rodata .rodata.*) } :rodata\n  .hash : { *(.hash) }\n  .dynsym : { *(.dynsym .dynsym.*) }\n  .dynstr : { *(.dynstr .dynstr.*) }\n  .rela.dyn : { *(.rela.dyn) }\n\n  .eh_frame : {\n    HIDDEN(__eh_frame_start = .);\n    *(.eh_frame .eh_frame.*)\n    HIDDEN(__eh_frame_end = .);\n  }\n\n  .eh_frame_hdr : {\n    HIDDEN(__eh_frame_hdr_start = .);\n    *(.eh_frame_hdr .eh_frame_hdr.*)\n    HIDDEN(__eh_frame_hdr_end = .);\n  }\n\n  /* Read-write sections */\n\n   . = ALIGN(0x1000);\n\n  .data : {\n    *(.data .data.*)\n    *(.got .got.*)\n    *(.got.plt .got.plt.*)\n  } :data\n\n  .dynamic : {\n    HIDDEN(__dynamic_start = .);\n    *(.dynamic)\n  }\n\n  /* BSS section */\n\n  . = ALIGN(0x1000);\n\n  .bss : {\n    HIDDEN(__bss_start = .);\n    *(.bss .bss.*)\n    *(COMMON)\n    . = ALIGN(8);\n    HIDDEN(__bss_end = .);\n  } :data\n}\n",
+  "linker": "rust-lld",
+  "linker-flavor": "gnu-lld",
+  "llvm-target": "aarch64-unknown-none",
+  "max-atomic-width": 128,
+  "metadata": {
+    "description": "ARM64 Nintendo Switch, Horizon (rfvp: dynamic-linking off so rustc drops the cdylib crate type of rfvp; .bss in the data segment so elf2nro sees its size)",
+    "host_tools": false,
+    "std": false,
+    "tier": 3
+  },
+  "os": "horizon",
+  "panic-strategy": "abort",
+  "position-independent-executables": true,
+  "relro-level": "off",
+  "stack-probes": {
+    "kind": "inline"
+  },
+  "target-pointer-width": 64,
+  "vendor": "nintendo"
+}

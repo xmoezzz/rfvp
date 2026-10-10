@@ -26,97 +26,69 @@ vitasdk-backend = ["c-glue"]
 global-allocator = []
 ```
 
-## Implemented backends
+## Status
 
-The `vitasdk-backend` feature compiles both:
+**Experimental.** It compiles and produces a VPK, and the core it runs has been played through a
+desktop test host (see below), but it has not been run on a Vita or an emulator yet.
 
-```text
-c/rfvp_psv_c.c
-c/rfvp_psv_vitasdk.c
-```
-
-`rfvp_psv_vitasdk.c` is the actual VitaSDK backend. It includes PSV headers and uses VitaSDK APIs for:
-
-```text
-<psp2/display.h>              sceDisplaySetFrameBuf / sceDisplayWaitVblankStart
-<psp2/ctrl.h>                 sceCtrlSetSamplingMode / sceCtrlPeekBufferPositive
-<psp2/touch.h>                sceTouchSetSamplingState / sceTouchPeek
-<psp2/io/fcntl.h>             sceIoOpen / sceIoPread / sceIoLseek / sceIoClose
-<psp2/io/stat.h>              sceIoGetstat
-<psp2/io/dirent.h>            sceIoDopen / sceIoDread / sceIoDclose
-<psp2/kernel/processmgr.h>    sceKernelExitProcess
-```
-
-## Display path
-
-The current renderer is a Vita software-framebuffer backend:
-
-```text
-rfvp no_std core
-  -> RfvpRenderer host API
-  -> C RGBA8 CPU renderer
-  -> VitaSDK present callback
-  -> SceDisplayFrameBuf 960x544 A8B8G8R8 framebuffer
-```
-
-This does not use GXM yet.
-
-## Input mapping
-
-Current temporary input mapping:
-
-```text
-START          -> Quit
-D-pad          -> cursor move
-Left stick     -> cursor move
-CROSS          -> left pointer button
-CIRCLE         -> right pointer button
-Front touch    -> touch event + left pointer event
-```
-
-## Asset root
-
-Default asset root:
-
-```text
-app0:/
-```
-
-Override at build time:
+## Building
 
 ```bash
-RFVP_PSV_VITASDK_ASSET_ROOT='ux0:data/rfvp' \
-  cargo build -Z build-std=core,alloc \
-  --target armv7-sony-vita-newlibeabihf \
-  -p rfvp-psv \
-  --features entrypoint
+./platform/scripts/build_vita.sh        # -> target/rfvp-psv/psv/rfvp.vpk
 ```
 
-## Build
+You need VitaSDK (`VITASDK`, default `/usr/local/vitasdk`), `cargo-vita` and rustup. The script
+installs the pinned nightly from `platform/consoles/toolchain.env`.
 
-You need VitaSDK installed and `VITASDK` pointing to the SDK root.
+## Installing a game
 
-```bash
-export VITASDK=/usr/local/vitasdk
-export PATH="$VITASDK/bin:$PATH"
+Install the VPK, then copy the game to `ux0:data/rfvp/game/` (the folder can be changed at build
+time with `RFVP_PSV_VITASDK_ASSET_ROOT`):
 
-cargo +nightly vita build vpk \
-  -p rfvp-psv \
-  --release \
-  --features entrypoint \
-  --config 'profile.dev.panic="abort"' \
-  --config 'profile.release.panic="abort"' \
-  -Z build-std=core,alloc,compiler_builtins \
-  -Z build-std-features=compiler-builtins-mem
-```
+| File | |
+| --- | --- |
+| `*.hcb` | the game's script |
+| `*.bin` | the game's resource packs (`graph.bin`, `bgm.bin`, ...) |
+| `default.ttf` | a CJK font; the engine does not ship one |
+| `save/` | made by the port; holds the saves |
 
-This crate only builds the Rust/C platform object. Packaging into a VPK still needs the normal VitaSDK packaging step for your workspace layout.
+The packs are read from the card as the game asks for them, not loaded into memory. If the game
+cannot start the reason is written to `last_error.txt` in the game folder, and a crash to
+`panic.txt`.
 
-## Not implemented yet
+## Controls
 
-```text
-1. GXM renderer
-2. real audio output, current audio vtable is still a stub in c/rfvp_psv_c.c
-3. final VPK packaging metadata
-4. full game boot/resource-loading flow above rfvp no_std core
-```
+| Vita | Game |
+| --- | --- |
+| cross | left click |
+| circle | right click (menu / back) |
+| square | Return |
+| triangle | Space |
+| L, R (hold) | Ctrl (skip text) |
+| select | Escape |
+| start | quit |
+| D-pad, left stick | move the cursor |
+| front touch | pointer |
+
+## Display
+
+The game is drawn with a software rasterizer (`rfvp::host_api::SoftRaster`) straight into a
+960x544 framebuffer, with the game frame scaled and letterboxed as it is drawn. The platform layer
+only puts the finished frame on the display. This does not use GXM yet.
+
+## Saves
+
+Saves go in `save/` in the game folder: one `rfvp_sNNN.bin` per slot and `rfvp_global.bin` for the
+settings and read-text marks. They are not interchangeable with the desktop build's saves, which
+use a different encoding.
+
+## Testing without a console
+
+See `crates/rfvp-horizon/README.md`: the same test harness exercises the core both ports use.
+
+## Not done
+
+- A GXM renderer (the display path is the software rasterizer above).
+- Hardware testing: audio in particular (the Rust mixer feeds `sceAudioOutOutput`, which blocks
+  until the device has room, so it also paces the game while sound plays) has never run on a Vita.
+- A date on saves comes from the RTC; nothing else about time is wired up.

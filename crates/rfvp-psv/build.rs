@@ -109,6 +109,7 @@ fn build_vitasdk_c_glue() {
     println!("cargo:rustc-link-lib=SceDisplay_stub");
     println!("cargo:rustc-link-lib=SceCommonDialog_stub");
     println!("cargo:rustc-link-lib=SceCtrl_stub");
+    println!("cargo:rustc-link-lib=SceRtc_stub");
     println!("cargo:rustc-link-lib=SceTouch_stub");
     println!("cargo:rustc-link-lib=SceAudio_stub");
     println!("cargo:rustc-link-lib=SceIofilemgr_stub");

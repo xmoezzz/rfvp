@@ -21,6 +21,11 @@ use rfvp::host_api::{
 const RELEASED_BUFFER_BATCH: usize = 32;
 const OUTPUT_SAMPLE_RATE: u32 = 48_000;
 const MIX_FRAMES: usize = 1024;
+/// Keep about this many mixed chunks queued on the device (a chunk is ~21 ms), so audio does not
+/// run dry when a frame is slow and does not build up latency when frames are fast.
+const TARGET_QUEUED_CHUNKS: usize = 3;
+/// Never mix more than this many chunks in one tick, even if the device has drained its queue.
+const MAX_CHUNKS_PER_TICK: usize = 4;
 const OGG_ALLOC_ALIGN: usize = 16;
 const OGG_ALLOC_HEADER_SIZE: usize = core::mem::size_of::<usize>();
 
@@ -191,6 +196,11 @@ impl HorizonMasterOutput {
             chunks: Vec::new(),
             playing: false,
         })
+    }
+
+    /// Number of chunks handed to the device that it has not finished playing.
+    fn queued_chunks(&self) -> usize {
+        self.chunks.iter().filter(|chunk| chunk.queued).count()
     }
 
     fn submit_stereo_i16(&mut self, samples: &[i16]) -> RfvpResult<()> {
@@ -411,12 +421,21 @@ impl RfvpAudio for HorizonAudio {
         if self.master_buffer.len() != needed {
             self.master_buffer.resize(needed, 0);
         }
-        let active = self.mixer.mix_next(&mut self.master_buffer)?;
-        if active {
+        // Top the device queue up to the target. The device plays at its own pace, so how much
+        // gets mixed depends on how much it has played since the last tick, not on the frame
+        // rate.
+        for _ in 0..MAX_CHUNKS_PER_TICK {
+            if let Some(output) = &mut self.output {
+                output.collect_released_buffers()?;
+                if output.queued_chunks() >= TARGET_QUEUED_CHUNKS {
+                    break;
+                }
+            }
+            if !self.mixer.mix_next(&mut self.master_buffer)? {
+                break;
+            }
             let samples = self.master_buffer.clone();
             self.output_mut()?.submit_stereo_i16(&samples)?;
-        } else if let Some(output) = &mut self.output {
-            output.collect_released_buffers()?;
         }
         Ok(())
     }

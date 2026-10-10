@@ -89,7 +89,7 @@ The Rust API documentation for this project is available here:
 
 **Status**
 * **Supported**: built by CI on every push.
-* **Experimental** (PS Vita, Switch): `rfvp-psv` and `rfvp-horizon` are the real console targets. They have not been tested on hardware yet and are expected to need a reduced-resolution build.
+* **Experimental** (PS Vita, Switch): `rfvp-psv` and `rfvp-horizon` are the real console targets. They build on every change that touches them, and the core they run boots, plays and saves a real game in a desktop test host, but they have not been run on a console yet. See `crates/rfvp-horizon/README.md` and `crates/rfvp-psv/README.md`.
 * **Skeleton** (PSP, PS3, PS2, Wii U, Wii, 3DS): host crates that exist so the `no_std` core surface has a place to plug in. They are untested and not built by CI; expect to rebuild them at a lower resolution before they are usable.
 
 ### As Library

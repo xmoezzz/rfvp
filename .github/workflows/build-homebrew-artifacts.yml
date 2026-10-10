@@ -1,5 +1,8 @@
 name: Build Homebrew Artifacts
 
+# The experimental skeleton ports (PSP, 3DS, Wii, Wii U). They are untested and not built on
+# every push. Switch and PS Vita are built by consoles.yml.
+
 on:
   workflow_dispatch:
 
@@ -22,18 +25,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - platform: psv
-            kind: cargo-vita
-            artifact_name: rfvp-psv
-
           - platform: psp
             kind: script
             script: crates/rfvp-psp/build-psp.sh
             artifact_name: rfvp-psp
-
-          - platform: switch
-            kind: cargo-nx
-            artifact_name: rfvp-switch
 
           - platform: 3ds
             kind: script
@@ -65,24 +60,6 @@ jobs:
             script)
               chmod +x "${{ matrix.script }}"
               "${{ matrix.script }}"
-              ;;
-
-            cargo-nx)
-              cargo nx build \
-                -p rfvp-horizon \
-                --release \
-                --features entrypoint
-              ;;
-
-            cargo-vita)
-              cargo +nightly vita build vpk \
-                -p rfvp-psv \
-                --release \
-                --features entrypoint \
-                --config 'profile.dev.panic="abort"' \
-                --config 'profile.release.panic="abort"' \
-                -Z build-std=core,alloc,compiler_builtins \
-                -Z build-std-features=compiler-builtins-mem
               ;;
 
             *)

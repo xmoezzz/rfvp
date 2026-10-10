@@ -2,7 +2,9 @@
 
 FROM archlinux:base
 
-ARG RUST_TOOLCHAIN=nightly
+# The console ports need a pinned nightly; platform/consoles/toolchain.env is the one place to
+# change it (the build scripts install it on demand if the image has an older one).
+ARG RUST_TOOLCHAIN=nightly-2026-02-01
 
 ENV DEVKITPRO=/opt/devkitpro
 ENV DEVKITARM=/opt/devkitpro/devkitARM

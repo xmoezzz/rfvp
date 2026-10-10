@@ -7,6 +7,7 @@
 #include <psp2/ctrl.h>
 #include <psp2/display.h>
 #include <psp2/kernel/processmgr.h>
+#include <psp2/rtc.h>
 #include <psp2/touch.h>
 
 #ifndef RFVP_PSV_VITASDK_SCREEN_WIDTH
@@ -18,7 +19,7 @@
 #endif
 
 #ifndef RFVP_PSV_VITASDK_ASSET_ROOT
-#define RFVP_PSV_VITASDK_ASSET_ROOT "app0:/"
+#define RFVP_PSV_VITASDK_ASSET_ROOT "ux0:data/rfvp/game/"
 #endif
 
 #ifndef RFVP_PSV_VITASDK_CURSOR_STEP
@@ -154,6 +155,30 @@ static int32_t rfvp_psv_vitasdk_poll_pad(PsvApp *app) {
         g_rfvp_psv_vitasdk.exit_requested = 1;
         rfvp_psv_c_request_exit();
         return rfvp_psv_app_push_quit(app);
+    }
+
+    /* Keys: the shoulder buttons hold Ctrl (skip text), the face buttons are Return, Space and
+     * Escape. Pointer clicks stay on cross (left) and circle (right). */
+    static const struct {
+        uint32_t button;
+        uint32_t key;
+    } key_map[] = {
+        {SCE_CTRL_LTRIGGER, 0u},
+        {SCE_CTRL_RTRIGGER, 0u},
+        {SCE_CTRL_SQUARE, 1u},
+        {SCE_CTRL_SELECT, 2u},
+        {SCE_CTRL_TRIANGLE, 3u},
+    };
+    for (size_t i = 0u; i < sizeof(key_map) / sizeof(key_map[0]); ++i) {
+        int32_t key_status = RFVP_PSV_OK;
+        if ((down & key_map[i].button) != 0u) {
+            key_status = rfvp_psv_app_push_key(app, key_map[i].key, 1);
+        } else if ((up & key_map[i].button) != 0u) {
+            key_status = rfvp_psv_app_push_key(app, key_map[i].key, 0);
+        }
+        if (key_status != RFVP_PSV_OK) {
+            return key_status;
+        }
     }
 
     int moved = 0;
@@ -340,4 +365,28 @@ int32_t rfvp_psv_platform_poll(PsvApp *app) {
 
 int32_t rfvp_psv_platform_should_exit(void) {
     return g_rfvp_psv_vitasdk.exit_requested ? 1 : 0;
+}
+
+/* Leave the process at once; used after a panic, when nothing else can be trusted to run. */
+void rfvp_psv_vitasdk_abort(void) {
+    sceKernelExitProcess(1);
+    for (;;) {
+    }
+}
+
+/* The local date and time: year, month, day, day of week (Sunday = 0), hour, minute.
+ * Returns 0 on success. */
+int32_t rfvp_psv_vitasdk_wall_time(uint16_t out[6]) {
+    SceDateTime now;
+    if (sceRtcGetCurrentClockLocalTime(&now) < 0) {
+        return -1;
+    }
+    out[0] = (uint16_t)now.year;
+    out[1] = (uint16_t)now.month;
+    out[2] = (uint16_t)now.day;
+    int dow = sceRtcGetDayOfWeek(now.year, now.month, now.day);
+    out[3] = (uint16_t)(dow < 0 ? 0 : dow);
+    out[4] = (uint16_t)now.hour;
+    out[5] = (uint16_t)now.minute;
+    return 0;
 }

@@ -148,6 +148,22 @@ impl HorizonInput {
             KeyCode::Return,
             pressed,
         )?;
+        self.emit_key(
+            queue,
+            buttons,
+            hid::NpadButton::Y(),
+            KeyCode::Space,
+            pressed,
+        )?;
+        // Holding a shoulder button skips text, as Ctrl does on a keyboard.
+        for shoulder in [
+            hid::NpadButton::L(),
+            hid::NpadButton::R(),
+            hid::NpadButton::ZL(),
+            hid::NpadButton::ZR(),
+        ] {
+            self.emit_key(queue, buttons, shoulder, KeyCode::Control, pressed)?;
+        }
 
         if buttons.contains(hid::NpadButton::A()) {
             self.emit_pointer(queue, PointerButton::Left, pressed)?;

@@ -302,6 +302,10 @@ jobs:
       - name: Check no_std core
         run: cargo check -p rfvp --no-default-features --features no_std --lib --target x86_64-unknown-uefi
 
+      # The no_std core and the shared software rasterizer also run natively, so their tests do.
+      - name: Test no_std core on the host
+        run: cargo test -p rfvp --lib --no-default-features --features no_std
+
   uefi:
     name: uefi
     runs-on: ubuntu-22.04

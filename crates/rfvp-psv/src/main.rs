@@ -4,9 +4,12 @@
 
 extern crate alloc;
 
+use alloc::format;
+use core::fmt::Write;
 use core::mem::MaybeUninit;
 use core::panic::PanicInfo;
 
+use rfvp::host_api::{RfvpFileSystem, RfvpHost};
 use rfvp::{RfvpBootConfig, RfvpCoreConfig};
 use rfvp_psv::{PsvApp, RawPsvHost};
 
@@ -16,10 +19,32 @@ extern "C" {
     fn rfvp_psv_platform_should_exit() -> i32;
     fn rfvp_psv_vitasdk_init();
     fn rfvp_psv_vitasdk_fini();
+    fn rfvp_psv_vitasdk_abort() -> !;
+    fn rfvp_psv_c_write_log(name: *const u8, text: *const u8, text_len: usize);
+}
+
+/// Written next to the game when it cannot start or stops, so the reason can be read off the
+/// memory card.
+const ERROR_FILE: &str = "last_error.txt";
+
+fn report_error(app: &mut PsvApp, what: &str) {
+    let detail = app
+        .core()
+        .last_error_detail()
+        .map(alloc::string::String::from)
+        .unwrap_or_default();
+    let text = format!(
+        "{what}\n{detail}\n\
+         The game folder (ux0:data/rfvp/game) needs the game's .hcb script and .bin packs, plus \
+         a CJK font named default.ttf.\n\nlog:\n{}",
+        rfvp::ring_log::dump()
+    );
+    let _ = app.host().fs().write_all(ERROR_FILE, text.as_bytes());
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn main(_argc: i32, _argv: *mut *mut u8) -> i32 {
+    rfvp::ring_log::install();
     unsafe { rfvp_psv_vitasdk_init() };
 
     let mut raw_host = MaybeUninit::<RawPsvHost>::uninit();
@@ -33,6 +58,7 @@ pub unsafe extern "C" fn main(_argc: i32, _argv: *mut *mut u8) -> i32 {
     let mut app = PsvApp::new(raw_host, RfvpCoreConfig::default(), 256);
 
     if let Err(err) = app.boot(RfvpBootConfig::default()) {
+        report_error(&mut app, "the game could not be loaded");
         let _ = app.render_frame();
         unsafe { rfvp_psv_vitasdk_fini() };
         return err_to_status(err);
@@ -46,6 +72,7 @@ pub unsafe extern "C" fn main(_argc: i32, _argv: *mut *mut u8) -> i32 {
         }
 
         if let Err(err) = app.run_frame() {
+            report_error(&mut app, "the game stopped with an error");
             unsafe { rfvp_psv_vitasdk_fini() };
             return err_to_status(err);
         }
@@ -59,14 +86,41 @@ pub unsafe extern "C" fn main(_argc: i32, _argv: *mut *mut u8) -> i32 {
     0
 }
 
+/// A fixed buffer to format into without allocating: a panic can be an out-of-memory.
+struct PanicText {
+    bytes: [u8; 512],
+    len: usize,
+}
+
+impl Write for PanicText {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        let room = self.bytes.len() - self.len;
+        let n = s.len().min(room);
+        self.bytes[self.len..self.len + n].copy_from_slice(&s.as_bytes()[..n]);
+        self.len += n;
+        Ok(())
+    }
+}
+
+fn die(text: &PanicText) -> ! {
+    unsafe {
+        rfvp_psv_c_write_log(b"panic.txt\0".as_ptr(), text.bytes.as_ptr(), text.len);
+        rfvp_psv_vitasdk_abort()
+    }
+}
+
 #[panic_handler]
-fn panic(_info: &PanicInfo<'_>) -> ! {
-    loop {}
+fn panic(info: &PanicInfo<'_>) -> ! {
+    let mut text = PanicText { bytes: [0; 512], len: 0 };
+    let _ = write!(text, "{info}");
+    die(&text)
 }
 
 #[alloc_error_handler]
-fn alloc_error(_layout: core::alloc::Layout) -> ! {
-    loop {}
+fn alloc_error(layout: core::alloc::Layout) -> ! {
+    let mut text = PanicText { bytes: [0; 512], len: 0 };
+    let _ = write!(text, "out of memory allocating {} bytes", layout.size());
+    die(&text)
 }
 
 fn err_to_status(err: rfvp::host_api::RfvpError) -> i32 {

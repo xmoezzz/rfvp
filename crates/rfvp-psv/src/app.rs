@@ -1,6 +1,6 @@
 use alloc::boxed::Box;
 
-use rfvp::host_api::{RfvpEvent, RfvpResult};
+use rfvp::host_api::{InputModifiers, KeyCode, RfvpEvent, RfvpResult};
 use rfvp::{RfvpBootConfig, RfvpCore, RfvpCoreConfig, RfvpTickResult};
 
 use crate::event::PsvEventQueue;
@@ -42,8 +42,46 @@ impl PsvApp {
         self.core.boot(&mut self.host, config)
     }
 
+    /// Pointer positions arrive in screen pixels; the game wants its own virtual coordinates
+    /// (the screen shows the virtual frame scaled and letterboxed).
+    fn to_virtual(&self, event: RfvpEvent) -> RfvpEvent {
+        let map = |x: i32, y: i32| {
+            let (vx, vy) = self.host.renderer_ref().screen_to_virtual(x as f32, y as f32);
+            (vx as i32, vy as i32)
+        };
+        match event {
+            RfvpEvent::PointerMove { x, y, in_screen } => {
+                let (x, y) = map(x, y);
+                RfvpEvent::PointerMove { x, y, in_screen }
+            }
+            RfvpEvent::PointerDown { button, x, y } => {
+                let (x, y) = map(x, y);
+                RfvpEvent::PointerDown { button, x, y }
+            }
+            RfvpEvent::PointerUp { button, x, y } => {
+                let (x, y) = map(x, y);
+                RfvpEvent::PointerUp { button, x, y }
+            }
+            RfvpEvent::TouchDown { id, x, y } => {
+                let (x, y) = map(x, y);
+                RfvpEvent::TouchDown { id, x, y }
+            }
+            RfvpEvent::TouchMove { id, x, y } => {
+                let (x, y) = map(x, y);
+                RfvpEvent::TouchMove { id, x, y }
+            }
+            RfvpEvent::TouchUp { id, x, y } => {
+                let (x, y) = map(x, y);
+                RfvpEvent::TouchUp { id, x, y }
+            }
+            other => other,
+        }
+    }
+
+    /// Deliver input, advance the script and draw. The core draws and presents the frame itself.
     pub fn tick(&mut self) -> RfvpResult<RfvpTickResult> {
-        for event in self.events.as_slice().iter().copied() {
+        for index in 0..self.events.as_slice().len() {
+            let event = self.to_virtual(self.events.as_slice()[index]);
             self.core.push_event(event)?;
         }
         self.events.clear();
@@ -59,9 +97,7 @@ impl PsvApp {
     }
 
     pub fn run_frame(&mut self) -> RfvpResult<RfvpTickResult> {
-        let result = self.tick()?;
-        self.render_frame()?;
-        Ok(result)
+        self.tick()
     }
 
     pub fn run_empty_frame(&mut self) -> RfvpResult<RfvpTickResult> {
@@ -151,6 +187,38 @@ pub unsafe extern "C" fn rfvp_psv_app_push_quit(app: *mut PsvApp) -> i32 {
     }
     let app = unsafe { &mut *app };
     match app.push_event(RfvpEvent::Quit) {
+        Ok(()) => crate::status::PsvStatus::Ok.as_i32(),
+        Err(err) => err_to_status(err),
+    }
+}
+
+/// Keys the platform layer can press: 0 = Ctrl (skip), 1 = Return, 2 = Escape, 3 = Space.
+#[no_mangle]
+pub unsafe extern "C" fn rfvp_psv_app_push_key(app: *mut PsvApp, key: u32, pressed: i32) -> i32 {
+    if app.is_null() {
+        return crate::status::PsvStatus::InvalidArgument.as_i32();
+    }
+    let key = match key {
+        0 => KeyCode::Control,
+        1 => KeyCode::Return,
+        2 => KeyCode::Escape,
+        3 => KeyCode::Space,
+        _ => return crate::status::PsvStatus::InvalidArgument.as_i32(),
+    };
+    let app = unsafe { &mut *app };
+    let event = if pressed != 0 {
+        RfvpEvent::KeyDown {
+            key,
+            repeat: false,
+            modifiers: InputModifiers::empty(),
+        }
+    } else {
+        RfvpEvent::KeyUp {
+            key,
+            modifiers: InputModifiers::empty(),
+        }
+    };
+    match app.push_event(event) {
         Ok(()) => crate::status::PsvStatus::Ok.as_i32(),
         Err(err) => err_to_status(err),
     }

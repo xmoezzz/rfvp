@@ -217,12 +217,16 @@ void rfvp_psv_platform_fatal_error(uint32_t code, const uint8_t *message, size_t
 
 int32_t rfvp_psv_c_set_asset_root(const char *root);
 void rfvp_psv_c_set_present_callback(RfvpPsvPresentCallback callback, void *ctx);
+void rfvp_psv_c_write_log(const char *name, const uint8_t *text, size_t text_len);
+int32_t rfvp_psv_c_present_rgba(const uint8_t *rgba8, uint32_t width, uint32_t height, uint32_t stride_bytes);
 void rfvp_psv_c_set_external_framebuffer_rgba8(uint8_t *pixels, uint32_t width, uint32_t height, uint32_t stride_bytes);
 const uint8_t *rfvp_psv_c_backbuffer_rgba8(uint32_t *out_width, uint32_t *out_height, uint32_t *out_stride_bytes);
 void rfvp_psv_c_clock_set_ticks_us(uint64_t ticks_us);
 void rfvp_psv_c_clock_advance_us(uint64_t delta_us);
 
 int32_t rfvp_psv_app_push_quit(PsvApp *app);
+/* key: 0 = Ctrl (skip), 1 = Return, 2 = Escape, 3 = Space. */
+int32_t rfvp_psv_app_push_key(PsvApp *app, uint32_t key, int32_t pressed);
 int32_t rfvp_psv_app_push_pointer_move(PsvApp *app, int32_t x, int32_t y, uint8_t in_screen);
 int32_t rfvp_psv_app_push_pointer_down(PsvApp *app, uint32_t button, int32_t x, int32_t y);
 int32_t rfvp_psv_app_push_pointer_up(PsvApp *app, uint32_t button, int32_t x, int32_t y);

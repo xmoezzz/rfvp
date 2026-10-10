@@ -311,6 +311,24 @@ static int32_t rfvp_c_metadata(void *ctx, const uint8_t *path, size_t path_len, 
     return RFVP_PSV_OK;
 }
 
+/* Create every directory on the way to `full_path` (the file itself is not touched). Directories
+ * that already exist are fine. */
+static void rfvp_make_parent_dirs(const char *full_path) {
+    char dir[RFVP_PSV_MAX_PATH];
+    size_t len = strlen(full_path);
+    if (len >= sizeof(dir)) {
+        return;
+    }
+    memcpy(dir, full_path, len + 1u);
+    for (size_t i = 1u; i < len; ++i) {
+        if (dir[i] == '/' && dir[i - 1u] != ':' && dir[i - 1u] != '/') {
+            dir[i] = '\0';
+            (void)sceIoMkdir(dir, 0777);
+            dir[i] = '/';
+        }
+    }
+}
+
 static int32_t rfvp_c_write_all(void *ctx, const uint8_t *path, size_t path_len, const uint8_t *bytes, size_t byte_len) {
     (void)ctx;
     if (bytes == NULL && byte_len != 0u) {
@@ -321,6 +339,7 @@ static int32_t rfvp_c_write_all(void *ctx, const uint8_t *path, size_t path_len,
     if (status != RFVP_PSV_OK) {
         return status;
     }
+    rfvp_make_parent_dirs(full_path);
 
     SceUID fd = sceIoOpen(full_path, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
     if (fd < 0) {
@@ -1083,7 +1102,7 @@ static int32_t rfvp_c_draw_sprite(void *ctx, const RawDrawSpriteCommand *command
         return RFVP_PSV_INVALID_ARGUMENT;
     }
     rfvp_draw_triangle(texture, &command->vertices[0], &command->vertices[1], &command->vertices[2], command->filter, command->blend, &command->scissor, command->has_scissor);
-    rfvp_draw_triangle(texture, &command->vertices[0], &command->vertices[2], &command->vertices[3], command->filter, command->blend, &command->scissor, command->has_scissor);
+    rfvp_draw_triangle(texture, &command->vertices[2], &command->vertices[1], &command->vertices[3], command->filter, command->blend, &command->scissor, command->has_scissor);
     return RFVP_PSV_OK;
 }
 
@@ -1115,6 +1134,14 @@ const uint8_t *rfvp_psv_c_backbuffer_rgba8(uint32_t *out_width, uint32_t *out_he
         *out_stride_bytes = g_rfvp_psv.renderer.stride_bytes;
     }
     return g_rfvp_psv.renderer.backbuffer;
+}
+
+int32_t rfvp_psv_c_present_rgba(const uint8_t *rgba8, uint32_t width, uint32_t height, uint32_t stride_bytes) {
+    RfvpPsvRendererState *renderer = &g_rfvp_psv.renderer;
+    if (renderer->present_callback == NULL) {
+        return RFVP_PSV_OK;
+    }
+    return renderer->present_callback(renderer->present_callback_ctx, rgba8, width, height, stride_bytes);
 }
 
 static int32_t rfvp_c_present(void *ctx) {
@@ -1669,4 +1696,15 @@ void rfvp_psv_platform_fatal_error(uint32_t code, const uint8_t *message, size_t
     }
 #endif
     rfvp_psv_c_request_exit();
+}
+
+/* Write `text` to `<asset root>/<name>`, so a failure can be read off the memory card. */
+void rfvp_psv_c_write_log(const char *name, const uint8_t *text, size_t text_len) {
+    char path[RFVP_PSV_MAX_PATH];
+    size_t name_len = strlen(name);
+    if (name_len >= sizeof(path)) {
+        return;
+    }
+    memcpy(path, name, name_len + 1u);
+    (void)rfvp_c_write_all(NULL, (const uint8_t *)path, name_len, text, text_len);
 }

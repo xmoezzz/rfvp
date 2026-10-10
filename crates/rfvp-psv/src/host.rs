@@ -21,12 +21,16 @@ impl PsvHost {
     pub fn from_raw(raw: RawPsvHost) -> Self {
         Self {
             fs: PsvFileSystem::new(raw.fs_ctx, raw.fs),
-            renderer: PsvRenderer::new(raw.renderer_ctx, raw.renderer),
+            renderer: PsvRenderer::new(),
             audio: PsvAudio::new(raw.audio_ctx, raw.audio),
             clock: PsvClock::new(raw.clock_ctx, raw.clock),
             log_ctx: raw.log_ctx,
             log: raw.log,
         }
+    }
+
+    pub fn renderer_ref(&self) -> &PsvRenderer {
+        &self.renderer
     }
 
     pub fn into_parts(self) -> (PsvFileSystem, PsvRenderer, PsvAudio, PsvClock) {

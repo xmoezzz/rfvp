@@ -22,12 +22,20 @@ pub struct HorizonHost {
 
 impl HorizonHost {
     pub fn new() -> Self {
+        Self::with_game_root(crate::fs::DEFAULT_GAME_ROOT)
+    }
+
+    pub fn with_game_root(root: &str) -> Self {
         Self {
-            fs: HorizonFileSystem::new(),
+            fs: HorizonFileSystem::with_root(root),
             renderer: HorizonRenderer::new(),
             audio: HorizonAudio::new(),
             clock: HorizonClock::new(),
         }
+    }
+
+    pub fn renderer_ref(&self) -> &HorizonRenderer {
+        &self.renderer
     }
 }
 

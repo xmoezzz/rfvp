@@ -1,5 +1,10 @@
+use alloc::string::String;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 use core::ffi::c_void;
-use rfvp::host_api::{RfvpError, RfvpFile, RfvpFileInfo, RfvpFileKind, RfvpFileSystem, RfvpResult};
+use rfvp::host_api::{
+    RfvpError, RfvpFile, RfvpFileInfo, RfvpFileKind, RfvpFileSystem, RfvpResult, RfvpStorage,
+};
 
 use crate::raw::{RawFileHandle, RawFileInfo, RawFileKind, RawFileSystemVTable};
 use crate::status::status_to_result;
@@ -67,8 +72,131 @@ impl RfvpFile for PsvFile {
     }
 }
 
+/// The player's saves, on the same file system as the game.
+///
+/// There is no way to delete a file through the platform layer, so a removed file is truncated
+/// to nothing and an empty file counts as missing.
+pub struct PsvStorage {
+    ctx: *mut c_void,
+    vtable: RawFileSystemVTable,
+}
+
+// SAFETY: the context is the platform layer's global state and its functions may be called from
+// any thread; the engine only uses saves from one thread at a time anyway.
+unsafe impl Send for PsvStorage {}
+unsafe impl Sync for PsvStorage {}
+
+impl PsvStorage {
+    fn open(&self, path: &str) -> RfvpResult<PsvFile> {
+        let mut handle = RawFileHandle::INVALID;
+        let status =
+            unsafe { (self.vtable.open)(self.ctx, path.as_ptr(), path.len(), &mut handle) };
+        status_to_result(status)?;
+        if handle == RawFileHandle::INVALID {
+            return Err(RfvpError::Backend);
+        }
+        Ok(PsvFile {
+            ctx: self.ctx,
+            vtable: self.vtable,
+            handle,
+        })
+    }
+
+    fn file_info(&self, path: &str) -> RfvpResult<RfvpFileInfo> {
+        let mut info = RawFileInfo {
+            len: 0,
+            kind: RawFileKind::Other,
+        };
+        let status =
+            unsafe { (self.vtable.metadata)(self.ctx, path.as_ptr(), path.len(), &mut info) };
+        status_to_result(status)?;
+        Ok(raw_file_info_to_rfvp(info))
+    }
+}
+
+impl RfvpStorage for PsvStorage {
+    fn read(&self, path: &str) -> RfvpResult<Vec<u8>> {
+        let mut file = self.open(path)?;
+        file.read_to_vec(usize::MAX)
+    }
+
+    fn read_prefix(&self, path: &str, max_len: usize) -> RfvpResult<Vec<u8>> {
+        let mut file = self.open(path)?;
+        let len = (file.len()? as usize).min(max_len);
+        let mut out = Vec::new();
+        out.resize(len, 0);
+        file.read_exact_at(0, &mut out)?;
+        Ok(out)
+    }
+
+    fn write(&self, path: &str, bytes: &[u8]) -> RfvpResult<()> {
+        // The platform layer creates the directories on the way.
+        let status = unsafe {
+            (self.vtable.write_all)(
+                self.ctx,
+                path.as_ptr(),
+                path.len(),
+                bytes.as_ptr(),
+                bytes.len(),
+            )
+        };
+        status_to_result(status)
+    }
+
+    fn exists(&self, path: &str) -> bool {
+        matches!(
+            self.file_info(path),
+            Ok(RfvpFileInfo { kind: RfvpFileKind::File, len, .. }) if len > 0
+        )
+    }
+
+    fn remove(&self, path: &str) -> RfvpResult<()> {
+        self.write(path, &[])
+    }
+
+    fn list(&self, dir: &str) -> RfvpResult<Vec<String>> {
+        let Some(enumerate) = self.vtable.enumerate_by_extension else {
+            return Err(RfvpError::Unsupported);
+        };
+        let mut names: Vec<String> = Vec::new();
+        let mut visitor = |path: &str, info: RfvpFileInfo| -> RfvpResult<()> {
+            if info.kind == RfvpFileKind::File && info.len > 0 {
+                let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+                names.push(String::from(name));
+            }
+            Ok(())
+        };
+        let mut bridge = VisitorBridge { visitor: &mut visitor };
+        // Saves are `.bin` files, which is all that is looked for.
+        let status = unsafe {
+            enumerate(
+                self.ctx,
+                dir.as_ptr(),
+                dir.len(),
+                b"bin".as_ptr(),
+                3,
+                (&mut bridge as *mut VisitorBridge<'_>).cast::<c_void>(),
+                enumerate_visitor_bridge,
+            )
+        };
+        status_to_result(status)?;
+        Ok(names)
+    }
+}
+
 impl RfvpFileSystem for PsvFileSystem {
     type File = PsvFile;
+
+    fn storage(&mut self) -> Option<Arc<dyn RfvpStorage>> {
+        Some(Arc::new(PsvStorage {
+            ctx: self.ctx,
+            vtable: self.vtable,
+        }))
+    }
+
+    fn game_files(&mut self) -> Option<Arc<dyn RfvpStorage>> {
+        self.storage()
+    }
 
     fn open(&mut self, path: &str) -> RfvpResult<Self::File> {
         let mut handle = RawFileHandle::INVALID;
