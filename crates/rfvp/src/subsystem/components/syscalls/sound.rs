@@ -292,11 +292,8 @@ pub fn sound_load(game_data: &mut GameData, channel: &Variant, path: &Variant) -
     match path {
         Variant::String(path) | Variant::ConstString(path, _) => {
             let path = path.clone();
-            let data = game_data.vfs_load_file(&path)?;
-            if let Err(e) = game_data
-                .se_player_mut()
-                .load_named(channel, path.clone(), data)
-            {
+            let (vfs, se_player) = (&game_data.vfs, &mut game_data.se_player);
+            if let Err(e) = se_player.load_named(channel, path, vfs) {
                 log::error!("sound_load: {:?}", e);
             }
             return Ok(Variant::Nil);
@@ -364,20 +361,14 @@ pub fn sound_play(
     // Re-decode a slot whose PCM was released by SoundLoad(ch, nil), preserving the old
     // behavior of replaying the last loaded sound.
     if let Some(path) = game_data.se_player_ref().released_path(channel).map(|p| p.to_string()) {
-        match game_data.vfs_load_file(&path) {
-            Ok(data) => {
-                if let Err(e) = game_data.se_player_mut().load_named(channel, path, data) {
-                    log::error!("sound_play: reload {:?}", e);
-                }
-            }
-            Err(e) => log::error!("sound_play: reload {:?}", e),
+        let (vfs, se_player) = (&game_data.vfs, &mut game_data.se_player);
+        if let Err(e) = se_player.load_named(channel, path, vfs) {
+            log::error!("sound_play: reload {:?}", e);
         }
     }
 
-    if let Err(e) = game_data
-        .se_player_mut()
-        .play(channel, looped, 1.0, 0.5, fade_in)
-    {
+    let (vfs, se_player) = (&game_data.vfs, &mut game_data.se_player);
+    if let Err(e) = se_player.play(channel, looped, 1.0, 0.5, fade_in, vfs) {
         log::error!("sound_play: {:?}", e);
     }
 

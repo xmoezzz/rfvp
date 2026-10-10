@@ -70,9 +70,15 @@ impl SePlayer {
         Ok(())
     }
 
-    pub fn load_named(&mut self, slot: i32, name: impl Into<String>, se: Vec<u8>) -> Result<()> {
+    pub fn load_named(&mut self, slot: i32, name: impl Into<String>, vfs: &Vfs) -> Result<()> {
+        let name = name.into();
+        let bytes = vfs.read_file(&name)?;
+        self.load_named_bytes(slot, name, bytes)
+    }
+
+    fn load_named_bytes(&mut self, slot: i32, name: String, se: Vec<u8>) -> Result<()> {
         let slot_usize = slot as usize;
-        self.se_names[slot_usize] = Some(name.into());
+        self.se_names[slot_usize] = Some(name);
         self.load(slot, se)
     }
 
@@ -96,6 +102,7 @@ impl SePlayer {
         volume: f32,
         pan: f64,
         fade_in: Tween,
+        _vfs: &Vfs,
     ) -> Result<()> {
         let slot = slot as usize;
         self.se_repeat[slot] = repeat;
@@ -319,10 +326,7 @@ impl SePlayer {
             self.se_repeat[slot] = s.repeat;
             self.se_pan[slot] = s.pan as f64;
             if let Some(path) = s.path.clone() {
-                let data = vfs
-                    .read_file(&path)
-                    .with_context(|| format!("read SE from vfs: {}", path))?;
-                self.load_named(slot as i32, path, data)?;
+                self.load_named(slot as i32, path, vfs)?;
             }
             if s.playing && self.se_datas[slot].is_some() {
                 self.play(
@@ -331,6 +335,7 @@ impl SePlayer {
                     self.se_volumes[slot],
                     self.se_pan[slot],
                     Tween::default(),
+                    vfs,
                 )?;
             }
         }

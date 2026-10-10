@@ -74,8 +74,13 @@ impl SePlayer {
         Ok(())
     }
 
-    pub fn load_named(&mut self, slot: i32, name: impl Into<String>, se: Vec<u8>) -> Result<()> {
+    pub fn load_named(&mut self, slot: i32, name: impl Into<String>, vfs: &Vfs) -> Result<()> {
         let name = name.into();
+        let bytes = vfs.read_file(&name)?;
+        self.load_named_bytes(slot, name, bytes)
+    }
+
+    fn load_named_bytes(&mut self, slot: i32, name: String, se: Vec<u8>) -> Result<()> {
         let slot = checked_slot(slot)?;
         self.audio_manager.push_command(AudioCommand::LoadEncoded {
             id: Self::id(slot),
@@ -94,6 +99,7 @@ impl SePlayer {
         volume: f32,
         pan: f64,
         fade_in: Tween,
+        _vfs: &Vfs,
     ) -> Result<()> {
         let slot = checked_slot(slot)?;
         if !self.loaded[slot] {
@@ -237,8 +243,7 @@ impl SePlayer {
             self.repeat[i] = slot.repeat;
             self.pan[i] = slot.pan as f64;
             if let Some(path) = slot.path.as_ref() {
-                let bytes = vfs.read_file(path)?;
-                self.load_named(i as i32, path.clone(), bytes)?;
+                self.load_named(i as i32, path.clone(), vfs)?;
             }
             if slot.playing {
                 self.play(
@@ -247,6 +252,7 @@ impl SePlayer {
                     slot.volume,
                     slot.pan as f64,
                     Tween::default(),
+                    vfs,
                 )?;
             }
         }

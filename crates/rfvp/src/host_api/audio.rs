@@ -767,3 +767,95 @@ fn read_u32_le(bytes: &[u8], offset: usize) -> RfvpResult<u32> {
         .ok_or(super::error::RfvpError::EndOfFile)?;
     Ok(u32::from_le_bytes([slice[0], slice[1], slice[2], slice[3]]))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec;
+
+    /// Produces `total_frames` frames of a ramp, then reports end of stream until rewound.
+    struct RampVorbis {
+        total_frames: usize,
+    }
+
+    struct RampDecoder {
+        position: usize,
+    }
+
+    impl SoftAudioVorbis for RampVorbis {
+        type Decoder = RampDecoder;
+
+        fn open(&mut self, _bytes: &[u8]) -> RfvpResult<(Self::Decoder, AudioStreamDesc)> {
+            Ok((
+                RampDecoder { position: 0 },
+                AudioStreamDesc {
+                    sample_rate: 48_000,
+                    channels: 2,
+                    sample_format: AudioSampleFormat::I16,
+                },
+            ))
+        }
+
+        fn decode_interleaved_i16(
+            &mut self,
+            decoder: &mut Self::Decoder,
+            out_samples: &mut [i16],
+        ) -> RfvpResult<usize> {
+            let frames = (out_samples.len() / 2).min(self.total_frames - decoder.position);
+            for frame in 0..frames {
+                let value = ((decoder.position + frame) % 1000) as i16;
+                out_samples[frame * 2] = value;
+                out_samples[frame * 2 + 1] = value;
+            }
+            decoder.position += frames;
+            Ok(frames * 2)
+        }
+
+        fn seek_start(&mut self, decoder: &mut Self::Decoder) -> RfvpResult<()> {
+            decoder.position = 0;
+            Ok(())
+        }
+
+        fn close(&mut self, _decoder: Self::Decoder) {}
+    }
+
+    fn decoded_len(mixer: &SoftAudioMixer<RampVorbis>) -> usize {
+        match &mixer.voices[0].source {
+            VoiceSource::Ogg { decoded, .. } => decoded.len(),
+            VoiceSource::Pcm => 0,
+        }
+    }
+
+    #[test]
+    fn looping_ogg_voice_keeps_a_bounded_decode_window() {
+        let config = SoftAudioConfig::default();
+        let mut mixer = SoftAudioMixer::new(RampVorbis { total_frames: 10_000 }, config);
+        let id = AudioStreamId::bgm(0);
+        mixer
+            .load_encoded(id, EncodedAudioKind::Ogg, b"OggS")
+            .unwrap();
+        mixer
+            .play(
+                id,
+                AudioParams {
+                    repeat: true,
+                    ..AudioParams::default()
+                },
+                0,
+            )
+            .unwrap();
+
+        // 600 chunks of 1024 frames is ~61 loops of the 10_000 frame track.
+        let mut out = vec![0i16; config.mix_frames * 2];
+        let mut peak = 0;
+        for _ in 0..600 {
+            assert!(mixer.mix_next(&mut out).unwrap());
+            peak = peak.max(decoded_len(&mixer));
+        }
+
+        // A couple of mix chunks of decoded samples at most, never the whole stream.
+        assert!(peak <= config.mix_frames * 2 * 4, "decode window grew to {peak} samples");
+        // The loop itself must keep producing audio.
+        assert!(out.iter().any(|sample| *sample != 0));
+    }
+}
