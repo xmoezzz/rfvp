@@ -64,6 +64,7 @@ Session* rfvp_ps1_start(void);
 int rfvp_ps1_frame(Session* session, const RfvpPs1Input* input);
 void rfvp_ps1_stop(Session* session);
 void rfvp_ps1_heap_init(void* base, size_t size);
+void rfvp_ps1_set_profiling(int enabled);
 
 /* ---- Services ------------------------------------------------------------------------------- */
 
@@ -555,6 +556,12 @@ static uint8_t tint(uint32_t c, int shift, int additive, int a) {
     return (uint8_t) (v >> 1);     /* 128 is 1.0 */
 }
 
+static inline float edge_lerp(float lo, float hi, float weight) {
+    if (weight == 0.0f) return lo;
+    if (weight == 1.0f) return hi;
+    return lo + (hi - lo) * weight;
+}
+
 /* `c`: screen x, y and texel u, v for each of the four corners, in any order (the texel
  * rectangle is axis-aligned; the screen quad may be anything). */
 void rfvp_ps1_gpu_draw_sprite(void* texture, const float* c, uint32_t rgba, int additive) {
@@ -593,16 +600,23 @@ void rfvp_ps1_gpu_draw_sprite(void* texture, const float* c, uint32_t rgba, int 
         /* The piece's corners in the PlayStation's order (top left, top right, bottom left,
          * bottom right), placed by interpolating the sprite's corners. */
         float us[2] = { a0, a1 }, vs[2] = { b0, b1 };
+        /* Most UI images fit one tile. Exact edge weights avoid soft-float
+         * division and interpolation; split textures reuse the two weights. */
+        float ss[2], rr[2];
+        for (int edge = 0; edge < 2; edge++) {
+            ss[edge] = us[edge] == umin ? 0.0f : us[edge] == umax ? 1.0f : (us[edge] - umin) / du;
+            rr[edge] = vs[edge] == vmin ? 0.0f : vs[edge] == vmax ? 1.0f : (vs[edge] - vmin) / dv;
+        }
         int16_t xy[4][2];
         uint8_t uv[4][2];
         for (int k = 0; k < 4; k++) {
             int right = k & 1, bottom = k >> 1;
             float uu = us[right], vv = vs[bottom];
-            float s = (uu - umin) / du, r = (vv - vmin) / dv;
-            float tx = q[0][0][0] + (q[0][1][0] - q[0][0][0]) * s, ty = q[0][0][1] + (q[0][1][1] - q[0][0][1]) * s;
-            float bx = q[1][0][0] + (q[1][1][0] - q[1][0][0]) * s, by = q[1][0][1] + (q[1][1][1] - q[1][0][1]) * s;
-            xy[k][0] = (int16_t) (tx + (bx - tx) * r + 0.5f);
-            xy[k][1] = (int16_t) (ty + (by - ty) * r + 0.5f);
+            float s = ss[right], r = rr[bottom];
+            float tx = edge_lerp(q[0][0][0], q[0][1][0], s), ty = edge_lerp(q[0][0][1], q[0][1][1], s);
+            float bx = edge_lerp(q[1][0][0], q[1][1][0], s), by = edge_lerp(q[1][0][1], q[1][1][1], s);
+            xy[k][0] = (int16_t) (edge_lerp(tx, bx, r) + 0.5f);
+            xy[k][1] = (int16_t) (edge_lerp(ty, by, r) + 0.5f);
             /* The GPU samples up to the last texel before an edge's coordinate. */
             int lu = (int) (uu - tile->tx + 0.5f), lv = (int) (vv - tile->ty + 0.5f);
             if (right && lu > 0 && tile->u + lu > 255) lu--;
@@ -897,6 +911,7 @@ static void read_input(RfvpPs1Input* in) {
 /* DEBUG.TXT on the disc (optional): `shot=N` prints the screen at frame N to the TTY (as
  * hex rows between RFVPSHOT lines); `press=cross@600` presses a button at a frame. */
 static unsigned shot_frame = 0xffffffffu;
+static int profile_enabled;
 /* `record=N` and `recordfor=M`: from frame N, M frames go to record.raw in the emulator's PCdrv
  * directory (an emulator only: on a console the break instructions hang). */
 static unsigned record_from = 0xffffffffu, record_for = 0;
@@ -937,6 +952,10 @@ static void read_debug_file(void) {
         if (sscanf(line, "shot=%u", &frame) == 1) shot_frame = frame;
         if (sscanf(line, "record=%u", &frame) == 1) record_from = frame;
         if (sscanf(line, "recordfor=%u", &frame) == 1) record_for = frame;
+        if (sscanf(line, "profile=%u", &frame) == 1) {
+            profile_enabled = frame != 0;
+            rfvp_ps1_set_profiling(profile_enabled);
+        }
         /* (PSn00bSDK's sscanf has no %[.) */
         char* at = strchr(line, '@');
         if (!strncmp(line, "press=", 6) && at && at - line - 6 < (int) sizeof(name) &&
@@ -1057,6 +1076,7 @@ int main(void) {
         printf("rfvp: the game could not be started\n");
         for (;;) VSync(0);
     }
+    uint64_t frame_us = 0, present_us = 0, xa_us = 0;
     for (unsigned frame = 0;; frame++) {
         RfvpPs1Input input;
         read_input(&input);
@@ -1070,11 +1090,25 @@ int main(void) {
             if (input.buttons & STICK_DOWN) input.stick_y = 255;
             input.buttons &= ~(STICK_LEFT | STICK_RIGHT | STICK_UP | STICK_DOWN);
         }
+        uint64_t started = profile_enabled ? rfvp_ps1_ticks_us() : 0;
         int status = rfvp_ps1_frame(session, &input);
+        uint64_t drawn = profile_enabled ? rfvp_ps1_ticks_us() : 0;
         present();
+        uint64_t shown = profile_enabled ? rfvp_ps1_ticks_us() : 0;
         if (frame == shot_frame) save_screenshot();
         record_frame(frame);
         xa_poll();
+        if (profile_enabled) {
+            frame_us += drawn - started;
+            present_us += shown - drawn;
+            xa_us += rfvp_ps1_ticks_us() - shown;
+            if (frame % 30 == 29) {
+                printf("rfvp: host frame %u: core %u, present %u, xa %u us/frame\n",
+                    frame, (unsigned) (frame_us / 30), (unsigned) (present_us / 30),
+                    (unsigned) (xa_us / 30));
+                frame_us = present_us = xa_us = 0;
+            }
+        }
         if (status != 0) break;
     }
     rfvp_ps1_stop(session);

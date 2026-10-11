@@ -25,7 +25,9 @@ mkdir -p "$OUT"
 (
     cd "$CRATE"
     RUSTFLAGS="-C linker-plugin-lto -C embed-bitcode=yes" \
-    CARGO_PROFILE_RELEASE_OPT_LEVEL=z CARGO_PROFILE_RELEASE_LTO=thin \
+    # `s` retains compact code while allowing the hot VM paths to inline. `z`
+    # saves about 50 KiB but significantly slows the stock R3000 frame loop.
+    CARGO_PROFILE_RELEASE_OPT_LEVEL="${RFVP_PS1_OPT_LEVEL:-s}" CARGO_PROFILE_RELEASE_LTO=thin \
         cargo "+$TOOLCHAIN" build --release \
         -Zjson-target-spec -Z build-std=core,alloc,compiler_builtins \
         --target "$TARGET_JSON" --target-dir "$TARGET_DIR"
@@ -56,7 +58,7 @@ sed -E -i '' \
 "$LLVM/opt" -passes=lower-atomic "$OUT/$NAME.ll" -o "$OUT/$NAME.lowered.bc"
 # Whole program: everything but the entry points (rfvp_ps1_*) and the runtime routines code
 # generation may call (__*, mem*) and the C heap (malloc...) becomes internal, so what nothing reaches is dropped; the PS1
-# has 2 MiB for code and data together. Functions keep rustc's minsize.
+# has 2 MiB for code and data together. Functions retain rustc's size attributes.
 "$LLVM/llvm-nm" --defined-only --format=just-symbols "$OUT/$NAME.lowered.bc" \
     | grep -E '^(rfvp_ps1_|__|mem|rust_|malloc$|free$|calloc$|realloc$)' > "$OUT/$NAME.exports"
 "$LLVM/opt" -passes='internalize,globaldce,default<O2>' \

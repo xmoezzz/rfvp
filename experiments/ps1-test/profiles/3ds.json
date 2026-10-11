@@ -1,0 +1,221 @@
+{
+  "design_width": 1920,
+  "design_height": 1080,
+  "assets": {
+    "graph/title_start": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 480
+    },
+    "graph/title_start1": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 480
+    },
+    "graph/title_start2": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 480
+    },
+    "graph/title_start3": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 480
+    },
+    "graph/title_start4": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 480
+    },
+    "graph/title_start5": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 480
+    },
+    "graph/title_continue": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 595
+    },
+    "graph/title_continue1": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 595
+    },
+    "graph/title_continue2": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 595
+    },
+    "graph/title_continue3": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 595
+    },
+    "graph/title_continue4": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 595
+    },
+    "graph/title_continue5": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 595
+    },
+    "graph/title_album": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 710
+    },
+    "graph/title_album1": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 710
+    },
+    "graph/title_album2": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 710
+    },
+    "graph/title_album3": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 710
+    },
+    "graph/title_album4": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 710
+    },
+    "graph/title_album5": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 710
+    },
+    "graph/title_option": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 825
+    },
+    "graph/title_option1": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 825
+    },
+    "graph/title_option2": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 825
+    },
+    "graph/title_option3": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 825
+    },
+    "graph/title_option4": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 825
+    },
+    "graph/title_option5": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 825
+    },
+    "graph/title_end": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 940
+    },
+    "graph/title_end1": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 940
+    },
+    "graph/title_end2": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 940
+    },
+    "graph/title_end3": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 940
+    },
+    "graph/title_end4": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 940
+    },
+    "graph/title_end5": {
+      "scale": 1.15,
+      "offset_x": 150,
+      "offset_y": 940
+    },
+    "graph/title_copyright": {
+      "scale": 1.0,
+      "offset_x": 1260,
+      "offset_y": 1033
+    },
+    "graph/menu_exit_mes": {
+      "scale": 1.8,
+      "offset_x": 567,
+      "offset_y": 458
+    },
+    "graph/menu_del_mes": {
+      "scale": 1.8,
+      "offset_x": 601,
+      "offset_y": 458
+    },
+    "graph/menu_init_mes": {
+      "scale": 1.8,
+      "offset_x": 565,
+      "offset_y": 458
+    },
+    "graph/menu_ow_mes": {
+      "scale": 1.8,
+      "offset_x": 565,
+      "offset_y": 458
+    },
+    "graph/menu_qload_mes": {
+      "scale": 1.8,
+      "offset_x": 533,
+      "offset_y": 458
+    },
+    "graph/menu_title_mes": {
+      "scale": 1.8,
+      "offset_x": 568,
+      "offset_y": 458
+    },
+    "graph/menu_undo_mes": {
+      "scale": 1.8,
+      "offset_x": 494,
+      "offset_y": 458
+    },
+    "graph/menu_yes_1": {
+      "scale": 1.8,
+      "offset_x": 576,
+      "offset_y": 620
+    },
+    "graph/menu_yes_2": {
+      "scale": 1.8,
+      "offset_x": 576,
+      "offset_y": 620
+    },
+    "graph/menu_no_1": {
+      "scale": 1.8,
+      "offset_x": 1056,
+      "offset_y": 620
+    },
+    "graph/menu_no_2": {
+      "scale": 1.8,
+      "offset_x": 1016,
+      "offset_y": 620
+    },
+    "graph/menu_bg": {
+      "scale": 1.8,
+      "offset_x": 255,
+      "offset_y": 400
+    }
+  }
+}

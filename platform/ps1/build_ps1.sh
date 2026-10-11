@@ -17,7 +17,7 @@ GAME="$(cd "$1" && pwd)"
 PSN00BSDK="${PSN00BSDK:-$HOME/psn00bsdk}"
 PSN00BSDK_TC="${PSN00BSDK_TC:-$HOME/ps2dev/iop}"
 TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
-OUT="$ROOT/target/rfvp-ps1"
+OUT="${RFVP_PS1_OUT_DIR:-$ROOT/target/rfvp-ps1}"
 case "${RFVP_PS1_RAM:-2}" in
   8) RAM_TOP=0x80800000; STACK=807FFFF0 ;;
   *) RAM_TOP=0x80200000; STACK=801FFFF0 ;;

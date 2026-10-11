@@ -12,6 +12,7 @@ use clap::{Parser, ValueEnum};
 use encoding_rs::SHIFT_JIS;
 use flate2::{Compression, read::ZlibDecoder, write::ZlibEncoder};
 use rayon::prelude::*;
+use rfvp_image::{Filter, LayoutProfile, LayoutRule};
 use serde::Serialize;
 use serde_json::Value;
 use tempfile::NamedTempFile;
@@ -29,6 +30,18 @@ struct Cli {
     output: PathBuf,
     #[arg(long)]
     platform: Platform,
+    /// Offline UI reduction: area or dpid-balanced. Masks always use Area.
+    #[arg(long, default_value = "dpid-balanced")]
+    image_filter: Filter,
+    /// Explicit image sizing and placement profile, keyed by pack/resource.
+    #[arg(long)]
+    ui_layout: Option<PathBuf>,
+    /// Convert pictures only, leaving existing audio and movies untouched.
+    #[arg(long)]
+    images_only: bool,
+    /// Restrict picture updates to one pack.
+    #[arg(long, requires = "images_only")]
+    image_pack: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Serialize, ValueEnum)]
@@ -36,6 +49,10 @@ struct Cli {
 enum Platform {
     Psp,
     Ps2,
+    /// Native top-screen dimensions.
+    #[value(name = "3ds")]
+    #[serde(rename = "3ds")]
+    ThreeDs,
     /// 640x360: the 16:9 frame of the Wii's 640x480 output (letterboxed on a 4:3 TV).
     Wii,
 }
@@ -126,12 +143,24 @@ fn rebuild(cli: &Cli) -> Result<()> {
 
     let hcb = find_and_parse_hcb(&cli.input)?;
     let profile = make_profile(cli.platform, &hcb)?;
+    ensure!(!matches!(cli.platform, Platform::Wii) || cli.ui_layout.is_none(),
+        "UI layouts are supported only for PSP, PS2 and 3DS by this converter");
+    let layout = cli.ui_layout.as_deref().map(LayoutProfile::load).transpose()
+        .map_err(|error| anyhow!("load UI layout: {error}"))?.unwrap_or_default();
+    layout.validate_design(profile.design_width, profile.design_height).map_err(anyhow::Error::msg)?;
     write_json(&cli.output.join("profile.json"), &profile)?;
     write_rfvp_toml(&cli.output.join("rfvp.toml"), &profile)?;
 
     let resources = build_resource_table(&cli.input)?;
     resources.values().par_bridge().try_for_each(|resource| {
-        process_resource(resource, &cli.output, &profile)
+        let pack = resource.virtual_path.components().next()
+            .and_then(|c| c.as_os_str().to_str()).unwrap_or("");
+        if cli.image_pack.as_ref().is_some_and(|p| !p.eq_ignore_ascii_case(pack)) { return Ok(()); }
+        let filter = if !matches!(cli.platform, Platform::Wii) {
+            rfvp_image::ui_filter(&resource.virtual_path.to_string_lossy(), cli.image_filter)
+        } else { Filter::Area };
+        process_resource(resource, &cli.output, &profile, filter,
+            layout.get(&resource.virtual_path.to_string_lossy()), cli.images_only)
             .with_context(|| format!("process {}", resource.virtual_path.display()))
     })?;
 
@@ -186,6 +215,7 @@ fn make_profile(platform: Platform, hcb: &HcbInfo) -> Result<Profile> {
     let (target_width, target_height) = match platform {
         Platform::Psp => (480, 272),
         Platform::Ps2 => (640, 448),
+        Platform::ThreeDs => (400, 240),
         Platform::Wii => (640, 360),
     };
 
@@ -391,12 +421,15 @@ fn parse_bin_bytes(data: &[u8]) -> Result<Vec<BinEntry>> {
     Ok(entries)
 }
 
-fn process_resource(resource: &Resource, output: &Path, profile: &Profile) -> Result<()> {
+fn process_resource(resource: &Resource, output: &Path, profile: &Profile,
+                    filter: Filter, layout: Option<&LayoutRule>, images_only: bool) -> Result<()> {
     let bytes = read_resource_bytes(&resource.source)?;
     let output_path = output.join(&resource.virtual_path);
     if is_nvsg(&bytes) {
-        let converted = convert_nvsg(&bytes, profile)?;
+        let converted = convert_nvsg_with_options(&bytes, profile, filter, layout)?;
         write_bytes(&output_path, &converted)?;
+    } else if images_only {
+        return Ok(());
     } else if is_ogg(&bytes) {
         process_ogg(resource, &bytes, &output_path)?;
     } else if is_video_path(&resource.virtual_path) {
@@ -660,7 +693,7 @@ fn transcode_video(
         Platform::Psp => final_output.set_extension("mp4"),
         // MPEG-2 for the Wii too: the engine decodes it in software, and there is no H.264
         // hardware to use.
-        Platform::Ps2 | Platform::Wii => final_output.set_extension("mpg"),
+        Platform::Ps2 | Platform::Wii | Platform::ThreeDs => final_output.set_extension("mpg"),
     };
     let filter = format!(
         "scale={}:{}:flags=area,pad={}:{}:{}:{}:black,setsar=1",
@@ -695,7 +728,7 @@ fn transcode_video(
             ]);
             cmd.args(["-c:a", "aac"]);
         }
-        Platform::Ps2 | Platform::Wii => {
+        Platform::Ps2 | Platform::Wii | Platform::ThreeDs => {
             cmd.args(["-c:v", "mpeg2video", "-c:a", "mp2", "-f", "mpeg"]);
         }
     }
@@ -743,7 +776,13 @@ fn is_video_path(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(test)]
 fn convert_nvsg(bytes: &[u8], profile: &Profile) -> Result<Vec<u8>> {
+    convert_nvsg_with_options(bytes, profile, Filter::Area, None)
+}
+
+fn convert_nvsg_with_options(bytes: &[u8], profile: &Profile, filter: Filter,
+                             layout: Option<&LayoutRule>) -> Result<Vec<u8>> {
     ensure!(bytes.len() >= 44, "NVSG file too small");
     ensure!(&bytes[0..4] == b"hzc1", "invalid HZC1 signature");
     let original_length = read_u32le_at(bytes, 4)? as usize;
@@ -800,14 +839,20 @@ fn convert_nvsg(bytes: &[u8], profile: &Profile) -> Result<Vec<u8>> {
         .context("decompress NVSG zlib payload")?;
 
     // A tiny image (a 1-3 pixel line or dot) would round to nothing; keep at least one pixel.
-    let new_w = scale_round(header.width as u32, profile.scale_num, profile.scale_den).max(1);
-    let new_h = scale_round(header.height as u32, profile.scale_num, profile.scale_den).max(1);
+    let factor = if depth == 1 { 1.0 } else { layout.map_or(1.0, |r| r.scale) };
+    let new_w = if factor == 1.0 { scale_round(header.width as u32, profile.scale_num, profile.scale_den).max(1) }
+        else { (header.width as f64 * profile.scale_num as f64 / profile.scale_den as f64 * factor).round().max(1.0) as u32 };
+    let new_h = if factor == 1.0 { scale_round(header.height as u32, profile.scale_num, profile.scale_den).max(1) }
+        else { (header.height as f64 * profile.scale_num as f64 / profile.scale_den as f64 * factor).round().max(1.0) as u32 };
     ensure!(
         new_w <= u16::MAX as u32 && new_h <= u16::MAX as u32,
         "scaled NVSG dimensions exceed u16"
     );
 
-    let resized = match kind {
+    let resized = if depth > 1 && filter == Filter::DpidBalanced {
+        rfvp_image::resize_color_frames(&payload, header.width as usize, header.height as usize,
+            new_w as usize, new_h as usize, depth, effective_entry_count as usize, filter)
+    } else { match kind {
         NvsgKind::Single24Bit => resize_frames_area(
             &payload,
             header.width as usize,
@@ -848,9 +893,13 @@ fn convert_nvsg(bytes: &[u8], profile: &Profile) -> Result<Vec<u8>> {
             effective_entry_count as usize,
             true,
         ),
-    };
+    }};
 
-    write_hzc1_nvsg(bytes, header_length, new_w as u16, new_h as u16, &resized)
+    let mut original = bytes.to_vec();
+    if depth > 1 {
+        if let Some(rule) = layout { rule.patch_header(&mut original[12..12 + header_length]); }
+    }
+    write_hzc1_nvsg(&original, header_length, new_w as u16, new_h as u16, &resized)
 }
 
 fn write_hzc1_nvsg(
@@ -1045,6 +1094,47 @@ mod tests {
         let (game_mode, reserved) = parse_hcb_game_mode(&data).unwrap();
         assert_eq!(game_mode, 8);
         assert_eq!(reserved, 77);
+    }
+
+    #[test]
+    fn native_3ds_profile_uses_top_screen_dimensions() {
+        let profile = make_profile(Platform::ThreeDs, &HcbInfo {
+            path: PathBuf::from("game.hcb"), game_mode: 14, game_mode_reserved: 0,
+        }).unwrap();
+        assert_eq!((profile.target_width, profile.target_height), (400, 240));
+        assert_eq!((profile.viewport_width, profile.viewport_height), (400, 225));
+    }
+
+    #[test]
+    fn optimized_color_frames_keep_metadata_and_layout_is_explicit() {
+        let profile = make_profile(Platform::ThreeDs, &HcbInfo {
+            path: PathBuf::from("game.hcb"), game_mode: 0, game_mode_reserved: 0,
+        }).unwrap();
+        let mut header = vec![0u8; 32];
+        header[..4].copy_from_slice(b"NVSG");
+        header[6..8].copy_from_slice(&2u16.to_le_bytes());
+        header[8..10].copy_from_slice(&8u16.to_le_bytes());
+        header[10..12].copy_from_slice(&4u16.to_le_bytes());
+        header[20..24].copy_from_slice(&2u32.to_le_bytes());
+        let mut px = [0, 0, 255, 255].repeat(32);
+        px.extend([0, 255, 0, 255].repeat(32));
+        let mut input = Vec::from(&b"hzc1"[..]);
+        input.extend_from_slice(&(px.len() as u32).to_le_bytes());
+        input.extend_from_slice(&32u32.to_le_bytes());
+        input.extend_from_slice(&header);
+        let mut z = ZlibEncoder::new(Vec::new(), Compression::default());
+        z.write_all(&px).unwrap(); input.extend(z.finish().unwrap());
+        let rule = LayoutRule { scale: 2.0, offset_x: Some(12), offset_y: Some(24) };
+        let out = convert_nvsg_with_options(&input, &profile, Filter::DpidBalanced, Some(&rule)).unwrap();
+        assert_eq!(read_u32le_at(&out, 32).unwrap(), 2);
+        assert_eq!(read_u16le_at(&out, 20).unwrap(), 8);
+        assert_eq!(read_u16le_at(&out, 22).unwrap(), 4);
+        assert_eq!(read_u16le_at(&out, 24).unwrap(), 12);
+        let mut decoded = Vec::new(); ZlibDecoder::new(&out[44..]).read_to_end(&mut decoded).unwrap();
+        assert_eq!(decoded, px);
+        // A semantic mask stays on the original area path even in the UI pack.
+        assert_eq!(rfvp_image::ui_filter("graph/title_bg_mask", Filter::DpidBalanced), Filter::Area);
+        assert_eq!(rfvp_image::ui_filter("graph_bg/background", Filter::DpidBalanced), Filter::Area);
     }
 
     #[test]

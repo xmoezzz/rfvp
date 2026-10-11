@@ -24,6 +24,7 @@ use flate2::{Compression, read::ZlibDecoder, write::ZlibEncoder};
 
 use crate::game::{read_u16, read_u32};
 use crate::quant;
+use rfvp_image::{Filter, LayoutRule};
 
 /// NVSG types written for the PlayStation.
 pub const TYPE_CLUT8: u16 = 0x10;
@@ -35,7 +36,15 @@ pub fn is_nvsg(bytes: &[u8]) -> bool {
 
 /// Convert one NVSG file, scaled by `num / den`. `force4` makes every color picture 4-bit
 /// (16 colors, dithered): half the VRAM of 8-bit, for prims and UI parts.
+#[cfg(test)]
 pub fn convert(bytes: &[u8], num: u32, den: u32, force4: bool) -> Result<Vec<u8>> {
+    convert_with_options(bytes, num, den, force4, Filter::Area, None)
+}
+
+pub fn convert_with_options(
+    bytes: &[u8], num: u32, den: u32, force4: bool,
+    filter: Filter, layout: Option<&LayoutRule>,
+) -> Result<Vec<u8>> {
     let unpacked_len = read_u32(bytes, 4)? as usize;
     let header_len = read_u32(bytes, 8)? as usize;
     let nvsg = &bytes[12..];
@@ -58,9 +67,16 @@ pub fn convert(bytes: &[u8], num: u32, den: u32, force4: bool) -> Result<Vec<u8>
         .context("inflate NVSG pixels")?;
 
     // A tiny picture (a line, a dot) keeps at least one pixel.
-    let new_w = scale(width, num, den).max(1);
-    let new_h = scale(height, num, den).max(1);
-    let header = &bytes[12..12 + header_len];
+    let factor = if depth == 1 { 1.0 } else { layout.map_or(1.0, |r| r.scale) };
+    let new_w = if factor == 1.0 { scale(width, num, den).max(1) }
+        else { (width as f64 * num as f64 / den as f64 * factor).round().max(1.0) as usize };
+    let new_h = if factor == 1.0 { scale(height, num, den).max(1) }
+        else { (height as f64 * num as f64 / den as f64 * factor).round().max(1.0) as usize };
+    ensure!(new_w <= u16::MAX as usize && new_h <= u16::MAX as usize, "layout dimensions exceed u16");
+    let mut header = bytes[12..12 + header_len].to_vec();
+    if depth != 1 {
+        if let Some(rule) = layout { rule.patch_header(&mut header); }
+    }
 
     if depth == 1 {
         // Masks and glyphs: smaller, same format.
@@ -69,7 +85,7 @@ pub fn convert(bytes: &[u8], num: u32, den: u32, force4: bool) -> Result<Vec<u8>
             let frame = &pixels[f * width * height..(f + 1) * width * height];
             out.extend(resize_gray(frame, width, height, new_w, new_h, kind == 4));
         }
-        return write_zlib(header, new_w, new_h, kind, &out);
+        return write_zlib(&header, new_w, new_h, kind, &out);
     }
 
     // Color: RGBA, resized premultiplied (as NVSG's 32-bit pixels are stored) so transparent
@@ -83,7 +99,11 @@ pub fn convert(bytes: &[u8], num: u32, den: u32, force4: bool) -> Result<Vec<u8>
             let a = if depth == 4 { p[3] } else { 255 };
             premul.extend_from_slice(&[p[2], p[1], p[0], a]);
         }
-        for p in resize_rgba(&premul, width, height, new_w, new_h).chunks_exact(4) {
+        let resized = match filter {
+            Filter::Area => resize_rgba(&premul, width, height, new_w, new_h),
+            Filter::DpidBalanced => rfvp_image::resize_rgba(&premul, width, height, new_w, new_h),
+        };
+        for p in resized.chunks_exact(4) {
             let a = p[3] as u32;
             if a == 0 {
                 rgba.extend_from_slice(&[0, 0, 0, 0]);
@@ -137,7 +157,32 @@ pub fn convert(bytes: &[u8], num: u32, den: u32, force4: bool) -> Result<Vec<u8>
             payload.extend_from_slice(&padded);
         }
     }
-    Ok(write_raw(header, new_w, new_h, kind_out, &payload))
+    let encoded = write_raw(&header, new_w, new_h, kind_out, &payload);
+    if filter == Filter::DpidBalanced {
+        // Compare the actual palette, packed rows and DMA-padded GPU tiles.
+        // A layout can intentionally spend more pixels; filtering cannot add
+        // cost beyond Area encoded with that same layout.
+        let baseline = convert_with_options(bytes, num, den, force4, Filter::Area, layout)?;
+        if encoded.len() > baseline.len() || vram_bytes(&encoded)? > vram_bytes(&baseline)? {
+            return Ok(baseline);
+        }
+    }
+    Ok(encoded)
+}
+
+pub fn vram_bytes(encoded: &[u8]) -> Result<usize> {
+    let h = &encoded[12..];
+    let kind = read_u16(h, 6)?;
+    let width = read_u16(h, 8)? as usize;
+    let height = read_u16(h, 10)? as usize;
+    let frames = (read_u32(h, 20)? as usize).max(1);
+    let (per, tile_w, colors) = if kind == TYPE_CLUT4 { (4, 236, 16) }
+        else if kind == TYPE_CLUT8 { (2, 126, 256) } else { return Ok(encoded.len()); };
+    let rows: usize = (0..width).step_by(tile_w).map(|x| {
+        let texels = (width - x).min(tile_w);
+        texels.div_ceil(per).next_multiple_of(2) * 2
+    }).sum();
+    Ok((rows * height + colors * 4) * frames)
 }
 
 fn write_raw(header: &[u8], width: usize, height: usize, kind: u16, payload: &[u8]) -> Vec<u8> {
@@ -274,5 +319,37 @@ mod tests {
         let payload = &out[12 + 32..];
         assert_eq!(read_u16(payload, 0).unwrap(), 256);
         assert_eq!(payload.len(), 4 + 512 + 256 + 32 * 32);
+    }
+
+    #[test]
+    fn dpid_preserves_metadata_frames_and_encoding_budget() {
+        let mut px = Vec::new();
+        for frame in 0..2 {
+            for i in 0..77 {
+                let a = ((i * 17 + frame * 53) % 256) as u8;
+                px.extend_from_slice(&[a / 3, a / 2, a, a]);
+            }
+        }
+        let mut input = nvsg(2, 11, 7, 2, &px);
+        input[24..32].copy_from_slice(&[3, 0, 4, 0, 5, 0, 6, 0]);
+        let area = convert_with_options(&input, 1, 2, true, Filter::Area, None).unwrap();
+        let dpid = convert_with_options(&input, 1, 2, true, Filter::DpidBalanced, None).unwrap();
+        assert_eq!(&dpid[24..36], &input[24..36]);
+        assert!(dpid.len() <= area.len());
+        assert!(vram_bytes(&dpid).unwrap() <= vram_bytes(&area).unwrap());
+    }
+
+    #[test]
+    fn layout_changes_geometry_but_never_masks() {
+        let rule = LayoutRule { scale: 2.0, offset_x: Some(90), offset_y: Some(120) };
+        let input = nvsg(1, 12, 8, 1, &[0, 0, 255, 255].repeat(96));
+        let out = convert_with_options(&input, 1, 2, true, Filter::DpidBalanced, Some(&rule)).unwrap();
+        assert_eq!(read_u16(&out, 20).unwrap(), 12);
+        assert_eq!(read_u16(&out, 22).unwrap(), 8);
+        assert_eq!(read_u16(&out, 24).unwrap(), 90);
+        assert_eq!(read_u16(&out, 26).unwrap(), 120);
+        let mask = nvsg(3, 12, 8, 1, &[128; 96]);
+        let out = convert_with_options(&mask, 1, 2, true, Filter::DpidBalanced, Some(&rule)).unwrap();
+        assert_eq!(out, convert(&mask, 1, 2, true).unwrap());
     }
 }

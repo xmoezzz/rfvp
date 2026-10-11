@@ -15,8 +15,9 @@ platform/3ds/build_3ds.sh          # -> target/rfvp-3ds/3ds/rfvp.3dsx
 
 ## The game
 
-Use a game repacked for the small consoles, as for the PSP: `rfvp-rebuilder --platform psp
-<game> <out>` (480x270 pictures, loose folders, the `defualt.tmap` bitmap font, `rfvp.toml`). It
+Use `rfvp-rebuilder --platform 3ds --input <game> --output <out>` for native
+400x240 top-screen output (400x225 viewport for a 16:9 game), loose folders,
+the `defualt.tmap` bitmap font and `rfvp.toml`. It
 is read from `sdmc:/3ds/rfvp/game`.
 
 Saves go to `sdmc:/3ds/rfvp/saves/`. If a game stops, `sdmc:/3ds/rfvp/last_error.txt` says why.

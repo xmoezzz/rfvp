@@ -891,7 +891,10 @@ mod tests {
         manager.set_current_title("title".to_string());
         manager.set_current_scene_title("scene".to_string());
         manager.set_current_script_content("x".repeat(3000));
-        let thumb = vec![7u8; 4 * 2 * 2];
+        manager.set_thumb_size(2, 2);
+        // Opaque white round-trips exactly through both RGBA and the PS1's
+        // lossy RGB555 palette. Arbitrary alpha bytes cannot survive that format.
+        let thumb = vec![255u8; 4 * 2 * 2];
         let bytes = manager.build_save_file_bytes(Nls::UTF8, &thumb).unwrap();
 
         let item = SaveItem::load_from_mem(&bytes, Nls::UTF8).unwrap();

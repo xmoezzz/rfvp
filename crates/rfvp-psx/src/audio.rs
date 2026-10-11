@@ -307,7 +307,7 @@ mod tests {
         // A deterministic "melody": notes changing every 0.4 s over a 25 s pattern.
         let note = |t: usize| -> f32 {
             let k = (t / 3200) as u32;
-            let f = 200.0 + ((k * 2654435761) % 600) as f32;
+            let f = 200.0 + (k.wrapping_mul(2654435761) % 600) as f32;
             let amp = 0.2 + ((k * 40503) % 7) as f32 / 10.0;
             (t as f32 * f * 2.0 * std::f32::consts::PI / rate as f32).sin() * amp
         };

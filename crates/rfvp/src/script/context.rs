@@ -230,9 +230,9 @@ impl Context {
                 let msg = format!("pop: stack pointer out of bounds: {:x}", self.cursor);
                 bail!(msg);
             }
-            let r = self.stack[pos].clone();
-            self.stack[pos].set_nil();
-            r
+            // Pop transfers ownership; cloning strings and tables here costs both
+            // allocations and CPU time before immediately discarding the original.
+            core::mem::replace(&mut self.stack[pos], Variant::Nil)
         } else {
             bail!("stack pointer out of bounds");
         };
@@ -857,11 +857,10 @@ impl Context {
     pub fn add(&mut self) -> Result<()> {
         self.cursor += 1;
         let b = self.pop()?;
-        let mut a = self.pop()?;
+        let a = self.pop()?;
 
         // log::info!("add: {:?} {:?}", &a, &b);
-        a.vadd(&b);
-        self.push(a)?;
+        self.push(super::vm_add(a, b))?;
         Ok(())
     }
 
@@ -870,11 +869,10 @@ impl Context {
     pub fn sub(&mut self) -> Result<()> {
         self.cursor += 1;
         let b = self.pop()?;
-        let mut a = self.pop()?;
+        let a = self.pop()?;
 
         // log::info!("sub: {:?} {:?}", &a, &b);
-        a.vsub(&b);
-        self.push(a)?;
+        self.push(super::vm_sub(a, b))?;
         Ok(())
     }
 
@@ -883,11 +881,10 @@ impl Context {
     pub fn mul(&mut self) -> Result<()> {
         self.cursor += 1;
         let b = self.pop()?;
-        let mut a = self.pop()?;
+        let a = self.pop()?;
 
         // log::info!("mul: {:?} {:?}", &a, &b);
-        a.vmul(&b);
-        self.push(a)?;
+        self.push(super::vm_mul(a, b))?;
         Ok(())
     }
 
@@ -896,11 +893,10 @@ impl Context {
     pub fn div(&mut self) -> Result<()> {
         self.cursor += 1;
         let b = self.pop()?;
-        let mut a = self.pop()?;
+        let a = self.pop()?;
 
         // log::info!("div: {:?} {:?}", &a, &b);
-        a.vdiv(&b);
-        self.push(a)?;
+        self.push(super::vm_div(a, b))?;
         Ok(())
     }
 
@@ -909,11 +905,10 @@ impl Context {
     pub fn modulo(&mut self) -> Result<()> {
         self.cursor += 1;
         let b = self.pop()?;
-        let mut a = self.pop()?;
+        let a = self.pop()?;
 
         // log::info!("mod: {:?} {:?}", &a, &b);
-        a.vmod(&b);
-        self.push(a)?;
+        self.push(super::vm_mod(a, b))?;
         Ok(())
     }
 
@@ -1270,5 +1265,37 @@ impl Context {
             log::info!("pos: {}, value: {:?}", pos, local);
             pos -= 1;
         }
+    }
+}
+
+#[cfg(test)]
+mod stack_move_tests {
+    use super::*;
+    use alloc::string::String;
+
+    #[test]
+    fn pop_moves_owned_strings_and_clears_the_slot() {
+        let mut ctx = Context::new(0, 0);
+        let value = String::from("graph/title_start");
+        let pointer = value.as_ptr();
+        ctx.push(Variant::String(value)).unwrap();
+        let slot = ctx.cur_stack_base;
+        let popped = ctx.pop().unwrap();
+        assert_eq!(popped.as_string().unwrap().as_ptr(), pointer);
+        assert!(ctx.stack[slot].is_nil());
+        assert!(ctx.pop().is_err());
+    }
+
+    #[test]
+    fn owned_arithmetic_preserves_wrapping_and_string_concatenation() {
+        let mut ctx = Context::new(0, 0);
+        ctx.push(Variant::Int(i32::MAX)).unwrap();
+        ctx.push(Variant::Int(1)).unwrap();
+        ctx.add().unwrap();
+        assert_eq!(ctx.pop().unwrap().as_int(), Some(i32::MIN));
+        ctx.push(Variant::ConstString(String::from("graph/"), 1)).unwrap();
+        ctx.push(Variant::ConstString(String::from("title_start"), 2)).unwrap();
+        ctx.add().unwrap();
+        assert_eq!(ctx.pop().unwrap().as_string().unwrap(), "graph/title_start");
     }
 }

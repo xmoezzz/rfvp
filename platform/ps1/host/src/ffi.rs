@@ -18,7 +18,6 @@ extern "C" {
     // main.c
     fn rfvp_ps1_log(message: *const u8, len: usize);
     fn rfvp_ps1_ticks_us() -> u64;
-    fn rfvp_ps1_cycles() -> u32;
     pub fn rfvp_ps1_file_find(name: *const c_char, size: *mut u32) -> c_int;
     pub fn rfvp_ps1_file_read(handle: c_int, offset: u32, buf: *mut u8, len: u32) -> c_int;
     pub fn rfvp_ps1_file_lba(handle: c_int) -> u32;
@@ -242,10 +241,20 @@ pub struct Session {
     window_started_us: u64,
     last_frame_us: u64,
     worst_us: u64,
+    window_frames: u32,
 }
 
 /// Frames between two reports on the TTY.
 const REPORT_EVERY: u32 = 30;
+static mut PROFILING: bool = false;
+
+/// Enable stage timing from DEBUG.TXT. VBlank ticks are deliberately not
+/// registered as a per-opcode cycle counter: they are not CPU cycles.
+#[no_mangle]
+pub extern "C" fn rfvp_ps1_set_profiling(enabled: c_int) {
+    unsafe { PROFILING = enabled != 0; }
+    if enabled != 0 { rfvp::perf::set_clock(ticks_us); }
+}
 
 impl Session {
     fn report_error(&mut self, what: &str, err: Option<rfvp::host_api::RfvpError>) {
@@ -260,9 +269,17 @@ impl Session {
 
     fn report(&mut self) {
         let now = ticks_us();
+        if self.frames == 1 {
+            self.window_started_us = now;
+            self.last_frame_us = now;
+            rfvp::perf::take();
+            rfvp::perf::take_ops();
+            return;
+        }
         self.worst_us = self.worst_us.max(now.saturating_sub(self.last_frame_us));
         self.last_frame_us = now;
-        if self.frames % REPORT_EVERY != 0 {
+        self.window_frames += 1;
+        if self.window_frames < REPORT_EVERY {
             return;
         }
         let window_us = now.saturating_sub(self.window_started_us).max(1);
@@ -277,6 +294,15 @@ impl Session {
         ));
         self.window_started_us = now;
         self.worst_us = 0;
+        self.window_frames = 0;
+        if unsafe { PROFILING } {
+            let stages = rfvp::perf::take();
+            let ops = rfvp::perf::take_ops();
+            for (name, us) in rfvp::perf::STAGES.iter().zip(stages) {
+                if us != 0 { log(&format!("rfvp: perf {name}: {} us/frame\n", us / REPORT_EVERY)); }
+            }
+            log(&format!("rfvp: perf ops: {} per frame\n", ops / REPORT_EVERY));
+        }
     }
 }
 
@@ -284,10 +310,6 @@ impl Session {
 #[no_mangle]
 pub unsafe extern "C" fn rfvp_ps1_start() -> *mut Session {
     rfvp::ring_log::install();
-    extern "C" fn cycles() -> u32 {
-        unsafe { rfvp_ps1_cycles() }
-    }
-    rfvp::perf::set_cycle_counter(cycles);
     let app = Ps1App::new(RfvpCoreConfig::default(), 64);
     let now = ticks_us();
     let mut session = Box::new(Session {
@@ -296,6 +318,7 @@ pub unsafe extern "C" fn rfvp_ps1_start() -> *mut Session {
         window_started_us: now,
         last_frame_us: now,
         worst_us: 0,
+        window_frames: 0,
     });
     {
         use core::mem::size_of;

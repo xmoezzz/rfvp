@@ -3800,6 +3800,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rfvp-image"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "rfvp-ps1"
 version = "0.1.0"
 dependencies = [
@@ -3851,6 +3859,7 @@ dependencies = [
  "flate2",
  "fontdue",
  "rayon",
+ "rfvp-image",
  "vorbis_rs",
  "walkdir",
 ]
@@ -3864,6 +3873,7 @@ dependencies = [
  "encoding_rs",
  "flate2",
  "rayon",
+ "rfvp-image",
  "rfvp_bitmap",
  "serde",
  "serde_json",

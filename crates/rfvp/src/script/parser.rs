@@ -202,10 +202,9 @@ impl Parser {
     pub fn read_u16(&self, offset: usize) -> Result<u16> {
         #[cfg(feature = "old_school")]
         {
-            return Ok(u16::from_le_bytes([
-                self.read_u8(offset)?,
-                self.read_u8(offset + 1)?,
-            ]));
+            let mut bytes = [0; 2];
+            self.source.read_bytes(offset, &mut bytes)?;
+            return Ok(u16::from_le_bytes(bytes));
         }
         #[cfg(not(feature = "old_school"))]
         {
@@ -223,12 +222,9 @@ impl Parser {
     pub fn read_u32(&self, offset: usize) -> Result<u32> {
         #[cfg(feature = "old_school")]
         {
-            return Ok(u32::from_le_bytes([
-                self.read_u8(offset)?,
-                self.read_u8(offset + 1)?,
-                self.read_u8(offset + 2)?,
-                self.read_u8(offset + 3)?,
-            ]));
+            let mut bytes = [0; 4];
+            self.source.read_bytes(offset, &mut bytes)?;
+            return Ok(u32::from_le_bytes(bytes));
         }
         #[cfg(not(feature = "old_school"))]
         {
@@ -263,10 +259,9 @@ impl Parser {
     pub fn read_i16(&self, offset: usize) -> Result<i16> {
         #[cfg(feature = "old_school")]
         {
-            return Ok(i16::from_le_bytes([
-                self.read_u8(offset)?,
-                self.read_u8(offset + 1)?,
-            ]));
+            let mut bytes = [0; 2];
+            self.source.read_bytes(offset, &mut bytes)?;
+            return Ok(i16::from_le_bytes(bytes));
         }
         #[cfg(not(feature = "old_school"))]
         {
@@ -284,12 +279,9 @@ impl Parser {
     pub fn read_i32(&self, offset: usize) -> Result<i32> {
         #[cfg(feature = "old_school")]
         {
-            return Ok(i32::from_le_bytes([
-                self.read_u8(offset)?,
-                self.read_u8(offset + 1)?,
-                self.read_u8(offset + 2)?,
-                self.read_u8(offset + 3)?,
-            ]));
+            let mut bytes = [0; 4];
+            self.source.read_bytes(offset, &mut bytes)?;
+            return Ok(i32::from_le_bytes(bytes));
         }
         #[cfg(not(feature = "old_school"))]
         {
@@ -309,12 +301,9 @@ impl Parser {
     pub fn read_f32(&self, offset: usize) -> Result<f32> {
         #[cfg(feature = "old_school")]
         {
-            return Ok(f32::from_le_bytes([
-                self.read_u8(offset)?,
-                self.read_u8(offset + 1)?,
-                self.read_u8(offset + 2)?,
-                self.read_u8(offset + 3)?,
-            ]));
+            let mut bytes = [0; 4];
+            self.source.read_bytes(offset, &mut bytes)?;
+            return Ok(f32::from_le_bytes(bytes));
         }
         #[cfg(not(feature = "old_school"))]
         {
@@ -537,6 +526,8 @@ impl Parser {
 trait HcbByteSource {
     fn len(&self) -> usize;
     fn read_byte(&self, offset: usize) -> Result<u8>;
+    fn read_bytes(&self, offset: usize, out: &mut [u8]) -> Result<()>;
+
 }
 
 #[cfg(feature = "old_school")]
@@ -547,6 +538,15 @@ struct MemoryHcbSource {
 
 #[cfg(feature = "old_school")]
 impl HcbByteSource for MemoryHcbSource {
+    fn read_bytes(&self, offset: usize, out: &mut [u8]) -> Result<()> {
+        let end = offset.checked_add(out.len())
+            .ok_or_else(|| anyhow::anyhow!("offset out of bounds"))?;
+        let bytes = self.bytes.get(offset..end)
+            .ok_or_else(|| anyhow::anyhow!("offset out of bounds"))?;
+        out.copy_from_slice(bytes);
+        Ok(())
+    }
+
     fn len(&self) -> usize {
         self.bytes.len()
     }
@@ -647,6 +647,32 @@ impl<F: crate::host_api::RfvpFile> PagedHcbSource<F> {
 
 #[cfg(feature = "old_school")]
 impl<F: crate::host_api::RfvpFile> HcbByteSource for PagedHcbSource<F> {
+    fn read_bytes(&self, offset: usize, out: &mut [u8]) -> Result<()> {
+        if offset.checked_add(out.len()).is_none_or(|end| end > self.len) {
+            return Err(anyhow::anyhow!("offset out of bounds"));
+        }
+        // Read a cached operand with one lock and one virtual call, rather than
+        // repeating both for each byte. Boundary crossings use the usual loader.
+        let (page_index, page_offset) = if self.page_size.is_power_of_two() {
+            (offset >> self.page_size.trailing_zeros(), offset & (self.page_size - 1))
+        } else {
+            (offset / self.page_size, offset % self.page_size)
+        };
+        {
+            let state = self.state.lock();
+            if let Some(page) = state.pages.get(state.last) {
+                if page.index == page_index && page_offset + out.len() <= page.valid_len {
+                    out.copy_from_slice(&page.data[page_offset..page_offset + out.len()]);
+                    return Ok(());
+                }
+            }
+        }
+        for (i, byte) in out.iter_mut().enumerate() {
+            *byte = self.read_byte(offset + i)?;
+        }
+        Ok(())
+    }
+
     fn len(&self) -> usize {
         self.len
     }
@@ -720,5 +746,42 @@ mod tests {
 
         let parser = Parser::new(filepath, Nls::ShiftJIS).unwrap();
         log::debug!("{:?}", parser);
+    }
+}
+
+#[cfg(all(test, feature = "old_school"))]
+mod paged_operand_tests {
+    use super::*;
+    use crate::host_api::{RfvpFile, RfvpResult};
+
+    struct File(Vec<u8>);
+    impl RfvpFile for File {
+        fn len(&mut self) -> RfvpResult<u64> { Ok(self.0.len() as u64) }
+        fn read_at(&mut self, offset: u64, out: &mut [u8]) -> RfvpResult<usize> {
+            let start = (offset as usize).min(self.0.len());
+            let n = out.len().min(self.0.len() - start);
+            out[..n].copy_from_slice(&self.0[start..start + n]);
+            Ok(n)
+        }
+    }
+
+    #[test]
+    fn operands_cross_pages_survive_eviction_and_reject_overflow() {
+        let bytes: Vec<u8> = (0..35).collect();
+        let memory = MemoryHcbSource { bytes: bytes.clone() };
+        let paged = PagedHcbSource::new(File(bytes), 35, 8, 2);
+        for offset in [0, 2, 7, 15, 24, 0, 31, 8, 16] {
+            let mut expected = [0; 4];
+            let mut actual = [0; 4];
+            memory.read_bytes(offset, &mut expected).unwrap();
+            paged.read_bytes(offset, &mut actual).unwrap();
+            assert_eq!(actual, expected);
+            // Repeat to exercise the cached, single-lock path.
+            paged.read_bytes(offset, &mut actual).unwrap();
+            assert_eq!(actual, expected);
+        }
+        assert!(paged.read_bytes(32, &mut [0; 4]).is_err());
+        assert!(paged.read_bytes(usize::MAX, &mut [0; 4]).is_err());
+        assert!(memory.read_bytes(usize::MAX, &mut [0; 4]).is_err());
     }
 }

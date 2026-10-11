@@ -185,6 +185,24 @@ fn build_draw_model(
     v3d_y: i32,
     v3d_z: i32,
 ) -> Mat4 {
+    // Most console UI primitives only translate. Avoid trigonometry and four
+    // general matrix products on CPUs without hardware floating point.
+    if prim.get_attr() & 4 == 0 && prim.get_angle() == 0 {
+        let pos_x = parent_x + draw_x;
+        let pos_y = parent_y + draw_y;
+        if prim.get_factor_x() == 1000 && prim.get_factor_y() == 1000 {
+            return Mat4::from_translation(vec3(pos_x + off_x, pos_y + off_y, 0.0));
+        }
+        let sx = prim.get_factor_x() as f32 / 1000.0;
+        let sy = prim.get_factor_y() as f32 / 1000.0;
+        return Mat4::from_cols_array(&[
+            sx, 0.0, 0.0, 0.0,
+            0.0, sy, 0.0, 0.0,
+            0.0, 0.0, 1.0, 0.0,
+            pos_x + pivot_x + sx * (off_x - pivot_x),
+            pos_y + pivot_y + sy * (off_y - pivot_y), 0.0, 1.0,
+        ]);
+    }
     let theta = -(prim.get_angle() as f32) * core::f32::consts::TAU / 3600.0;
     let attr = prim.get_attr();
     let pos_x = parent_x + draw_x;
@@ -241,6 +259,16 @@ fn prim_blend(prim: &Prim) -> CommandBlendMode {
     }
 }
 
+fn sprite_corners(model: Mat4, dst_w: f32, dst_h: f32) -> [glam::Vec3; 4] {
+    // Share the transformed origin and edges, including for rotated quads.
+    let p1 = model.w_axis.truncate();
+    let edge_x = model.x_axis.truncate() * dst_w;
+    let edge_y = model.y_axis.truncate() * dst_h;
+    let p0 = p1 + edge_y;
+    let p3 = p1 + edge_x;
+    [p0, p1, p3 + edge_y, p3]
+}
+
 fn emit_sprite(
     commands: &mut Vec<RenderCommand>,
     hit_proxies: &mut HitProxyTable,
@@ -255,10 +283,7 @@ fn emit_sprite(
     texture: DrawTextureKey,
     blend: CommandBlendMode,
 ) -> RfvpResult<()> {
-    let p0 = model.transform_point3(vec3(0.0, dst_h, 0.0));
-    let p1 = model.transform_point3(vec3(0.0, 0.0, 0.0));
-    let p2 = model.transform_point3(vec3(dst_w, dst_h, 0.0));
-    let p3 = model.transform_point3(vec3(dst_w, 0.0, 0.0));
+    let [p0, p1, p2, p3] = sprite_corners(model, dst_w, dst_h);
     let texture = match texture {
         DrawTextureKey::Graph(graph_id) => host_texture_id(graph_id),
         DrawTextureKey::White => WHITE_TEXTURE,
@@ -966,4 +991,52 @@ where
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod transform_tests {
+    use super::*;
+
+    #[test]
+    fn shared_edges_preserve_rotated_and_projected_quads() {
+        for attr in [0, 4] {
+            for angle in [0, 450, -900, 1800] {
+                let mut prim = Prim::new();
+                prim.set_attr(attr);
+                prim.set_rotation(angle);
+                prim.set_factor_x(1250);
+                prim.set_factor_y(-800);
+                prim.set_z(1000);
+                let model = build_draw_model((1920, 1080), &prim,
+                    35.0, -20.0, 250.0, 105.0, 18.0, -9.0, 12.0, 24.0, 10, 20, 50);
+                let corners = sprite_corners(model, 320.0, 240.0);
+                for (actual, point) in corners.into_iter().zip([
+                    vec3(0.0, 240.0, 0.0), vec3(0.0, 0.0, 0.0),
+                    vec3(320.0, 240.0, 0.0), vec3(320.0, 0.0, 0.0)]) {
+                    let delta = actual - model.transform_point3(point);
+                    assert!(delta.abs().max_element() < 0.001);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn unrotated_models_preserve_scaled_pivots_and_vertices() {
+        for (fx, fy) in [(1000, 1000), (1250, 800), (-1000, 0), (0, -250)] {
+            let mut prim = Prim::new();
+            prim.set_factor_x(fx);
+            prim.set_factor_y(fy);
+            let actual = build_draw_model((1920, 1080), &prim,
+                35.0, -20.0, 250.0, 105.0, 18.0, -9.0, 12.0, 24.0, 0, 0, 0);
+            let expected = Mat4::from_translation(vec3(297.0, 109.0, 0.0))
+                * Mat4::from_scale(vec3(fx as f32 / 1000.0, fy as f32 / 1000.0, 1.0))
+                * Mat4::from_rotation_z(0.0)
+                * Mat4::from_translation(vec3(6.0, -33.0, 0.0));
+            for point in [vec3(0.0, 0.0, 0.0), vec3(320.0, 0.0, 0.0),
+                          vec3(0.0, 240.0, 0.0), vec3(320.0, 240.0, 0.0)] {
+                let delta = actual.transform_point3(point) - expected.transform_point3(point);
+                assert!(delta.abs().max_element() < 0.001);
+            }
+        }
+    }
 }

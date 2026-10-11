@@ -17,5 +17,6 @@ encoding_rs = "0.8"
 flate2 = "1"
 fontdue = { version = "0.9", default-features = false }
 rayon = "1"
+rfvp-image = { path = "../rfvp-image" }
 vorbis_rs = "0.5.5"
 walkdir = "2"

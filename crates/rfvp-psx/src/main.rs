@@ -33,6 +33,7 @@ use std::time::Instant;
 use anyhow::{Context, Result, ensure};
 use clap::Parser;
 use rayon::prelude::*;
+use rfvp_image::{Filter, LayoutProfile};
 
 const FONT_TTF: &[u8] = include_bytes!("../../rfvp-rebuilder/assets/fonts/BIZUDGothic-Regular.ttf");
 const FONT_LICENSE: &str = include_str!("../../rfvp-rebuilder/assets/fonts/OFL.txt");
@@ -83,6 +84,18 @@ struct Cli {
     /// Worker threads (0: one per core).
     #[arg(long, default_value_t = 0)]
     threads: usize,
+    /// Offline UI reduction: area or dpid-balanced. Masks always use Area.
+    #[arg(long, default_value = "dpid-balanced")]
+    image_filter: Filter,
+    /// Explicit image sizing and placement profile, keyed by pack/resource.
+    #[arg(long)]
+    ui_layout: Option<PathBuf>,
+    /// Update pictures in an existing converted disc; preserve audio, font and maps.
+    #[arg(long)]
+    images_only: bool,
+    /// Restrict picture updates to named packs (for example graph).
+    #[arg(long, requires = "images_only")]
+    image_pack: Vec<String>,
 }
 
 /// What a pack holds, from its name.
@@ -117,8 +130,11 @@ fn main() -> Result<()> {
     }
     std::fs::create_dir_all(&cli.output)?;
     let started = Instant::now();
+    let layout = cli.ui_layout.as_deref().map(LayoutProfile::load).transpose()
+        .map_err(|error| anyhow::anyhow!("load UI layout: {error}"))?.unwrap_or_default();
 
     let script = game::find_script(&cli.input)?;
+    layout.validate_design(script.design_width, script.design_height).map_err(anyhow::Error::msg)?;
     // Scale the design resolution into the screen, keeping its shape.
     let (num, den) = if SCREEN_W * script.design_height <= SCREEN_H * script.design_width {
         (SCREEN_W, script.design_width)
@@ -134,6 +150,10 @@ fn main() -> Result<()> {
         script.design_width * num / den,
         viewport_h
     );
+
+    if cli.images_only {
+        return update_pictures(&cli, &layout, num, den);
+    }
 
     let mut names = DiscNames::default();
     let script_name = script.path.file_name().unwrap().to_string_lossy().to_string();
@@ -183,7 +203,9 @@ fn main() -> Result<()> {
             .map(|entry| {
                 let bytes = entry.read()?;
                 let force4 = cli.clut4.iter().any(|p| p.eq_ignore_ascii_case(&pack.stem));
-                let converted = convert_entry(kind, &entry.name, bytes, &cli, num, den, force4)
+                let resource = format!("{}/{}", pack.stem, entry.name);
+                let filter = rfvp_image::ui_filter(&resource, cli.image_filter);
+                let converted = convert_entry(kind, &entry.name, bytes, &cli, num, den, force4, filter, layout.get(&resource))
                     .with_context(|| format!("{}/{}", pack.stem, entry.name))?;
                 let n = done.fetch_add(1, Ordering::Relaxed) + 1;
                 if n % 200 == 0 {
@@ -308,9 +330,10 @@ enum Converted {
     Skipped,
 }
 
-fn convert_entry(kind: Kind, name: &str, bytes: Vec<u8>, cli: &Cli, num: u32, den: u32, force4: bool) -> Result<Converted> {
+fn convert_entry(kind: Kind, name: &str, bytes: Vec<u8>, cli: &Cli, num: u32, den: u32, force4: bool,
+                 filter: Filter, layout: Option<&rfvp_image::LayoutRule>) -> Result<Converted> {
     if image::is_nvsg(&bytes) {
-        return Ok(Converted::Bytes(image::convert(&bytes, num, den, force4)?, 0.0));
+        return Ok(Converted::Bytes(image::convert_with_options(&bytes, num, den, force4, filter, layout)?, 0.0));
     }
     let pcm = if audio::is_ogg(&bytes) {
         audio::decode_ogg(&bytes).with_context(|| format!("decode {name}"))?
@@ -355,6 +378,42 @@ fn convert_entry(kind: Kind, name: &str, bytes: Vec<u8>, cli: &Cli, num: u32, de
         Kind::Voice => Converted::Bytes(audio::spu_sound(&pcm, cli.voice_rate), seconds),
         _ => Converted::Bytes(audio::spu_sound(&pcm, cli.se_rate), seconds),
     })
+}
+
+fn update_pictures(cli: &Cli, layout: &LayoutProfile, num: u32, den: u32) -> Result<()> {
+    let map = std::fs::read_to_string(cli.output.join("FILES.MAP"))
+        .context("--images-only requires an existing converted disc with FILES.MAP")?;
+    let config = std::fs::read_to_string(cli.output.join("RFVP.TOM"))?;
+    let scale: f64 = config.trim().strip_prefix("scale = ")
+        .context("invalid existing disc scale")?.parse()?;
+    ensure!((scale - num as f64 / den as f64).abs() < 1e-9, "existing disc uses a different game scale");
+    let mut updated = 0;
+    for pack in game::packs(&cli.input)? {
+        if kind_of(&pack.stem) != Kind::Pictures ||
+            (!cli.image_pack.is_empty() && !cli.image_pack.iter().any(|p| p.eq_ignore_ascii_case(&pack.stem))) {
+            continue;
+        }
+        let virtual_name = format!("{}.bin", pack.stem);
+        let disc_name = map.lines().filter_map(|line| line.split_once(' '))
+            .find(|(name, _)| *name == virtual_name).map(|(_, disc)| disc)
+            .with_context(|| format!("disc has no mapping for {virtual_name}"))?;
+        let force4 = cli.clut4.iter().any(|p| p.eq_ignore_ascii_case(&pack.stem));
+        let entries: Vec<Result<(String, Vec<u8>)>> = pack.entries.par_iter().map(|entry| {
+            let original = entry.read()?;
+            let resource = format!("{}/{}", pack.stem, entry.name);
+            let filter = rfvp_image::ui_filter(&resource, cli.image_filter);
+            let converted = if image::is_nvsg(&original) {
+                image::convert_with_options(&original, num, den, force4, filter, layout.get(&resource))?
+            } else { original };
+            Ok((entry.name.clone(), converted))
+        }).collect();
+        let entries: Vec<_> = entries.into_iter().collect::<Result<_>>()?;
+        game::write_pack(&cli.output.join(disc_name), &entries)?;
+        println!("updated {virtual_name}: {} entries", entries.len());
+        updated += 1;
+    }
+    ensure!(updated > 0, "no matching picture packs");
+    Ok(())
 }
 
 fn is_movie(path: &Path) -> bool {
