@@ -51,6 +51,7 @@ jobs:
           cargo doc --workspace --no-deps \
             --exclude rfvp-3ds \
             --exclude rfvp-horizon \
+            --exclude rfvp-ps1 \
             --exclude rfvp-ps2 \
             --exclude rfvp-ps3 \
             --exclude rfvp-psp \
