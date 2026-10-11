@@ -37,6 +37,37 @@ impl HostPrimRenderCache {
         }
     }
 
+    /// Whether the host holds `graph_id` at `generation` (so its CPU copy may be evicted).
+    pub fn is_graph_uploaded(&self, graph_id: u16, generation: u64) -> bool {
+        self.graph_generation(graph_id) == Some(generation)
+    }
+
+    /// Upload one graph now (see `MotionManager::upload_evicted_one_by_one`).
+    #[cfg(feature = "psx")]
+    pub fn upload_graph<B>(&mut self, backend: &mut B, graph_id: u16, graph: &GraphBuff) -> bool
+    where
+        B: TextureBackend<Error = RfvpError>,
+    {
+        match self.upload_graph_if_needed(backend, graph_id, graph) {
+            Ok(done) => done,
+            Err(err) => {
+                log::error!("graph {graph_id}: upload failed: {err:?}");
+                false
+            }
+        }
+    }
+
+    /// Free the host's copy of a graph the game unloaded.
+    pub fn remove_graph<B>(&mut self, backend: &mut B, graph_id: u16)
+    where
+        B: TextureBackend<Error = RfvpError>,
+    {
+        if let Some(index) = self.graphs.iter().position(|entry| entry.graph_id == graph_id) {
+            self.graphs.swap_remove(index);
+            backend.destroy_texture(host_texture_id(graph_id));
+        }
+    }
+
     fn graph_generation(&self, graph_id: u16) -> Option<u64> {
         self.graphs
             .iter()
@@ -88,21 +119,29 @@ impl HostPrimRenderCache {
     where
         B: TextureBackend<Error = RfvpError>,
     {
+        let generation = graph.get_generation();
+        if self.graph_generation(graph_id) == Some(generation) {
+            // Uploaded already; its CPU pixels may have been evicted since.
+            return Ok(true);
+        }
         let Some(img) = graph.get_texture().as_ref() else {
             return Ok(false);
         };
-        let generation = graph.get_generation();
-        if self.graph_generation(graph_id) == Some(generation) {
-            return Ok(true);
-        }
 
         let (width, height) = img.dimensions();
-        let width = u16::try_from(width).map_err(|_| RfvpError::CapacityExceeded)?;
-        let height = u16::try_from(height).map_err(|_| RfvpError::CapacityExceeded)?;
+        let (Ok(width), Ok(height)) = (u16::try_from(width), u16::try_from(height)) else {
+            log::error!("graph {graph_id} is {width}x{height}: too large for a texture");
+            return Err(RfvpError::CapacityExceeded);
+        };
         let (format, pixels) = match img {
             crate::DynamicImage::ImageRgba8(img) => (TextureFormat::Rgba8, img.as_raw().as_slice()),
             crate::DynamicImage::ImageLumaA8(img) => {
                 (TextureFormat::LumaA8, img.as_raw().as_slice())
+            }
+            #[cfg(feature = "psx")]
+            crate::DynamicImage::ImageClut(img) => {
+                let format = if img.bits == 4 { TextureFormat::Indexed4 } else { TextureFormat::Indexed8 };
+                (format, img.texture_bytes())
             }
         };
         backend.create_texture(
@@ -315,7 +354,10 @@ where
     B: RenderBackend<Error = RfvpError> + TextureBackend<Error = RfvpError>,
 {
     backend.begin_frame(
-        u16::try_from(virtual_size.0).map_err(|_| RfvpError::CapacityExceeded)?,
+        u16::try_from(virtual_size.0).map_err(|_| {
+            log::error!("virtual size {virtual_size:?} is too large");
+            RfvpError::CapacityExceeded
+        })?,
         u16::try_from(virtual_size.1).map_err(|_| RfvpError::CapacityExceeded)?,
     )?;
     cache.ensure_white(backend)?;
@@ -324,6 +366,7 @@ where
     let graphs = motion.graphs();
     let snow_motions = motion.snow_motions();
 
+    let tree_started = crate::perf::start();
     let mut frame = RenderFrame::default();
     let mut order = 0u32;
     let mut visit = vec![0u8; 4096];
@@ -413,8 +456,13 @@ where
         )?;
     }
 
+    crate::perf::stop(11, tree_started);
+    let t = crate::perf::start();
     backend.submit_commands(&frame.commands)?;
+    crate::perf::stop(12, t);
+    let t = crate::perf::start();
     backend.end_frame()?;
+    crate::perf::stop(13, t);
     Ok(frame)
 }
 
@@ -428,7 +476,7 @@ fn collect_tree<B>(
     virtual_size: (u32, u32),
     prim_manager: &PrimManager,
     color_manager: &ColorManager,
-    graphs: &[GraphBuff],
+    graphs: &crate::subsystem::resources::graph_buff::Graphs,
     snow_motions: &[SnowMotion],
     v3d_x: i32,
     v3d_y: i32,
@@ -679,10 +727,9 @@ fn emit_graph_sprite(
     text_graph: bool,
     prim_id: i16,
 ) -> RfvpResult<()> {
-    let Some(img) = graph.get_texture().as_ref() else {
+    let Some((tw, th)) = graph.image_dimensions() else {
         return Ok(());
     };
-    let (tw, th) = img.dimensions();
     if tw == 0 || th == 0 {
         return Ok(());
     }
@@ -820,7 +867,7 @@ fn emit_snow<B>(
     hit_proxies: &mut HitProxyTable,
     order: &mut u32,
     virtual_size: (u32, u32),
-    graphs: &[GraphBuff],
+    graphs: &crate::subsystem::resources::graph_buff::Graphs,
     snow_motions: &[SnowMotion],
     prim: &Prim,
     parent_x: f32,
@@ -870,10 +917,9 @@ where
         if !cache.upload_graph_if_needed(backend, graph_id, graph)? {
             continue;
         }
-        let Some(img) = graph.get_texture().as_ref() else {
+        let Some((tw, th)) = graph.image_dimensions() else {
             continue;
         };
-        let (tw, th) = img.dimensions();
         if tw == 0 || th == 0 {
             continue;
         }

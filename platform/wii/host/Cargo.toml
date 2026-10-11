@@ -1,0 +1,18 @@
+[package]
+name = "rfvp-wii"
+version = "0.1.0"
+edition = "2021"
+description = "Wii host crate for rfvp no_std core"
+license = "MPL-2.0"
+publish = false
+
+[lib]
+name = "rfvp_wii"
+path = "src/lib.rs"
+# Linked into the libogc runtime (platform/wii/runtime/main.c) by platform/wii/build_wii.sh.
+crate-type = ["staticlib"]
+
+[dependencies]
+# A game repacked with `rfvp-rebuilder --platform wii` (640x360, bitmap font).
+talc = { version = "4.4", default-features = false }
+rfvp = { path = "../../../crates/rfvp", default-features = false, features = ["no_std", "old_school"] }

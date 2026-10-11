@@ -29,6 +29,23 @@ int32_t rfvp_ogg_decode_interleaved_i16(
     int32_t max_interleaved_samples
 );
 
+/*
+ * Reads up to `len` bytes at `offset` of a sound into `buf`; returns the count (less than `len`
+ * only at the end) or a negative value on error.
+ */
+typedef int32_t (*RfvpOggReadFn)(void *user, uint64_t offset, uint8_t *buf, int32_t len);
+
+/*
+ * Open a sound read through `read` as it decodes, holding only a small buffer of it.
+ * `user` is passed to `read` and must stay valid until rfvp_ogg_close.
+ */
+int32_t rfvp_ogg_open_stream(
+    RfvpOggReadFn read,
+    void *user,
+    RfvpOggVorbisInfo *out_info,
+    RfvpOggVorbis **out_decoder
+);
+
 int32_t rfvp_ogg_seek_start(RfvpOggVorbis *decoder);
 
 void rfvp_ogg_close(RfvpOggVorbis *decoder);

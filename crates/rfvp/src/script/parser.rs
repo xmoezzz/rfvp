@@ -375,31 +375,11 @@ impl Parser {
     }
 
     fn decode_string_bytes(&self, string: &[u8]) -> Result<String> {
-        let s = match self.nls {
-            Nls::ShiftJIS => {
-                let (s, _, e) = encoding_rs::SHIFT_JIS.decode(&string);
-                if e {
-                    log::error!("failed to decode string as ShiftJIS");
-                }
-                s
-            }
-            Nls::GBK => {
-                let (s, _, e) = encoding_rs::GBK.decode(&string);
-                if e {
-                    log::error!("failed to decode string as GBK");
-                }
-                s
-            }
-            Nls::UTF8 => {
-                let (s, _, e) = encoding_rs::UTF_8.decode(&string);
-                if e {
-                    log::error!("failed to decode string as UTF-8");
-                }
-                s
-            }
-        };
-
-        Ok(s.to_string())
+        let (s, errors) = crate::text_codec::decode(self.nls.clone(), string);
+        if errors {
+            log::error!("failed to decode string as {:?}", self.nls);
+        }
+        Ok(s)
     }
 
     fn parser(&mut self) -> Result<()> {
@@ -592,6 +572,10 @@ struct PagedHcbState<F: crate::host_api::RfvpFile> {
     file: F,
     tick: u64,
     pages: Vec<HcbPage>,
+    /// The page the last byte came from (an index into `pages`): scripts read on in the same
+    /// page almost always, and a lookup per byte made each instruction cost ~1600 cycles on
+    /// the PS2.
+    last: usize,
 }
 
 #[cfg(feature = "old_school")]
@@ -613,6 +597,7 @@ impl<F: crate::host_api::RfvpFile> PagedHcbSource<F> {
                 file,
                 tick: 0,
                 pages: Vec::new(),
+                last: usize::MAX,
             }),
         }
     }
@@ -670,9 +655,18 @@ impl<F: crate::host_api::RfvpFile> HcbByteSource for PagedHcbSource<F> {
         if offset >= self.len {
             return Err(anyhow::anyhow!("offset out of bounds"));
         }
-        let page_index = offset / self.page_size;
-        let page_offset = offset % self.page_size;
+        let (page_index, page_offset) = if self.page_size.is_power_of_two() {
+            let shift = self.page_size.trailing_zeros();
+            (offset >> shift, offset & (self.page_size - 1))
+        } else {
+            (offset / self.page_size, offset % self.page_size)
+        };
         let mut state = self.state.lock();
+        if let Some(page) = state.pages.get(state.last) {
+            if page.index == page_index && page_offset < page.valid_len {
+                return Ok(page.data[page_offset]);
+            }
+        }
         if state.pages.iter().all(|page| page.index != page_index) {
             if state.pages.len() < self.page_count {
                 let mut data = alloc::vec![0; self.page_size];
@@ -697,11 +691,13 @@ impl<F: crate::host_api::RfvpFile> HcbByteSource for PagedHcbSource<F> {
         }
         let tick = state.tick.wrapping_add(1);
         state.tick = tick;
-        let page = state
+        let slot = state
             .pages
-            .iter_mut()
-            .find(|page| page.index == page_index)
+            .iter()
+            .position(|page| page.index == page_index)
             .ok_or_else(|| anyhow::anyhow!("HCB page cache miss"))?;
+        state.last = slot;
+        let page = &mut state.pages[slot];
         if page_offset >= page.valid_len {
             return Err(anyhow::anyhow!("offset out of bounds"));
         }

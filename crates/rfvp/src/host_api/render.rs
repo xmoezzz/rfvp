@@ -16,6 +16,12 @@ pub enum PixelFormat {
     Luma8,
     LumaA8,
     Alpha8,
+    /// PlayStation CLUT pictures: u16 colors, u16 stride (pixels a row), the palette (15-bit
+    /// colors, bit 15 STP, 0 not drawn), then 4-bit (two a byte, low first) or 8-bit indices.
+    #[cfg(feature = "psx")]
+    Clut4,
+    #[cfg(feature = "psx")]
+    Clut8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -334,11 +340,11 @@ fn portable_texture_format(format: TextureFormat) -> Result<PixelFormat, RfvpErr
     match format {
         TextureFormat::Rgba8 => Ok(PixelFormat::Rgba8),
         TextureFormat::LumaA8 => Ok(PixelFormat::LumaA8),
-        TextureFormat::Rgb565
-        | TextureFormat::Rgba4444
-        | TextureFormat::Indexed4
-        | TextureFormat::Indexed8
-        | TextureFormat::Native(_) => Err(RfvpError::Unsupported),
+        #[cfg(feature = "psx")]
+        TextureFormat::Indexed4 => Ok(PixelFormat::Clut4),
+        #[cfg(feature = "psx")]
+        TextureFormat::Indexed8 => Ok(PixelFormat::Clut8),
+        _ => Err(RfvpError::Unsupported),
     }
 }
 

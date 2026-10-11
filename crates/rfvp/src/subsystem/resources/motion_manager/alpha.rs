@@ -311,6 +311,14 @@ impl AlphaMotionContainer {
         self.motions[i].is_running()
     }
 
+    /// The prims whose alpha is fading out right now.
+    pub fn running_fadeout_prims(&self) -> impl Iterator<Item = u32> + '_ {
+        self.motions
+            .iter()
+            .filter(|m| m.is_running() && m.get_dst_alpha() < m.get_src_alpha())
+            .map(|m| m.get_prim_id())
+    }
+
     pub fn has_running_fadeout_motion(&self, prim_id: u32) -> bool {
         self.motions.iter().any(|m| {
             m.is_running() && m.get_prim_id() == prim_id && m.get_dst_alpha() < m.get_src_alpha()

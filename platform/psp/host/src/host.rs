@@ -24,7 +24,10 @@ impl PspHost {
         Self {
             fs: PspFileSystem::new(raw.fs_ctx, raw.fs),
             renderer: PspRenderer::new(raw.renderer_ctx, raw.renderer),
+            #[cfg(not(target_os = "psp"))]
             audio: PspAudio::new(raw.audio_ctx, raw.audio),
+            #[cfg(target_os = "psp")]
+            audio: PspAudio::new(),
             clock: PspClock::new(raw.clock_ctx, raw.clock),
             log_ctx: raw.log_ctx,
             log: raw.log,

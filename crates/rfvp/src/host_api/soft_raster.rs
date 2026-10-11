@@ -70,17 +70,23 @@ fn is_opaque(pixels: &[u32]) -> bool {
 /// Shrink `src` to `new_width` x `new_height` by averaging the source pixels each destination
 /// pixel covers, weighting colors by alpha so transparent pixels do not darken the edges.
 fn downscale(src: &SoftTexture, new_width: u32, new_height: u32) -> ScaledCopy {
-    fn spans(src_len: u32, dst_len: u32) -> Vec<(u32, Vec<f32>)> {
-        let ratio = src_len as f32 / dst_len as f32;
-        (0..dst_len)
+    // Area average in fixed point (positions and weights in 1/65536 of a source pixel): a
+    // console without a usable FPU (the PS2) shrinks big pictures as they are loaded.
+    fn spans(src_len: u32, dst_len: u32) -> Vec<(u32, Vec<u64>)> {
+        let src_fp = (src_len as u64) << 16;
+        let ratio = src_fp / dst_len as u64;
+        (0..dst_len as u64)
             .map(|i| {
-                let start = i as f32 * ratio;
-                let end = (start + ratio).min(src_len as f32);
-                let first = start.floor() as u32;
-                let last = (end.ceil() as u32).max(first + 1) - 1;
+                let start = i * ratio;
+                let end = (start + ratio).min(src_fp);
+                let first = (start >> 16) as u32;
+                let last = (((end + 0xffff) >> 16) as u32).max(first + 1) - 1;
                 let weights = (first..=last)
-                    .map(|j| ((j + 1) as f32).min(end) - (j as f32).max(start))
-                    .map(|w| w.max(0.0))
+                    .map(|j| {
+                        let lo = ((j as u64) << 16).max(start);
+                        let hi = (((j + 1) as u64) << 16).min(end);
+                        hi.saturating_sub(lo)
+                    })
                     .collect();
                 (first, weights)
             })
@@ -91,28 +97,29 @@ fn downscale(src: &SoftTexture, new_width: u32, new_height: u32) -> ScaledCopy {
     let mut pixels = Vec::with_capacity(new_width as usize * new_height as usize);
     for (y0, wys) in &rows {
         for (x0, wxs) in &cols {
-            let (mut sr, mut sg, mut sb, mut sa, mut sw) = (0.0f32, 0.0f32, 0.0f32, 0.0f32, 0.0f32);
+            let (mut sr, mut sg, mut sb, mut sa, mut sw) = (0u64, 0u64, 0u64, 0u64, 0u64);
             for (j, wy) in wys.iter().enumerate() {
                 let row = (*y0 as usize + j).min(src.height as usize - 1) * src.width as usize;
                 for (i, wx) in wxs.iter().enumerate() {
                     let p = src.pixels[row + (*x0 as usize + i).min(src.width as usize - 1)];
-                    let w = wy * wx;
-                    let wa = w * (p >> 24) as f32;
-                    sr += (p & 255) as f32 * wa;
-                    sg += ((p >> 8) & 255) as f32 * wa;
-                    sb += ((p >> 16) & 255) as f32 * wa;
+                    // Both weights are at most 2^16: keep the product within 32 bits.
+                    let w = (wy * wx) >> 16;
+                    let wa = w * (p >> 24) as u64;
+                    sr += (p & 255) as u64 * wa;
+                    sg += ((p >> 8) & 255) as u64 * wa;
+                    sb += ((p >> 16) & 255) as u64 * wa;
                     sa += wa;
                     sw += w;
                 }
             }
-            pixels.push(if sa <= 0.0 || sw <= 0.0 {
+            pixels.push(if sa == 0 || sw == 0 {
                 0
             } else {
                 pack(
-                    ((sr / sa) + 0.5) as u32,
-                    ((sg / sa) + 0.5) as u32,
-                    ((sb / sa) + 0.5) as u32,
-                    ((sa / sw) + 0.5).min(255.0) as u32,
+                    ((sr + sa / 2) / sa) as u32,
+                    ((sg + sa / 2) / sa) as u32,
+                    ((sb + sa / 2) / sa) as u32,
+                    (((sa + sw / 2) / sw) as u32).min(255),
                 )
             });
         }
@@ -303,7 +310,46 @@ fn convert_pixel(format: PixelFormat, src: &[u8], index: usize) -> u32 {
         PixelFormat::Luma8 => pack(b(index), b(index), b(index), 255),
         PixelFormat::LumaA8 => pack(b(index * 2), b(index * 2), b(index * 2), b(index * 2 + 1)),
         PixelFormat::Alpha8 => pack(255, 255, 255, b(index)),
+        // Expanded before this (see `expand_clut`).
+        #[cfg(feature = "psx")]
+        PixelFormat::Clut4 | PixelFormat::Clut8 => 0,
     }
+}
+
+/// A CLUT picture (see `PixelFormat::Clut8`) as RGBA bytes; STP colors half transparent.
+#[cfg(feature = "psx")]
+fn expand_clut(desc: TextureDesc, src: &[u8]) -> RfvpResult<Vec<u8>> {
+    let word = |i: usize| -> RfvpResult<u16> {
+        src.get(i..i + 2).map(|b| u16::from_le_bytes([b[0], b[1]])).ok_or(RfvpError::InvalidArgument)
+    };
+    let colors = word(0)? as usize;
+    let stride = word(2)? as usize;
+    let indices = src.get(4 + colors * 2..).ok_or(RfvpError::InvalidArgument)?;
+    let four = desc.format == PixelFormat::Clut4;
+    let (w, h) = (desc.width as usize, desc.height as usize);
+    let need = if four { stride / 2 * h } else { stride * h };
+    if indices.len() < need || stride < w {
+        return Err(RfvpError::InvalidArgument);
+    }
+    let mut out = Vec::with_capacity(w * h * 4);
+    for y in 0..h {
+        for x in 0..w {
+            let i = if four {
+                let byte = indices[y * stride / 2 + x / 2];
+                (if x & 1 == 0 { byte & 15 } else { byte >> 4 }) as usize
+            } else {
+                indices[y * stride + x] as usize
+            };
+            let c = if i < colors { word(4 + i * 2)? } else { 0 };
+            if c == 0 {
+                out.extend_from_slice(&[0, 0, 0, 0]);
+            } else {
+                let e = |v: u16| ((v & 31) << 3 | (v & 31) >> 2) as u8;
+                out.extend_from_slice(&[e(c), e(c >> 5), e(c >> 10), if c & 0x8000 != 0 { 128 } else { 255 }]);
+            }
+        }
+    }
+    Ok(out)
 }
 
 fn source_bytes_per_pixel(format: PixelFormat) -> usize {
@@ -312,6 +358,8 @@ fn source_bytes_per_pixel(format: PixelFormat) -> usize {
         PixelFormat::Rgb8 => 3,
         PixelFormat::LumaA8 => 2,
         PixelFormat::Luma8 | PixelFormat::Alpha8 => 1,
+        #[cfg(feature = "psx")]
+        PixelFormat::Clut4 | PixelFormat::Clut8 => 4,
     }
 }
 
@@ -707,6 +755,16 @@ impl RfvpRenderer for SoftRaster {
         let count = (desc.width as usize)
             .checked_mul(desc.height as usize)
             .ok_or(RfvpError::CapacityExceeded)?;
+        // CLUT pictures are drawn from their colors.
+        #[cfg(feature = "psx")]
+        let expanded;
+        #[cfg(feature = "psx")]
+        let (desc, pixels) = if matches!(desc.format, PixelFormat::Clut4 | PixelFormat::Clut8) {
+            expanded = pixels.map(|src| expand_clut(desc, src)).transpose()?;
+            (TextureDesc { format: PixelFormat::Rgba8, ..desc }, expanded.as_deref())
+        } else {
+            (desc, pixels)
+        };
         let bpp = source_bytes_per_pixel(desc.format);
         let mut out = vec![0u32; count];
         if let Some(src) = pixels {

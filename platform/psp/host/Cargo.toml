@@ -19,7 +19,11 @@ required-features = ["entrypoint"]
 rfvp = { path = "../../../crates/rfvp", default-features = false, features = ["no_std", "old_school"] }
 
 [target.'cfg(target_os = "psp")'.dependencies]
-psp = "0.3.12"
+# The patched copy in platform/psp/patches/psp; `external-allocator` lets src/heap.rs be the heap.
+psp = { version = "0.3.12", features = ["external-allocator"] }
+talc = { version = "4.4", default-features = false, features = ["lock_api", "counters"] }
+lock_api = "0.4"
+log = "0.4"
 
 [features]
 default = []

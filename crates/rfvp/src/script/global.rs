@@ -39,16 +39,37 @@ impl Global {
     }
 
     pub fn set(&mut self, key: u16, value: Variant) {
+        // The PlayStation keeps no entries for Nil (absent reads as Nil).
+        #[cfg(feature = "psx")]
+        if value.is_nil() {
+            self.global_table.remove(&key);
+            return;
+        }
         self.global_table.insert(key, value);
+    }
+
+    /// The global `key` to write into: created (Nil) when it is one of the script's globals and
+    /// has no entry yet.
+    pub fn slot_mut(&mut self, key: u16) -> Option<&mut Variant> {
+        if (key as u32) < self.none_volatile_count as u32 + self.volatile_count as u32 {
+            Some(self.global_table.entry(key).or_insert(Variant::Nil))
+        } else {
+            self.global_table.get_mut(&key)
+        }
     }
 
     pub fn init_with(&mut self, none_volatile: u16, volatile: u16) {
         self.none_volatile_count = none_volatile;
         self.volatile_count = volatile;
 
+        // Every global starts as Nil. The PlayStation stores none of them until they are set
+        // (thousands of Nil entries are 180 KiB of its 2 MiB).
+        #[cfg(not(feature = "psx"))]
         for i in 0..none_volatile + volatile {
             self.global_table.insert(i, Variant::Nil);
         }
+        #[cfg(feature = "psx")]
+        self.global_table.clear();
     }
 
     pub fn get_int_var(&self, key: u16) -> i32 {
@@ -77,11 +98,17 @@ impl Global {
         out
     }
 
+    /// The non-volatile globals as `snapshot_non_volatile` would give them, serialized straight
+    /// from the table (no dense copy: on the PlayStation that copy alone is 40 KiB).
+    pub fn non_volatile_view(&self) -> DenseGlobals<'_> {
+        DenseGlobals { global: self, base: 0, count: self.none_volatile_count }
+    }
+
     pub fn restore_non_volatile(&mut self, vals: &[Variant]) {
         let n = self.none_volatile_count as usize;
         let take = vals.len().min(n);
         for i in 0..take {
-            self.global_table.insert(i as u16, vals[i].clone());
+            self.set(i as u16, vals[i].clone());
         }
         // Missing entries remain unchanged.
     }
@@ -121,7 +148,7 @@ impl Global {
         let n = vars.len().min(self.volatile_count as usize);
         for i in 0..n {
             let key = base.saturating_add(i as u16);
-            self.global_table.insert(key, vars[i].clone());
+            self.set(key, vars[i].clone());
         }
     }
 }
@@ -184,4 +211,20 @@ impl DerefMut for NoStdGlobalGuard<'_> {
 
 pub fn get_int_var(key: u16) -> i32 {
     GLOBAL.lock().unwrap().get_int_var(key)
+}
+
+/// A run of globals that serializes as a `Vec<Variant>` (missing ones as `Nil`).
+pub struct DenseGlobals<'a> {
+    global: &'a Global,
+    base: u16,
+    count: u16,
+}
+
+impl Serialize for DenseGlobals<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let nil = Variant::Nil;
+        serializer.collect_seq(
+            (0..self.count).map(|i| self.global.global_table.get(&self.base.saturating_add(i)).unwrap_or(&nil)),
+        )
+    }
 }

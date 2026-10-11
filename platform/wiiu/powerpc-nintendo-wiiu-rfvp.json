@@ -1,0 +1,23 @@
+{
+  "arch": "powerpc",
+  "cpu": "750",
+  "crt-objects-fallback": "false",
+  "data-layout": "E-m:e-p:32:32-Fn32-i64:64-n32",
+  "dynamic-linking": false,
+  "emit-debug-gdb-scripts": false,
+  "features": "+hard-float",
+  "linker": "powerpc-eabi-gcc",
+  "linker-flavor": "gnu-cc",
+  "llvm-target": "powerpc-unknown-eabi",
+  "max-atomic-width": 32,
+  "metadata": {
+    "description": "Wii U (Espresso, a PowerPC 750 with lwarx/stwcx.) for rfvp: a static library linked by devkitPPC into a wut RPX",
+    "host_tools": false,
+    "std": false,
+    "tier": 3
+  },
+  "panic-strategy": "abort",
+  "relocation-model": "static",
+  "target-endian": "big",
+  "target-pointer-width": 32
+}

@@ -8,7 +8,12 @@ directory per platform.
 | `switch/` | Nintendo Switch (homebrew `.nro`) | experimental | `switch/build_switch.sh` |
 | `vita/` | PlayStation Vita (`.vpk`) | experimental | `vita/build_vita.sh` |
 | `psp/` | PSP (`EBOOT.PBP`) | experimental | `psp/build_psp.sh` |
-| `experimental/` | 3DS, Wii, Wii U, PS2, PS3 | skeletons, untested | see `experimental/README.md` |
+| `ps2/` | PlayStation 2 (`.elf`) | experimental | `make -C ps2/runtime` |
+| `3ds/` | Nintendo 3DS (homebrew `.3dsx`) | experimental | `3ds/build_3ds.sh` |
+| `ps3/` | PlayStation 3 (`.self`, PSL1GHT) | experimental | `ps3/build_ps3.sh` |
+| `wii/` | Wii (homebrew `boot.dol`, libogc) | experimental | `wii/build_wii.sh` |
+| `wiiu/` | Wii U (homebrew `.rpx`, wut) | experimental | `wiiu/build_wiiu.sh` |
+| `experimental/` | the old PS2, 3DS and PS3 skeletons, superseded by `ps2/`, `3ds/` and `ps3/` | skeletons, untested | see `experimental/README.md` |
 | `macos/`, `ios/`, `android/` | launcher apps | supported | `scripts/package_*.sh` |
 | `uefi/` | bootable EFI | supported | `scripts/build_uefi.sh` |
 | `wasm/` | browser bundle | supported | `scripts/build_wasm.sh` |

@@ -2,5 +2,6 @@
     "sarif-viewer.connectToGithubCodeScanning": "off",
     "files.watcherExclude": {
         "**/target": true
-    }
+    },
+    "cmake.sourceDirectory": "/Users/xmoe/Documents/projects/rfvp/platform/ps1/runtime"
 }

@@ -1,0 +1,18 @@
+[package]
+name = "rfvp-ps2"
+version = "0.1.0"
+edition = "2021"
+description = "PlayStation 2 host crate for rfvp no_std core"
+license = "MPL-2.0"
+publish = false
+
+[lib]
+name = "rfvp_ps2"
+path = "src/lib.rs"
+# Built as LLVM bitcode and compiled for the R5900 by platform/ps2/build_ps2.sh, then linked
+# into the ps2sdk runtime (platform/ps2/runtime/main.c).
+crate-type = ["staticlib"]
+
+[dependencies]
+rfvp = { path = "../../../crates/rfvp", default-features = false, features = ["no_std", "old_school"] }
+

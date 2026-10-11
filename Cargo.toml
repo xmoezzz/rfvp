@@ -7,10 +7,16 @@ members = [
     "platform/switch/host",
     "platform/vita/host",
     "platform/psp/host",
-    # Untested skeletons.
-    "platform/experimental/3ds",
-    "platform/experimental/wii",
-    "platform/experimental/wiiu",
-    "platform/experimental/ps2",
-    "platform/experimental/ps3",
+    "platform/ps2/host",
+    "platform/3ds/host",
+    "platform/ps3/host",
+    "platform/ps1/host",
+    "platform/wiiu/host",
+    "platform/wii/host",
 ]
+# Patched copies of dependencies, used through [patch] below; not workspace members.
+exclude = ["platform/psp/patches"]
+
+# psp with its per-allocation kernel allocator made optional; see platform/psp/patches/README.md.
+[patch.crates-io]
+psp = { path = "platform/psp/patches/psp" }

@@ -34,6 +34,8 @@ mod script;
 #[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 mod subsystem;
 #[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
+mod perf;
+#[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 mod trace;
 #[cfg(all(not(feature = "no_std"), feature = "gpu-render"))]
 mod utils;

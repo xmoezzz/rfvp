@@ -1,0 +1,6 @@
+# One segment for code and read-only data. The PSP loader copies the module's file as one image,
+# so the file layout must match the memory layout; with code and read-only data in separate
+# segments, an over-aligned constant (LLVM aligns large tables to 64 bytes) made the linker leave
+# a gap in the file between them, and everything after the code loaded 32 bytes off.
+[target.mipsel-sony-psp]
+rustflags = ["-C", "link-arg=--no-rosegment"]

@@ -1,0 +1,19 @@
+[package]
+name = "rfvp-ps1"
+version = "0.1.0"
+edition = "2021"
+description = "PlayStation host crate for rfvp no_std core"
+license = "MPL-2.0"
+publish = false
+
+[lib]
+name = "rfvp_ps1"
+path = "src/lib.rs"
+# Compiled to one R3000 object by platform/ps1/build_ps1_rust.sh, linked into the PSn00bSDK
+# runtime (platform/ps1/runtime).
+crate-type = ["staticlib"]
+
+[dependencies]
+rfvp = { path = "../../../crates/rfvp", default-features = false, features = ["no_std", "psx"] }
+talc = { version = "4.4", default-features = false }
+spin = { version = "0.9", default-features = false, features = ["mutex", "spin_mutex"] }

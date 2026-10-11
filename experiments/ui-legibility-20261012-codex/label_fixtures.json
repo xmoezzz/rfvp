@@ -1,0 +1,77 @@
+{
+  "annotations": [
+    {
+      "game": "AKASEKA_HD",
+      "name": "menu_exit_mes",
+      "text": "\u30b2\u30fc\u30e0\u3092\u7d42\u4e86\u3057\u307e\u3059\u304b\uff1f"
+    },
+    {
+      "game": "AKASEKA_HD",
+      "name": "menu_no_1",
+      "text": "\u3044\u3044\u3048"
+    },
+    {
+      "game": "AKASEKA_HD",
+      "name": "menu_yes_1",
+      "text": "\u306f\u3044"
+    },
+    {
+      "game": "AKASEKA_HD",
+      "name": "sys_config_1",
+      "text": "OPTION"
+    },
+    {
+      "game": "AKASEKA_HD",
+      "name": "sys_save_1",
+      "text": "SAVE"
+    },
+    {
+      "game": "sakura",
+      "name": "menu_exit_mes",
+      "text": "\u786e\u5b9a\u8981\u7ed3\u675f\u6e38\u620f\u5417\uff1f"
+    },
+    {
+      "game": "sakura",
+      "name": "menu_no_1",
+      "text": "\u5426"
+    },
+    {
+      "game": "sakura",
+      "name": "menu_yes_1",
+      "text": "\u662f"
+    },
+    {
+      "game": "AngelWish",
+      "name": "title_continue_1",
+      "text": "\u3064\u3065\u304d\u304b\u3089\u2605"
+    },
+    {
+      "game": "AngelWish",
+      "name": "title_start_1",
+      "text": "\u306f\u3058\u3081\u304b\u3089\u2605"
+    },
+    {
+      "game": "AngelWish",
+      "name": "title_end_1",
+      "text": "\u304a\u308f\u308a\u3067\u3059\u2605"
+    }
+  ],
+  "controls": [
+    {
+      "font_px": 32,
+      "text": "SAVE 012345"
+    },
+    {
+      "font_px": 48,
+      "text": "OPTION"
+    },
+    {
+      "font_px": 64,
+      "text": "LOAD 987654"
+    },
+    {
+      "font_px": 48,
+      "text": "\u4fdd\u5b58 \u8a2d\u5b9a \u78ba\u8a8d \u7d42\u4e86"
+    }
+  ]
+}

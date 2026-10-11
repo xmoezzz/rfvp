@@ -83,7 +83,8 @@ impl GlobalSaveDataV1 {
         if !self.readed_text.is_empty() {
             // Keep the bitmap length compatible. Our TextManager expects exactly 0x800000/32 u32s.
             let expected = 0x800000usize / 32;
-            if self.readed_text.len() == expected {
+            // The PlayStation's map grows as text is read (see TextManager::new).
+            if self.readed_text.len() == expected || cfg!(feature = "psx") {
                 game_data.motion_manager.text_manager.readed_text = self.readed_text.clone();
             } else {
                 log::warn!(

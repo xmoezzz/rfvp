@@ -254,13 +254,16 @@ impl V3dMotionContainer {
         if self.motion.typ != V3dMotionType::None && !self.motion.paused && !flag {
             // Mark all V3D-enabled prims dirty (attr |= 0x40).
             // The prim array is fixed-size (4096 slots).
-            for idx in 1i16..4096i16 {
-                let mut prim = prim_manager.get_prim(idx);
+            prim_manager.for_each_prim(|idx, cell| {
+                if idx == 0 {
+                    return;
+                }
+                let mut prim = cell.borrow_mut();
                 let attr = prim.get_attr();
                 if (attr & 4) != 0 {
                     prim.set_attr(attr | 0x40);
                 }
-            }
+            });
 
             let mut elapsed = elapsed;
             if self.motion.reverse && elapsed < 0 {

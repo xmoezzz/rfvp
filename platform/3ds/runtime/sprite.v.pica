@@ -1,0 +1,26 @@
+; Sprites in screen pixels: position through the projection, texture coordinates and color as
+; they are.
+
+.fvec projection[4]
+
+.constf ones(1.0, 1.0, 1.0, 1.0)
+
+.out outpos position
+.out outtc0 texcoord0
+.out outclr color
+
+.alias inpos v0
+.alias intex v1
+.alias inclr v2
+
+.proc main
+	mov r0.xyz, inpos
+	mov r0.w, ones
+	dp4 outpos.x, projection[0], r0
+	dp4 outpos.y, projection[1], r0
+	dp4 outpos.z, projection[2], r0
+	dp4 outpos.w, projection[3], r0
+	mov outtc0, intex
+	mov outclr, inclr
+	end
+.end

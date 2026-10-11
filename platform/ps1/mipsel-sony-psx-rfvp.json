@@ -1,0 +1,27 @@
+{
+  "arch": "mips",
+  "cpu": "mips2",
+  "crt-objects-fallback": "false",
+  "data-layout": "e-m:m-p:32:32-i8:8:32-i16:16:32-i64:64-n32-S64",
+  "features": "+soft-float",
+  "linker": "mipsel-none-elf-gcc",
+  "linker-flavor": "gnu-cc",
+  "llvm-abiname": "o32",
+  "llvm-args": [
+    "-mno-check-zero-division"
+  ],
+  "llvm-target": "mipsel-sony-psx",
+  "max-atomic-width": 32,
+  "metadata": {
+    "description": "PlayStation for rfvp, as rustc's half of build_ps1.sh: MIPS II (so rustc can emit its atomics) with 32-bit atomics; build_ps1.sh lowers the atomics and makes R3000 (MIPS I) code from the bitcode",
+    "host_tools": false,
+    "std": false,
+    "tier": 3
+  },
+  "os": "psx",
+  "panic-strategy": "abort",
+  "relocation-model": "static",
+  "target-pointer-width": 32,
+  "vendor": "sony",
+  "singlethread": true
+}

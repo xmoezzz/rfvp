@@ -31,8 +31,23 @@ pub enum TextureType {
     Multi32Bit = 2,
     /// for mask
     Single8Bit = 3,
+    /// PlayStation CLUT pictures (rfvp-psx-convert): 8-bit and 4-bit indices.
+    Clut8 = 0x10,
+    Clut4 = 0x11,
     /// for gaiji
     Single1Bit = 4,
+}
+
+impl TextureType {
+    /// A single color picture: 24- or 32-bit, or a PlayStation CLUT picture in their place.
+    pub fn is_picture(typ: Self) -> bool {
+        match typ {
+            Self::Single24Bit | Self::Single32Bit => true,
+            #[cfg(feature = "psx")]
+            Self::Clut8 | Self::Clut4 => true,
+            _ => false,
+        }
+    }
 }
 
 impl TryFrom<u16> for TextureType {
@@ -45,6 +60,10 @@ impl TryFrom<u16> for TextureType {
             2 => Ok(Self::Multi32Bit),
             3 => Ok(Self::Single8Bit),
             4 => Ok(Self::Single1Bit),
+            #[cfg(feature = "psx")]
+            0x10 => Ok(Self::Clut8),
+            #[cfg(feature = "psx")]
+            0x11 => Ok(Self::Clut4),
             _ => bail!("Invalid texture type: {}", value),
         }
     }
@@ -67,6 +86,10 @@ pub struct NvsgTexture {
     unknown3: u32,
     unknown4: u32,
     slices: Vec<Vec<u8>>,
+    #[cfg(feature = "psx")]
+    clut_stride: u32,
+    #[cfg(feature = "psx")]
+    clut_alpha: alloc::sync::Arc<Vec<u8>>,
     name: String,
     outlen: Option<usize>,
 }
@@ -86,6 +109,10 @@ impl NvsgTexture {
             unknown3: 0,
             unknown4: 0,
             slices: vec![],
+            #[cfg(feature = "psx")]
+            clut_stride: 0,
+            #[cfg(feature = "psx")]
+            clut_alpha: Default::default(),
             name: name.to_string(),
             outlen: None,
         }
@@ -207,6 +234,14 @@ impl NvsgTexture {
 
         let data_buff = &data_buff[hzc1hdr.header_length as usize..];
 
+        #[cfg(feature = "psx")]
+        if matches!(self.typ, TextureType::Clut8 | TextureType::Clut4) {
+            if !type_callback(self.typ) {
+                bail!("Unexpected texture type: {:?}", self.typ);
+            }
+            return self.read_clut(data_buff);
+        }
+
         let depth = match self.typ {
             TextureType::Single24Bit => 3,
             TextureType::Single32Bit | TextureType::Multi32Bit => 4,
@@ -271,6 +306,89 @@ impl NvsgTexture {
         }
 
         Ok(())
+    }
+
+    /// A CLUT picture, stored as it is (see rfvp-psx's image.rs): u16 colors, u16 stride, the
+    /// palette, then each frame's indices.
+    #[cfg(feature = "psx")]
+    fn read_clut(&mut self, payload: &[u8]) -> Result<()> {
+        let colors = self.read_u16le(payload, 0)? as usize;
+        let stride = self.read_u16le(payload, 2)? as usize;
+        let palette_end = 4 + colors * 2;
+        // Each entry's real alpha follows the palette.
+        let alpha_end = palette_end + colors;
+        let alpha = payload.get(palette_end..alpha_end).ok_or_else(|| anyhow!("CLUT alpha past the end"))?.to_vec();
+        let row = if self.typ == TextureType::Clut4 { stride / 2 } else { stride };
+        let frame_len = row * self.height as usize;
+        // Each frame as the GPU takes it: colors, stride, palette, its indices.
+        self.slices.clear();
+        for i in 0..self.entry_count as usize {
+            let start = alpha_end + i * frame_len;
+            match payload.get(start..start + frame_len) {
+                Some(frame) => {
+                    let mut bytes = Vec::with_capacity(palette_end + frame_len);
+                    bytes.extend_from_slice(&payload[..palette_end]);
+                    bytes.extend_from_slice(frame);
+                    self.slices.push(bytes);
+                }
+                None => break,
+            }
+        }
+        self.clut_alpha = alloc::sync::Arc::new(alpha);
+        self.clut_stride = stride as u32;
+        self.outlen = Some(payload.len());
+        Ok(())
+    }
+
+    /// A one-frame CLUT file made into its picture in place (the file's bytes become the
+    /// picture's: nothing is copied but the alpha table). Returns the file back when it is not
+    /// one (another type, several frames), for `read_texture`.
+    #[cfg(feature = "psx")]
+    pub fn read_single_clut(&mut self, mut buff: Vec<u8>) -> core::result::Result<DynamicImage, Vec<u8>> {
+        let field16 = |b: &[u8], at: usize| b.get(at..at + 2).map(|x| u16::from_le_bytes([x[0], x[1]]));
+        let field32 = |b: &[u8], at: usize| b.get(at..at + 4).map(|x| u32::from_le_bytes([x[0], x[1], x[2], x[3]]));
+        let (Some(header_len), Some(typ), Some(count)) = (field32(&buff, 8), field16(&buff, 18), field32(&buff, 32)) else {
+            return Err(buff);
+        };
+        if buff.get(0..4) != Some(&HZC1_SIGNATURE[..]) || !(typ == 0x10 || typ == 0x11) || count > 1 {
+            return Err(buff);
+        }
+        let h = 12usize;
+        self.typ = if typ == 0x11 { TextureType::Clut4 } else { TextureType::Clut8 };
+        self.width = field16(&buff, h + 8).unwrap_or(0);
+        self.height = field16(&buff, h + 10).unwrap_or(0);
+        self.offset_x = field16(&buff, h + 12).unwrap_or(0);
+        self.offset_y = field16(&buff, h + 14).unwrap_or(0);
+        self.u = field16(&buff, h + 16).unwrap_or(0);
+        self.v = field16(&buff, h + 18).unwrap_or(0);
+        self.entry_count = 1;
+        let start = h + header_len as usize;
+        let (Some(colors), Some(stride)) = (field16(&buff, start), field16(&buff, start + 2)) else {
+            return Err(buff);
+        };
+        let (colors, stride) = (colors as usize, stride as usize);
+        let palette_end = start + 4 + colors * 2;
+        let alpha_end = palette_end + colors;
+        let row = if typ == 0x11 { stride / 2 } else { stride };
+        let frame_end = alpha_end + row * self.height as usize;
+        if buff.len() < frame_end {
+            return Err(buff);
+        }
+        let alpha = buff[palette_end..alpha_end].to_vec();
+        buff.truncate(frame_end);
+        buff.drain(palette_end..alpha_end);
+        buff.drain(..start);
+        buff.shrink_to_fit();
+        self.clut_alpha = alloc::sync::Arc::new(alpha);
+        self.clut_stride = stride as u32;
+        Ok(DynamicImage::ImageClut(crate::ClutImage {
+            width: self.width as u32,
+            height: self.height as u32,
+            stride: stride as u32,
+            bits: if typ == 0x11 { 4 } else { 8 },
+            bytes: buff,
+            alpha: self.clut_alpha.clone(),
+        }))
     }
 
     pub fn texture_color_tone_32(
@@ -487,6 +605,15 @@ impl NvsgTexture {
         }
 
         let img = match self.typ {
+            #[cfg(feature = "psx")]
+            TextureType::Clut8 | TextureType::Clut4 => DynamicImage::ImageClut(crate::ClutImage {
+                width: self.width as u32,
+                height: self.height as u32,
+                stride: self.clut_stride,
+                bits: if self.typ == TextureType::Clut4 { 4 } else { 8 },
+                bytes: self.slices[index].clone(),
+                alpha: self.clut_alpha.clone(),
+            }),
             TextureType::Single8Bit | TextureType::Single1Bit => {
                 DynamicImage::ImageLumaA8(self.as_8bit_texture(index)?)
             }

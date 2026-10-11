@@ -94,6 +94,11 @@ impl Context {
     pub fn new(start_addr: u32, id: u32) -> Self {
         let mut ctx = Context {
             id,
+            // The PlayStation grows each thread's stack as it is used (see `grow_to`): 32 full
+            // stacks are 190 KiB of its 2 MiB, and most threads never run.
+            #[cfg(feature = "psx")]
+            stack: Vec::new(),
+            #[cfg(not(feature = "psx"))]
             stack: vec![Variant::Nil; MAX_STACK_SIZE],
             cursor: start_addr as usize,
             cur_stack_pos: 0,
@@ -154,7 +159,7 @@ impl Context {
         self.should_break = snap.should_break;
 
         // Ensure stack capacity matches runtime expectations.
-        if self.stack.len() < MAX_STACK_SIZE {
+        if self.stack.len() < MAX_STACK_SIZE && !cfg!(feature = "psx") {
             self.stack.resize(MAX_STACK_SIZE, Variant::Nil);
         } else if self.stack.len() > MAX_STACK_SIZE {
             self.stack.truncate(MAX_STACK_SIZE);
@@ -183,10 +188,23 @@ impl Context {
         Ok(base as usize)
     }
 
+    /// Make the stack reach slot `pos` (the PlayStation's stacks grow; elsewhere they are full
+    /// from the start).
+    #[inline]
+    fn grow_to(&mut self, pos: usize) {
+        #[cfg(feature = "psx")]
+        if pos >= self.stack.len() && pos < MAX_STACK_SIZE {
+            self.stack.resize((pos + 16).min(MAX_STACK_SIZE), Variant::Nil);
+        }
+        #[cfg(not(feature = "psx"))]
+        let _ = pos;
+    }
+
     /// push a value onto the stack and increment the stack pointer
     fn push(&mut self, value: Variant) -> Result<()> {
         let pos = self.to_global_offset();
         if let Ok(pos) = pos {
+            self.grow_to(pos);
             if pos >= self.stack.len() {
                 bail!("push: stack is unable to grow to the position: {}", pos);
             } else {
@@ -246,6 +264,10 @@ impl Context {
             bail!("stack pointer out of bounds");
         }
 
+        // A slot the stack has not grown to yet holds Nil.
+        if cfg!(feature = "psx") && off as usize >= self.stack.len() {
+            return Ok(Variant::Nil);
+        }
         let var = self
             .stack
             .get(off as usize)
@@ -271,6 +293,7 @@ impl Context {
             bail!("stack pointer out of bounds");
         }
 
+        self.grow_to(off as usize);
         let var = self
             .stack
             .get_mut(off as usize)
@@ -295,6 +318,10 @@ impl Context {
             bail!("stack pointer out of bounds");
         }
 
+        self.grow_to(off as usize);
+        if off as usize >= self.stack.len() {
+            bail!("stack pointer out of bounds");
+        }
         self.stack[off as usize] = value;
 
         Ok(())
@@ -304,7 +331,7 @@ impl Context {
         log::error!("thread id : {}", self.id);
         log::error!("pc: {:x}", self.cursor);
         if let Ok(offset) = self.to_global_offset() {
-            let slice = &self.stack[0..offset + 1];
+            let slice = &self.stack[0..(offset + 1).min(self.stack.len())];
             log::error!("stack: {:?}", slice);
         }
     }
@@ -413,8 +440,11 @@ impl Context {
                 syscall.name
             );
 
-            #[cfg(not(feature = "no_std"))]
-            crate::trace::syscall(format_args!("syscall: {} {:?}", &syscall.name, &args));
+            crate::trace::syscall(format_args!(
+                "syscall: t{} {} {:?}",
+                self.id, &syscall.name, &args
+            ));
+            let started = crate::perf::start();
             let result = match sys.do_syscall(syscall.name.as_str(), args) {
                 Ok(result) => result,
                 Err(e) => {
@@ -426,8 +456,8 @@ impl Context {
                 "[UEFI] Context::syscall after do_syscall name={}",
                 syscall.name
             );
+            crate::perf::stop(20, started);
             self.return_value = result;
-            #[cfg(not(feature = "no_std"))]
             crate::trace::syscall(format_args!(
                 "syscall_ret: {} -> {:?}",
                 &syscall.name, &self.return_value
@@ -769,7 +799,7 @@ impl Context {
             return Ok(());
         };
 
-        if let Some(dst) = GLOBAL.lock().unwrap().get_mut(key) {
+        if let Some(dst) = GLOBAL.lock().unwrap().slot_mut(key) {
             if !dst.is_table() {
                 dst.cast_table();
             }
@@ -1024,6 +1054,10 @@ impl Context {
         Ok(())
     }
 
+    pub fn get_id(&self) -> u32 {
+        self.id
+    }
+
     /// get the program counter
     pub fn get_pc(&self) -> usize {
         self.cursor
@@ -1078,7 +1112,9 @@ impl Context {
             "[UEFI] Context::dispatch_opcode before read pc={}",
             self.get_pc()
         );
+        let op_started = crate::perf::cycles();
         let opcode = parser.read_u8(self.get_pc())? as i32;
+        crate::perf::count_op();
         uefi_context_stage!(
             "[UEFI] Context::dispatch_opcode after read pc={} opcode={}",
             self.get_pc(),
@@ -1221,6 +1257,7 @@ impl Context {
             }
         };
 
+        crate::perf::op_cycles(opcode as u8, op_started);
         Ok(())
     }
 

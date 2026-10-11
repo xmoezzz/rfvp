@@ -512,19 +512,33 @@ fn render_glyph_4bpp(
     options: &BitmapFontBuildOptions,
 ) -> Result<[u8; GLYPH_BYTES], BitmapFontBuildError> {
     let ch = char::from_u32(codepoint).ok_or(BitmapFontBuildError::InvalidCodepoint(codepoint))?;
-    let scale = (options.glyph_height as f32 * options.oversample as f32 * 0.92).max(1.0);
-    let (metrics, bitmap) = font.rasterize(ch, scale);
     let large_w = options.glyph_width as usize * options.oversample as usize;
     let large_h = options.glyph_height as usize * options.oversample as usize;
+    // Every glyph sits on one baseline, with the font's ascent and descent filling the cell:
+    // centering each glyph on its own ink put punctuation in the middle of the line.
+    let mut scale = large_h as f32;
+    if let Some(line) = font.horizontal_line_metrics(scale) {
+        let span = line.ascent - line.descent;
+        if span > 0.0 {
+            scale *= large_h as f32 / span;
+        }
+    }
+    let (metrics, bitmap) = font.rasterize(ch, scale);
+    let (ascent, descent) = font
+        .horizontal_line_metrics(scale)
+        .map(|line| (line.ascent, line.descent))
+        .unwrap_or((large_h as f32 * 0.88, -(large_h as f32) * 0.12));
+    let baseline = ((large_h as f32 - (ascent - descent)) / 2.0 + ascent).round() as i32;
     let mut canvas = vec![0u8; large_w * large_h];
-    let x_offset = ((large_w as i32 - metrics.width as i32) / 2).max(0) as usize;
-    let y_offset = ((large_h as i32 - metrics.height as i32) / 2).max(0) as usize;
-    for y in 0..metrics.height.min(large_h) {
-        for x in 0..metrics.width.min(large_w) {
-            let dst_x = x + x_offset;
-            let dst_y = y + y_offset;
-            if dst_x < large_w && dst_y < large_h {
-                canvas[dst_y * large_w + dst_x] = bitmap[y * metrics.width + x];
+    // Centered on its advance (full-width glyphs fill the cell; half-width ones sit in it).
+    let x_origin = ((large_w as f32 - metrics.advance_width) / 2.0).round() as i32 + metrics.xmin;
+    let y_top = baseline - (metrics.ymin + metrics.height as i32);
+    for y in 0..metrics.height {
+        for x in 0..metrics.width {
+            let dst_x = x as i32 + x_origin;
+            let dst_y = y as i32 + y_top;
+            if (0..large_w as i32).contains(&dst_x) && (0..large_h as i32).contains(&dst_y) {
+                canvas[dst_y as usize * large_w + dst_x as usize] = bitmap[y * metrics.width + x];
             }
         }
     }

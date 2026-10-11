@@ -71,6 +71,9 @@ pub struct MotionManager {
     pub(crate) prim_manager: PrimManager,
     pub(crate) parts_manager: AtomicRefCell<PartsManager>,
     pub(crate) gaiji_manager: GaijiManager,
+    #[cfg(feature = "psx")]
+    textures: crate::subsystem::resources::graph_buff::GraphSlots,
+    #[cfg(not(feature = "psx"))]
     textures: Vec<GraphBuff>,
     pending_gpu_graph_unloads: Vec<u16>,
     pub(crate) text_manager: TextManager,
@@ -97,7 +100,7 @@ impl MotionManager {
     }
 
     /// Read-only access for renderers.
-    pub fn graphs(&self) -> &[GraphBuff] {
+    pub fn graphs(&self) -> &crate::subsystem::resources::graph_buff::Graphs {
         &self.textures
     }
 
@@ -126,6 +129,9 @@ impl MotionManager {
             prim_manager: PrimManager::new(),
             color_manager: ColorManager::new(),
             parts_manager,
+            #[cfg(feature = "psx")]
+            textures: crate::subsystem::resources::graph_buff::GraphSlots::new(4096),
+            #[cfg(not(feature = "psx"))]
             textures: vec![GraphBuff::new(); 4096],
             pending_gpu_graph_unloads: Vec::new(),
             gaiji_manager: GaijiManager::new(),
@@ -254,12 +260,14 @@ impl MotionManager {
     ) -> Vec<u32> {
         // In the original engine, holding Ctrl (or issuing ControlPulse) forces text reveal
         // to complete immediately for the current frame.
+        let t = crate::perf::start();
         if elapsed < 0 {
             self.text_manager.force_reveal_all_non_suspended();
         } else {
             self.text_manager
                 .tick(elapsed as u32, global_speed_var0, release_special_wait);
         }
+        crate::perf::stop(14, t);
         self.text_reprint(fonts);
         self.text_manager.collect_completed_sync_print_waiters()
     }
@@ -769,7 +777,36 @@ impl MotionManager {
         scale: f32,
     ) -> Result<()> {
         let graph = &mut self.textures[id as usize];
-        graph.load_texture_old_school(file_name, buff, scale)
+        graph.load_texture_old_school(file_name, buff, scale)?;
+        // In 2 MiB the pictures a frame loads cannot all wait in RAM for the renderer: keep the
+        // hit mask only, and read each picture back when it goes to the GPU
+        // (`upload_evicted_one_by_one`).
+        #[cfg(feature = "psx")]
+        graph.evict_cpu_pixels();
+        Ok(())
+    }
+
+    /// Send the GPU every evicted graph it does not hold yet, one at a time: read it back,
+    /// `upload` it, drop the CPU copy again.
+    #[cfg(feature = "psx")]
+    pub fn upload_evicted_one_by_one(
+        &mut self,
+        vfs: &Vfs,
+        uploaded: impl Fn(u16, u64) -> bool,
+        mut upload: impl FnMut(u16, &GraphBuff) -> bool,
+    ) {
+        for (id, graph) in self.textures.present_mut() {
+            if !graph.is_cpu_evicted() || uploaded(id as u16, graph.get_generation()) {
+                continue;
+            }
+            if let Err(e) = graph.ensure_cpu_pixels(vfs) {
+                log::error!("upload_evicted_one_by_one: graph {}: {:#}", id, e);
+                continue;
+            }
+            if upload(id as u16, graph) {
+                graph.evict_cpu_pixels();
+            }
+        }
     }
 
     pub fn unload_graph(&mut self, id: u16) {
@@ -791,7 +828,11 @@ impl MotionManager {
     /// Drop CPU copies of graphs the GPU renderer already holds at their current generation.
     /// `uploaded(graph_id, generation)` reports whether the GPU copy is current.
     pub fn evict_uploaded_cpu_pixels(&mut self, uploaded: impl Fn(u16, u64) -> bool) {
-        for (id, graph) in self.textures.iter_mut().enumerate() {
+        #[cfg(feature = "psx")]
+        let slots = self.textures.present_mut();
+        #[cfg(not(feature = "psx"))]
+        let slots = self.textures.iter_mut().enumerate();
+        for (id, graph) in slots {
             if graph.can_evict_cpu_pixels() && uploaded(id as u16, graph.get_generation()) {
                 graph.evict_cpu_pixels();
             }
@@ -801,7 +842,11 @@ impl MotionManager {
     /// Re-decode evicted graphs whose GPU copy is missing or stale, so the renderer can upload
     /// them again.
     pub fn restore_evicted_cpu_pixels(&mut self, vfs: &Vfs, uploaded: impl Fn(u16, u64) -> bool) {
-        for (id, graph) in self.textures.iter_mut().enumerate() {
+        #[cfg(feature = "psx")]
+        let slots = self.textures.present_mut();
+        #[cfg(not(feature = "psx"))]
+        let slots = self.textures.iter_mut().enumerate();
+        for (id, graph) in slots {
             if graph.is_cpu_evicted() && !uploaded(id as u16, graph.get_generation()) {
                 if let Err(e) = graph.ensure_cpu_pixels(vfs) {
                     log::error!("restore_evicted_cpu_pixels: graph {}: {:#}", id, e);
@@ -810,41 +855,46 @@ impl MotionManager {
         }
     }
 
-    fn text_slot_has_active_fadeout_alpha(&self, slot: i32) -> bool {
-        if !(0..32).contains(&slot) {
-            return false;
+    /// Bit `n` is set when text slot `n` is shown by a prim that is fading out, or that sits
+    /// under one. Such a slot is not redrawn, so the text stays put while it fades.
+    fn text_slots_with_active_fadeout(&self) -> u32 {
+        let fading: Vec<u32> = self.alpha_motion_container.running_fadeout_prims().collect();
+        if fading.is_empty() {
+            return 0;
         }
+        let mut mask = 0u32;
         for prim_id in 1..4096i16 {
-            let is_target_text_prim = {
+            let slot = {
                 let prim = self.prim_manager.get_prim_immutable(prim_id);
-                prim.get_type() == PrimType::PrimTypeText && prim.get_text_index() == slot as i16
+                if prim.get_type() != PrimType::PrimTypeText {
+                    continue;
+                }
+                prim.get_text_index()
             };
-            if !is_target_text_prim {
+            if !(0..32).contains(&slot) || mask & (1 << slot) != 0 {
                 continue;
             }
             let mut walker = prim_id;
             loop {
-                if self
-                    .alpha_motion_container
-                    .has_running_fadeout_motion(walker as u32)
-                {
-                    return true;
+                if fading.contains(&(walker as u32)) {
+                    mask |= 1 << slot;
+                    break;
                 }
-                let parent = {
-                    let p = self.prim_manager.get_prim_immutable(walker);
-                    p.get_parent()
-                };
+                let parent = self.prim_manager.get_prim_immutable(walker).get_parent();
                 if parent < 0 {
                     break;
                 }
                 walker = parent;
             }
         }
-        false
+        mask
     }
 
     pub fn refresh_prims(&mut self, graph_id: u16) {
-        for prim in self.prim_manager.get_prims_mut().iter_mut().skip(1) {
+        self.prim_manager.for_each_prim(|id, prim| {
+            if id == 0 {
+                return;
+            }
             let mut prim = prim.borrow_mut();
             match prim.get_type() {
                 PrimType::PrimTypeSprt => {
@@ -865,7 +915,7 @@ impl MotionManager {
                 }
                 _ => {}
             }
-        }
+        });
     }
 
     pub fn set_gaiji(
@@ -1053,8 +1103,9 @@ impl MotionManager {
         fonts: &crate::subsystem::resources::text_manager::FontEnumerator,
         force: bool,
     ) {
+        let fading = self.text_slots_with_active_fadeout();
         for slot in 0..32 {
-            let _ = self.text_upload_slot(slot, fonts, force);
+            let _ = self.text_upload_slot_unless_fading(slot, fonts, force, fading);
         }
     }
 
@@ -1064,20 +1115,34 @@ impl MotionManager {
         fonts: &crate::subsystem::resources::text_manager::FontEnumerator,
         force_render: bool,
     ) -> anyhow::Result<()> {
+        let fading = self.text_slots_with_active_fadeout();
+        self.text_upload_slot_unless_fading(slot, fonts, force_render, fading)
+    }
+
+    fn text_upload_slot_unless_fading(
+        &mut self,
+        slot: i32,
+        fonts: &crate::subsystem::resources::text_manager::FontEnumerator,
+        force_render: bool,
+        fading: u32,
+    ) -> anyhow::Result<()> {
         if !(0..32).contains(&slot) {
             return Ok(());
         }
-        if self.text_slot_has_active_fadeout_alpha(slot) {
+        if fading & (1 << slot) != 0 {
             return Ok(());
         }
 
         let graph_id: u16 = 4064u16 + slot as u16;
+        let t = crate::perf::start();
         let update = self.text_manager.rasterize_slot_if_needed(
             slot,
             fonts,
             &self.gaiji_manager,
             force_render,
-        )?;
+        );
+        crate::perf::stop(15, t);
+        let update = update?;
 
         match update {
             None => return Ok(()),
@@ -1282,11 +1347,16 @@ impl MotionManager {
         self.prim_manager.apply_snapshot_v1(&snap.prim_manager);
 
         // Reset textures, then apply snapshots.
-        if self.textures.len() != 4096 {
-            self.textures = vec![GraphBuff::new(); 4096];
-        }
-        for gb in &mut self.textures {
-            gb.unload();
+        #[cfg(feature = "psx")]
+        self.textures.clear();
+        #[cfg(not(feature = "psx"))]
+        {
+            if self.textures.len() != 4096 {
+                self.textures = vec![GraphBuff::new(); 4096];
+            }
+            for gb in &mut self.textures {
+                gb.unload();
+            }
         }
         for t in &snap.textures {
             let id = t.id as usize;

@@ -32,6 +32,10 @@ impl PsvFile {
     }
 }
 
+// SAFETY: the context is the platform layer's global state and its functions may be called from
+// any thread; a file is used by one thread at a time.
+unsafe impl Send for PsvFile {}
+
 impl Drop for PsvFile {
     fn drop(&mut self) {
         unsafe {
@@ -115,6 +119,11 @@ impl PsvStorage {
 }
 
 impl RfvpStorage for PsvStorage {
+    /// Lets the engine read big files (packs, music) a piece at a time instead of whole.
+    fn open(&self, path: &str) -> RfvpResult<alloc::boxed::Box<dyn RfvpFile + Send>> {
+        Ok(alloc::boxed::Box::new(PsvStorage::open(self, path)?))
+    }
+
     fn read(&self, path: &str) -> RfvpResult<Vec<u8>> {
         let mut file = self.open(path)?;
         file.read_to_vec(usize::MAX)
@@ -185,6 +194,11 @@ impl RfvpFileSystem for PsvFileSystem {
     }
 
     fn game_files(&mut self) -> Option<Arc<dyn RfvpStorage>> {
+        self.storage()
+    }
+
+    /// `ux0:data/rfvp`: each game keeps its saves in `saves/<game>/` there.
+    fn save_storage(&mut self) -> Option<Arc<dyn RfvpStorage>> {
         self.storage()
     }
 

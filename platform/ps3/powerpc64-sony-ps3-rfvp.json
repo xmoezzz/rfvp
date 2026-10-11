@@ -1,0 +1,27 @@
+{
+  "abi": "elfv1",
+  "arch": "powerpc64",
+  "cpu": "ppc64",
+  "crt-objects-fallback": "false",
+  "data-layout": "E-m:e-Fi64-i64:64-i128:128-n32:64",
+  "env": "newlib",
+  "features": "+hard-float",
+  "has-thread-local": false,
+  "linker": "powerpc64-ps3-elf-gcc",
+  "linker-flavor": "gnu-cc",
+  "llvm-abiname": "elfv1",
+  "llvm-target": "powerpc64-unknown-none-elf",
+  "max-atomic-width": 64,
+  "metadata": {
+    "description": "PlayStation 3 PPU for rfvp: a static library for PSL1GHT's gcc to link (64-bit ELFv1)",
+    "host_tools": false,
+    "std": false,
+    "tier": 3
+  },
+  "os": "none",
+  "panic-strategy": "abort",
+  "relocation-model": "static",
+  "target-endian": "big",
+  "target-pointer-width": 64,
+  "vendor": "sony"
+}

@@ -71,7 +71,6 @@ fn parse_usize_env(name: &str, default_v: usize) -> usize {
         .unwrap_or(default_v)
 }
 
-#[cfg(not(feature = "no_std"))]
 fn parse_mask_from_trace_list(s: &str) -> u32 {
     let mut mask = 0u32;
     for raw in s.split(|c: char| c == ',' || c == ';' || c.is_whitespace()) {
@@ -138,17 +137,29 @@ fn cfg() -> &'static TraceConfig {
     CFG.get_or_init(build_config)
 }
 
+/// Categories turned on by the host (`no_std` builds have no environment to read).
 #[cfg(feature = "no_std")]
-fn cfg() -> &'static TraceConfig {
-    static CFG: TraceConfig = TraceConfig {
-        mask: 0,
+static NO_STD_MASK: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+/// Turn on the categories in `list` (the format of `RFVP_TRACE`), for `no_std` hosts.
+#[cfg(feature = "no_std")]
+pub fn enable(list: &str) {
+    NO_STD_MASK.fetch_or(
+        parse_mask_from_trace_list(list),
+        core::sync::atomic::Ordering::Relaxed,
+    );
+}
+
+#[cfg(feature = "no_std")]
+fn cfg() -> TraceConfig {
+    TraceConfig {
+        mask: NO_STD_MASK.load(core::sync::atomic::Ordering::Relaxed),
         prim_tree_every: 60,
         motion_every: 30,
         prim_tree_max_nodes: 256,
         prim_tree_max_depth: 32,
         motion_max: 16,
-    };
-    &CFG
+    }
 }
 
 pub fn enabled(k: TraceKind) -> bool {

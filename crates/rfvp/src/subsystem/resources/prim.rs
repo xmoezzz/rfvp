@@ -309,15 +309,106 @@ impl Prim {
 
 #[derive(Debug)]
 pub struct PrimManager {
+    #[cfg(not(feature = "psx"))]
     prims: Vec<AtomicRefCell<Prim>>,
+    /// The PlayStation allocates prims 64 at a time, when first touched: a game uses a few
+    /// hundred of the 4096, and all of them are 200 KiB of its 2 MiB.
+    #[cfg(feature = "psx")]
+    prims: PrimChunks,
     custom_root_prim_id: u16,
+}
+
+#[cfg(feature = "psx")]
+const PRIM_CHUNK: usize = 64;
+
+#[cfg(feature = "psx")]
+type PrimChunk = [AtomicRefCell<Prim>; PRIM_CHUNK];
+
+#[cfg(feature = "psx")]
+pub struct PrimChunks {
+    chunks: Vec<core::sync::atomic::AtomicPtr<PrimChunk>>,
+    /// What a read of a prim in a chunk never written sees: scans over all 4096 ids must not
+    /// allocate every chunk.
+    blank: AtomicRefCell<Prim>,
+}
+
+#[cfg(feature = "psx")]
+impl core::fmt::Debug for PrimChunks {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "PrimChunks({} allocated)", self.allocated().count())
+    }
+}
+
+#[cfg(feature = "psx")]
+impl PrimChunks {
+    fn new(count: usize) -> Self {
+        let mut chunks = Vec::with_capacity(count / PRIM_CHUNK);
+        chunks.resize_with(count / PRIM_CHUNK, || core::sync::atomic::AtomicPtr::new(core::ptr::null_mut()));
+        Self { chunks, blank: AtomicRefCell::new(Prim::new()) }
+    }
+
+    /// A prim to read: an unallocated one reads as blank.
+    fn cell_read(&self, id: usize) -> &AtomicRefCell<Prim> {
+        let p = self.chunks[id / PRIM_CHUNK].load(core::sync::atomic::Ordering::Acquire);
+        if p.is_null() {
+            &self.blank
+        } else {
+            unsafe { &(*p)[id % PRIM_CHUNK] }
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.chunks.len() * PRIM_CHUNK
+    }
+
+    fn cell(&self, id: usize) -> &AtomicRefCell<Prim> {
+        use core::sync::atomic::Ordering;
+        let slot = &self.chunks[id / PRIM_CHUNK];
+        let mut p = slot.load(Ordering::Acquire);
+        if p.is_null() {
+            let chunk: Box<PrimChunk> = Box::new(core::array::from_fn(|_| AtomicRefCell::new(Prim::new())));
+            let fresh = Box::into_raw(chunk);
+            p = match slot.compare_exchange(core::ptr::null_mut(), fresh, Ordering::AcqRel, Ordering::Acquire) {
+                Ok(_) => fresh,
+                Err(existing) => {
+                    drop(unsafe { Box::from_raw(fresh) });
+                    existing
+                }
+            };
+        }
+        unsafe { &(*p)[id % PRIM_CHUNK] }
+    }
+
+    /// The prims allocated so far, with their ids.
+    fn allocated(&self) -> impl Iterator<Item = (usize, &AtomicRefCell<Prim>)> + '_ {
+        self.chunks.iter().enumerate().flat_map(|(c, slot)| {
+            let p = slot.load(core::sync::atomic::Ordering::Acquire);
+            let chunk: &[AtomicRefCell<Prim>] = if p.is_null() { &[] } else { unsafe { &*p } };
+            chunk.iter().enumerate().map(move |(i, cell)| (c * PRIM_CHUNK + i, cell))
+        })
+    }
+}
+
+#[cfg(feature = "psx")]
+impl Drop for PrimChunks {
+    fn drop(&mut self) {
+        for slot in &self.chunks {
+            let p = slot.load(core::sync::atomic::Ordering::Acquire);
+            if !p.is_null() {
+                drop(unsafe { Box::from_raw(p) });
+            }
+        }
+    }
 }
 
 impl PrimManager {
     pub fn new() -> Self {
         let mut pm = Self {
             // allocate 4096 prims
+            #[cfg(not(feature = "psx"))]
             prims: (0..4096).map(|_| AtomicRefCell::new(Prim::new())).collect(),
+            #[cfg(feature = "psx")]
+            prims: PrimChunks::new(4096),
             custom_root_prim_id: 0,
         };
         pm.prim_init_with_type(0, PrimType::PrimTypeGroup);
@@ -337,16 +428,38 @@ impl PrimManager {
         self.custom_root_prim_id = id;
     }
 
+    #[cfg(not(feature = "psx"))]
+    fn cell(&self, id: usize) -> &AtomicRefCell<Prim> {
+        &self.prims[id]
+    }
+
+    #[cfg(feature = "psx")]
+    fn cell(&self, id: usize) -> &AtomicRefCell<Prim> {
+        self.prims.cell(id)
+    }
+
     pub fn get_prim(&self, id: i16) -> AtomicRefMut<'_, Prim> {
-        self.prims[id as usize].borrow_mut()
+        self.cell(id as usize).borrow_mut()
     }
 
     pub fn get_prim_immutable(&self, id: i16) -> AtomicRef<'_, Prim> {
-        self.prims[id as usize].borrow()
+        #[cfg(feature = "psx")]
+        return self.prims.cell_read(id as usize).borrow();
+        #[cfg(not(feature = "psx"))]
+        self.cell(id as usize).borrow()
     }
 
-    pub fn get_prims_mut(&mut self) -> &mut Vec<AtomicRefCell<Prim>> {
-        &mut self.prims
+    /// Every prim that may be in use, with its id (all of them; on the PlayStation those
+    /// allocated so far).
+    pub fn for_each_prim(&self, mut f: impl FnMut(usize, &AtomicRefCell<Prim>)) {
+        #[cfg(not(feature = "psx"))]
+        for (id, cell) in self.prims.iter().enumerate() {
+            f(id, cell);
+        }
+        #[cfg(feature = "psx")]
+        for (id, cell) in self.prims.allocated() {
+            f(id, cell);
+        }
     }
 
     pub fn prim_init_with_type(&mut self, id: i16, typ: PrimType) {
@@ -771,7 +884,7 @@ x={} y={} z={} w={} h={} u={} v={} op=({}, {}) angle={} factor=({}, {}) tile={} 
 // Save/Load snapshots
 // ----------------------------
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PrimSnapshotV1 {
     pub typ: u8,
     pub draw_flag: bool,
@@ -810,6 +923,10 @@ pub struct PrimSnapshotV1 {
 pub struct PrimManagerSnapshotV1 {
     pub custom_root_prim_id: u16,
     pub prims: Vec<PrimSnapshotV1>,
+    /// When not empty, the prim id of each entry of `prims` (the PlayStation saves only the
+    /// prims in use); otherwise `prims[i]` is prim `i`.
+    #[serde(default)]
+    pub ids: Vec<u16>,
 }
 
 impl Prim {
@@ -885,25 +1002,53 @@ impl Prim {
 
 impl PrimManager {
     pub fn capture_snapshot_v1(&self) -> PrimManagerSnapshotV1 {
-        let mut prims = Vec::with_capacity(self.prims.len());
+        let mut prims = Vec::new();
+        #[cfg_attr(not(feature = "psx"), allow(unused_mut))]
+        let mut ids = Vec::new();
+        #[cfg(not(feature = "psx"))]
         for cell in &self.prims {
-            let p = cell.borrow();
-            prims.push(p.capture_snapshot_v1());
+            prims.push(cell.borrow().capture_snapshot_v1());
+        }
+        // Only the prims in use, with their ids.
+        #[cfg(feature = "psx")]
+        {
+            let blank = Prim::new().capture_snapshot_v1();
+            for (id, cell) in self.prims.allocated() {
+                let snap = cell.borrow().capture_snapshot_v1();
+                if snap != blank {
+                    ids.push(id as u16);
+                    prims.push(snap);
+                }
+            }
         }
 
         PrimManagerSnapshotV1 {
             custom_root_prim_id: self.custom_root_prim_id,
             prims,
+            ids,
         }
     }
 
     pub fn apply_snapshot_v1(&mut self, snap: &PrimManagerSnapshotV1) {
         self.custom_root_prim_id = snap.custom_root_prim_id;
 
-        let n = self.prims.len().min(snap.prims.len());
-        for i in 0..n {
-            let mut p = self.prims[i].borrow_mut();
-            p.apply_snapshot_v1(&snap.prims[i]);
+        if snap.ids.is_empty() {
+            let n = self.prims.len().min(snap.prims.len());
+            for i in 0..n {
+                self.cell(i).borrow_mut().apply_snapshot_v1(&snap.prims[i]);
+            }
+        } else {
+            // Prims not in the save are back to new.
+            let mut ids = Vec::new();
+            self.for_each_prim(|id, _| ids.push(id));
+            for id in ids {
+                *self.cell(id).borrow_mut() = Prim::new();
+            }
+            for (id, prim) in snap.ids.iter().zip(&snap.prims) {
+                if (*id as usize) < self.prims.len() {
+                    self.cell(*id as usize).borrow_mut().apply_snapshot_v1(prim);
+                }
+            }
         }
     }
 }

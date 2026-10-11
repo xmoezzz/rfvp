@@ -140,6 +140,9 @@ no_std = [
 # PSP old-school no_std profile. This is opt-in only and is used by
 # rfvp-psp; default desktop/mobile/wasm builds must not enable it.
 old_school = ["no_std", "dep:rfvp_bitmap", "rfvp_bitmap/alloc"]
+# The PlayStation (platform/ps1): old_school on a game converted by rfvp-psx-convert (CLUT
+# pictures, a fixed-size bitmap font, native sound), sized for 2 MiB of RAM.
+psx = ["old_school"]
 
 # Dependencies required by the historical std/runtime engine modules. This is
 # deliberately separate from `no_std`; no_std builds must not enable it.

@@ -3501,8 +3501,6 @@ checksum = "3eb8486b569e12e2c32ad3e204dbaba5e4b5b216e9367044f25f1dba42341773"
 [[package]]
 name = "psp"
 version = "0.3.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd85125e9f358089836318435fbe8d7d47879f9da15d6e3feb33514d58a7134b"
 dependencies = [
  "bitflags 2.11.1",
  "libm",
@@ -3802,6 +3800,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rfvp-ps1"
+version = "0.1.0"
+dependencies = [
+ "rfvp",
+ "spin",
+ "talc",
+]
+
+[[package]]
 name = "rfvp-ps2"
 version = "0.1.0"
 dependencies = [
@@ -3819,8 +3826,11 @@ dependencies = [
 name = "rfvp-psp"
 version = "0.1.0"
 dependencies = [
+ "lock_api",
+ "log 0.4.29",
  "psp",
  "rfvp",
+ "talc",
 ]
 
 [[package]]
@@ -3829,6 +3839,20 @@ version = "0.1.0"
 dependencies = [
  "cc",
  "rfvp",
+]
+
+[[package]]
+name = "rfvp-psx"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "encoding_rs",
+ "flate2",
+ "fontdue",
+ "rayon",
+ "vorbis_rs",
+ "walkdir",
 ]
 
 [[package]]
@@ -3860,6 +3884,7 @@ name = "rfvp-wii"
 version = "0.1.0"
 dependencies = [
  "rfvp",
+ "talc",
 ]
 
 [[package]]
@@ -4567,6 +4592,15 @@ dependencies = [
  "pkg-config",
  "toml 1.1.2+spec-1.1.0",
  "version-compare",
+]
+
+[[package]]
+name = "talc"
+version = "4.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a3ae828aa394de34c7de08f522d1b86bd1c182c668d27da69caadda00590f26d"
+dependencies = [
+ "lock_api",
 ]
 
 [[package]]

@@ -1,0 +1,16 @@
+[package]
+name = "rfvp-ps3"
+version = "0.1.0"
+edition = "2021"
+description = "PlayStation 3 host crate for rfvp no_std core"
+license = "MPL-2.0"
+publish = false
+
+[lib]
+name = "rfvp_ps3"
+path = "src/lib.rs"
+# Linked into the PSL1GHT runtime (platform/ps3/runtime/main.c) by platform/ps3/build_ps3.sh.
+crate-type = ["staticlib"]
+
+[dependencies]
+rfvp = { path = "../../../crates/rfvp", default-features = false, features = ["no_std"] }

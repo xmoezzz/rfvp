@@ -49,6 +49,10 @@ impl PspApp {
         Ok(())
     }
 
+    pub fn core(&self) -> &rfvp::RfvpCore {
+        &self.core
+    }
+
     pub fn push_event(&mut self, event: RfvpEvent) -> RfvpResult<()> {
         self.events.push(event)
     }

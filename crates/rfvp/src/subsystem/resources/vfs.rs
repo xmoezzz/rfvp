@@ -151,12 +151,29 @@ pub struct VfsFile {
     pub folder_name: String,
     pub file_count: u64,
     pub filename_table_size: u64,
+    #[cfg(not(feature = "psx"))]
     pub entries: StableHashMap<String, VfsEntry>,
     pub nls: Nls,
     pack: PackHandle,
     /// Entry names by their lowercase form. Scripts do not match the case of the names in the
     /// packs (`title_bg1_a` for `title_bg1_A`); the original engine, on Windows, ignores case.
+    #[cfg(not(feature = "psx"))]
     lowercase: StableHashMap<String, String>,
+    /// The PlayStation keeps no names: entries sorted by a hash of the lowercase name (12 bytes
+    /// each instead of two strings and two map slots; a game has thousands).
+    #[cfg(feature = "psx")]
+    index: Vec<(u32, u32, u32)>,
+}
+
+/// FNV-1a of a name's lowercase form.
+#[cfg(feature = "psx")]
+fn name_hash(name: &str) -> u32 {
+    let mut h = 0x811c_9dc5u32;
+    for b in name.bytes() {
+        h ^= b.to_ascii_lowercase() as u32;
+        h = h.wrapping_mul(0x0100_0193);
+    }
+    h
 }
 
 impl VfsFile {
@@ -165,22 +182,38 @@ impl VfsFile {
         source: Arc<dyn PackSource>,
         nls: Nls,
     ) -> Result<Self> {
-        let (file_count, filename_table_size, entries) =
-            Self::parse_source(source.as_ref(), nls)?;
-        let lowercase = entries
-            .keys()
-            .map(|name| (name.to_ascii_lowercase(), name.clone()))
-            .collect();
-        Ok(Self {
-            path: PathBuf::from(format!("{folder_name}.bin").as_str()),
-            folder_name,
-            file_count,
-            filename_table_size,
-            entries,
-            nls,
-            pack: PackHandle(source),
-            lowercase,
-        })
+        #[cfg(feature = "psx")]
+        {
+            let (file_count, filename_table_size, index) = Self::parse_index(source.as_ref(), nls)?;
+            Ok(Self {
+                path: PathBuf::from(format!("{folder_name}.bin").as_str()),
+                folder_name,
+                file_count,
+                filename_table_size,
+                nls,
+                pack: PackHandle(source),
+                index,
+            })
+        }
+        #[cfg(not(feature = "psx"))]
+        {
+            let (file_count, filename_table_size, entries) =
+                Self::parse_source(source.as_ref(), nls)?;
+            let lowercase = entries
+                .keys()
+                .map(|name| (name.to_ascii_lowercase(), name.clone()))
+                .collect();
+            Ok(Self {
+                path: PathBuf::from(format!("{folder_name}.bin").as_str()),
+                folder_name,
+                file_count,
+                filename_table_size,
+                entries,
+                nls,
+                pack: PackHandle(source),
+                lowercase,
+            })
+        }
     }
 
     fn read_exact_at(source: &dyn PackSource, mut offset: u64, mut buf: &mut [u8]) -> Result<()> {
@@ -210,17 +243,7 @@ impl VfsFile {
         let mut start = 0usize;
         for (i, &b) in buffer.iter().enumerate() {
             if b == 0 {
-                let s = match nls {
-                    Nls::ShiftJIS => {
-                        let (s, _, _) = encoding_rs::SHIFT_JIS.decode(&buffer[start..i]);
-                        s.to_string()
-                    }
-                    Nls::GBK => {
-                        let (s, _, _) = encoding_rs::GBK.decode(&buffer[start..i]);
-                        s.to_string()
-                    }
-                    Nls::UTF8 => String::from_utf8_lossy(&buffer[start..i]).into_owned(),
-                };
+                let s = crate::text_codec::decode(nls.clone(), &buffer[start..i]).0;
                 results.insert(start as u64, s);
                 start = i + 1;
             }
@@ -228,6 +251,34 @@ impl VfsFile {
         Ok(results)
     }
 
+    /// The PlayStation's index: each entry by the hash of its name, made straight from the
+    /// name table (no strings kept).
+    #[cfg(feature = "psx")]
+    fn parse_index(source: &dyn PackSource, nls: Nls) -> Result<(u64, u64, Vec<(u32, u32, u32)>)> {
+        let mut header = [0u8; 8];
+        Self::read_exact_at(source, 0, &mut header)?;
+        let count = u32::from_le_bytes([header[0], header[1], header[2], header[3]]) as usize;
+        let names_len = u32::from_le_bytes([header[4], header[5], header[6], header[7]]) as usize;
+        let mut table = alloc::vec![0u8; count * 12];
+        Self::read_exact_at(source, 8, &mut table)?;
+        let mut names = alloc::vec![0u8; names_len];
+        Self::read_exact_at(source, 8 + count as u64 * 12, &mut names)?;
+        let mut index = Vec::with_capacity(count);
+        for chunk in table.chunks_exact(12) {
+            let name_off = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]) as usize;
+            let offset = u32::from_le_bytes([chunk[4], chunk[5], chunk[6], chunk[7]]);
+            let size = u32::from_le_bytes([chunk[8], chunk[9], chunk[10], chunk[11]]);
+            let Some(raw) = names.get(name_off..).and_then(|rest| rest.split(|&b| b == 0).next()) else {
+                continue;
+            };
+            let hash = name_hash(&crate::text_codec::decode(nls.clone(), raw).0);
+            index.push((hash, offset, size));
+        }
+        index.sort_unstable_by_key(|e| e.0);
+        Ok((count as u64, names_len as u64, index))
+    }
+
+    #[cfg_attr(feature = "psx", allow(dead_code))]
     fn parse_source(
         source: &dyn PackSource,
         nls: Nls,
@@ -276,7 +327,16 @@ impl VfsFile {
     }
 
     pub fn open_stream_with_len(&self, name: &str) -> Result<(VfsStream, Option<u64>)> {
-        let ent = self
+        #[cfg(feature = "psx")]
+        let found = {
+            let h = name_hash(name);
+            self.index
+                .binary_search_by_key(&h, |e| e.0)
+                .ok()
+                .map(|i| VfsEntry { offset: self.index[i].1 as u64, size: self.index[i].2 as u64 })
+        };
+        #[cfg(not(feature = "psx"))]
+        let found = self
             .entries
             .get(name)
             .or_else(|| {
@@ -284,6 +344,8 @@ impl VfsFile {
                     .get(&name.to_ascii_lowercase())
                     .and_then(|real| self.entries.get(real))
             })
+            .cloned();
+        let ent = found
             .ok_or_else(|| anyhow!("file not found in host pack {}: {}", self.folder_name, name))?;
         let end = ent
             .offset

@@ -27,6 +27,10 @@ pub struct PspFile {
     handle: RawFileHandle,
 }
 
+// SAFETY: the context is the platform layer's global state; a file is used by one thread at a
+// time (the audio thread reads streamed music under the mixer's lock).
+unsafe impl Send for PspFile {}
+
 impl Drop for PspFile {
     fn drop(&mut self) {
         unsafe {
@@ -109,6 +113,11 @@ impl PspStorage {
 }
 
 impl RfvpStorage for PspStorage {
+    /// Lets the engine read big files (packs, music) a piece at a time instead of whole.
+    fn open(&self, path: &str) -> RfvpResult<alloc::boxed::Box<dyn RfvpFile + Send>> {
+        Ok(alloc::boxed::Box::new(PspStorage::open(self, path)?))
+    }
+
     fn read(&self, path: &str) -> RfvpResult<Vec<u8>> {
         let mut file = self.open(path)?;
         file.read_to_vec(usize::MAX)
@@ -149,32 +158,17 @@ impl RfvpStorage for PspStorage {
     }
 
     fn list(&self, dir: &str) -> RfvpResult<Vec<String>> {
-        let Some(enumerate) = self.vtable.enumerate_by_extension else {
-            return Err(RfvpError::Unsupported);
-        };
-        let mut names: Vec<String> = Vec::new();
-        let mut visitor = |path: &str, info: RfvpFileInfo| -> RfvpResult<()> {
-            if info.kind == RfvpFileKind::File && info.len > 0 {
-                let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
-                names.push(String::from(name));
-            }
-            Ok(())
-        };
-        let mut bridge = VisitorBridge { visitor: &mut visitor };
-        // Saves are `.bin` files, which is all that is looked for.
-        let status = unsafe {
-            enumerate(
-                self.ctx,
-                dir.as_ptr(),
-                dir.len(),
-                b"bin".as_ptr(),
-                3,
-                (&mut bridge as *mut VisitorBridge<'_>).cast::<c_void>(),
-                enumerate_visitor_bridge,
-            )
-        };
-        status_to_result(status)?;
-        Ok(names)
+        #[cfg(target_os = "psp")]
+        {
+            crate::platform::list_files(dir).map_err(|status| {
+                status_to_result(status).err().unwrap_or(RfvpError::Io)
+            })
+        }
+        #[cfg(not(target_os = "psp"))]
+        {
+            let _ = dir;
+            Err(RfvpError::Unsupported)
+        }
     }
 }
 
@@ -189,6 +183,11 @@ impl RfvpFileSystem for PspFileSystem {
     }
 
     fn game_files(&mut self) -> Option<Arc<dyn RfvpStorage>> {
+        self.storage()
+    }
+
+    /// The game's folder on the memory stick: each game keeps its saves in `saves/<game>/`.
+    fn save_storage(&mut self) -> Option<Arc<dyn RfvpStorage>> {
         self.storage()
     }
 

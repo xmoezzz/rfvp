@@ -1,0 +1,44 @@
+{
+  "abi": "eabihf",
+  "arch": "arm",
+  "cpu": "mpcore",
+  "crt-objects-fallback": "false",
+  "data-layout": "e-m:e-p:32:32-Fi8-i64:64-v128:64:128-a:0:32-n32-S64",
+  "env": "newlib",
+  "exe-suffix": ".elf",
+  "features": "+vfp2",
+  "has-thread-local": true,
+  "linker": "arm-none-eabi-gcc",
+  "linker-flavor": "gnu-cc",
+  "llvm-floatabi": "hard",
+  "llvm-target": "armv6k-none-eabihf",
+  "metadata": {
+    "description": "Armv6K Nintendo 3DS for rfvp: the built-in target with panics aborting (no unwinding without std)",
+    "host_tools": false,
+    "std": false,
+    "tier": 3
+  },
+  "no-default-libraries": false,
+  "os": "horizon",
+  "pre-link-args": {
+    "gnu-cc": [
+      "-specs=3dsx.specs",
+      "-mtune=mpcore",
+      "-mfloat-abi=hard",
+      "-mtp=soft"
+    ],
+    "gnu-lld-cc": [
+      "-specs=3dsx.specs",
+      "-mtune=mpcore",
+      "-mfloat-abi=hard",
+      "-mtp=soft"
+    ]
+  },
+  "relocation-model": "static",
+  "target-family": [
+    "unix"
+  ],
+  "target-pointer-width": 32,
+  "vendor": "nintendo",
+  "panic-strategy": "abort"
+}

@@ -17,9 +17,83 @@
 //! `RFVP_HARNESS_OUT_H` (screen size, default 1280x720), `RFVP_HARNESS_START` (`x,y` of the
 //! title menu entry to click as fractions of the screen, default `0.144,0.5`, which is "New
 //! Game" on the games this was tried on) and `RFVP_HARNESS_SKIP_FROM` (frame from which Ctrl is
-//! held down to skip text).
+//! held down to skip text). `RFVP_HARNESS_NO_CLICKS` turns all clicks off.
 
 extern crate std as real_std;
+
+/// Heap in use and its peak, to size the engine for small consoles (the renderer's textures
+/// are counted too: subtract `texture_stats`).
+mod heap {
+    use core::sync::atomic::{AtomicUsize, Ordering};
+    use super::real_std::alloc::{GlobalAlloc, Layout, System};
+
+    pub static CURRENT: AtomicUsize = AtomicUsize::new(0);
+    pub static PEAK: AtomicUsize = AtomicUsize::new(0);
+
+    /// Live allocations of at least `BIG` bytes, with where they were made, when
+    /// `RFVP_HARNESS_HEAP_SITES` is set.
+    pub static BIG_BYTES: AtomicUsize = AtomicUsize::new(32 * 1024);
+    pub const BIG: usize = 32 * 1024;
+    pub static TRACK: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+    super::real_std::thread_local! {
+        static IN_TRACK: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+    }
+    pub static SITES: super::real_std::sync::Mutex<Option<super::real_std::collections::HashMap<usize, (usize, super::real_std::string::String)>>> =
+        super::real_std::sync::Mutex::new(None);
+
+    fn note(ptr: *mut u8, size: usize) {
+        if size < BIG_BYTES.load(Ordering::Relaxed) || !TRACK.load(Ordering::Relaxed) || IN_TRACK.with(|t| t.replace(true)) {
+            return;
+        }
+        let bt = super::real_std::format!("{}", super::real_std::backtrace::Backtrace::force_capture());
+        // Keep the frames in this crate, past the allocator itself.
+        let site: super::real_std::vec::Vec<&str> = bt
+            .lines()
+            .filter(|l| l.contains("rfvp::") && !l.contains("no_std_harness::heap"))
+            .take(6)
+            .collect();
+        let site = site.join(" <- ").replace("             ", "");
+        if super::real_std::env::var_os("RFVP_HARNESS_HEAP_PRINT").is_some() {
+            super::real_std::eprintln!("alloc {size} at {site}");
+        }
+        SITES.lock().unwrap().get_or_insert_with(Default::default).insert(ptr as usize, (size, site));
+        IN_TRACK.with(|t| t.set(false));
+    }
+
+    fn forget(ptr: *mut u8, size: usize) {
+        if size < BIG_BYTES.load(Ordering::Relaxed) || !TRACK.load(Ordering::Relaxed) || IN_TRACK.with(|t| t.get()) {
+            return;
+        }
+        IN_TRACK.with(|t| t.set(true));
+        if let Some(map) = SITES.lock().unwrap().as_mut() {
+            map.remove(&(ptr as usize));
+        }
+        IN_TRACK.with(|t| t.set(false));
+    }
+
+    struct Counting;
+
+    unsafe impl GlobalAlloc for Counting {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            let p = unsafe { System.alloc(layout) };
+            if !p.is_null() {
+                let now = CURRENT.fetch_add(layout.size(), Ordering::Relaxed) + layout.size();
+                PEAK.fetch_max(now, Ordering::Relaxed);
+                note(p, layout.size());
+            }
+            p
+        }
+
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            forget(ptr, layout.size());
+            unsafe { System.dealloc(ptr, layout) };
+            CURRENT.fetch_sub(layout.size(), Ordering::Relaxed);
+        }
+    }
+
+    #[global_allocator]
+    static COUNTING: Counting = Counting;
+}
 
 use alloc::format;
 use alloc::string::{String, ToString};
@@ -137,6 +211,8 @@ impl RfvpFileSystem for StdFs {
 struct CountingRaster {
     inner: SoftRaster,
     sprites: u64,
+    /// Print each sprite drawn (for comparing with a console's list).
+    log_sprites: bool,
     solids: u64,
     additive: u64,
     /// Frames put on the screen.
@@ -151,6 +227,7 @@ impl CountingRaster {
         Self {
             inner: SoftRaster::new(out_width, out_height),
             sprites: 0,
+            log_sprites: false,
             solids: 0,
             additive: 0,
             presents: 0,
@@ -199,6 +276,19 @@ impl RfvpRenderer for CountingRaster {
     }
     fn draw_sprite(&mut self, command: &DrawSpriteCommand) -> RfvpResult<()> {
         self.sprites += 1;
+        if self.log_sprites {
+            let v = &command.vertices;
+            println!(
+                "  tex {} at ({:.0},{:.0})-({:.0},{:.0}) a {:.2} {:?}",
+                command.texture.0,
+                v[0].position[0],
+                v[0].position[1],
+                v[3].position[0],
+                v[3].position[1],
+                v[0].color.a,
+                command.blend
+            );
+        }
         if command.blend == BlendMode::Add {
             self.additive += 1;
         }
@@ -504,10 +594,12 @@ impl Run {
         } else {
             (self.width / 2, self.height / 2)
         };
-        if frame % 30 == 5 || frame == 665 || frame == 725 {
+        // `RFVP_HARNESS_NO_CLICKS`: no clicks at all, as a console left alone.
+        let idle = env::var_os("RFVP_HARNESS_NO_CLICKS").is_some();
+        if !idle && (frame % 30 == 5 || frame == 665 || frame == 725) {
             self.click(cx, cy);
         }
-        if frame % 30 == 8 || frame == 668 || frame == 728 {
+        if !idle && (frame % 30 == 8 || frame == 668 || frame == 728) {
             self.release(cx, cy);
         }
         if let Err(err) = self.core.tick(&mut self.host) {
@@ -536,7 +628,7 @@ impl Run {
     fn cpu_image_bytes(&mut self) -> (usize, usize) {
         let mut bytes = 0;
         let mut count = 0;
-        for graph in self.core.game_data_mut().motion_manager.graphs() {
+        for graph in self.core.game_data_mut().motion_manager.graphs().iter() {
             if graph.get_texture().is_some() {
                 bytes += graph.get_width() as usize * graph.get_height() as usize * 4;
                 count += 1;
@@ -569,6 +661,13 @@ fn fnv1a_bytes(bytes: &[u8]) -> u64 {
 
 #[test]
 fn boots_and_runs_a_real_game() {
+    let heap_sites: Option<u32> = env::var("RFVP_HARNESS_HEAP_SITES").ok().and_then(|v| v.parse().ok());
+    if heap_sites.is_some() {
+        heap::TRACK.store(true, core::sync::atomic::Ordering::Relaxed);
+        if let Some(min) = env::var("RFVP_HARNESS_HEAP_MIN").ok().and_then(|v| v.parse().ok()) {
+            heap::BIG_BYTES.store(min, core::sync::atomic::Ordering::Relaxed);
+        }
+    }
     let Some(mut run) = Run::start() else {
         return;
     };
@@ -580,6 +679,10 @@ fn boots_and_runs_a_real_game() {
         .ok()
         .and_then(|v| v.parse().ok());
     let out_dir = env::var("RFVP_HARNESS_OUT").ok().map(PathBuf::from);
+    // `RFVP_HARNESS_SPRITES`: a frame whose sprites are printed.
+    let sprites_at: Option<u32> = env::var("RFVP_HARNESS_SPRITES")
+        .ok()
+        .and_then(|v| v.parse().ok());
     let (out_w, out_h) = run.host.renderer.inner.output_size();
 
     let mut peak_rss = resident_kib();
@@ -589,17 +692,47 @@ fn boots_and_runs_a_real_game() {
         if skip_from == Some(frame) {
             run.set_skip(true);
         }
+        run.host.renderer.log_sprites = sprites_at == Some(frame);
         let started = Instant::now();
         run.step();
+        if sprites_at == Some(frame) {
+            println!("{}", run.core.debug_threads().trim_end());
+        }
         let took = started.elapsed();
+        if heap_sites == Some(frame) {
+            // The big live allocations, largest first.
+            let map = heap::SITES.lock().unwrap().clone().unwrap_or_default();
+            // Summed by where they were made (the first two frames of the site).
+            let mut by_site: std::collections::HashMap<String, (usize, usize)> = Default::default();
+            for (size, site) in map.into_values() {
+                let key: String = site.split(" <- ").take(2).collect::<Vec<_>>().join(" <- ");
+                let e = by_site.entry(key).or_default();
+                e.0 += size;
+                e.1 += 1;
+            }
+            let mut sites: Vec<(String, (usize, usize))> = by_site.into_iter().collect();
+            sites.sort_by(|a, b| b.1.0.cmp(&a.1.0));
+            let total: usize = sites.iter().map(|s| s.1.0).sum();
+            println!(
+                "live allocations of {} bytes or more at frame {frame}: {} KiB",
+                heap::BIG_BYTES.load(core::sync::atomic::Ordering::Relaxed),
+                total / 1024
+            );
+            for (site, (size, count)) in sites.iter().take(40) {
+                println!("  {:6} KiB in {count:5}  {site}", size / 1024);
+            }
+        }
         frame_time += took;
         worst = worst.max(took);
         if frame % 60 == 0 {
             peak_rss = peak_rss.max(resident_kib());
             let (cpu_bytes, cpu_images) = run.cpu_image_bytes();
             let host = &run.host;
+            let textures = host.renderer.inner.texture_stats().1;
             println!(
-                "frame {frame}: rss {} MiB, textures {} ({} MiB), CPU images {} ({} MiB), sprites {}, additive {}, solids {}, audio loaded {} played {}",
+                "frame {frame}: heap {} KiB (peak {} KiB) without textures, rss {} MiB, textures {} ({} MiB), CPU images {} ({} MiB), sprites {}, additive {}, solids {}, audio loaded {} played {}",
+                heap::CURRENT.load(core::sync::atomic::Ordering::Relaxed).saturating_sub(textures) / 1024,
+                heap::PEAK.load(core::sync::atomic::Ordering::Relaxed) / 1024,
                 resident_kib() / 1024,
                 host.renderer.inner.texture_stats().0,
                 host.renderer.inner.texture_stats().1 / (1024 * 1024),

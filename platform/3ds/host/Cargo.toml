@@ -1,0 +1,16 @@
+[package]
+name = "rfvp-3ds"
+version = "0.1.0"
+edition = "2021"
+description = "Nintendo 3DS host crate for rfvp no_std core"
+license = "MPL-2.0"
+publish = false
+
+[lib]
+name = "rfvp_3ds"
+path = "src/lib.rs"
+# Linked into the libctru runtime (platform/3ds/runtime/main.c) by platform/3ds/build_3ds.sh.
+crate-type = ["staticlib"]
+
+[dependencies]
+rfvp = { path = "../../../crates/rfvp", default-features = false, features = ["no_std", "old_school"] }

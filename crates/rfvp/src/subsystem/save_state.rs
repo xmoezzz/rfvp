@@ -102,6 +102,43 @@ pub fn append_state_chunk_v1(out: &mut Vec<u8>, snap: &SaveStateSnapshotV1) -> R
     .context("SaveStateSnapshotV1")
 }
 
+/// `append_state_chunk_v1(out, &SaveStateSnapshotV1::capture(game_data))` without the
+/// snapshot: each part is captured, appended and dropped in turn, so the PlayStation never holds
+/// the whole state twice. postcard writes a struct as its fields one after another, so the bytes
+/// are the same.
+#[cfg(feature = "no_std")]
+pub fn append_state_chunk_streamed(out: &mut Vec<u8>, game_data: &mut GameData) -> Result<()> {
+    fn put<T: Serialize>(out: &mut Vec<u8>, value: &T) -> Result<()> {
+        let taken = core::mem::take(out);
+        *out = postcard::to_extend(value, taken).context("serialize SaveStateSnapshotV1")?;
+        Ok(())
+    }
+    let start = out.len();
+    put(out, &1u16)?;
+    put(out, &game_data.motion_manager.capture_snapshot_v1())?;
+    put(
+        out,
+        &AudioSnapshotV1 {
+            bgm: game_data.bgm_player_ref().capture_snapshot_v1(),
+            se: game_data.se_player_ref().capture_snapshot_v1(),
+        },
+    )?;
+    put(out, &GLOBAL.lock().unwrap().non_volatile_view())?;
+    let vm = match game_data.save_manager.take_pending_vm_snapshot() {
+        Some(s) => s,
+        None => {
+            log::warn!("SaveStateSnapshotV1: missing VM snapshot; save will not be resumable");
+            ThreadManager::new().capture_snapshot_v1()
+        }
+    };
+    put(out, &vm)?;
+    drop(vm);
+    let len = u32::try_from(out.len() - start).context("SaveStateSnapshotV1 too large")?;
+    out.extend_from_slice(&len.to_le_bytes());
+    out.extend_from_slice(&snapshot_codec::STATE_MAGIC);
+    Ok(())
+}
+
 pub fn try_decode_state_chunk_v1(file_bytes: &[u8]) -> Result<Option<SaveStateSnapshotV1>> {
     let Some(payload) = snapshot_codec::find_chunk(
         file_bytes,

@@ -57,7 +57,9 @@ impl AnzuScene {
 
         // update_text() in the original executable observes control_is_pulse before the
         // frame update clears it.
+        let t = crate::perf::start();
         self.update_text_reveal(game_data, elapsed);
+        crate::perf::stop(0, t);
 
         // The pulse is one-shot and is cleared immediately before motion updates.
         let pulse = game_data.inputs_manager.take_control_pulse();
@@ -68,16 +70,31 @@ impl AnzuScene {
             frame_duration
         };
 
+        let mut t = crate::perf::start();
+        let mut lap = |stage: usize| {
+            crate::perf::stop(stage, t);
+            t = crate::perf::start();
+        };
         self.update_alpha_motions(game_data, elapsed);
+        lap(1);
         self.update_move_motions(game_data, elapsed);
+        lap(2);
         self.update_rotation_motions(game_data, elapsed);
+        lap(3);
         self.update_scale_motions(game_data, elapsed);
+        lap(4);
         self.update_z_motions(game_data, elapsed);
+        lap(5);
         self.update_v3d_motions(game_data, elapsed);
+        lap(6);
         self.update_anim_motions(game_data, elapsed);
+        lap(7);
         self.update_parts_motions(game_data, elapsed);
+        lap(8);
         self.update_snow_motions(game_data, elapsed);
+        lap(9);
         self.update_dissolve(game_data, frame_duration, fast_forward);
+        lap(10);
     }
 
     fn update_alpha_motions(&mut self, game_data: &mut GameData, elapsed: i64) {

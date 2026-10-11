@@ -1,0 +1,21 @@
+[package]
+name = "rfvp-psx"
+version = "0.1.0"
+edition = "2024"
+description = "Converts a game to the PlayStation's own formats: CLUT pictures, SPU-ADPCM and XA sound, STR movies, a fixed-size bitmap font"
+license = "MPL-2.0"
+publish = false
+
+[[bin]]
+name = "rfvp-psx-convert"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+encoding_rs = "0.8"
+flate2 = "1"
+fontdue = { version = "0.9", default-features = false }
+rayon = "1"
+vorbis_rs = "0.5.5"
+walkdir = "2"

@@ -1512,26 +1512,50 @@ impl TextItem {
     }
 
     pub fn set_text_size1(&mut self, size: u8) {
+        // The PlayStation's font has one size (see font.rs).
+        #[cfg(feature = "psx")]
+        let size = crate::font::psx_cell() as u8;
         self.text_size1 = size;
         self.mark_layout_dirty();
     }
 
     pub fn set_text_size2(&mut self, size: u8) {
+        // The PlayStation's font has one size (see font.rs).
+        #[cfg(feature = "psx")]
+        let size = crate::font::psx_cell() as u8;
         self.text_size2 = size;
         self.mark_layout_dirty();
     }
 
     pub fn set_outline_size1(&mut self, outline: u8) {
+        // No outlines or shadows on the PlayStation: its text is plain bitmap glyphs.
+        #[cfg(feature = "psx")]
+        let outline = {
+            let _ = outline;
+            0
+        };
         self.outline_size1 = outline;
         self.mark_layout_dirty();
     }
 
     pub fn set_outline_size2(&mut self, outline: u8) {
+        // No outlines or shadows on the PlayStation: its text is plain bitmap glyphs.
+        #[cfg(feature = "psx")]
+        let outline = {
+            let _ = outline;
+            0
+        };
         self.outline_size2 = outline;
         self.mark_layout_dirty();
     }
 
     pub fn set_shadow_dist(&mut self, dist: u8) {
+        // No outlines or shadows on the PlayStation: its text is plain bitmap glyphs.
+        #[cfg(feature = "psx")]
+        let dist = {
+            let _ = dist;
+            0
+        };
         self.shadow_distance = dist;
         self.mark_layout_dirty();
     }
@@ -1541,6 +1565,10 @@ impl TextItem {
     }
 
     pub fn set_ruby_text_mode(&mut self, func: u8) {
+        // On the small consoles (`old_school`) ruby would be a few pixels high: show only the
+        // base text (mode 1), which also gives the line back the room the ruby took.
+        #[cfg(feature = "old_school")]
+        let func = if func == 2 { 1 } else { func };
         self.ruby_text_mode = func;
     }
 
@@ -2627,11 +2655,17 @@ impl TextItem {
         } else {
             self.text_size2 as f32
         };
+        // The PlayStation draws its font at the one size it has, without outline or shadow,
+        // whatever the script asks for.
+        #[cfg(feature = "psx")]
+        let (main_size, ruby_size) = (crate::font::psx_cell() as f32, crate::font::psx_cell() as f32);
         let main_draw_size = main_size * render_scale;
         let ruby_draw_size = ruby_size * render_scale;
         let draw_outline1 = Self::scale_len_u8(self.outline_size1, render_scale);
         let draw_outline2 = Self::scale_len_u8(self.outline_size2, render_scale);
         let draw_shadow = Self::scale_len_u8(self.shadow_distance, render_scale);
+        #[cfg(feature = "psx")]
+        let (draw_outline1, draw_outline2, draw_shadow) = (0u8, 0u8, 0u8);
         let main_slot: u8 = if self.text_size1 == 0 {
             16
         } else {
@@ -3118,6 +3152,11 @@ impl TextManager {
     pub fn new() -> Self {
         Self {
             items: vec![TextItem::new(); 32],
+            // The PlayStation keeps one bit per 8 bytes of script, grown as text is read: the
+            // full map is 1 MiB, half its RAM.
+            #[cfg(feature = "psx")]
+            readed_text: Vec::new(),
+            #[cfg(not(feature = "psx"))]
             readed_text: vec![0u32; 0x800000 / 32],
             device_render_scale: 1.0,
             render_scale: 1.0,
@@ -3278,9 +3317,15 @@ impl TextManager {
         if addr >= 0x800000 {
             return false;
         }
+        #[cfg(feature = "psx")]
+        let addr = addr >> 3;
         let idx = (addr / 32) as usize;
         let bit = addr % 32;
         let mask = 1u32 << bit;
+        #[cfg(feature = "psx")]
+        if idx >= self.readed_text.len() {
+            self.readed_text.resize(idx + 1, 0);
+        }
         let prev = self.readed_text[idx] & mask;
         self.readed_text[idx] |= mask;
         prev == 0

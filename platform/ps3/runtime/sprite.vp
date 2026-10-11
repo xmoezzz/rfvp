@@ -1,0 +1,7 @@
+!!ARBvp1.0
+# Sprites: positions arrive in clip space (the CPU maps screen pixels), texture coordinates and
+# color as they are.
+MOV result.position, vertex.position;
+MOV result.texcoord[0], vertex.texcoord[0];
+MOV result.color, vertex.color;
+END

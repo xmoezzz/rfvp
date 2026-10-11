@@ -1,4 +1,5 @@
 use alloc::alloc::{alloc, dealloc, Layout};
+use alloc::collections::BTreeMap;
 use alloc::string::String;
 use alloc::vec::Vec;
 use core::ffi::c_void;
@@ -21,7 +22,6 @@ const SCREEN_W: u32 = 480;
 const SCREEN_H: u32 = 272;
 const STRIDE: i32 = 512;
 const MAX_PATH: usize = 512;
-const MAX_TEXTURES: usize = 256;
 const LIST_WORDS: usize = 262_144 / size_of::<u32>();
 const MAX_TEX_SIZE: u32 = 512;
 
@@ -37,8 +37,17 @@ struct PspVertex {
 
 #[derive(Clone, Copy)]
 struct TextureSlot {
+    /// Size the GE is told (powers of two; it samples no further than the stored rows).
     width: u32,
     height: u32,
+    /// Pixels from one row to the next in memory, and the rows kept: only the picture and one
+    /// row and column of transparent edge, not the whole power-of-two square.
+    stride: u32,
+    rows: u32,
+    /// Size the engine sees; a texture bigger than `MAX_TEX_SIZE` is stored halved `shift` times.
+    logical_w: u32,
+    logical_h: u32,
+    shift: u32,
     format: RawPixelFormat,
     pixels: *mut u32,
     bytes_len: usize,
@@ -49,6 +58,11 @@ impl TextureSlot {
         Self {
             width: 0,
             height: 0,
+            stride: 0,
+            rows: 0,
+            logical_w: 0,
+            logical_h: 0,
+            shift: 0,
             format: RawPixelFormat::Rgba8,
             pixels: ptr::null_mut(),
             bytes_len: 0,
@@ -60,18 +74,34 @@ impl TextureSlot {
     }
 }
 
-static mut TEXTURES: [TextureSlot; MAX_TEXTURES] = [TextureSlot::empty(); MAX_TEXTURES];
+// Keyed by texture id: graph ids go up to 4095 and the white texture is `u32::MAX`.
+static mut TEXTURES: BTreeMap<u32, TextureSlot> = BTreeMap::new();
 static mut GU_LIST: psp::Align16<[u32; LIST_WORDS]> = psp::Align16([0; LIST_WORDS]);
 static mut RENDERER_INITIALIZED: bool = false;
 static mut FRAME_W: u32 = SCREEN_W;
 static mut FRAME_H: u32 = SCREEN_H;
-static mut PREV_BUTTONS: sys::CtrlButtons = sys::CtrlButtons::empty();
+static mut INPUT: crate::input::PspInput = crate::input::PspInput::new_const();
+/// The last controller reading (stick x, stick y, buttons), for the debug report.
+static mut LAST_STICK: (u8, u8, u32) = (0, 0, 0);
+/// Every button pressed since boot, and the frame of the first press, for the debug report.
+static mut BUTTONS_SEEN: u32 = 0;
+static mut FIRST_BUTTON_FRAME: u32 = u32::MAX;
 static mut SHOULD_EXIT: bool = false;
 static mut TICK_RESOLUTION: u32 = 1_000_000;
 static mut START_TICK: u64 = 0;
+// Debug counters for the report: sprites drawn, sprites skipped for a missing texture, and
+// textures that could not be created (with the last failure's id, size and status).
+static mut DRAWN: u32 = 0;
+static mut SPRITE_LOG: String = String::new();
+static mut SKIPPED: u32 = 0;
+static mut CREATE_FAILED: u32 = 0;
+static mut LAST_CREATE_FAIL: (u32, u32, u32, i32) = (0, 0, 0, 0);
 
 pub fn run() -> i32 {
+    rfvp::ring_log::install();
     unsafe {
+        // Run at the PSP's top speed; it boots at 222 MHz.
+        sys::scePowerSetClockFrequency(333, 333, 166);
         let init_status = platform_init();
         if init_status != PspStatus::Ok.as_i32() {
             return init_status;
@@ -82,11 +112,39 @@ pub fn run() -> i32 {
         if let Err(err) = app.boot_old_school(RfvpBootConfig {
             max_hcb_bytes: 2 * 1024 * 1024,
             max_manifest_entries: 128,
+            // 512 KiB of pages: a quarter of a typical script, enough that jumps rarely read.
+            hcb_cache_bytes: 512 * 1024,
             ..RfvpBootConfig::default()
         }) {
+            report_error(&app, "the game could not be loaded", err);
             platform_fini();
             return rfvp_error_to_status(err);
         }
+
+        let debug = file_exists(b"debug.txt\0");
+        if debug {
+            start_watchdog();
+            // `trace=syscall,motion` in debug.txt turns on those trace categories (into the log).
+            let options = read_small_file(b"debug.txt\0");
+            if let Some(list) = options.lines().find_map(|line| line.trim().strip_prefix("trace=")) {
+                rfvp::trace::enable(list);
+            }
+            // `click=X,Y@FRAME` (repeatable): a left click at screen pixel (X, Y) on that frame,
+            // to drive the game in an emulator without touching the controller.
+            let clicks = &mut *core::ptr::addr_of_mut!(DEBUG_CLICKS);
+            for line in options.lines() {
+                if let Some(click) = line.trim().strip_prefix("click=").and_then(parse_click) {
+                    clicks.push(click);
+                }
+            }
+            rfvp::perf::set_clock(|| unsafe { sys::sceKernelGetSystemTimeWide() as u64 });
+        }
+        let mut frames = 0u32;
+        let mut window_start = clock_ticks_us(ptr::null_mut());
+        let mut last_frame = window_start;
+        let mut worst = 0u64;
+        let (mut vm_us, mut scene_us, mut render_us) = (0u64, 0u64, 0u64);
+        const REPORT_EVERY: u32 = 10;
 
         loop {
             let poll_status = platform_poll(&mut app);
@@ -94,12 +152,74 @@ pub fn run() -> i32 {
                 platform_fini();
                 return poll_status;
             }
-            if let Err(err) = app.run_frame() {
-                platform_fini();
-                return rfvp_error_to_status(err);
+            match app.run_frame() {
+                Ok(tick) => {
+                    vm_us += tick.vm_us;
+                    scene_us += tick.scene_us;
+                    render_us += tick.render_us;
+                }
+                Err(err) => {
+                    report_error(&app, "the game stopped with an error", err);
+                    platform_fini();
+                    return rfvp_error_to_status(err);
+                }
             }
             if app.quit_requested() || SHOULD_EXIT {
                 break;
+            }
+            frames += 1;
+            WATCHDOG_FRAMES.store(frames, core::sync::atomic::Ordering::Relaxed);
+            if debug {
+                crate::heap::note_peak();
+                let now = clock_ticks_us(ptr::null_mut());
+                worst = worst.max(now.saturating_sub(last_frame));
+                last_frame = now;
+                if frames % REPORT_EVERY == 0 {
+                    let (used, peak, heap) = crate::heap::usage();
+                    let window = now.saturating_sub(window_start).max(1);
+                    let per = |us: u64| us as f64 / 1000.0 / REPORT_EVERY as f64;
+                    let text = alloc::format!(
+                        "frame {frames}: {:.1} fps over the last {REPORT_EVERY} frames, slowest frame {:.1} ms\n\
+                         per frame: {:.1} ms scripts, {:.1} ms motions and text, {:.1} ms drawing\n\
+                         stages (ms per frame):{}\n\
+                         sprites per frame: {} drawn, {} skipped; textures failed: {} (last {:?})\n\
+                         controller: stick {:?}, cursor {:?} shown {}, buttons seen {:#x} from frame {}\n\
+                         heap: {} KiB used, {} KiB at most, of {} KiB\n\nlog:\n{}",
+                        REPORT_EVERY as f64 * 1_000_000.0 / window as f64,
+                        worst as f64 / 1000.0,
+                        per(vm_us),
+                        per(scene_us),
+                        per(render_us),
+                        stage_report(REPORT_EVERY),
+                        DRAWN / REPORT_EVERY,
+                        SKIPPED / REPORT_EVERY,
+                        CREATE_FAILED,
+                        LAST_CREATE_FAIL,
+                        LAST_STICK,
+                        (*core::ptr::addr_of!(INPUT)).cursor(),
+                        (*core::ptr::addr_of!(INPUT)).cursor_shown(),
+                        BUTTONS_SEEN,
+                        FIRST_BUTTON_FRAME,
+                        used / 1024,
+                        peak / 1024,
+                        heap / 1024,
+                        rfvp::ring_log::dump()
+                    );
+                    write_file("debug_report.txt", text.as_bytes());
+                    write_file("debug_sprites.txt", (*core::ptr::addr_of!(SPRITE_LOG)).as_bytes());
+                    write_file("debug_threads.txt", app.core().debug_threads().as_bytes());
+                    vm_us = 0;
+                    DRAWN = 0;
+                    SKIPPED = 0;
+                    scene_us = 0;
+                    render_us = 0;
+                    if frames % 100 == 0 {
+                        let name = alloc::format!("debug_screen_{:03}.bmp", frames / 100);
+                        write_file(&name, &screen_bmp());
+                    }
+                    window_start = now;
+                    worst = 0;
+                }
             }
         }
 
@@ -174,6 +294,33 @@ unsafe fn platform_fini() {
     renderer_shutdown(ptr::null_mut());
 }
 
+/// Debug clicks from debug.txt: (x, y, frame).
+static mut DEBUG_CLICKS: Vec<(i32, i32, u32)> = Vec::new();
+static mut POLL_FRAME: u32 = 0;
+
+fn parse_click(text: &str) -> Option<(i32, i32, u32)> {
+    let (at, frame) = text.split_once('@')?;
+    let (x, y) = at.split_once(',')?;
+    Some((x.trim().parse().ok()?, y.trim().parse().ok()?, frame.trim().parse().ok()?))
+}
+
+/// Send the debug clicks due this frame: the cursor moves there ten frames before, the button
+/// goes down on the frame and up three frames later.
+unsafe fn push_debug_clicks(app: &mut PspApp) -> Result<(), rfvp::host_api::RfvpError> {
+    let frame = POLL_FRAME;
+    POLL_FRAME += 1;
+    for &(x, y, at) in (*core::ptr::addr_of!(DEBUG_CLICKS)).iter() {
+        if frame + 10 == at {
+            app.push_pointer_move_physical(x, y)?;
+        } else if frame == at {
+            app.push_pointer_down_physical(rfvp::host_api::PointerButton::Left, x, y)?;
+        } else if frame == at + 3 {
+            app.push_pointer_up_physical(rfvp::host_api::PointerButton::Left, x, y)?;
+        }
+    }
+    Ok(())
+}
+
 unsafe fn platform_poll(app: &mut PspApp) -> i32 {
     let mut data = MaybeUninit::<sys::SceCtrlData>::zeroed();
     let status = sys::sceCtrlReadBufferPositive(data.as_mut_ptr(), 1);
@@ -181,63 +328,38 @@ unsafe fn platform_poll(app: &mut PspApp) -> i32 {
         return PspStatus::Backend.as_i32();
     }
     let data = data.assume_init();
-    let buttons = data.buttons;
-    let prev = PREV_BUTTONS;
-    for status in [
-        push_button(app, prev, buttons, sys::CtrlButtons::CROSS, 1),
-        push_button(app, prev, buttons, sys::CtrlButtons::CIRCLE, 2),
-        push_button(app, prev, buttons, sys::CtrlButtons::TRIANGLE, 3),
-        push_button(app, prev, buttons, sys::CtrlButtons::SQUARE, 4),
-        push_button(app, prev, buttons, sys::CtrlButtons::LEFT, 5),
-        push_button(app, prev, buttons, sys::CtrlButtons::RIGHT, 6),
-        push_button(app, prev, buttons, sys::CtrlButtons::UP, 7),
-        push_button(app, prev, buttons, sys::CtrlButtons::DOWN, 8),
-        push_button(app, prev, buttons, sys::CtrlButtons::LTRIGGER, 9),
-        push_button(app, prev, buttons, sys::CtrlButtons::RTRIGGER, 10),
-    ] {
-        if let Err(status) = status {
-            return status;
+    if let Err(err) = push_debug_clicks(app) {
+        return rfvp_error_to_status(err);
+    }
+    let input = &mut *core::ptr::addr_of_mut!(INPUT);
+    let mut events = Vec::new();
+    input.poll(data.buttons.bits(), data.lx, data.ly, &mut events);
+    LAST_STICK = (data.lx, data.ly, data.buttons.bits());
+    if data.buttons.bits() != 0 {
+        BUTTONS_SEEN |= data.buttons.bits();
+        if FIRST_BUTTON_FRAME == u32::MAX {
+            FIRST_BUTTON_FRAME = POLL_FRAME;
         }
     }
-    if !prev.contains(sys::CtrlButtons::START) && buttons.contains(sys::CtrlButtons::START) {
-        if let Err(err) = app.push_event(rfvp::host_api::RfvpEvent::Quit) {
+    for event in events {
+        // Pointer positions are in screen pixels; the game wants its own coordinates.
+        let pushed = match event {
+            rfvp::host_api::RfvpEvent::PointerMove { x, y, .. } => {
+                app.push_pointer_move_physical(x, y)
+            }
+            rfvp::host_api::RfvpEvent::PointerDown { button, x, y } => {
+                app.push_pointer_down_physical(button, x, y)
+            }
+            rfvp::host_api::RfvpEvent::PointerUp { button, x, y } => {
+                app.push_pointer_up_physical(button, x, y)
+            }
+            other => app.push_event(other),
+        };
+        if let Err(err) = pushed {
             return rfvp_error_to_status(err);
         }
     }
-    PREV_BUTTONS = buttons;
     PspStatus::Ok.as_i32()
-}
-
-unsafe fn push_button(
-    app: &mut PspApp,
-    prev: sys::CtrlButtons,
-    now: sys::CtrlButtons,
-    button: sys::CtrlButtons,
-    key_id: u32,
-) -> Result<(), i32> {
-    let was = prev.contains(button);
-    let is = now.contains(button);
-    if was != is {
-        app.push_key(key_from_psp_id(key_id), is)
-            .map_err(rfvp_error_to_status)?;
-    }
-    Ok(())
-}
-
-fn key_from_psp_id(key_id: u32) -> rfvp::host_api::KeyCode {
-    match key_id {
-        1 => rfvp::host_api::KeyCode::Return,
-        2 => rfvp::host_api::KeyCode::Escape,
-        3 => rfvp::host_api::KeyCode::Space,
-        4 => rfvp::host_api::KeyCode::Backspace,
-        5 => rfvp::host_api::KeyCode::Left,
-        6 => rfvp::host_api::KeyCode::Right,
-        7 => rfvp::host_api::KeyCode::Up,
-        8 => rfvp::host_api::KeyCode::Down,
-        9 => rfvp::host_api::KeyCode::PageUp,
-        10 => rfvp::host_api::KeyCode::PageDown,
-        other => rfvp::host_api::KeyCode::Unknown(other),
-    }
 }
 
 unsafe extern "C" fn fs_open(
@@ -398,6 +520,174 @@ unsafe extern "C" fn fs_enumerate_by_extension(
     enumerate_dir(root, extension, visitor_ctx, visitor)
 }
 
+/// Names of the files directly in `dir` (relative to the working directory, "" for itself).
+pub fn list_files(dir: &str) -> Result<Vec<String>, i32> {
+    let dir = if dir.is_empty() { "." } else { dir.trim_end_matches('/') };
+    let Some(path) = c_path(dir.as_ptr(), dir.len()) else {
+        return Err(PspStatus::InvalidArgument.as_i32());
+    };
+    let mut names = Vec::new();
+    unsafe {
+        let handle = sys::sceIoDopen(path.as_ptr());
+        if handle.0 < 0 {
+            return Err(PspStatus::NotFound.as_i32());
+        }
+        loop {
+            let mut entry = MaybeUninit::<sys::SceIoDirent>::zeroed();
+            if sys::sceIoDread(handle, entry.as_mut_ptr()) <= 0 {
+                break;
+            }
+            let entry = entry.assume_init();
+            if stat_to_info(entry.d_stat).kind == RawFileKind::File {
+                names.push(String::from(dirent_name(&entry)));
+            }
+        }
+        let _ = sys::sceIoDclose(handle);
+    }
+    Ok(names)
+}
+
+/// Written next to the EBOOT when the game cannot start or stops, so the reason can be read off
+/// the memory stick.
+unsafe fn report_error(app: &PspApp, what: &str, err: rfvp::host_api::RfvpError) {
+    let text = alloc::format!(
+        "{what} ({err:?})\n{}\n\nlog:\n{}",
+        app.core().last_error_detail().unwrap_or(""),
+        rfvp::ring_log::dump()
+    );
+    write_file("last_error.txt", text.as_bytes());
+}
+
+/// A small file's text, or empty when it is missing.
+unsafe fn read_small_file(path: &[u8]) -> String {
+    let fd = sys::sceIoOpen(path.as_ptr(), sys::IoOpenFlags::RD_ONLY, 0);
+    if fd.0 < 0 {
+        return String::new();
+    }
+    let mut buf = [0u8; 256];
+    let n = sys::sceIoRead(fd, buf.as_mut_ptr().cast(), buf.len() as u32);
+    sys::sceIoClose(fd);
+    String::from_utf8_lossy(&buf[..n.max(0) as usize]).into_owned()
+}
+
+unsafe fn file_exists(path: &[u8]) -> bool {
+    let mut stat = MaybeUninit::<sys::SceIoStat>::zeroed();
+    sys::sceIoGetstat(path.as_ptr(), stat.as_mut_ptr()) >= 0
+}
+
+unsafe fn write_file(path: &str, bytes: &[u8]) {
+    let _ = fs_write_all(ptr::null_mut(), path.as_ptr(), path.len(), bytes.as_ptr(), bytes.len());
+}
+
+/// The frame on screen as a 32-bit BMP, for the debug report.
+static WATCHDOG_FRAMES: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
+/// Debug: a thread that writes `stall.txt` (where the core is, without allocating) when no
+/// frame has finished for three seconds.
+unsafe fn start_watchdog() {
+    unsafe extern "C" fn watchdog(_args: usize, _argp: *mut c_void) -> i32 {
+        let mut last = u32::MAX;
+        let mut still = 0;
+        loop {
+            sys::sceKernelDelayThread(500_000);
+            let now = WATCHDOG_FRAMES.load(core::sync::atomic::Ordering::Relaxed);
+            if now != last {
+                last = now;
+                still = 0;
+                continue;
+            }
+            still += 1;
+            if still == 6 {
+                let mut buf = [0u8; 128];
+                let mut len = 0;
+                for (label, value) in [
+                    ("stalled at frame ", now),
+                    (", core mark ", rfvp::perf::last_mark()),
+                ] {
+                    for b in label.bytes() {
+                        buf[len] = b;
+                        len += 1;
+                    }
+                    let mut digits = [0u8; 10];
+                    let (mut n, mut count) = (value, 0);
+                    loop {
+                        digits[count] = b'0' + (n % 10) as u8;
+                        count += 1;
+                        n /= 10;
+                        if n == 0 {
+                            break;
+                        }
+                    }
+                    while count > 0 {
+                        count -= 1;
+                        buf[len] = digits[count];
+                        len += 1;
+                    }
+                }
+                let fd = sys::sceIoOpen(
+                    b"stall.txt\0".as_ptr(),
+                    sys::IoOpenFlags::WR_ONLY | sys::IoOpenFlags::CREAT | sys::IoOpenFlags::TRUNC,
+                    0o777,
+                );
+                if fd.0 >= 0 {
+                    sys::sceIoWrite(fd, buf.as_ptr().cast(), len);
+                    sys::sceIoClose(fd);
+                }
+            }
+        }
+    }
+    let id = sys::sceKernelCreateThread(
+        b"rfvp_watchdog\0".as_ptr(),
+        watchdog,
+        8,
+        8 * 1024,
+        sys::ThreadAttributes::USER,
+        ptr::null_mut(),
+    );
+    if id.0 >= 0 {
+        sys::sceKernelStartThread(id, 0, ptr::null_mut());
+    }
+}
+
+fn stage_report(frames: u32) -> String {
+    let mut text = String::new();
+    for (name, us) in rfvp::perf::STAGES.iter().zip(rfvp::perf::take()) {
+        if us >= frames * 50 {
+            text += &alloc::format!(" {name} {:.1}", us as f64 / 1000.0 / frames as f64);
+        }
+    }
+    text
+}
+
+unsafe fn screen_bmp() -> Vec<u8> {
+    let mut top: *mut c_void = ptr::null_mut();
+    let mut width = 0usize;
+    let mut format = sys::DisplayPixelFormat::Psm8888;
+    sys::sceDisplayGetFrameBuf(&mut top, &mut width, &mut format, sys::DisplaySetBufSync::Immediate);
+    let (w, h) = (SCREEN_W as usize, SCREEN_H as usize);
+    let mut bmp = Vec::with_capacity(54 + w * h * 4);
+    bmp.extend_from_slice(b"BM");
+    bmp.extend_from_slice(&((54 + w * h * 4) as u32).to_le_bytes());
+    bmp.extend_from_slice(&0u32.to_le_bytes());
+    bmp.extend_from_slice(&54u32.to_le_bytes());
+    bmp.extend_from_slice(&40u32.to_le_bytes());
+    bmp.extend_from_slice(&(w as i32).to_le_bytes());
+    bmp.extend_from_slice(&(-(h as i32)).to_le_bytes());
+    bmp.extend_from_slice(&1u16.to_le_bytes());
+    bmp.extend_from_slice(&32u16.to_le_bytes());
+    bmp.extend_from_slice(&[0; 24]);
+    // Read through the uncached mirror: the GPU wrote it.
+    let base = ((top as usize) | 0x4000_0000) as *const u32;
+    for y in 0..h {
+        for x in 0..w {
+            let p = ptr::read_volatile(base.add(y * width.max(w) + x));
+            let [r, g, b, _] = p.to_le_bytes();
+            bmp.extend_from_slice(&[b, g, r, 255]);
+        }
+    }
+    bmp
+}
+
 unsafe fn enumerate_dir(
     root: &str,
     extension: &str,
@@ -489,11 +779,11 @@ unsafe extern "C" fn renderer_init(_ctx: *mut c_void, width: u32, height: u32) -
 }
 
 unsafe extern "C" fn renderer_shutdown(_ctx: *mut c_void) {
-    let mut index = 0;
-    while index < MAX_TEXTURES {
-        free_texture(&mut *core::ptr::addr_of_mut!(TEXTURES[index]));
-        index += 1;
+    let textures = &mut *core::ptr::addr_of_mut!(TEXTURES);
+    for slot in textures.values_mut() {
+        free_texture(slot);
     }
+    textures.clear();
     if RENDERER_INITIALIZED {
         sys::sceGuDisplay(false);
         sys::sceGuTerm();
@@ -502,6 +792,22 @@ unsafe extern "C" fn renderer_shutdown(_ctx: *mut c_void) {
 }
 
 unsafe extern "C" fn renderer_create_texture(
+    ctx: *mut c_void,
+    texture_id: u32,
+    desc: RawTextureDesc,
+    pixels: *const u8,
+    pixels_len: usize,
+    stride: usize,
+) -> i32 {
+    let status = create_texture_inner(ctx, texture_id, desc, pixels, pixels_len, stride);
+    if status != PspStatus::Ok.as_i32() {
+        CREATE_FAILED += 1;
+        LAST_CREATE_FAIL = (texture_id, desc.width, desc.height, status);
+    }
+    status
+}
+
+unsafe fn create_texture_inner(
     _ctx: *mut c_void,
     texture_id: u32,
     desc: RawTextureDesc,
@@ -509,22 +815,31 @@ unsafe extern "C" fn renderer_create_texture(
     pixels_len: usize,
     stride: usize,
 ) -> i32 {
-    let Some(slot) = texture_slot_mut(texture_id) else {
-        return PspStatus::InvalidArgument.as_i32();
-    };
+    let slot = (*core::ptr::addr_of_mut!(TEXTURES))
+        .entry(texture_id)
+        .or_insert(TextureSlot::empty());
     if desc.width == 0 || desc.height == 0 || desc.mip_count > 1 {
         return PspStatus::Unsupported.as_i32();
     }
     let Some(bpp) = texture_bpp(desc.format) else {
         return PspStatus::Unsupported.as_i32();
     };
-    let width = next_pow2(desc.width);
-    let height = next_pow2(desc.height);
-    if width > MAX_TEX_SIZE || height > MAX_TEX_SIZE {
-        return PspStatus::Unsupported.as_i32();
+    // The GE samples at most 512x512: store bigger pictures halved until they fit. Texture
+    // coordinates are normalized, so drawing does not change.
+    let mut shift = 0;
+    while next_pow2(desc.width >> shift) > MAX_TEX_SIZE || next_pow2(desc.height >> shift) > MAX_TEX_SIZE {
+        shift += 1;
     }
+    let stored_w = (desc.width >> shift).max(1);
+    let stored_h = (desc.height >> shift).max(1);
+    let width = next_pow2(stored_w);
+    let height = next_pow2(stored_h);
+    // Room for one transparent column and row past the picture, which filtering at its edge
+    // reads; the GE wants rows of a multiple of 4 pixels.
+    let row_pixels = ((stored_w + 1).min(width) + 3) & !3;
+    let rows = (stored_h + 1).min(height);
     free_texture(slot);
-    let bytes_len = width as usize * height as usize * 4;
+    let bytes_len = row_pixels as usize * rows as usize * 4;
     let Ok(layout) = Layout::from_size_align(bytes_len, 16) else {
         return PspStatus::OutOfMemory.as_i32();
     };
@@ -532,10 +847,15 @@ unsafe extern "C" fn renderer_create_texture(
     if data.is_null() {
         return PspStatus::OutOfMemory.as_i32();
     }
-    ptr::write_bytes(data, 0, width as usize * height as usize);
+    ptr::write_bytes(data, 0, row_pixels as usize * rows as usize);
     *slot = TextureSlot {
         width,
         height,
+        stride: row_pixels,
+        rows,
+        logical_w: desc.width,
+        logical_h: desc.height,
+        shift,
         format: desc.format,
         pixels: data,
         bytes_len,
@@ -591,8 +911,8 @@ unsafe extern "C" fn renderer_update_texture(
 }
 
 unsafe extern "C" fn renderer_destroy_texture(_ctx: *mut c_void, texture_id: u32) {
-    if let Some(slot) = texture_slot_mut(texture_id) {
-        free_texture(slot);
+    if let Some(mut slot) = (*core::ptr::addr_of_mut!(TEXTURES)).remove(&texture_id) {
+        free_texture(&mut slot);
     }
 }
 
@@ -610,6 +930,7 @@ unsafe extern "C" fn renderer_begin_frame(
     }
     FRAME_W = width.max(1);
     FRAME_H = height.max(1);
+    (*core::ptr::addr_of_mut!(SPRITE_LOG)).clear();
     sys::sceGuStart(
         sys::GuContextType::Direct,
         core::ptr::addr_of_mut!(GU_LIST.0).cast(),
@@ -632,12 +953,27 @@ unsafe extern "C" fn renderer_draw_sprite(
         return PspStatus::InvalidArgument.as_i32();
     }
     let command = &*command;
-    let Some(texture) = texture_slot(command.texture_id) else {
-        return PspStatus::InvalidArgument.as_i32();
+    // A texture that failed to load (out of memory) is skipped rather than stopping the game.
+    let Some(texture) = texture_slot(command.texture_id).filter(|t| t.is_live()) else {
+        SKIPPED += 1;
+        return PspStatus::Ok.as_i32();
     };
-    if !texture.is_live() {
-        return PspStatus::InvalidArgument.as_i32();
+    DRAWN += 1;
+    {
+        let v = &command.vertices;
+        let log = &mut *core::ptr::addr_of_mut!(SPRITE_LOG);
+        if log.len() < 4000 {
+            *log += &alloc::format!(
+                "tex {} {}x{} at ({:.0},{:.0})-({:.0},{:.0}) uv ({:.2},{:.2})-({:.2},{:.2}) rgba {:?} {:?}\n",
+                command.texture_id, texture.logical_w, texture.logical_h,
+                v[0].position[0], v[0].position[1], v[3].position[0], v[3].position[1],
+                v[0].tex_coord[0], v[0].tex_coord[1], v[3].tex_coord[0], v[3].tex_coord[1],
+                v[0].color, command.blend,
+            );
+        }
     }
+    let u_scale = texture.logical_w as f32 / (1u32 << texture.shift) as f32;
+    let v_scale = texture.logical_h as f32 / (1u32 << texture.shift) as f32;
     let status = set_blend(command.blend);
     if status != PspStatus::Ok.as_i32() {
         return status;
@@ -649,7 +985,7 @@ unsafe extern "C" fn renderer_draw_sprite(
         sys::MipmapLevel::None,
         texture.width as i32,
         texture.height as i32,
-        texture.width as i32,
+        texture.stride as i32,
         texture.pixels.cast::<c_void>(),
     );
     sys::sceGuTexFunc(
@@ -669,8 +1005,8 @@ unsafe extern "C" fn renderer_draw_sprite(
     }
     for (index, src) in command.vertices.iter().enumerate() {
         let dst = vertices.add(index);
-        (*dst).u = src.tex_coord[0] * texture.width as f32;
-        (*dst).v = src.tex_coord[1] * texture.height as f32;
+        (*dst).u = src.tex_coord[0] * u_scale;
+        (*dst).v = src.tex_coord[1] * v_scale;
         (*dst).color = pack_color(src.color);
         (*dst).x = scale_x(src.position[0]);
         (*dst).y = scale_y(src.position[1]);
@@ -703,7 +1039,9 @@ unsafe extern "C" fn renderer_draw_solid(
     }
     set_scissor(command.has_scissor != 0, command.scissor);
     sys::sceGuDisable(sys::GuState::Texture2D);
-    let vertices = sys::sceGuGetMemory((4 * size_of::<PspVertex>()) as i32).cast::<PspVertex>();
+    // Color and position only: the vertex type below has no texture coordinates.
+    let vertices =
+        sys::sceGuGetMemory((4 * size_of::<PspColorVertex>()) as i32).cast::<PspColorVertex>();
     if vertices.is_null() {
         return PspStatus::OutOfMemory.as_i32();
     }
@@ -714,13 +1052,12 @@ unsafe extern "C" fn renderer_draw_solid(
     let color = pack_color(command.color);
     let points = [(x0, y0), (x1, y0), (x0, y1), (x1, y1)];
     for (index, (x, y)) in points.iter().copied().enumerate() {
-        let dst = vertices.add(index);
-        (*dst).u = 0.0;
-        (*dst).v = 0.0;
-        (*dst).color = color;
-        (*dst).x = x;
-        (*dst).y = y;
-        (*dst).z = 0.0;
+        *vertices.add(index) = PspColorVertex {
+            color,
+            x,
+            y,
+            z: 0.0,
+        };
     }
     sys::sceGuDrawArray(
         sys::GuPrimitive::TriangleStrip,
@@ -736,6 +1073,10 @@ unsafe extern "C" fn renderer_draw_solid(
 }
 
 unsafe extern "C" fn renderer_end_frame(_ctx: *mut c_void) -> i32 {
+    let input = &*core::ptr::addr_of!(INPUT);
+    if input.cursor_shown() {
+        draw_cursor(input.cursor());
+    }
     sys::sceGuFinish();
     sys::sceGuSync(sys::GuSyncMode::Finish, sys::GuSyncBehavior::Wait);
     PspStatus::Ok.as_i32()
@@ -837,7 +1178,7 @@ unsafe fn upload_texture_pixels(
     stride: usize,
     bpp: usize,
 ) -> i32 {
-    if width == 0 || height == 0 || x + width > slot.width || y + height > slot.height {
+    if width == 0 || height == 0 || x + width > slot.logical_w || y + height > slot.logical_h {
         return PspStatus::InvalidArgument.as_i32();
     }
     let row_stride = if stride == 0 {
@@ -851,13 +1192,33 @@ unsafe fn upload_texture_pixels(
     if pixels_len < row_stride.saturating_mul(height as usize) {
         return PspStatus::InvalidArgument.as_i32();
     }
-    for row in 0..height as usize {
-        let src = pixels.add(row * row_stride);
-        let dst = slot
-            .pixels
-            .add((y as usize + row) * slot.width as usize + x as usize);
-        for col in 0..width as usize {
-            *dst.add(col) = convert_pixel(slot.format, src.add(col * bpp));
+    if slot.shift == 0 {
+        for row in 0..height as usize {
+            let src = pixels.add(row * row_stride);
+            let dst = slot
+                .pixels
+                .add((y as usize + row) * slot.stride as usize + x as usize);
+            for col in 0..width as usize {
+                *dst.add(col) = convert_pixel(slot.format, src.add(col * bpp));
+            }
+        }
+    } else {
+        // Point-sample the stored texels covered by the rectangle.
+        let s = slot.shift;
+        let stored_w = (slot.logical_w >> s).max(1).min(slot.stride);
+        let stored_h = (slot.logical_h >> s).max(1).min(slot.rows);
+        let dx0 = x >> s;
+        let dy0 = y >> s;
+        let dx1 = ((x + width + (1 << s) - 1) >> s).min(stored_w);
+        let dy1 = ((y + height + (1 << s) - 1) >> s).min(stored_h);
+        for dy in dy0..dy1 {
+            let sy = ((dy << s).max(y) - y).min(height - 1) as usize;
+            let src = pixels.add(sy * row_stride);
+            let dst = slot.pixels.add(dy as usize * slot.stride as usize);
+            for dx in dx0..dx1 {
+                let sx = ((dx << s).max(x) - x).min(width - 1) as usize;
+                *dst.add(dx as usize) = convert_pixel(slot.format, src.add(sx * bpp));
+            }
         }
     }
     sys::sceKernelDcacheWritebackInvalidateRange(
@@ -895,19 +1256,11 @@ unsafe fn free_texture(slot: &mut TextureSlot) {
 }
 
 unsafe fn texture_slot_mut(texture_id: u32) -> Option<&'static mut TextureSlot> {
-    if texture_id as usize >= MAX_TEXTURES {
-        None
-    } else {
-        Some(&mut TEXTURES[texture_id as usize])
-    }
+    (*core::ptr::addr_of_mut!(TEXTURES)).get_mut(&texture_id)
 }
 
 unsafe fn texture_slot(texture_id: u32) -> Option<TextureSlot> {
-    if texture_id as usize >= MAX_TEXTURES {
-        None
-    } else {
-        Some(TEXTURES[texture_id as usize])
-    }
+    (*core::ptr::addr_of!(TEXTURES)).get(&texture_id).copied()
 }
 
 unsafe fn set_blend(blend: RawBlendMode) -> i32 {
@@ -938,7 +1291,29 @@ unsafe fn set_blend(blend: RawBlendMode) -> i32 {
             );
             PspStatus::Ok.as_i32()
         }
-        RawBlendMode::Multiply | RawBlendMode::Screen => PspStatus::Unsupported.as_i32(),
+        // The GE has no alpha-aware multiply or screen; these ignore the source alpha.
+        RawBlendMode::Multiply => {
+            sys::sceGuEnable(sys::GuState::Blend);
+            sys::sceGuBlendFunc(
+                sys::BlendOp::Add,
+                sys::BlendFactor::Color,
+                sys::BlendFactor::Fix,
+                0,
+                0,
+            );
+            PspStatus::Ok.as_i32()
+        }
+        RawBlendMode::Screen => {
+            sys::sceGuEnable(sys::GuState::Blend);
+            sys::sceGuBlendFunc(
+                sys::BlendOp::Add,
+                sys::BlendFactor::OneMinusColor,
+                sys::BlendFactor::Fix,
+                0,
+                0x00ff_ffff,
+            );
+            PspStatus::Ok.as_i32()
+        }
     }
 }
 
@@ -960,6 +1335,52 @@ fn scale_x(x: f32) -> f32 {
 
 fn scale_y(y: f32) -> f32 {
     unsafe { y * SCREEN_H as f32 / FRAME_H.max(1) as f32 }
+}
+
+#[repr(C)]
+struct PspColorVertex {
+    color: u32,
+    x: f32,
+    y: f32,
+    z: f32,
+}
+
+/// The stick's cursor, over the frame: the engine draws none on consoles. An arrow, white with
+/// a black edge, its tip at `(x, y)` in screen pixels.
+unsafe fn draw_cursor((x, y): (i32, i32)) {
+    let (x, y) = (x as f32, y as f32);
+    let triangles = [
+        (sys::rgba(0, 0, 0, 255), [(x - 1.0, y - 2.0), (x - 1.0, y + 17.0), (x + 13.0, y + 12.0)]),
+        (sys::rgba(255, 255, 255, 255), [(x, y), (x, y + 14.0), (x + 10.0, y + 10.0)]),
+    ];
+    let vertices =
+        sys::sceGuGetMemory((6 * size_of::<PspColorVertex>()) as i32).cast::<PspColorVertex>();
+    if vertices.is_null() {
+        return;
+    }
+    let mut index = 0;
+    for (color, points) in triangles {
+        for (px, py) in points {
+            *vertices.add(index) = PspColorVertex {
+                color,
+                x: px,
+                y: py,
+                z: 0.0,
+            };
+            index += 1;
+        }
+    }
+    sys::sceGuDisable(sys::GuState::Texture2D);
+    sys::sceGuDisable(sys::GuState::Blend);
+    sys::sceGuScissor(0, 0, SCREEN_W as i32, SCREEN_H as i32);
+    sys::sceGuDrawArray(
+        sys::GuPrimitive::Triangles,
+        sys::VertexType::COLOR_8888 | sys::VertexType::VERTEX_32BITF | sys::VertexType::TRANSFORM_2D,
+        6,
+        ptr::null(),
+        vertices.cast::<c_void>(),
+    );
+    sys::sceGuEnable(sys::GuState::Texture2D);
 }
 
 fn pack_color(color: RawColorRgba) -> u32 {

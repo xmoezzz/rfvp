@@ -1,0 +1,19 @@
+{
+  "arch": "mips64",
+  "cpu": "mips3",
+  "features": "+mips3,+single-float,+noabicalls",
+  "llvm-target": "mips64el-unknown-none-gnuabin32",
+  "llvm-abiname": "n32",
+  "data-layout": "e-m:e-p:32:32-i8:8:32-i16:16:32-i64:64-i128:128-n32:64-S128",
+  "target-pointer-width": "32",
+  "target-c-int-width": 32,
+  "max-atomic-width": 32,
+  "singlethread": true,
+  "panic-strategy": "abort",
+  "relocation-model": "static",
+  "os": "none",
+  "vendor": "sony",
+  "linker-flavor": "gnu-cc",
+  "executables": true,
+  "emit-debug-gdb-scripts": false
+}

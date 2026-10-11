@@ -1,0 +1,17 @@
+[package]
+name = "rfvp-wiiu"
+version = "0.1.0"
+edition = "2021"
+description = "Wii U host crate for rfvp no_std core"
+license = "MPL-2.0"
+publish = false
+
+[lib]
+name = "rfvp_wiiu"
+path = "src/lib.rs"
+# Linked into the wut runtime (platform/wiiu/runtime/main.c) by platform/wiiu/build_wiiu.sh.
+crate-type = ["staticlib"]
+
+[dependencies]
+# The game as it is, at full resolution: a Wii U application has hundreds of MiB.
+rfvp = { path = "../../../crates/rfvp", default-features = false, features = ["no_std"] }

@@ -6,7 +6,9 @@ use alloc::vec::Vec;
 use anyhow::Result;
 
 use super::{AudioBackend, SoundSource, Tween};
-use crate::host_api::{AudioParams, AudioStreamDesc, AudioStreamId, EncodedAudioKind};
+use crate::host_api::{
+    AudioByteStream, AudioParams, AudioStreamDesc, AudioStreamId, EncodedAudioKind,
+};
 use crate::subsystem::resources::vfs::Vfs;
 use crate::utils::stable_hash::StableHashSet;
 // `std` is the crate's own shim in `no_std` builds.
@@ -18,6 +20,12 @@ pub enum AudioCommand {
         id: AudioStreamId,
         kind: EncodedAudioKind,
         bytes: Vec<u8>,
+    },
+    /// A long sound (music), read from its file as it plays: see [`STREAM_FROM_BYTES`].
+    LoadStream {
+        id: AudioStreamId,
+        kind: EncodedAudioKind,
+        stream: AudioByteStream,
     },
     CreateStream {
         id: AudioStreamId,
@@ -58,6 +66,15 @@ pub enum AudioCommand {
     },
 }
 
+/// Sounds at least this long (in bytes) are streamed rather than read whole: the music of some
+/// games runs to megabytes, which a console with little memory cannot hold.
+#[cfg(not(feature = "psx"))]
+pub const STREAM_FROM_BYTES: u64 = 1024 * 1024;
+/// On the PlayStation every sound goes to the host as a stream: it copies sounds to sound RAM
+/// a piece at a time, which keeps them out of the 2 MiB main RAM.
+#[cfg(feature = "psx")]
+pub const STREAM_FROM_BYTES: u64 = 0;
+
 #[derive(Default)]
 struct State {
     commands: Vec<AudioCommand>,
@@ -90,8 +107,20 @@ impl CommandBackend {
 
 impl AudioBackend for CommandBackend {
     fn load(&self, id: AudioStreamId, source: &SoundSource, vfs: &Vfs) -> Result<()> {
-        let bytes = source.read(vfs)?;
         let kind = source.encoded_kind();
+        if let SoundSource::Named(name) = source {
+            let (stream, len) = vfs.open_stream_with_len(name)?;
+            if len.is_some_and(|len| len >= STREAM_FROM_BYTES) {
+                let stream = AudioByteStream::new(stream);
+                self.with(|state| {
+                    state
+                        .commands
+                        .push(AudioCommand::LoadStream { id, kind, stream })
+                });
+                return Ok(());
+            }
+        }
+        let bytes = source.read(vfs)?;
         self.with(|state| {
             state
                 .commands

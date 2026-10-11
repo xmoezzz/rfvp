@@ -91,8 +91,10 @@ impl VmRunner {
             && !game.save_manager.has_pending_vm_snapshot()
         {
             uefi_vm_stage!("[UEFI] VmRunner::tick before capture_snapshot_v1 pre");
+            let started = crate::perf::start();
             let snap = self.tm.capture_snapshot_v1();
             game.save_manager.set_pending_vm_snapshot(snap);
+            crate::perf::stop(21, started);
             uefi_vm_stage!("[UEFI] VmRunner::tick after capture_snapshot_v1 pre");
         }
 
@@ -205,8 +207,10 @@ impl VmRunner {
         // If a save capture is pending, snapshot VM state after the tick so the render thread
         // can serialize a consistent coroutine state for this frame.
         if game.save_manager.wants_vm_snapshot_capture() {
+            let started = crate::perf::start();
             let snap = self.tm.capture_snapshot_v1();
             game.save_manager.set_pending_vm_snapshot(snap);
+            crate::perf::stop(21, started);
         }
 
         #[cfg(not(feature = "no_std"))]

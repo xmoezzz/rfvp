@@ -100,11 +100,7 @@ impl SaveItem {
     }
 
     fn decode_bytes(nls: Nls, bytes: &[u8]) -> String {
-        match nls {
-            Nls::ShiftJIS => encoding_rs::SHIFT_JIS.decode(bytes).0.to_string(),
-            Nls::GBK => encoding_rs::GBK.decode(bytes).0.to_string(),
-            Nls::UTF8 => encoding_rs::UTF_8.decode(bytes).0.to_string(),
-        }
+        crate::text_codec::decode(nls, bytes).0
     }
 
     /// The header of a slot file. `buf` may be only the head of the file.
@@ -151,10 +147,18 @@ impl SaveItem {
             let len = u16::from_le_bytes(take(buf, &mut cur, 2)?.try_into().unwrap()) as usize;
             take(buf, &mut cur, len)?;
         }
-        let thumb_size = (width as usize)
-            .saturating_mul(height as usize)
-            .saturating_mul(4);
-        Ok(take(buf, &mut cur, thumb_size)?.to_vec())
+        #[cfg(feature = "psx")]
+        {
+            let packed = take(buf, &mut cur, psx_thumb::encoded_len(width, height))?;
+            return Ok(psx_thumb::decode(packed, width, height));
+        }
+        #[cfg(not(feature = "psx"))]
+        {
+            let thumb_size = (width as usize)
+                .saturating_mul(height as usize)
+                .saturating_mul(4);
+            Ok(take(buf, &mut cur, thumb_size)?.to_vec())
+        }
     }
 }
 
@@ -191,7 +195,8 @@ pub struct SaveManager {
     save_requested: bool,
     savedata_prepared: bool,
     should_load: bool,
-    slots: Vec<Option<SaveItem>>,
+    /// Boxed: most of the 1000 slots are empty.
+    slots: Vec<Option<Box<SaveItem>>>,
     pending_vm_snapshot: Option<ThreadManagerSnapshotV1>,
     /// Request to prepare an in-memory save payload (original engine: local_saved).
     need_save_prepare: bool,
@@ -392,7 +397,7 @@ impl SaveManager {
     }
 
     fn item(&self, slot: u32) -> Option<&SaveItem> {
-        self.slots.get(slot as usize)?.as_ref()
+        self.slots.get(slot as usize)?.as_deref()
     }
 
     pub fn get_save_thumb(&self, slot: u32, width: u32, height: u32) -> Result<Vec<u8>> {
@@ -510,13 +515,13 @@ impl SaveManager {
             }
             Err(err) => return Err(err),
         };
-        self.slots[slot as usize] = Some(item);
+        self.slots[slot as usize] = Some(Box::new(item));
         Ok(())
     }
 
     pub fn load_save_buff(&mut self, slot: u32, nls: Nls, cache: &Vec<u8>) -> Result<()> {
         let save_item = SaveItem::load_from_mem(cache, nls)?;
-        self.slots[slot as usize] = Some(save_item);
+        self.slots[slot as usize] = Some(Box::new(save_item));
         Ok(())
     }
 
@@ -591,7 +596,7 @@ impl SaveManager {
         let expected = (thumb_w as usize)
             .saturating_mul(thumb_h as usize)
             .saturating_mul(4);
-        if thumb_rgba.len() != expected {
+        if thumb_rgba.len() != expected && !(cfg!(feature = "psx") && thumb_rgba.is_empty()) {
             log::warn!(
                 "finalize_local_savedata_prepare: thumbnail size mismatch: got={}, expected={}",
                 thumb_rgba.len(),
@@ -609,6 +614,32 @@ impl SaveManager {
         Ok(())
     }
 
+    /// The header and thumbnail of a slot file; the PlayStation appends the state itself
+    /// (`save_state::append_state_chunk_streamed`) and hands the result to
+    /// [`Self::finish_prepare`] or [`Self::finish_write`].
+    #[cfg(feature = "psx")]
+    pub fn slot_file_head(&self, nls: Nls, thumb_rgba: &[u8]) -> Result<Vec<u8>> {
+        self.build_save_file_bytes(nls, thumb_rgba)
+    }
+
+    /// `finalize_local_savedata_prepare` with the file already built.
+    #[cfg(feature = "psx")]
+    pub fn finish_prepare(&mut self, bytes: Vec<u8>) {
+        self.local_saved_bytes = Some(bytes.into_boxed_slice());
+        self.need_save_prepare = false;
+    }
+
+    /// `finalize_save_write` with the file already built.
+    #[cfg(feature = "psx")]
+    pub fn finish_write(&mut self, bytes: Vec<u8>, nls: Nls) -> Result<()> {
+        if !self.save_requested || self.current_save_slot == u32::MAX {
+            return Ok(());
+        }
+        self.write_current_slot(&bytes, nls)?;
+        self.savedata_prepared = true;
+        Ok(())
+    }
+
     /// Write `bytes` to the file of the current slot and refresh the cache for it.
     fn write_current_slot(&mut self, bytes: &[u8], nls: Nls) -> Result<()> {
         let slot = self.current_save_slot;
@@ -619,7 +650,7 @@ impl SaveManager {
                 .map_err(|err| anyhow!("write {path}: {err:?}"))?;
         }
         if let Ok(item) = SaveItem::load_from_mem(bytes, nls) {
-            self.slots[slot as usize] = Some(item);
+            self.slots[slot as usize] = Some(Box::new(item));
         }
         self.present[slot as usize] = true;
         Ok(())
@@ -662,7 +693,7 @@ impl SaveManager {
         let expected = (thumb_w as usize)
             .saturating_mul(thumb_h as usize)
             .saturating_mul(4);
-        if thumb_rgba.len() != expected {
+        if thumb_rgba.len() != expected && !(cfg!(feature = "psx") && thumb_rgba.is_empty()) {
             log::warn!(
                 "finalize_save_write: thumbnail size mismatch: got={}, expected={}",
                 thumb_rgba.len(),
@@ -719,18 +750,14 @@ impl SaveManager {
         self.current_scene_title = item.scene_title.clone();
         self.current_script_content = item.script_content.clone();
         if (slot as usize) < SLOT_COUNT {
-            self.slots[slot as usize] = Some(item);
+            self.slots[slot as usize] = Some(Box::new(item));
         }
         Ok(())
     }
 
     fn build_save_file_bytes(&self, nls: Nls, thumb_rgba: &[u8]) -> Result<Vec<u8>> {
         fn enc(nls: Nls, s: &str) -> Vec<u8> {
-            match nls {
-                Nls::ShiftJIS => encoding_rs::SHIFT_JIS.encode(s).0.into_owned(),
-                Nls::UTF8 => s.as_bytes().to_vec(),
-                Nls::GBK => encoding_rs::GBK.encode(s).0.into_owned(),
-            }
+            crate::text_codec::encode(nls, s)
         }
 
         // Save file prefix format:
@@ -773,8 +800,76 @@ impl SaveManager {
             out.extend_from_slice(&(len as u16).to_le_bytes());
             out.extend_from_slice(&text[..len]);
         }
+        // The PlayStation saves to a memory card: its thumbnails are 16 colors.
+        #[cfg(feature = "psx")]
+        if thumb_rgba.is_empty() {
+            let blank = psx_thumb::encoded_len(self.thumb_width.max(1), self.thumb_height.max(1));
+            out.resize(out.len() + blank, 0);
+        } else {
+            out.extend_from_slice(&psx_thumb::encode(thumb_rgba));
+        }
+        #[cfg(not(feature = "psx"))]
         out.extend_from_slice(thumb_rgba);
         Ok(out)
+    }
+}
+
+/// Save thumbnails on the PlayStation: 16 RGB555 colors (the most used, at 4 bits a channel),
+/// then 4-bit indices, two a byte, low nibble first.
+#[cfg(feature = "psx")]
+mod psx_thumb {
+    use alloc::vec::Vec;
+
+    pub fn encoded_len(width: u32, height: u32) -> usize {
+        32 + (width as usize * height as usize).div_ceil(2)
+    }
+
+    pub fn encode(rgba: &[u8]) -> Vec<u8> {
+        let mut counts = alloc::vec![0u32; 4096];
+        for p in rgba.chunks_exact(4) {
+            counts[((p[0] as usize >> 4) << 8) | ((p[1] as usize >> 4) << 4) | (p[2] as usize >> 4)] += 1;
+        }
+        let mut order: Vec<usize> = (0..4096).filter(|&c| counts[c] > 0).collect();
+        order.sort_by(|a, b| counts[*b].cmp(&counts[*a]));
+        order.truncate(16);
+        let palette: Vec<[i32; 3]> = order
+            .iter()
+            .map(|&c| [((c >> 8) as i32) * 17, (((c >> 4) & 15) as i32) * 17, ((c & 15) as i32) * 17])
+            .collect();
+        let mut out = Vec::with_capacity(32 + rgba.len() / 8);
+        for i in 0..16 {
+            let c = palette.get(i).copied().unwrap_or([0, 0, 0]);
+            let v = (c[0] as u16 >> 3) | ((c[1] as u16 >> 3) << 5) | ((c[2] as u16 >> 3) << 10);
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+        let nearest = |p: &[u8]| -> u8 {
+            let mut best = (i32::MAX, 0u8);
+            for (i, c) in palette.iter().enumerate() {
+                let d = (0..3).map(|k| (c[k] - p[k] as i32).pow(2)).sum::<i32>();
+                if d < best.0 {
+                    best = (d, i as u8);
+                }
+            }
+            best.1
+        };
+        let indices: Vec<u8> = rgba.chunks_exact(4).map(nearest).collect();
+        for pair in indices.chunks(2) {
+            out.push(pair[0] | (pair.get(1).copied().unwrap_or(0) << 4));
+        }
+        out
+    }
+
+    pub fn decode(packed: &[u8], width: u32, height: u32) -> Vec<u8> {
+        let e = |v: u16| ((v & 31) << 3 | (v & 31) >> 2) as u8;
+        let count = width as usize * height as usize;
+        let mut out = Vec::with_capacity(count * 4);
+        for i in 0..count {
+            let byte = packed.get(32 + i / 2).copied().unwrap_or(0);
+            let index = if i & 1 == 0 { byte & 15 } else { byte >> 4 } as usize;
+            let c = u16::from_le_bytes([packed[index * 2], packed[index * 2 + 1]]);
+            out.extend_from_slice(&[e(c), e(c >> 5), e(c >> 10), 255]);
+        }
+        out
     }
 }
 

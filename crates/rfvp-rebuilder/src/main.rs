@@ -36,6 +36,8 @@ struct Cli {
 enum Platform {
     Psp,
     Ps2,
+    /// 640x360: the 16:9 frame of the Wii's 640x480 output (letterboxed on a 4:3 TV).
+    Wii,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -184,6 +186,7 @@ fn make_profile(platform: Platform, hcb: &HcbInfo) -> Result<Profile> {
     let (target_width, target_height) = match platform {
         Platform::Psp => (480, 272),
         Platform::Ps2 => (640, 448),
+        Platform::Wii => (640, 360),
     };
 
     let (scale_num, scale_den) = if target_width as u64 * design_height as u64
@@ -655,7 +658,9 @@ fn transcode_video(
     let mut final_output = output_path.to_path_buf();
     match profile.platform {
         Platform::Psp => final_output.set_extension("mp4"),
-        Platform::Ps2 => final_output.set_extension("mpg"),
+        // MPEG-2 for the Wii too: the engine decodes it in software, and there is no H.264
+        // hardware to use.
+        Platform::Ps2 | Platform::Wii => final_output.set_extension("mpg"),
     };
     let filter = format!(
         "scale={}:{}:flags=area,pad={}:{}:{}:{}:black,setsar=1",
@@ -690,7 +695,7 @@ fn transcode_video(
             ]);
             cmd.args(["-c:a", "aac"]);
         }
-        Platform::Ps2 => {
+        Platform::Ps2 | Platform::Wii => {
             cmd.args(["-c:v", "mpeg2video", "-c:a", "mp2", "-f", "mpeg"]);
         }
     }

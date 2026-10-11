@@ -17,7 +17,7 @@ pub mod std_fs;
 pub mod uefi_fs;
 
 pub use audio::{
-    AudioParams, AudioSampleFormat, AudioSlotKind, AudioStreamDesc, AudioStreamId,
+    AudioByteStream, AudioParams, AudioSampleFormat, AudioSlotKind, AudioStreamDesc, AudioStreamId,
     EncodedAudioKind, RfvpAudio, SoftAudioConfig, SoftAudioMixer, SoftAudioVorbis,
     BGM_LOGICAL_SLOT_COUNT, SE_LOGICAL_SLOT_COUNT, SE_STREAM_ID_BASE,
 };

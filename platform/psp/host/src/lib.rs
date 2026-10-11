@@ -3,11 +3,20 @@
 extern crate alloc;
 
 pub mod app;
+#[cfg(not(target_os = "psp"))]
+pub mod audio;
+#[cfg(target_os = "psp")]
+#[path = "audio_mixer.rs"]
 pub mod audio;
 pub mod clock;
 pub mod event;
 pub mod fs;
+#[cfg(target_os = "psp")]
+pub mod heap;
+#[cfg(target_os = "psp")]
+pub mod lock;
 pub mod host;
+pub mod input;
 #[cfg(target_os = "psp")]
 pub mod platform;
 pub mod raw;

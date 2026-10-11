@@ -238,6 +238,133 @@ impl<P: PixelBytes> Drop for PixelMut<'_, P> {
 pub enum DynamicImage {
     ImageLumaA8(GrayAlphaImage),
     ImageRgba8(RgbaImage),
+    /// A PlayStation CLUT picture (rfvp-psx-convert): drawn by the GPU as it is.
+    #[cfg(feature = "psx")]
+    ImageClut(ClutImage),
+}
+
+/// A palette picture in the PlayStation's formats: 4- or 8-bit indices into 15-bit colors
+/// (bit 15 is STP, semi-transparency; color 0 is not drawn). It keeps exactly the bytes the GPU
+/// takes (see `texture_bytes`), so uploading it copies nothing.
+#[cfg(feature = "psx")]
+#[derive(Clone, Debug)]
+pub struct ClutImage {
+    pub width: u32,
+    pub height: u32,
+    /// Pixels per row of the indices (rounded up for VRAM uploads).
+    pub stride: u32,
+    /// 4 or 8.
+    pub bits: u8,
+    /// u16 colors, u16 stride, the palette (u16 each), then the indices.
+    pub bytes: alloc::vec::Vec<u8>,
+    /// Each palette entry's real alpha (the GPU only sees transparent, STP and opaque; hit tests
+    /// and masks use this).
+    pub alpha: alloc::sync::Arc<alloc::vec::Vec<u8>>,
+}
+
+#[cfg(feature = "psx")]
+impl ClutImage {
+    pub fn colors(&self) -> usize {
+        u16::from_le_bytes([self.bytes[0], self.bytes[1]]) as usize
+    }
+
+    fn indices_at(&self) -> usize {
+        4 + self.colors() * 2
+    }
+
+    pub fn palette_entry(&self, i: usize) -> u16 {
+        let at = 4 + i * 2;
+        match self.bytes.get(at..at + 2) {
+            Some(b) if i < self.colors() => u16::from_le_bytes([b[0], b[1]]),
+            _ => 0,
+        }
+    }
+
+    fn set_palette_entry(&mut self, i: usize, c: u16) {
+        let at = 4 + i * 2;
+        self.bytes[at..at + 2].copy_from_slice(&c.to_le_bytes());
+    }
+
+    pub fn index(&self, x: u32, y: u32) -> u8 {
+        let base = self.indices_at();
+        if self.bits == 4 {
+            let byte = self.bytes[base + (y * self.stride / 2 + x / 2) as usize];
+            if x & 1 == 0 { byte & 15 } else { byte >> 4 }
+        } else {
+            self.bytes[base + (y * self.stride + x) as usize]
+        }
+    }
+
+    /// A palette color as RGBA, with the entry's real alpha.
+    pub fn color(&self, index: u8) -> Rgba<u8> {
+        let c = self.palette_entry(index as usize);
+        let a = self.alpha.get(index as usize).copied().unwrap_or(if c == 0 { 0 } else { 255 });
+        let e = |v: u16| ((v & 31) << 3 | (v & 31) >> 2) as u8;
+        Rgba([e(c), e(c >> 5), e(c >> 10), a])
+    }
+
+    pub fn set_index(&mut self, x: u32, y: u32, index: u8) {
+        let base = self.indices_at();
+        if self.bits == 4 {
+            let byte = &mut self.bytes[base + (y * self.stride / 2 + x / 2) as usize];
+            *byte = if x & 1 == 0 { (*byte & 0xf0) | (index & 15) } else { (*byte & 0x0f) | (index << 4) };
+        } else {
+            self.bytes[base + (y * self.stride + x) as usize] = index;
+        }
+    }
+
+    /// For each of `src`'s colors, the closest of `self`'s (transparent stays transparent, STP
+    /// colors prefer STP colors): how a part drawn onto this picture keeps its look.
+    pub fn palette_map(&self, src: &ClutImage) -> alloc::vec::Vec<u8> {
+        let rgb = |c: u16| [(c & 31) as i32, ((c >> 5) & 31) as i32, ((c >> 10) & 31) as i32];
+        (0..src.colors())
+            .map(|si| {
+                let c = src.palette_entry(si);
+                if c == 0 {
+                    return 0;
+                }
+                let want = rgb(c);
+                let mut best = (i32::MAX, 0u8);
+                for i in 0..self.colors() {
+                    let d = self.palette_entry(i);
+                    if d == 0 {
+                        continue;
+                    }
+                    let have = rgb(d);
+                    let mut dist = (0..3).map(|k| (want[k] - have[k]).pow(2)).sum::<i32>();
+                    if (c ^ d) & 0x8000 != 0 {
+                        dist += 64;
+                    }
+                    if dist < best.0 {
+                        best = (dist, i as u8);
+                    }
+                }
+                best.1
+            })
+            .collect()
+    }
+
+    /// GraphRGB on a CLUT picture: each channel scaled by `value / 100` (0..=200) in the palette.
+    pub fn tone(&mut self, r: u32, g: u32, b: u32) {
+        for i in 0..self.colors() {
+            let c = self.palette_entry(i);
+            if c == 0 {
+                continue;
+            }
+            let ch = |v: u16, adj: u32| ((v as u32 & 31) * adj / 100).min(31) as u16;
+            let (nr, ng, nb) = (ch(c, r), ch(c >> 5, g), ch(c >> 10, b));
+            let mut out = (c & 0x8000) | nr | (ng << 5) | (nb << 10);
+            if out == 0 {
+                out = 0x0421; // 0 is transparent: keep the darkest visible gray
+            }
+            self.set_palette_entry(i, out);
+        }
+    }
+
+    /// The bytes a renderer gets for it: u16 colors, u16 stride, the palette, the indices.
+    pub fn texture_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
 }
 
 #[cfg(feature = "no_std")]
@@ -246,12 +373,24 @@ impl DynamicImage {
         match self {
             Self::ImageLumaA8(img) => (img.width(), img.height()),
             Self::ImageRgba8(img) => (img.width(), img.height()),
+            #[cfg(feature = "psx")]
+            Self::ImageClut(img) => (img.width, img.height),
         }
     }
 
     pub fn to_rgba8(&self) -> RgbaImage {
         match self {
             Self::ImageRgba8(img) => img.clone(),
+            #[cfg(feature = "psx")]
+            Self::ImageClut(img) => {
+                let mut out = RgbaImage::new(img.width, img.height);
+                for y in 0..img.height {
+                    for x in 0..img.width {
+                        out.put_pixel(x, y, img.color(img.index(x, y)));
+                    }
+                }
+                out
+            }
             Self::ImageLumaA8(img) => {
                 let mut out = RgbaImage::new(img.width(), img.height());
                 for y in 0..img.height() {
@@ -277,6 +416,8 @@ impl DynamicImage {
     pub fn get_pixel(&self, x: u32, y: u32) -> Rgba<u8> {
         match self {
             Self::ImageRgba8(img) => img.get_pixel(x, y),
+            #[cfg(feature = "psx")]
+            Self::ImageClut(img) => img.color(img.index(x, y)),
             Self::ImageLumaA8(img) => {
                 let p = img.get_pixel(x, y);
                 Rgba([p.0[0], p.0[0], p.0[0], p.0[1]])
@@ -863,6 +1004,8 @@ mod no_std_harness;
 #[cfg(feature = "no_std")]
 pub mod ring_log;
 
+pub mod perf;
+
 #[cfg(feature = "no_std")]
 pub mod no_std_core;
 
@@ -924,6 +1067,7 @@ pub mod soft_host;
 ))]
 pub mod soft_render;
 pub mod subsystem;
+pub mod text_codec;
 pub mod trace;
 #[cfg(not(feature = "no_std"))]
 pub mod utils;

@@ -23,6 +23,9 @@ const MISSING_DEFAULT_FONT_MESSAGE: &str =
     "Required font file default.ttf was not found in the game directory.";
 const INVALID_DEFAULT_FONT_MESSAGE: &str =
     "Required font file default.ttf exists but is not a valid TrueType/OpenType font.";
+#[cfg(feature = "psx")]
+const MISSING_PSX_FONT_MESSAGE: &str =
+    "font.psxf is missing or damaged: convert the game with rfvp-psx-convert";
 #[cfg(feature = "old_school")]
 const MISSING_OLD_SCHOOL_FONT_MESSAGE: &str =
     "Required font file defualt.tmap was not found in the game directory.";
@@ -60,6 +63,10 @@ pub struct RfvpBootConfig<'a> {
     pub max_hcb_bytes: usize,
     pub max_manifest_entries: usize,
     pub nls: Nls,
+    /// Memory for the script (`old_school`): a script up to this size is read whole, a larger
+    /// one is read in 4 KiB pages through a cache this large. Scripts jump about a lot, and on
+    /// a console every page brought in again is a file read.
+    pub hcb_cache_bytes: usize,
 }
 
 impl<'a> Default for RfvpBootConfig<'a> {
@@ -70,6 +77,7 @@ impl<'a> Default for RfvpBootConfig<'a> {
             max_hcb_bytes: 64 * 1024 * 1024,
             max_manifest_entries: 1024,
             nls: Nls::ShiftJIS,
+            hcb_cache_bytes: 32 * 1024,
         }
     }
 }
@@ -79,6 +87,11 @@ pub struct RfvpTickResult {
     pub frame_index: u64,
     pub consumed_events: usize,
     pub elapsed_us: u64,
+    /// Time this tick spent running scripts, updating motions and text, and drawing (presenting
+    /// included), for the ports' debug reports.
+    pub vm_us: u64,
+    pub scene_us: u64,
+    pub render_us: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,6 +121,8 @@ pub struct RfvpCore {
     pending_events: Vec<RfvpEvent>,
     frame_index: u64,
     last_tick_us: Option<u64>,
+    /// Microseconds not yet handed to the scripts (they count whole milliseconds).
+    carry_us: u64,
     quit_requested: bool,
     run_state: RfvpCoreRunState,
     loaded_game: Option<RfvpLoadedGame>,
@@ -144,6 +159,7 @@ impl RfvpCore {
             pending_events: Vec::new(),
             frame_index: 0,
             last_tick_us: None,
+            carry_us: 0,
             quit_requested: false,
             run_state: RfvpCoreRunState::NotBooted,
             loaded_game: None,
@@ -157,6 +173,40 @@ impl RfvpCore {
             last_global_save_hash: None,
             us_since_global_save: 0,
         }
+    }
+
+    /// Rasterize text at `scale` times the game's virtual size: a host whose screen shows the
+    /// game larger than its virtual size (the PS2's 640-pixel picture of a 480-wide repack)
+    /// gets text drawn at the screen's own resolution instead of enlarged and blurred.
+    pub fn set_text_render_scale(&mut self, scale: f32) {
+        self.game_data
+            .motion_manager
+            .text_manager
+            .set_render_scale(scale);
+    }
+
+    /// One line per live script thread (id, state, program counter, wait/sleep ms), for a
+    /// host's debug report.
+    pub fn debug_threads(&self) -> String {
+        let mut out = String::new();
+        let Some(vm) = self.vm_runner.as_ref() else {
+            return out;
+        };
+        for ctx in &vm.thread_manager().contexts {
+            let state = ctx.get_status();
+            if state.is_empty() {
+                continue;
+            }
+            out += &format!(
+                "thread {}: {:?} pc {:#x} wait {} sleep {}\n",
+                ctx.get_id(),
+                state,
+                ctx.get_pc(),
+                ctx.get_waiting_time(),
+                ctx.get_sleeping_time()
+            );
+        }
+        out
     }
 
     /// The script VM's state, for tests.
@@ -266,11 +316,23 @@ impl RfvpCore {
             if len == 0 || len as usize > boot.max_hcb_bytes {
                 return Err(RfvpError::CapacityExceeded);
             }
-            let parser =
-                Parser::from_paged_file(file, len as usize, boot.nls, 4096, 8).map_err(|err| {
-                    self.last_error_detail = Some(err.to_string());
-                    RfvpError::InvalidData
-                })?;
+            // Small pages on the PlayStation: a scene's hot code is spread over the script, and
+            // a 1 KiB page holds less that is not needed (each miss costs a CD seek).
+            #[cfg(feature = "psx")]
+            const PAGE: usize = 1024;
+            #[cfg(not(feature = "psx"))]
+            const PAGE: usize = 4096;
+            let parser = if len as usize <= boot.hcb_cache_bytes {
+                let bytes = file.read_to_vec(len as usize)?;
+                Parser::from_bytes(bytes, boot.nls)
+            } else {
+                let pages = (boot.hcb_cache_bytes / PAGE).max(8);
+                Parser::from_paged_file(file, len as usize, boot.nls, PAGE, pages)
+            }
+            .map_err(|err| {
+                self.last_error_detail = Some(err.to_string());
+                RfvpError::InvalidData
+            })?;
             (
                 LoadedHcb {
                     path,
@@ -302,6 +364,8 @@ impl RfvpCore {
             self.last_error_detail = Some(detail);
             err
         })?;
+        #[cfg(feature = "psx")]
+        host.log(RfvpLogLevel::Debug, "boot: before font");
         let default_font = load_required_default_font(host).map_err(|(err, detail)| {
             self.last_error_detail = Some(detail);
             err
@@ -314,15 +378,26 @@ impl RfvpCore {
                 scale_old_school_u32(screen.1, old_school_scale),
             );
         }
+        #[cfg(feature = "psx")]
+        host.log(RfvpLogLevel::Debug, "boot: before globals");
         GLOBAL.lock().map_err(|_| RfvpError::Backend)?.init_with(
             parser.get_non_volatile_global_count(),
             parser.get_volatile_global_count(),
         );
 
+        #[cfg(feature = "psx")]
+        host.log(RfvpLogLevel::Debug, "boot: before packs");
         let mut vfs = build_host_vfs(host, boot)?;
         #[cfg(not(feature = "old_school"))]
         vfs.add_loose_file(&hcb.path, hcb.bytes.clone());
 
+        #[cfg(feature = "psx")]
+        host.log(RfvpLogLevel::Debug, "boot: before game data");
+        // The PlayStation fills in the core's own (fresh) GameData rather than building a second
+        // one beside it: each is over 100 KiB of its 2 MiB.
+        #[cfg(feature = "psx")]
+        let game_data = &mut self.game_data;
+        #[cfg(not(feature = "psx"))]
         let mut game_data = GameData::default();
         game_data
             .save_manager
@@ -332,8 +407,14 @@ impl RfvpCore {
         game_data.fontface_manager = FontEnumerator::from_default_font(default_font);
         game_data.vfs = vfs;
         game_data.nls = boot.nls;
+        #[cfg(feature = "psx")]
+        host.log(RfvpLogLevel::Debug, "boot: after game data");
         game_data.set_window(Window::new(screen, 1.0));
-        match crate::subsystem::global_savedata::try_load_global_savedata_v1(&mut game_data) {
+        #[cfg(feature = "psx")]
+        let global = crate::subsystem::global_savedata::try_load_global_savedata_v1(game_data);
+        #[cfg(not(feature = "psx"))]
+        let global = crate::subsystem::global_savedata::try_load_global_savedata_v1(&mut game_data);
+        match global {
             Ok(true) => host.log(RfvpLogLevel::Info, "restored the global save"),
             Ok(false) => {}
             Err(err) => host.log(
@@ -362,7 +443,10 @@ impl RfvpCore {
         });
         self.config.virtual_width = screen.0;
         self.config.virtual_height = screen.1;
-        self.game_data = game_data;
+        #[cfg(not(feature = "psx"))]
+        {
+            self.game_data = game_data;
+        }
         self.vm_runner = Some(vm_runner);
         self.parser = Some(parser);
         Ok(())
@@ -398,8 +482,17 @@ impl RfvpCore {
                 game.video_manager.stop(&mut game.motion_manager);
             }
         }
+        let (mut vm_us, mut scene_us, mut render_us) = (0, 0, 0);
         if let (Some(parser), Some(vm_runner)) = (self.parser.as_mut(), self.vm_runner.as_mut()) {
-            let frame_time_ms = elapsed_us / 1_000;
+            let pending_us = self.carry_us + elapsed_us;
+            let frame_time_ms = pending_us / 1_000;
+            self.carry_us = pending_us % 1_000;
+            // Script timers (TimerSet/TimerGet) advance before the scripts run, as on desktop.
+            self.game_data
+                .timer_manager
+                .tick(frame_time_ms.min(u32::MAX as u64) as u32);
+            let t0 = host.clock().ticks_us();
+            crate::perf::mark(100);
             if let Err(err) = vm_runner.tick(&mut self.game_data, parser, frame_time_ms) {
                 let message = err.to_string();
                 host.log(RfvpLogLevel::Error, &message);
@@ -409,16 +502,35 @@ impl RfvpCore {
             }
 
             // The original engine advances scripts before text and motion updates.
+            let t1 = host.clock().ticks_us();
+            crate::perf::stop(17, t0);
+            crate::perf::mark(200);
             let mut scene = AnzuScene::new();
             scene.update_after_vm(&mut self.game_data, frame_time_ms);
+            crate::perf::mark(300);
+            let t2 = host.clock().ticks_us();
 
+            let t = crate::perf::start();
             self.flush_audio(host)?;
+            crate::perf::stop(18, t);
+            let t = crate::perf::start();
             // A SaveWrite whose payload was prepared earlier needs no capture of this frame.
             self.commit_prepared_save(host);
+            crate::perf::stop(19, t);
+            crate::perf::mark(400);
             self.render_game_frame(host)?;
+            crate::perf::mark(500);
+            let t3 = host.clock().ticks_us();
+            vm_us = t1.saturating_sub(t0);
+            scene_us = t2.saturating_sub(t1);
+            render_us = t3.saturating_sub(t2);
+            let t = crate::perf::start();
             self.capture_pending_save(host);
+            crate::perf::stop(19, t);
             self.us_since_global_save = self.us_since_global_save.saturating_add(elapsed_us);
-            if self.us_since_global_save >= GLOBAL_SAVE_INTERVAL_US {
+            // The PlayStation writes the global save with each slot save only: encoding every
+            // global on a timer needs RAM it does not have.
+            if !cfg!(feature = "psx") && self.us_since_global_save >= GLOBAL_SAVE_INTERVAL_US {
                 self.save_global_if_changed(host);
             }
         } else if self.run_state == RfvpCoreRunState::BootFailed {
@@ -430,6 +542,9 @@ impl RfvpCore {
             frame_index: self.frame_index,
             consumed_events,
             elapsed_us,
+            vm_us,
+            scene_us,
+            render_us,
         })
     }
 
@@ -490,15 +605,43 @@ impl RfvpCore {
         let expected = thumb_w as usize * thumb_h as usize * 4;
         let thumb = match host.renderer().capture_thumbnail(thumb_w, thumb_h) {
             Some(thumb) if thumb.len() == expected => thumb,
-            // A renderer that cannot read its frame back leaves the thumbnail blank.
+            // A renderer that cannot read its frame back leaves the thumbnail blank (on the
+            // PlayStation without making a frame of RGBA first).
+            #[cfg(feature = "psx")]
+            _ => Vec::new(),
+            #[cfg(not(feature = "psx"))]
             _ => alloc::vec![0u8; expected],
         };
         self.game_data
             .save_manager
             .set_wall_time(host.clock().wall_time());
         let nls = self.game_data.get_nls();
+        #[cfg(feature = "psx")]
+        let result = self
+            .game_data
+            .save_manager
+            .slot_file_head(nls.clone(), &thumb)
+            .and_then(|mut bytes| {
+                drop(thumb);
+                crate::subsystem::save_state::append_state_chunk_streamed(&mut bytes, &mut self.game_data)?;
+                let saves = &mut self.game_data.save_manager;
+                if slot == u32::MAX {
+                    saves.finish_prepare(bytes);
+                    if saves.try_commit_local_savedata(nls)? {
+                        saves.consume_save_write_result();
+                        self.save_global_if_changed(host);
+                    }
+                } else {
+                    saves.finish_write(bytes, nls)?;
+                    saves.consume_save_write_result();
+                    self.save_global_if_changed(host);
+                }
+                Ok(())
+            });
+        #[cfg(not(feature = "psx"))]
         let snap = crate::subsystem::save_state::SaveStateSnapshotV1::capture(&mut self.game_data);
 
+        #[cfg(not(feature = "psx"))]
         let result = if slot == u32::MAX {
             // SaveCreate(3, ..): prepare the payload in memory, and commit it if SaveWrite has
             // already named a slot.
@@ -536,6 +679,29 @@ impl RfvpCore {
     }
 
     fn render_game_frame<H: RfvpHost>(&mut self, host: &mut H) -> RfvpResult<()> {
+        // Free the host textures of graphs the game unloaded, and re-decode evicted graphs
+        // whose host copy is gone, before drawing.
+        let motion = &mut self.game_data.motion_manager;
+        for graph_id in motion.take_pending_gpu_graph_unloads() {
+            self.render_cache.remove_graph(host.renderer(), graph_id);
+        }
+        #[cfg(feature = "psx")]
+        {
+            let cache = core::cell::RefCell::new(&mut self.render_cache);
+            let renderer = host.renderer();
+            motion.upload_evicted_one_by_one(
+                &self.game_data.vfs,
+                |id, generation| cache.borrow().is_graph_uploaded(id, generation),
+                |id, graph| cache.borrow_mut().upload_graph(renderer, id, graph),
+            );
+        }
+        #[cfg(not(feature = "psx"))]
+        {
+            let cache = &self.render_cache;
+            motion.restore_evicted_cpu_pixels(&self.game_data.vfs, |id, generation| {
+                cache.is_graph_uploaded(id, generation)
+            });
+        }
         let frame = render_motion_to_host(
             host.renderer(),
             &mut self.render_cache,
@@ -543,6 +709,11 @@ impl RfvpCore {
             (self.config.virtual_width, self.config.virtual_height),
         )?;
         self.hit_proxies = frame.hit_proxies;
+        // Pictures the host now holds need no second copy here: a console has little memory.
+        let cache = &self.render_cache;
+        self.game_data
+            .motion_manager
+            .evict_uploaded_cpu_pixels(|id, generation| cache.is_graph_uploaded(id, generation));
         Ok(())
     }
 
@@ -604,58 +775,103 @@ impl RfvpCore {
         self.game_data.inputs_manager.begin_frame();
     }
 
+    /// Hand the frame's audio commands to the host. A sound the host cannot play is logged and
+    /// skipped: one bad or unsupported file must not stop the game.
     fn flush_audio<H: RfvpHost>(&mut self, host: &mut H) -> RfvpResult<()> {
         let mut commands = Vec::new();
         self.game_data.audio_manager().drain_commands(&mut commands);
         for command in commands {
-            match command {
+            crate::perf::mark(1000 + audio_command_index(&command));
+            let result = match command {
                 crate::rfvp_audio::AudioCommand::LoadEncoded { id, kind, bytes } => {
-                    host.audio().load_encoded(id, kind, &bytes)?;
+                    host.audio().load_encoded(id, kind, &bytes)
+                }
+                crate::rfvp_audio::AudioCommand::LoadStream { id, kind, stream } => {
+                    match host.audio().load_stream(id, kind, stream.clone()) {
+                        Err(RfvpError::Unsupported) => stream
+                            .read_all()
+                            .and_then(|bytes| host.audio().load_encoded(id, kind, &bytes)),
+                        other => other,
+                    }
                 }
                 crate::rfvp_audio::AudioCommand::CreateStream { id, desc } => {
-                    host.audio().create_stream(id, desc)?;
+                    host.audio().create_stream(id, desc)
                 }
                 crate::rfvp_audio::AudioCommand::SubmitI16 { id, samples } => {
-                    host.audio().submit_i16(id, &samples)?;
+                    host.audio().submit_i16(id, &samples)
                 }
                 crate::rfvp_audio::AudioCommand::SubmitF32 { id, samples } => {
-                    host.audio().submit_f32(id, &samples)?;
+                    host.audio().submit_f32(id, &samples)
                 }
                 crate::rfvp_audio::AudioCommand::Play {
                     id,
                     params,
                     fade_in_ms,
                 } => {
-                    host.audio().play(id, params, fade_in_ms)?;
+                    host.audio().play(id, params, fade_in_ms)
                 }
                 crate::rfvp_audio::AudioCommand::Stop { id, fade_ms } => {
-                    host.audio().stop(id, fade_ms)?;
+                    host.audio().stop(id, fade_ms)
                 }
                 crate::rfvp_audio::AudioCommand::Pause { id } => {
-                    host.audio().pause(id)?;
+                    host.audio().pause(id)
                 }
                 crate::rfvp_audio::AudioCommand::Resume { id } => {
-                    host.audio().resume(id)?;
+                    host.audio().resume(id)
                 }
                 crate::rfvp_audio::AudioCommand::SetParams { id, params } => {
-                    host.audio().set_params(id, params)?;
+                    host.audio().set_params(id, params)
                 }
                 crate::rfvp_audio::AudioCommand::DestroyStream { id } => {
                     host.audio().destroy_stream(id);
+                    Ok(())
                 }
                 crate::rfvp_audio::AudioCommand::MasterVolume { volume } => {
-                    host.audio().set_master_volume(volume)?;
+                    host.audio().set_master_volume(volume)
                 }
+            };
+            if let Err(err) = result {
+                log::warn!("audio command failed: {err:?}");
             }
         }
         Ok(())
     }
 }
 
+/// A number for each kind of audio command, for [`crate::perf::mark`].
+fn audio_command_index(command: &crate::rfvp_audio::AudioCommand) -> u32 {
+    use crate::rfvp_audio::AudioCommand::*;
+    match command {
+        LoadEncoded { .. } => 1,
+        LoadStream { .. } => 2,
+        CreateStream { .. } => 3,
+        SubmitI16 { .. } => 4,
+        SubmitF32 { .. } => 5,
+        Play { .. } => 6,
+        Stop { .. } => 7,
+        Pause { .. } => 8,
+        Resume { .. } => 9,
+        SetParams { .. } => 10,
+        DestroyStream { .. } => 11,
+        MasterVolume { .. } => 12,
+    }
+}
+
 fn load_required_default_font<H: RfvpHost>(host: &mut H) -> Result<Font, (RfvpError, String)> {
     let callbacks = host.platform_callbacks();
     let mut bytes = Vec::new();
-    #[cfg(feature = "old_school")]
+    #[cfg(feature = "psx")]
+    {
+        if host.fs().read_required_file("font.psxf", &mut bytes).is_err() {
+            notify_fatal(callbacks, FatalErrorCode::MissingDefaultFont, MISSING_PSX_FONT_MESSAGE);
+            return Err((RfvpError::NotFound, MISSING_PSX_FONT_MESSAGE.to_string()));
+        }
+        Font::from_psxf(bytes).map_err(|_| {
+            notify_fatal(callbacks, FatalErrorCode::InvalidDefaultFont, MISSING_PSX_FONT_MESSAGE);
+            (RfvpError::InvalidData, MISSING_PSX_FONT_MESSAGE.to_string())
+        })
+    }
+    #[cfg(all(feature = "old_school", not(feature = "psx")))]
     {
         if host
             .fs()
@@ -957,14 +1173,8 @@ where
 {
     let mut vfs = Vfs::new(boot.nls).map_err(|_| RfvpError::InvalidData)?;
     vfs.set_loose_dir(host.fs().game_files());
-    #[cfg(feature = "old_school")]
-    {
-        let _ = host;
-        let _ = boot;
-        return Ok(vfs);
-    }
-
-    #[cfg(not(feature = "old_school"))]
+    // Packs too (also on the small consoles: a repack is loose folders, but a disc (the PS2's)
+    // cannot hold its file names, so it carries the folders as packs).
     {
         let mut packs = Vec::new();
         {
@@ -984,12 +1194,13 @@ where
             let source = alloc::sync::Arc::new(
                 crate::subsystem::resources::vfs::HostPackFile::new(file)?,
             );
-            let folder = path
-                .rsplit('/')
-                .next()
-                .unwrap_or(path.as_str())
-                .strip_suffix(".bin")
-                .unwrap_or(path.as_str());
+            let name = path.rsplit(['/', '\\']).next().unwrap_or(path.as_str());
+            let folder = match name.len().checked_sub(4) {
+                Some(stem) if name.is_char_boundary(stem) && name[stem..].eq_ignore_ascii_case(".bin") => {
+                    &name[..stem]
+                }
+                _ => name,
+            };
             // A file that is not a valid pack must not stop the game from starting.
             if let Err(err) = vfs.add_pack_source(folder, source) {
                 host.log(
