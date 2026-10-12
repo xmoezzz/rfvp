@@ -20,7 +20,7 @@ GLYPHS = {
 
 def make_demo(folder):
     folder = Path(folder)
-    (folder / 'graph').mkdir(parents=True, exist_ok=True)
+    folder.mkdir(parents=True, exist_ok=True)
     width, height = 640, 480
     pixels = bytearray(bytes([42, 28, 18, 255]) * width * height)
 
@@ -44,7 +44,10 @@ def make_demo(folder):
     struct.pack_into('<HHH', header, 6, 1, width, height)
     struct.pack_into('<I', header, 20, 1)
     nvsg = b'hzc1' + struct.pack('<II', len(pixels), len(header)) + header + zlib.compress(pixels)
-    (folder / 'graph/splash').write_bytes(nvsg)
+    # PS1 consumes BIN packs; the rebuilder can consume the same source pack.
+    name = b'splash\0'
+    pack = struct.pack('<IIIII', 1, len(name), 0, 20 + len(name), len(nvsg)) + name + nvsg
+    (folder / 'graph.bin').write_bytes(pack)
 
     syscalls = [('GraphLoad', 2), ('PrimSetSprt', 4), ('PrimGroupIn', 2),
                 ('PrimSetDraw', 2), ('ThreadSleep', 1)]

@@ -33,6 +33,15 @@ def package(platform, work, output):
     if stage.exists(): shutil.rmtree(stage)
     stage.mkdir()
     if platform == 'ps1':
+        # A bootable EXE alone is insufficient: verify the demo's packed sprite.
+        graph = (work / 'game/GRAPH.BIN').read_bytes()
+        count, names_size = struct.unpack_from('<II', graph)
+        if count != 1 or graph[20:20 + names_size] != b'splash\0':
+            raise ValueError('Missing PS1 demo picture in GRAPH.BIN')
+        _, offset, length = struct.unpack_from('<III', graph, 8)
+        picture = graph[offset:offset + length]
+        if picture[:4] != b'hzc1' or picture[12:16] != b'NVSG':
+            raise ValueError('Invalid PS1 demo picture')
         checked_copy(work / 'game/RFVP.EXE', stage / 'rfvp-ps1.exe', b'PS-X EXE')
         binary = work / 'game/rfvp.bin'
         if binary.stat().st_size == 0 or binary.stat().st_size % 2352:
