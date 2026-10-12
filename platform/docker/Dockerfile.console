@@ -47,15 +47,17 @@ RUN mkdir -p /opt/ps2dev \
 ENV PS2DEV=/opt/ps2dev PS2SDK=/opt/ps2dev/ps2sdk GSKIT=/opt/ps2dev/gsKit
 ENV PATH="/opt/ps2dev/bin:/opt/ps2dev/ee/bin:/opt/ps2dev/iop/bin:/opt/ps2dev/dvp/bin:/opt/ps2dev/ps2sdk/bin:${PATH}"
 
-FROM base AS console-psp
-RUN bash /tmp/install-rust.sh legacy && cargo install cargo-psp --version 0.2.8 --locked
+FROM llvm AS console-psp
+RUN apt-get update && apt-get install -y --no-install-recommends clang-23 \
+    && rm -rf /var/lib/apt/lists/* \
+    && bash /tmp/install-rust.sh legacy && cargo install cargo-psp --version 0.2.8 --locked
 ARG PSPDEV_VERSION=v20261001
 RUN mkdir -p /opt/pspdev \
     && curl -fL --retry 3 "https://github.com/pspdev/pspdev/releases/download/${PSPDEV_VERSION}/pspdev-ubuntu-latest-x86_64.tar.gz" -o /tmp/sdk.tar.gz \
     && tar -xzf /tmp/sdk.tar.gz --strip-components=1 -C /opt/pspdev \
     && rm /tmp/sdk.tar.gz \
     && test -x /opt/pspdev/bin/psp-gcc
-ENV PSPDEV=/opt/pspdev
+ENV PSPDEV=/opt/pspdev PSP_CLANG=/usr/lib/llvm-23/bin/clang
 ENV PATH="/opt/pspdev/bin:${PATH}"
 
 FROM devkitpro/devkitarm:20260610 AS console-3ds

@@ -35,7 +35,7 @@ platform. Pull requests also work before any image has been published.
 
 - PS1: PSn00bSDK 0.24 with its MIPS GCC and LLVM 23.
 - PS2: ps2dev v2.0.0 (ps2sdk and gsKit), LLVM 23, and xorriso for ISO packaging.
-- PSP: PSPDEV v20261001, cargo-psp 0.2.8 and nightly-2025-03-19.
+- PSP: PSPDEV v20261001, Clang/LLVM 23, cargo-psp 0.2.8 and nightly-2025-03-19.
 - 3DS: the dated official devkitPro/devkitARM image 20260610 with libctru/citro3d.
 
 The main Rust nightly is read from `toolchain.env`; the PSP/PS2 legacy nightly is
