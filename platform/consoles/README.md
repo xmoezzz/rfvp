@@ -39,8 +39,8 @@ platform. Pull requests also work before any image has been published.
 - 3DS: the dated official devkitPro/devkitARM image 20260610 with libctru/citro3d.
 
 The main Rust nightly is read from `toolchain.env`; the PSP/PS2 legacy nightly is
-installed only in those two targets. LLVM uses the official LLVM 23 snapshot
-repository and can change between clean image rebuilds. SDK versions are pinned,
+installed only in those two targets. LLVM uses the official LLVM 23 branch
+repository and can receive patch updates between clean image rebuilds. SDK versions are pinned,
 but the entire image is not byte-reproducible. Published commit tags identify the
 exact validated image for a particular build. No BIOS or DSP firmware is bundled.
 

@@ -15,7 +15,7 @@ WORKDIR /work
 FROM base AS llvm
 # The R5900 backend and its erratum fix require LLVM 23.
 RUN curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key -o /etc/apt/trusted.gpg.d/llvm.asc \
-    && echo 'deb https://apt.llvm.org/noble/ llvm-toolchain-noble main' > /etc/apt/sources.list.d/llvm.list \
+    && echo 'deb https://apt.llvm.org/noble/ llvm-toolchain-noble-23 main' > /etc/apt/sources.list.d/llvm.list \
     && apt-get update && apt-get install -y --no-install-recommends llvm-23 \
     && rm -rf /var/lib/apt/lists/*
 ENV LLVM=/usr/lib/llvm-23/bin
