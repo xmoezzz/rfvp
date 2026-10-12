@@ -599,6 +599,62 @@ impl NvsgTexture {
         Ok(())
     }
 
+    /// PS1-only derivative; CPU reads continue to return the original Area alpha.
+    /// Reuse the input allocation for GPU pixels so loading does not duplicate a full mask.
+    #[cfg(feature = "psx")]
+    pub fn read_single_ps1_mask(&mut self, mut bytes: Vec<u8>) -> core::result::Result<DynamicImage, Vec<u8>> {
+        let (width, height, start, length) = {
+            let plane = match crate::ps1_mask::read(&bytes) {
+                Ok(Some(plane)) if plane.frames == 1 => plane,
+                _ => return Err(bytes),
+            };
+            let frame = plane.frame(0).unwrap();
+            (plane.width, plane.height, frame.as_ptr() as usize - bytes.as_ptr() as usize, frame.len())
+        };
+        let field16 = |at| u16::from_le_bytes([bytes[at], bytes[at + 1]]);
+        let field32 = |at| u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+        let expected = usize::from(width) * usize::from(height);
+        if field32(4) as usize != expected { return Err(bytes); }
+        let compressed = 12 + field32(8) as usize;
+        let alpha = match miniz_oxide::inflate::decompress_to_vec_zlib(&bytes[compressed..]) {
+            Ok(alpha) if alpha.len() == expected => alpha,
+            _ => return Err(bytes),
+        };
+        self.typ = TextureType::Single8Bit;
+        self.unknown1 = field16(16);
+        self.width = width;
+        self.height = height;
+        self.offset_x = field16(24);
+        self.offset_y = field16(26);
+        self.u = field16(28);
+        self.v = field16(30);
+        self.entry_count = 1;
+        self.unknown3 = field32(36);
+        self.unknown4 = field32(40);
+        self.outlen = Some(expected);
+        self.slices.clear();
+        bytes.copy_within(start..start + length, 0);
+        bytes.truncate(length);
+        Ok(DynamicImage::ImagePs1Mask(crate::Ps1MaskImage {
+            width: u32::from(width), height: u32::from(height), alpha, gpu: bytes,
+        }))
+    }
+
+    #[cfg(feature = "psx")]
+    pub fn get_ps1_mask_texture(&self, index: usize, bytes: &[u8]) -> Result<DynamicImage> {
+        let plane = crate::ps1_mask::read(bytes).map_err(|error| anyhow!(error))?;
+        let Some(plane) = plane else {
+            log::warn!("PS1 mask {} has no offline Bayer plane; reconvert it for mask dissolves", self.name);
+            return self.get_texture(index);
+        };
+        let alpha = self.slices.get(index).ok_or_else(|| anyhow!("invalid mask frame"))?;
+        let gpu = plane.frame(index).ok_or_else(|| anyhow!("invalid mask GPU frame"))?;
+        Ok(DynamicImage::ImagePs1Mask(crate::Ps1MaskImage {
+            width: u32::from(plane.width), height: u32::from(plane.height),
+            alpha: alpha.clone(), gpu: gpu.to_vec(),
+        }))
+    }
+
     pub fn get_texture(&self, index: usize) -> Result<DynamicImage> {
         if index >= self.slices.len() {
             bail!("Invalid index: {}", index);

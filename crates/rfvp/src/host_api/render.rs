@@ -22,6 +22,9 @@ pub enum PixelFormat {
     Clut4,
     #[cfg(feature = "psx")]
     Clut8,
+    /// PS1-only offline mask thresholds, animated through a three-state CLUT.
+    #[cfg(feature = "psx")]
+    Ps1Mask8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -277,6 +280,11 @@ pub trait TextureBackend {
     ) -> Result<(), Self::Error>;
 
     fn destroy_texture(&mut self, handle: TextureHandle);
+
+    /// Update a complete RGBA texture when supported, otherwise ask the caller to recreate it.
+    fn update_texture_data(&mut self, _handle: TextureHandle, _desc: PortableTextureDesc, _data: &[u8]) -> Result<bool, Self::Error> {
+        Ok(false)
+    }
 }
 
 pub trait RenderBackend {
@@ -344,6 +352,8 @@ fn portable_texture_format(format: TextureFormat) -> Result<PixelFormat, RfvpErr
         TextureFormat::Indexed4 => Ok(PixelFormat::Clut4),
         #[cfg(feature = "psx")]
         TextureFormat::Indexed8 => Ok(PixelFormat::Clut8),
+        #[cfg(feature = "psx")]
+        TextureFormat::Native(crate::ps1_mask::NATIVE_FORMAT) => Ok(PixelFormat::Ps1Mask8),
         _ => Err(RfvpError::Unsupported),
     }
 }
@@ -381,6 +391,17 @@ impl<T: RfvpRenderer> TextureBackend for T {
 
     fn destroy_texture(&mut self, handle: TextureHandle) {
         RfvpRenderer::destroy_texture(self, TextureId(handle.0));
+    }
+
+    fn update_texture_data(&mut self, handle: TextureHandle, desc: PortableTextureDesc, data: &[u8]) -> Result<bool, Self::Error> {
+        if desc.format != TextureFormat::Rgba8 { return Ok(false); }
+        match RfvpRenderer::update_texture(self, TextureId(handle.0), TextureRect {
+            x: 0, y: 0, width: u32::from(desc.width), height: u32::from(desc.height),
+        }, data) {
+            Ok(()) => Ok(true),
+            Err(RfvpError::Unsupported) => Ok(false),
+            Err(error) => Err(error),
+        }
     }
 }
 

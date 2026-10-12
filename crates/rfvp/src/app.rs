@@ -948,10 +948,7 @@ impl App {
                     }
                 }
 
-                // Mask dissolve (wait=4/5/6) is not a solid color quad in the original engine.
-                // It uses the 8-bit mask texture with alpha-test / blend states.
-                // Until a dedicated mask dissolve pipeline is implemented, do not draw a solid
-                // overlay here (otherwise it appears as a "white mask" over HUD/text).
+                // The primitive renderer composites the 8-bit mask after root 0.
                 DissolveType::MaskFadeIn
                 | DissolveType::MaskFadeInOut
                 | DissolveType::MaskFadeOut => None,

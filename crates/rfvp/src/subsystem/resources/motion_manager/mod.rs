@@ -967,6 +967,11 @@ impl MotionManager {
     }
 
     pub fn set_dissolve_mask_graph(&mut self, graph: GraphBuff) {
+        let graph = {
+            let mut graph = graph;
+            graph.generation = self.dissolve_mask_graph.generation.wrapping_add(1);
+            graph
+        };
         self.dissolve_mask_graph = graph;
     }
 

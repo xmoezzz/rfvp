@@ -308,6 +308,8 @@ impl GraphBuff {
         let mut out = Vec::with_capacity(px_count);
 
         match tex {
+            #[cfg(feature = "psx")]
+            DynamicImage::ImagePs1Mask(img) => out.extend_from_slice(&img.alpha),
             DynamicImage::ImageLumaA8(img) => {
                 let raw = img.as_raw();
                 if raw.len() < px_count * 2 {
@@ -430,7 +432,13 @@ impl GraphBuff {
                 super::texture::TextureType::is_picture(typ)
             })?,
         }
-        self.texture = Some(nvsg_texture.get_texture(0)?);
+        #[cfg(feature = "psx")]
+        let texture = if self.load_kind == GraphBuffLoadKind::Mask {
+            nvsg_texture.get_ps1_mask_texture(0, &buff)?
+        } else { nvsg_texture.get_texture(0)? };
+        #[cfg(not(feature = "psx"))]
+        let texture = nvsg_texture.get_texture(0)?;
+        self.texture = Some(texture);
         self.cpu_evicted = false;
         self.hit_mask = None;
         Ok(())
@@ -554,10 +562,21 @@ impl GraphBuff {
 
     pub fn load_mask(&mut self, file_name: &str, buff: Vec<u8>) -> Result<()> {
         let mut nvsg_texture = NvsgTexture::new(file_name);
-        nvsg_texture.read_texture(&buff, |typ| typ == super::texture::TextureType::Single8Bit)?;
-
+        #[cfg(feature = "psx")]
+        let texture = match nvsg_texture.read_single_ps1_mask(buff) {
+            Ok(texture) => texture,
+            Err(buff) => {
+                nvsg_texture.read_texture(&buff, |typ| typ == super::texture::TextureType::Single8Bit)?;
+                nvsg_texture.get_ps1_mask_texture(0, &buff)?
+            }
+        };
+        #[cfg(not(feature = "psx"))]
+        let texture = {
+            nvsg_texture.read_texture(&buff, |typ| typ == super::texture::TextureType::Single8Bit)?;
+            nvsg_texture.get_texture(0)?
+        };
         self.unload();
-        self.texture = Some(nvsg_texture.get_texture(0)?);
+        self.texture = Some(texture);
         self.r_value = 100;
         self.g_value = 100;
         self.b_value = 100;
@@ -951,6 +970,12 @@ fn build_hit_mask(img: &DynamicImage) -> Option<Vec<u64>> {
     let n = (w as usize) * (h as usize);
     let mut mask = vec![0u64; (n + 63) / 64];
     match img {
+        #[cfg(feature = "psx")]
+        DynamicImage::ImagePs1Mask(img) => {
+            for (i, alpha) in img.alpha.iter().enumerate() {
+                if *alpha != 0 { mask[i / 64] |= 1u64 << (i % 64); }
+            }
+        }
         DynamicImage::ImageRgba8(rgba) => {
             for (i, px) in rgba.as_raw().chunks_exact(4).enumerate() {
                 if px[3] != 0 {
