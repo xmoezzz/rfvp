@@ -33,9 +33,7 @@ ENV PSN00BSDK=/opt/psn00bsdk PSN00BSDK_TC=/opt/psn00bsdk
 ENV PATH="/opt/psn00bsdk/bin:${PATH}"
 
 FROM llvm AS console-ps2
-RUN bash /tmp/install-rust.sh legacy \
-    && apt-get update && apt-get install -y --no-install-recommends xorriso \
-    && rm -rf /var/lib/apt/lists/*
+RUN bash /tmp/install-rust.sh legacy
 ARG PS2DEV_VERSION=v2.0.0
 RUN mkdir -p /opt/ps2dev \
     && curl -fL --retry 3 "https://github.com/ps2dev/ps2dev/releases/download/${PS2DEV_VERSION}/ps2dev-ubuntu-latest.tar.gz" -o /tmp/sdk.tar.gz \

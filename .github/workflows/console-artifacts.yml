@@ -1,4 +1,4 @@
-name: Console Release Packages
+name: Console Executables
 
 on:
   workflow_call:
@@ -10,13 +10,21 @@ permissions:
 
 jobs:
   build:
-    name: ${{ matrix.platform }} package
+    name: ${{ matrix.platform }} executable
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        platform: [ps1, ps2, psp, 3ds]
+        include:
+          - platform: ps1
+            file: rfvp-ps1.exe
+          - platform: ps2
+            file: rfvp-ps2.elf
+          - platform: psp
+            file: EBOOT.PBP
+          - platform: 3ds
+            file: rfvp.3dsx
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -33,18 +41,17 @@ jobs:
           tags: rfvp-console:${{ matrix.platform }}
           cache-from: type=gha,scope=console-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=console-${{ matrix.platform }}
-      - name: Build and package
+      - name: Build executable
         run: |
           docker run --rm \
-            -e RFVP_BUILD_COMMIT="${GITHUB_SHA}" \
             -v "${GITHUB_WORKSPACE}:/work" -w /work \
             "rfvp-console:${{ matrix.platform }}" \
-            bash platform/consoles/build-package.sh "${{ matrix.platform }}"
-      - name: Upload release package
+            bash platform/consoles/build-executable.sh "${{ matrix.platform }}"
+      - name: Upload executable
         uses: actions/upload-artifact@v4
         with:
           name: rfvp-${{ matrix.platform }}
-          path: dist/consoles/rfvp-${{ matrix.platform }}.zip
+          path: dist/consoles/${{ matrix.file }}
           if-no-files-found: error
       - name: Sign in to GHCR
         if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
