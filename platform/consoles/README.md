@@ -1,10 +1,10 @@
 # Console release packages
 
 The main Build Artifacts workflow calls `console-artifacts.yml` for PS1, PS2,
-PSP and 3DS on pushes and pull requests. Each platform has its own Docker target,
+PSP and 3DS on default-branch pushes, version tags and pull requests. Each platform has its own Docker target,
 SDK and artifact. Successful default-branch builds attach all four packages to
 the rolling `pre-release`; version tags attach them to the tagged release.
-Feature branches and pull requests produce Actions artifacts without replacing
+Pull requests produce Actions artifacts without replacing
 the rolling release. The reusable workflow can also be dispatched to build only
 the console packages.
 
