@@ -49,7 +49,7 @@ exact validated image for a particular build. No BIOS or DSP firmware is bundled
 From the repository root, with Docker installed:
 
 ```sh
-docker build --target ps1 -f platform/docker/Dockerfile.console \
+docker build --target console-ps1 -f platform/docker/Dockerfile.console \
   -t rfvp-console:ps1 platform
 docker run --rm -v "$PWD:/work" -w /work rfvp-console:ps1 \
   bash platform/consoles/build-package.sh ps1
