@@ -15,6 +15,14 @@ env:
   RFVP_CARGO_PKG: rfvp
 
 jobs:
+  console_executables:
+    name: Console executables
+    if: github.event_name == 'pull_request' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || startsWith(github.ref, 'refs/tags/v')
+    uses: ./.github/workflows/console-artifacts.yml
+    permissions:
+      contents: read
+      packages: write
+
   meta:
     name: Read rfvp version
     runs-on: ubuntu-latest
@@ -642,8 +650,8 @@ jobs:
 
   prerelease:
     name: Publish GitHub Pre-release (non-tag pushes only)
-    if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
-    needs: [meta, linux_x86_64, linux_aarch64, freebsd, wasm, uefi, macos, ios, windows, android]
+    if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    needs: [meta, linux_x86_64, linux_aarch64, freebsd, wasm, uefi, macos, ios, windows, android, console_executables]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -656,6 +664,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: _artifacts
+          pattern: rfvp-*
 
       - name: Compute short SHA
         id: vars
@@ -699,12 +708,16 @@ jobs:
             _artifacts/rfvp-ios/RFVPLauncher.ipa \
             _artifacts/rfvp-windows/rfvp.exe \
             _artifacts/rfvp-windows/rfvp_arm64.exe \
-            _artifacts/rfvp-android/app-release.apk
+            _artifacts/rfvp-android/app-release.apk \
+            _artifacts/rfvp-ps1/rfvp-ps1.exe \
+            _artifacts/rfvp-ps2/rfvp-ps2.elf \
+            _artifacts/rfvp-psp/EBOOT.PBP \
+            _artifacts/rfvp-3ds/rfvp.3dsx
 
   release:
     name: Publish GitHub Release (tags only)
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [meta, linux_x86_64, linux_aarch64, freebsd, wasm, uefi, macos, ios, windows, android]
+    needs: [meta, linux_x86_64, linux_aarch64, freebsd, wasm, uefi, macos, ios, windows, android, console_executables]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -714,6 +727,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: _artifacts
+          pattern: rfvp-*
 
       - name: List artifacts
         run: |

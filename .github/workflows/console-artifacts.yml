@@ -1,0 +1,71 @@
+name: Console Executables
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    name: ${{ matrix.platform }} executable
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ps1
+            file: rfvp-ps1.exe
+          - platform: ps2
+            file: rfvp-ps2.elf
+          - platform: psp
+            file: EBOOT.PBP
+          - platform: 3ds
+            file: rfvp.3dsx
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build platform toolchain image
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: "false"
+        uses: docker/build-push-action@v6
+        with:
+          context: platform
+          file: platform/docker/Dockerfile.console
+          target: console-${{ matrix.platform }}
+          platforms: linux/amd64
+          load: true
+          tags: rfvp-console:${{ matrix.platform }}
+          cache-from: type=gha,scope=console-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=console-${{ matrix.platform }}
+      - name: Build executable
+        run: |
+          docker run --rm \
+            -v "${GITHUB_WORKSPACE}:/work" -w /work \
+            "rfvp-console:${{ matrix.platform }}" \
+            bash platform/consoles/build-executable.sh "${{ matrix.platform }}"
+      - name: Upload executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: rfvp-${{ matrix.platform }}
+          path: dist/consoles/${{ matrix.file }}
+          if-no-files-found: error
+      - name: Sign in to GHCR
+        if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Publish validated toolchain image
+        if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/rfvp-${{ matrix.platform }}-builder
+        run: |
+          docker tag "rfvp-console:${{ matrix.platform }}" "${IMAGE}:${GITHUB_SHA}"
+          docker tag "rfvp-console:${{ matrix.platform }}" "${IMAGE}:latest"
+          docker push "${IMAGE}:${GITHUB_SHA}"
+          docker push "${IMAGE}:latest"
