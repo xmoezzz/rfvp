@@ -24,6 +24,7 @@ extern "C" {
 const FORMAT_DIRECT: i32 = 0;
 const FORMAT_CLUT4: i32 = 1;
 const FORMAT_CLUT8: i32 = 2;
+const FORMAT_MASK8: i32 = 3;
 
 struct GpuTexture {
     handle: *mut c_void,
@@ -156,6 +157,7 @@ impl RfvpRenderer for Ps1Renderer {
         let (format, owned_direct, raw): (i32, Option<Vec<u16>>, Option<&[u8]>) = match desc.format {
             PixelFormat::Clut4 => (FORMAT_CLUT4, None, pixels),
             PixelFormat::Clut8 => (FORMAT_CLUT8, None, pixels),
+            PixelFormat::Ps1Mask8 => (FORMAT_MASK8, None, pixels),
             other => {
                 let direct = match pixels {
                     Some(src) => to_color15(other, src, count)?,

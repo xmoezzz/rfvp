@@ -320,7 +320,7 @@ static void clut_free(int16_t x, int16_t y, int cells) {
     memset(&clut_used[y - CLUT_Y][x / 16], 0, cells);
 }
 
-enum { FORMAT_DIRECT = 0, FORMAT_CLUT4 = 1, FORMAT_CLUT8 = 2 };
+enum { FORMAT_DIRECT = 0, FORMAT_CLUT4 = 1, FORMAT_CLUT8 = 2, FORMAT_MASK8 = 3 };
 
 typedef struct {
     int16_t vx, vy;     /* VRAM position */
@@ -334,6 +334,7 @@ typedef struct {
 typedef struct {
     int format;
     int width, height;
+    int mask, mask_low, mask_high;
     int16_t clut_x, clut_y, stp_x, stp_y; /* the palette, and one with STP on every color */
     int clut_cells;
     int count;
@@ -386,6 +387,8 @@ static void upload_clut(int16_t x, int16_t y, const uint16_t* colors, int count,
 /* A texture. `pixels`: for FORMAT_DIRECT 15-bit colors, `width` a row; for the CLUT formats
  * u16 colors, u16 stride, the palette, then the indices (see PixelFormat::Clut8). */
 void* rfvp_ps1_gpu_create_texture(int format, uint32_t width, uint32_t height, const uint8_t* pixels) {
+    int mask = format == FORMAT_MASK8;
+    if (mask) format = FORMAT_CLUT8;
     int per = texels_per_unit(format);
     const uint8_t* indices = pixels;
     int stride_bytes = width * 2;
@@ -405,6 +408,9 @@ void* rfvp_ps1_gpu_create_texture(int format, uint32_t width, uint32_t height, c
     Texture* t = calloc(1, sizeof(Texture) + cols * rows * sizeof(Tile));
     if (!t) return 0;
     t->format = format;
+    t->mask = mask;
+    t->mask_low = 85;
+    t->mask_high = 169;
     t->width = width;
     t->height = height;
     t->count = cols * rows;
@@ -438,11 +444,16 @@ void* rfvp_ps1_gpu_create_texture(int format, uint32_t width, uint32_t height, c
         memset(full, 0, sizeof(full));
         memcpy(full, palette, (colors < count ? colors : count) * 2);
         if (!clut_alloc(t->clut_cells, &t->clut_x, &t->clut_y) ||
-            !clut_alloc(t->clut_cells, &t->stp_x, &t->stp_y)) {
+            (!mask && !clut_alloc(t->clut_cells, &t->stp_x, &t->stp_y))) {
             printf("rfvp: CLUT space is full\n");
+            if (mask) {
+                for (int i = 0; i < t->count; i++) bin_free(t->tiles[i].bin);
+                free(t);
+                return 0;
+            }
         } else {
             upload_clut(t->clut_x, t->clut_y, full, count, 0);
-            upload_clut(t->stp_x, t->stp_y, full, count, 1);
+            if (!mask) upload_clut(t->stp_x, t->stp_y, full, count, 1);
         }
     }
     return t;
@@ -490,7 +501,7 @@ void rfvp_ps1_gpu_destroy_texture(void* texture) {
     for (int i = 0; i < t->count; i++) bin_free(t->tiles[i].bin);
     if (t->format != FORMAT_DIRECT) {
         clut_free(t->clut_x, t->clut_y, t->clut_cells);
-        clut_free(t->stp_x, t->stp_y, t->clut_cells);
+        if (!t->mask) clut_free(t->stp_x, t->stp_y, t->clut_cells);
     }
     free(t);
 }
@@ -562,13 +573,40 @@ static inline float edge_lerp(float lo, float hi, float weight) {
     return lo + (hi - lo) * weight;
 }
 
+/* Bayer thresholds are baked into indices offline. Animate only this 512-byte CLUT.
+ * ABE stays enabled and the original CLUT's STP bits select 0%, 50% or 100%.
+ * Index zero remains transparent for DMA padding at every phase. */
+static void mask_palette(Texture* t, int phase) {
+    int lo = 255 + 84 * (765 - 2 * phase);
+    int hi = 255 + 84 * (1020 - 2 * phase);
+    lo = (lo > 0 ? lo + 254 : lo) / 255;
+    hi = (hi > 0 ? hi + 254 : hi) / 255;
+    if (lo == t->mask_low && hi == t->mask_high) return;
+    static uint16_t colors[256] __attribute__((aligned(4)));
+    colors[0] = 0;
+    for (int i = 1; i < 256; i++) colors[i] = i < lo ? 0 : i < hi ? 0xffff : 0x7fff;
+    /* Finish the previous frame before replacing its palette. */
+    DrawSync(0);
+    upload_clut(t->clut_x, t->clut_y, colors, 256, 0);
+    t->mask_low = lo;
+    t->mask_high = hi;
+}
+
 /* `c`: screen x, y and texel u, v for each of the four corners, in any order (the texel
  * rectangle is axis-aligned; the screen quad may be anything). */
 void rfvp_ps1_gpu_draw_sprite(void* texture, const float* c, uint32_t rgba, int additive) {
     Texture* t = texture;
     if (!t || !frame_open) return;
     int stp;
-    int mode = alpha_mode(rgba, additive, &stp);
+    int mode;
+    if (t->mask) {
+        mask_palette(t, (rgba >> 24) * 2);
+        stp = 1;
+        mode = 0;
+        additive = 0;
+    } else {
+        mode = alpha_mode(rgba, additive, &stp);
+    }
     if (mode < 0) return;
     int a = rgba >> 24;
     /* The corners by texel position: q[bottom][right] = x, y. */
@@ -628,7 +666,7 @@ void rfvp_ps1_gpu_draw_sprite(void* texture, const float* c, uint32_t rgba, int 
         setUV4(p, uv[0][0], uv[0][1], uv[1][0], uv[1][1], uv[2][0], uv[2][1], uv[3][0], uv[3][1]);
         p->tpage = tile->tpage | ((mode & 3) << 5);
         p->clut = t->format == FORMAT_DIRECT ? 0
-                  : stp ? getClut(t->stp_x, t->stp_y) : getClut(t->clut_x, t->clut_y);
+                  : stp && !t->mask ? getClut(t->stp_x, t->stp_y) : getClut(t->clut_x, t->clut_y);
     }
 }
 

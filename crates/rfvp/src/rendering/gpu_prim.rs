@@ -24,6 +24,7 @@ use crate::subsystem::resources::{
 enum DrawTextureKey {
     Graph(u16),
     White,
+    Mask,
 }
 
 #[derive(Clone, Debug)]
@@ -57,6 +58,8 @@ pub struct GpuPrimRenderer {
     root0_draw_end: usize,
     graph_cache: HashMap<u16, GraphGpuEntry>,
     white: GpuTexture,
+    mask_frame: super::mask_dissolve::MaskDissolveFrame,
+    mask_texture: Option<GraphGpuEntry>,
 
     // Debug HUD: prim tile preview (opt-in via env)
     debug_tiles: Vec<DebugPrimTile>,
@@ -128,6 +131,8 @@ impl GpuPrimRenderer {
             root0_draw_end: 0,
             graph_cache: HashMap::new(),
             white,
+            mask_frame: Default::default(),
+            mask_texture: None,
 
             debug_tiles: Vec::new(),
             debug_tiles_enabled: false,
@@ -431,6 +436,7 @@ impl GpuPrimRenderer {
     fn texture_bind_group(&self, key: DrawTextureKey) -> &TextureBindGroup {
         match key {
             DrawTextureKey::White => self.white.bind_group(),
+            DrawTextureKey::Mask => self.mask_texture.as_ref().expect("mask texture uploaded").texture.bind_group(),
             DrawTextureKey::Graph(id) => self
                 .graph_cache
                 .get(&id)
@@ -963,6 +969,27 @@ impl GpuPrimRenderer {
                 0,
             );
         }
+
+        self.mask_frame.prepare(motion);
+        if let Some(image) = &self.mask_frame.image {
+            let generation = self.mask_frame.generation;
+            let updated = self.mask_texture.as_mut().map_or(false, |entry| {
+                if entry.generation == generation { return true; }
+                if entry.texture.update_rgba8(resources, image) {
+                    entry.generation = generation;
+                    true
+                } else { false }
+            });
+            if !updated {
+                self.mask_texture = Some(GraphGpuEntry {
+                    generation,
+                    texture: GpuTexture::new_rgba8_unorm(resources, image, Some("dissolve_mask")),
+                });
+            }
+            self.emit_sprite_vertices(Mat4::IDENTITY,
+                self.virtual_size.0 as f32, self.virtual_size.1 as f32,
+                vec2(0.0,0.0), vec2(1.0,1.0), vec4(1.0,1.0,1.0,1.0), DrawTextureKey::Mask, false);
+        } else { self.mask_texture = None; }
 
         // Record the draw boundary for root=0 so the caller can insert overlays (e.g. dissolves)
         // between the main scene tree and the overlay/custom root tree.

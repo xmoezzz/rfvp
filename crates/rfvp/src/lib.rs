@@ -2,6 +2,9 @@
 #![cfg_attr(target_arch = "wasm32", allow(dead_code))]
 
 extern crate alloc;
+#[cfg(feature = "psx")]
+#[path = "../../../platform/ps1/mask_format.rs"]
+pub mod ps1_mask;
 #[cfg(feature = "no_std")]
 extern crate self as image;
 #[cfg(feature = "no_std")]
@@ -241,6 +244,18 @@ pub enum DynamicImage {
     /// A PlayStation CLUT picture (rfvp-psx-convert): drawn by the GPU as it is.
     #[cfg(feature = "psx")]
     ImageClut(ClutImage),
+    /// PS1 mask: original CPU alpha plus offline Bayer thresholds for the GPU.
+    #[cfg(feature = "psx")]
+    ImagePs1Mask(Ps1MaskImage),
+}
+
+#[cfg(feature = "psx")]
+#[derive(Clone, Debug)]
+pub struct Ps1MaskImage {
+    pub width: u32,
+    pub height: u32,
+    pub alpha: alloc::vec::Vec<u8>,
+    pub gpu: alloc::vec::Vec<u8>,
 }
 
 /// A palette picture in the PlayStation's formats: 4- or 8-bit indices into 15-bit colors
@@ -375,12 +390,24 @@ impl DynamicImage {
             Self::ImageRgba8(img) => (img.width(), img.height()),
             #[cfg(feature = "psx")]
             Self::ImageClut(img) => (img.width, img.height),
+            #[cfg(feature = "psx")]
+            Self::ImagePs1Mask(img) => (img.width, img.height),
         }
     }
 
     pub fn to_rgba8(&self) -> RgbaImage {
         match self {
             Self::ImageRgba8(img) => img.clone(),
+            #[cfg(feature = "psx")]
+            Self::ImagePs1Mask(img) => {
+                let mut out = RgbaImage::new(img.width, img.height);
+                for y in 0..img.height {
+                    for x in 0..img.width {
+                        out.put_pixel(x, y, self.get_pixel(x, y));
+                    }
+                }
+                out
+            }
             #[cfg(feature = "psx")]
             Self::ImageClut(img) => {
                 let mut out = RgbaImage::new(img.width, img.height);
@@ -418,6 +445,8 @@ impl DynamicImage {
             Self::ImageRgba8(img) => img.get_pixel(x, y),
             #[cfg(feature = "psx")]
             Self::ImageClut(img) => img.color(img.index(x, y)),
+            #[cfg(feature = "psx")]
+            Self::ImagePs1Mask(img) => Rgba([255, 255, 255, img.alpha[(y * img.width + x) as usize]]),
             Self::ImageLumaA8(img) => {
                 let p = img.get_pixel(x, y);
                 Rgba([p.0[0], p.0[0], p.0[0], p.0[1]])

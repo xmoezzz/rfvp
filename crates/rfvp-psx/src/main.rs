@@ -20,6 +20,8 @@ mod audio;
 mod font;
 mod game;
 mod image;
+#[path = "../../../platform/ps1/mask_format.rs"]
+mod mask_format;
 mod mdec;
 mod quant;
 mod video;
@@ -96,6 +98,9 @@ struct Cli {
     /// Restrict picture updates to named packs (for example graph).
     #[arg(long, requires = "images_only")]
     image_pack: Vec<String>,
+    /// Update only Type 3 masks; retain the existing converted color pictures and glyphs.
+    #[arg(long, requires = "images_only")]
+    masks_only: bool,
 }
 
 /// What a pack holds, from its name.
@@ -398,8 +403,19 @@ fn update_pictures(cli: &Cli, layout: &LayoutProfile, num: u32, den: u32) -> Res
             .find(|(name, _)| *name == virtual_name).map(|(_, disc)| disc)
             .with_context(|| format!("disc has no mapping for {virtual_name}"))?;
         let force4 = cli.clut4.iter().any(|p| p.eq_ignore_ascii_case(&pack.stem));
+        let existing = if cli.masks_only {
+            Some(game::read_pack(&cli.output.join(disc_name))?.entries.into_iter()
+                .map(|entry| (entry.name.clone(), entry)).collect::<BTreeMap<_, _>>())
+        } else { None };
         let entries: Vec<Result<(String, Vec<u8>)>> = pack.entries.par_iter().map(|entry| {
             let original = entry.read()?;
+            let is_mask = image::is_nvsg(&original) && game::read_u16(&original, 18)? == 3;
+            if let Some(existing) = &existing {
+                if !is_mask {
+                    let bytes = existing.get(&entry.name).with_context(|| format!("converted disc has no {}", entry.name))?.read()?;
+                    return Ok((entry.name.clone(), bytes));
+                }
+            }
             let resource = format!("{}/{}", pack.stem, entry.name);
             let filter = rfvp_image::ui_filter(&resource, cli.image_filter);
             let converted = if image::is_nvsg(&original) {

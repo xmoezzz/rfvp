@@ -599,6 +599,22 @@ impl NvsgTexture {
         Ok(())
     }
 
+    /// PS1-only derivative; CPU reads continue to return the original Area alpha.
+    #[cfg(feature = "psx")]
+    pub fn get_ps1_mask_texture(&self, index: usize, bytes: &[u8]) -> Result<DynamicImage> {
+        let plane = crate::ps1_mask::read(bytes).map_err(|error| anyhow!(error))?;
+        let Some(plane) = plane else {
+            log::warn!("PS1 mask {} has no offline Bayer plane; reconvert it for mask dissolves", self.name);
+            return self.get_texture(index);
+        };
+        let alpha = self.slices.get(index).ok_or_else(|| anyhow!("invalid mask frame"))?;
+        let gpu = plane.frame(index).ok_or_else(|| anyhow!("invalid mask GPU frame"))?;
+        Ok(DynamicImage::ImagePs1Mask(crate::Ps1MaskImage {
+            width: u32::from(plane.width), height: u32::from(plane.height),
+            alpha: alpha.clone(), gpu: gpu.to_vec(),
+        }))
+    }
+
     pub fn get_texture(&self, index: usize) -> Result<DynamicImage> {
         if index >= self.slices.len() {
             bail!("Invalid index: {}", index);

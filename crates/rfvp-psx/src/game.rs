@@ -134,22 +134,26 @@ pub fn packs(input: &Path) -> Result<Vec<Pack>> {
         if !path.is_file() || !ext_eq(&path, "bin") {
             continue;
         }
-        let stem = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .ok_or_else(|| anyhow!("bad pack name {}", path.display()))?
-            .to_ascii_lowercase();
-        let entries = read_pack_index(&path)?
-            .into_iter()
-            .map(|(name, offset, size)| Resource {
-                name,
-                source: Source::Packed { pack: path.clone(), offset, size },
-            })
-            .collect();
-        packs.push(Pack { stem, entries });
+        packs.push(read_pack(&path)?);
     }
     packs.sort_by(|a, b| a.stem.cmp(&b.stem));
     Ok(packs)
+}
+
+pub fn read_pack(path: &Path) -> Result<Pack> {
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| anyhow!("bad pack name {}", path.display()))?
+        .to_ascii_lowercase();
+    let entries = read_pack_index(&path)?
+        .into_iter()
+        .map(|(name, offset, size)| Resource {
+            name,
+            source: Source::Packed { pack: path.to_path_buf(), offset, size },
+        })
+        .collect();
+    Ok(Pack { stem, entries })
 }
 
 /// Loose files the converter handles: those below the top folder (`movie/01.wmv`).
