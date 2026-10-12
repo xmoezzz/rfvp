@@ -23,6 +23,7 @@ pub struct SoftRenderer {
     /// Blend mode of the prim being rasterized: `PrimSetBlend(id, 1)` is additive
     /// (SRCALPHA/ONE) in the original engine.
     additive: bool,
+    mask_frame: crate::rendering::mask_dissolve::MaskDissolveFrame,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -49,6 +50,7 @@ impl SoftRenderer {
             framebuffer: SoftFramebuffer::new(width.max(1), height.max(1), format)?,
             stats: SoftRendererStats::default(),
             additive: false,
+            mask_frame: Default::default(),
         })
     }
 
@@ -100,6 +102,21 @@ impl SoftRenderer {
             &mut visit,
             0,
         )?;
+
+        self.mask_frame.prepare(motion);
+        if let Some(image) = self.mask_frame.image.take() {
+            let (w, h) = self.virtual_size;
+            self.additive = false;
+            for y in 0..h {
+                for x in 0..w {
+                    let alpha = sample_linear(&image, vec2((x as f32 + 0.5)/w as f32, (y as f32 + 0.5)/h as f32)).w;
+                    self.blend_pixel(x, y, vec4(0.0, 0.0, 0.0, alpha));
+                }
+            }
+            self.mask_frame.image = Some(image);
+            self.stats.quad_count += 1;
+            self.stats.draw_calls += 1;
+        }
 
         if let Some(color) = self.dissolve_color(motion)? {
             self.fill_rect(
@@ -155,9 +172,7 @@ impl SoftRenderer {
         match motion.get_dissolve_type() {
             DissolveType::None => Ok(None),
             DissolveType::MaskFadeIn | DissolveType::MaskFadeInOut | DissolveType::MaskFadeOut => {
-                // Match app.rs: mask dissolves do not enqueue a dedicated overlay in the
-                // current wgpu path; root and overlay primitives continue through the normal
-                // sprite/fill pipeline order.
+                // The mask was composited separately, before color overlays and HUD/text.
                 Ok(None)
             }
             DissolveType::Static | DissolveType::ColoredFadeIn | DissolveType::ColoredFadeOut => {

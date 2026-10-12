@@ -312,7 +312,7 @@ fn convert_pixel(format: PixelFormat, src: &[u8], index: usize) -> u32 {
         PixelFormat::Alpha8 => pack(255, 255, 255, b(index)),
         // Expanded before this (see `expand_clut`).
         #[cfg(feature = "psx")]
-        PixelFormat::Clut4 | PixelFormat::Clut8 => 0,
+        PixelFormat::Clut4 | PixelFormat::Clut8 | PixelFormat::Ps1Mask8 => 0,
     }
 }
 
@@ -359,7 +359,7 @@ fn source_bytes_per_pixel(format: PixelFormat) -> usize {
         PixelFormat::LumaA8 => 2,
         PixelFormat::Luma8 | PixelFormat::Alpha8 => 1,
         #[cfg(feature = "psx")]
-        PixelFormat::Clut4 | PixelFormat::Clut8 => 4,
+        PixelFormat::Clut4 | PixelFormat::Clut8 | PixelFormat::Ps1Mask8 => 4,
     }
 }
 
@@ -752,6 +752,8 @@ impl RfvpRenderer for SoftRaster {
         if desc.width == 0 || desc.height == 0 {
             return Err(RfvpError::InvalidArgument);
         }
+        #[cfg(feature = "psx")]
+        if desc.format == PixelFormat::Ps1Mask8 { return Err(RfvpError::Unsupported); }
         let count = (desc.width as usize)
             .checked_mul(desc.height as usize)
             .ok_or(RfvpError::CapacityExceeded)?;

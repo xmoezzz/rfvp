@@ -27,6 +27,12 @@ pub(crate) struct HostGraphCacheEntry {
 pub(crate) struct HostPrimRenderCache {
     graphs: Vec<HostGraphCacheEntry>,
     white_ready: bool,
+    #[cfg(feature = "psx")]
+    mask_key: Option<(u64, alloc::string::String)>,
+    #[cfg(not(feature = "psx"))]
+    mask_frame: super::mask_dissolve::MaskDissolveFrame,
+    #[cfg(not(feature = "psx"))]
+    mask_upload: Option<(u64, u16, u16)>,
 }
 
 impl HostPrimRenderCache {
@@ -34,6 +40,12 @@ impl HostPrimRenderCache {
         Self {
             graphs: Vec::new(),
             white_ready: false,
+            #[cfg(feature = "psx")]
+            mask_key: None,
+            #[cfg(not(feature = "psx"))]
+            mask_frame: Default::default(),
+            #[cfg(not(feature = "psx"))]
+            mask_upload: None,
         }
     }
 
@@ -143,6 +155,8 @@ impl HostPrimRenderCache {
                 let format = if img.bits == 4 { TextureFormat::Indexed4 } else { TextureFormat::Indexed8 };
                 (format, img.texture_bytes())
             }
+            #[cfg(feature = "psx")]
+            crate::DynamicImage::ImagePs1Mask(img) => (TextureFormat::Native(crate::ps1_mask::NATIVE_FORMAT), img.gpu.as_slice()),
         };
         backend.create_texture(
             host_texture_id(graph_id),
@@ -165,6 +179,7 @@ enum DrawTextureKey {
 }
 
 const WHITE_TEXTURE: TextureHandle = TextureHandle(u32::MAX);
+const MASK_TEXTURE: TextureHandle = TextureHandle(u32::MAX - 1);
 
 fn host_texture_id(graph_id: u16) -> TextureHandle {
     TextureHandle(graph_id as u32)
@@ -418,7 +433,67 @@ where
 
     // Between the two trees, as the desktop renderer does: the scene dissolve (a full-screen
     // color fade), then dissolve2 (the engine's own fades around save, load and transitions).
-    // Mask dissolves are not drawn yet, on any platform.
+    // PS1 masks blend a black reveal directly over the completed scene, before HUD/text.
+    // Other hosts keep continuous alpha and update a normal RGBA texture.
+    #[cfg(feature = "psx")]
+    {
+        use alloc::string::ToString;
+        let active = matches!(motion.get_dissolve_type(),
+            DissolveType::MaskFadeIn | DissolveType::MaskFadeInOut | DissolveType::MaskFadeOut);
+        let graph = motion.get_dissolve_mask_graph();
+        if let Some(crate::DynamicImage::ImagePs1Mask(mask)) = graph.get_texture().as_ref().filter(|_| active) {
+            let key_matches = cache.mask_key.as_ref().map_or(false, |(generation, path)|
+                *generation == graph.generation && path == &graph.texture_path);
+            if !key_matches {
+                backend.create_texture(MASK_TEXTURE, PortableTextureDesc {
+                    width: mask.width as u16, height: mask.height as u16,
+                    format: TextureFormat::Native(crate::ps1_mask::NATIVE_FORMAT),
+                }, &mask.gpu)?;
+                cache.mask_key = Some((graph.generation, graph.texture_path.to_string()));
+            }
+            let alpha = motion.get_dissolve_alpha().clamp(0.0, 1.0);
+            let w = virtual_size.0 as f32;
+            let h = virtual_size.1 as f32;
+            let color = crate::host_api::ColorRgba { r: 0.0, g: 0.0, b: 0.0, a: alpha };
+            let vertices = [
+                Vertex2D { position: [0.0, h], tex_coord: [0.0, 1.0], color },
+                Vertex2D { position: [0.0, 0.0], tex_coord: [0.0, 0.0], color },
+                Vertex2D { position: [w, h], tex_coord: [1.0, 1.0], color },
+                Vertex2D { position: [w, 0.0], tex_coord: [1.0, 0.0], color },
+            ];
+            frame.commands.push(RenderCommand::DrawImage(DrawImageCmd {
+                texture: MASK_TEXTURE, src: RectU16::default(),
+                dst: RectI16 { x: 0, y: 0, w: virtual_size.0 as i16, h: virtual_size.1 as i16 },
+                color: Rgba8 { r: 0, g: 0, b: 0, a: (alpha * 255.0 + 0.5) as u8 },
+                blend: CommandBlendMode::Normal, effect_id: 0, clip: None, vertices,
+            }));
+        } else if cache.mask_key.take().is_some() {
+            backend.destroy_texture(MASK_TEXTURE);
+        }
+    }
+    #[cfg(not(feature = "psx"))]
+    {
+        cache.mask_frame.prepare(motion);
+        if let Some(crate::DynamicImage::ImageRgba8(image)) = &cache.mask_frame.image {
+            let width = u16::try_from(image.width()).map_err(|_| RfvpError::CapacityExceeded)?;
+            let height = u16::try_from(image.height()).map_err(|_| RfvpError::CapacityExceeded)?;
+            let generation = cache.mask_frame.generation;
+            let desc = PortableTextureDesc { width, height, format: TextureFormat::Rgba8 };
+            if cache.mask_upload != Some((generation, width, height)) {
+                let updated = if cache.mask_upload.map_or(false, |(_, w, h)| (w, h) == (width, height)) {
+                    backend.update_texture_data(MASK_TEXTURE, desc, image.as_raw())?
+                } else { false };
+                if !updated { backend.create_texture(MASK_TEXTURE, desc, image.as_raw())?; }
+                cache.mask_upload = Some((generation, width, height));
+            }
+            let start = frame.commands.len();
+            emit_sprite(&mut frame.commands, &mut frame.hit_proxies, &mut order, -1,
+                Mat4::IDENTITY, virtual_size.0 as f32, virtual_size.1 as f32,
+                vec2(0.0,0.0), vec2(1.0,1.0), vec4(1.0,1.0,1.0,1.0),
+                DrawTextureKey::White, CommandBlendMode::Normal)?;
+            if let RenderCommand::DrawImage(draw) = &mut frame.commands[start] { draw.texture = MASK_TEXTURE; }
+        } else if cache.mask_upload.take().is_some() { backend.destroy_texture(MASK_TEXTURE); }
+    }
     let dissolve_alpha = match motion.get_dissolve_type() {
         DissolveType::Static | DissolveType::ColoredFadeIn | DissolveType::ColoredFadeOut => {
             Some((motion.get_dissolve_color_id(), motion.get_dissolve_alpha()))

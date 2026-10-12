@@ -85,7 +85,11 @@ pub fn convert_with_options(
             let frame = &pixels[f * width * height..(f + 1) * width * height];
             out.extend(resize_gray(frame, width, height, new_w, new_h, kind == 4));
         }
-        return write_zlib(&header, new_w, new_h, kind, &out);
+        let mut encoded = write_zlib(&header, new_w, new_h, kind, &out)?;
+        if kind == 3 {
+            append_mask_coverage(&mut encoded, &out, new_w, new_h, frames)?;
+        }
+        return Ok(encoded);
     }
 
     // Color: RGBA, resized premultiplied (as NVSG's 32-bit pixels are stored) so transparent
@@ -187,7 +191,43 @@ pub fn convert_with_options(
     Ok(encoded)
 }
 
+/// Preserve the Area alpha plane and append offline, GPU-ready Bayer coverage.
+fn append_mask_coverage(encoded: &mut Vec<u8>, alpha: &[u8], width: usize, height: usize, frames: usize) -> Result<()> {
+    use crate::mask_format as mask;
+    let stride = width.next_multiple_of(2);
+    ensure!(stride <= u16::MAX as usize, "PS1 mask stride exceeds u16");
+    let start = encoded.len();
+    encoded.extend_from_slice(mask::HEADER_MAGIC);
+    encoded.extend_from_slice(&(width as u16).to_le_bytes());
+    encoded.extend_from_slice(&(height as u16).to_le_bytes());
+    encoded.extend_from_slice(&(frames as u32).to_le_bytes());
+    encoded.extend_from_slice(&(stride as u16).to_le_bytes());
+    encoded.extend_from_slice(&[0, 0]);
+    for frame in alpha.chunks_exact(width * height) {
+        encoded.extend_from_slice(&256u16.to_le_bytes());
+        encoded.extend_from_slice(&(stride as u16).to_le_bytes());
+        for index in 0..256 {
+            encoded.extend_from_slice(&mask::PALETTE[mask::palette_state(index as u8, 255) as usize].to_le_bytes());
+        }
+        for y in 0..height {
+            for x in 0..stride {
+                encoded.push(if x < width { mask::coverage_index(frame[y * width + x], x, y) } else { 0 });
+            }
+        }
+    }
+    let length = u32::try_from(encoded.len() - start).context("PS1 mask trailer exceeds u32")?;
+    encoded.extend_from_slice(&length.to_le_bytes());
+    encoded.extend_from_slice(mask::FOOTER_MAGIC);
+    Ok(())
+}
+
 pub fn vram_bytes(encoded: &[u8]) -> Result<usize> {
+    if let Some(mask) = crate::mask_format::read(encoded).map_err(anyhow::Error::msg)? {
+        let rows: usize = (0..usize::from(mask.width)).step_by(126).map(|x| {
+            (usize::from(mask.width) - x).min(126).div_ceil(2).next_multiple_of(2) * 2
+        }).sum();
+        return Ok((rows * usize::from(mask.height) + 512) * mask.frames as usize);
+    }
     let h = &encoded[12..];
     let kind = read_u16(h, 6)?;
     let width = read_u16(h, 8)? as usize;

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Build the PlayStation port and its disc image.
+# Build the PlayStation executable, and optionally a converted game's disc image.
 #
-#   build_ps1.sh <converted game>
+#   build_ps1.sh [converted game]
 #
 # <converted game> is the output of `rfvp-psx-convert` (the disc's files, iso.xml). Needs
 # PSn00bSDK (PSN00BSDK, default ~/psn00bsdk), a mipsel-none-elf GCC (PSN00BSDK_TC, default
-# ~/ps2dev/iop), Homebrew LLVM and the nightly in consoles/toolchain.env. Output: the EXE in
+# ~/ps2dev/iop), LLVM and the nightly in consoles/toolchain.env. Output: the EXE in
 # target/rfvp-ps1/, and the disc (rfvp.bin, rfvp.cue) in the converted game's folder.
 #
 # The build is for a stock console's 2 MiB; RFVP_PS1_RAM=8 builds for the 8 MiB of a
@@ -13,7 +13,8 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
-GAME="$(cd "$1" && pwd)"
+GAME=""
+if [[ $# -gt 0 ]]; then GAME="$(cd "$1" && pwd)"; fi
 PSN00BSDK="${PSN00BSDK:-$HOME/psn00bsdk}"
 PSN00BSDK_TC="${PSN00BSDK_TC:-$HOME/ps2dev/iop}"
 TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
@@ -62,6 +63,10 @@ open(out, "wb").write(bytes(head) + body)
 print(f"rfvp.exe: {len(body)} bytes at {t_addr:#x}, entry {entry:#x}, bss {bss[5]} bytes")
 PY
 
+if [[ -z "$GAME" ]]; then
+  echo "[ps1] $OUT/rfvp.exe"
+  exit 0
+fi
 cp "$OUT/rfvp.exe" "$GAME/RFVP.EXE"
 printf 'BOOT=cdrom:\\RFVP.EXE;1\r\nTCB=4\r\nEVENT=10\r\nSTACK=%s\r\n' "$STACK" > "$GAME/SYSTEM.CNF"
 # DEBUG.TXT (see main.c), when the converted game has one.
