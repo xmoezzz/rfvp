@@ -562,13 +562,20 @@ impl GraphBuff {
 
     pub fn load_mask(&mut self, file_name: &str, buff: Vec<u8>) -> Result<()> {
         let mut nvsg_texture = NvsgTexture::new(file_name);
-        nvsg_texture.read_texture(&buff, |typ| typ == super::texture::TextureType::Single8Bit)?;
-
-        self.unload();
         #[cfg(feature = "psx")]
-        let texture = nvsg_texture.get_ps1_mask_texture(0, &buff)?;
+        let texture = match nvsg_texture.read_single_ps1_mask(buff) {
+            Ok(texture) => texture,
+            Err(buff) => {
+                nvsg_texture.read_texture(&buff, |typ| typ == super::texture::TextureType::Single8Bit)?;
+                nvsg_texture.get_ps1_mask_texture(0, &buff)?
+            }
+        };
         #[cfg(not(feature = "psx"))]
-        let texture = nvsg_texture.get_texture(0)?;
+        let texture = {
+            nvsg_texture.read_texture(&buff, |typ| typ == super::texture::TextureType::Single8Bit)?;
+            nvsg_texture.get_texture(0)?
+        };
+        self.unload();
         self.texture = Some(texture);
         self.r_value = 100;
         self.g_value = 100;
