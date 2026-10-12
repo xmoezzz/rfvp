@@ -63,6 +63,9 @@ fn main() {
                 "-mllvm",
                 "-mno-check-zero-division",
                 "-fno-pic",
+                // Keep Linux's host glibc headers out of the PSP cross-build.
+                // Clang's builtin headers and PSPDEV headers remain available.
+                "-nostdlibinc",
                 "-G0",
                 "-c",
                 "-O2",
