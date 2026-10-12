@@ -78,7 +78,7 @@ struct Cli {
     /// instead (`bgm2=bgm`): one disc does not hold both.
     #[arg(long, default_value = "bgm2=bgm")]
     music_alias: Vec<String>,
-    /// Packs whose pictures are all made 4-bit (16 colors, dithered): prims and UI parts.
+    /// Prefer 4-bit UI packs with guarded color and alpha allocation.
     #[arg(long, default_value = "graph")]
     clut4: Vec<String>,
     /// Worker threads (0: one per core).

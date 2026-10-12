@@ -74,6 +74,16 @@ struct Entry {
 /// transparency). `dither` diffuses the color error of opaque pixels (Floyd-Steinberg) across
 /// `width` pixel rows.
 pub fn quantize(rgba: &[u8], width: usize, max_colors: usize, dither: bool) -> Quantized {
+    quantize_impl(rgba, width, max_colors, dither, true)
+}
+
+/// Reproduce the former allocation only to establish the existing 4-bit budget.
+/// This palette is never written to the new image output.
+pub fn legacy_clut4_budget(rgba: &[u8], width: usize) -> Quantized {
+    quantize_impl(rgba, width, 16, true, false)
+}
+
+fn quantize_impl(rgba: &[u8], width: usize, max_colors: usize, dither: bool, reserve_alpha: bool) -> Quantized {
     let count = rgba.len() / 4;
     // Histogram of 15-bit colors per alpha level, with the alpha summed.
     let mut histogram = std::collections::HashMap::<(u16, u8), (u32, u64)>::new();
@@ -95,7 +105,8 @@ pub fn quantize(rgba: &[u8], width: usize, max_colors: usize, dither: bool) -> Q
             .map(|((c, level), (n, sum))| Entry { rgb: expand(c), level, alpha: (sum / n as u64) as u8 })
             .collect()
     } else {
-        median_cut(&histogram, max_colors - 1)
+        if reserve_alpha { median_cut(&histogram, max_colors - 1) }
+        else { median_cut_legacy(&histogram, max_colors - 1) }
     };
     entries.truncate(max_colors - 1);
     let mut palette = Vec::with_capacity(entries.len() + 1);
@@ -166,8 +177,47 @@ pub fn quantize(rgba: &[u8], width: usize, max_colors: usize, dither: bool) -> Q
     Quantized { palette, alpha, indices }
 }
 
-/// Median cut over the weighted histogram, per alpha level in proportion to its pixels.
+/// Median cut with a guaranteed slot for each alpha level, then weighted color slots.
 fn median_cut(histogram: &std::collections::HashMap<(u16, u8), (u32, u64)>, colors: usize) -> Vec<Entry> {
+    let mut groups = Vec::new();
+    for level in 1..=5 {
+        let mut points: Vec<([u8; 3], u32, u64)> = histogram.iter()
+            .filter(|((_, l), _)| *l == level)
+            .map(|(&(color, _), &(n, sum))| (expand(color), n, sum))
+            .collect();
+        if points.is_empty() { continue; }
+        // Hash iteration must not change palette ties or error diffusion.
+        points.sort_unstable_by_key(|p| p.0);
+        let weight: u64 = points.iter().map(|p| p.1 as u64).sum();
+        let alpha_sum: u64 = points.iter().map(|p| p.2).sum();
+        groups.push((level, points, weight, (alpha_sum / weight) as u8));
+    }
+    // Reserve one entry for every alpha level before distributing color slots.
+    // A rare antialiased edge must not become opaque or disappear because a
+    // large opaque fill won the proportional allocation first.
+    assert!(colors >= groups.len());
+    let mut slots = vec![1usize; groups.len()];
+    for _ in groups.len()..colors {
+        let pick = (0..groups.len()).filter(|&i| slots[i] < groups[i].1.len())
+            .max_by(|&a, &b| {
+                (groups[a].2 * (slots[b] + 1) as u64)
+                    .cmp(&(groups[b].2 * (slots[a] + 1) as u64))
+                    .then_with(|| groups[a].0.cmp(&groups[b].0))
+            });
+        let Some(i) = pick else { break };
+        slots[i] += 1;
+    }
+    let mut out = Vec::new();
+    for ((level, points, _, alpha), count) in groups.into_iter().zip(slots) {
+        for rgb in cut(points.iter().map(|p| (p.0, p.1)).collect(), count) {
+            out.push(Entry { rgb, level, alpha });
+        }
+    }
+    out
+}
+
+// Compatibility budget: proportional allocation used before alpha reservation.
+fn median_cut_legacy(histogram: &std::collections::HashMap<(u16, u8), (u32, u64)>, colors: usize) -> Vec<Entry> {
     let mut out = Vec::new();
     let total: u64 = histogram.values().map(|v| v.0 as u64).sum();
     let mut levels: Vec<u8> = histogram.keys().map(|k| k.1).collect();
@@ -213,7 +263,7 @@ fn cut(points: Vec<([u8; 3], u32)>, n: usize) -> Vec<[u8; 3]> {
         let Some(i) = pick else { break };
         let mut b = boxes.swap_remove(i);
         let (channel, _) = longest_channel(&b);
-        b.sort_by_key(|p| p.0[channel]);
+        b.sort_by_key(|p| (p.0[channel], p.0));
         let half: u64 = b.iter().map(|p| p.1 as u64).sum::<u64>() / 2;
         let mut acc = 0u64;
         let mut split = 1;
@@ -283,9 +333,44 @@ pub fn alpha_error(rgba: &[u8], q: &Quantized) -> u8 {
         .unwrap_or(0)
 }
 
+/// Alpha-weighted RGB mean square error in the actual RGB555 palette. Hidden
+/// pixels contribute nothing; antialiased edges contribute less than solid ink.
+pub fn color_mse(rgba: &[u8], q: &Quantized) -> u64 {
+    let mut error = 0u64;
+    let mut weight = 0u64;
+    for (p, &index) in rgba.chunks_exact(4).zip(&q.indices) {
+        if class_of(p[3]) == Class::Transparent { continue; }
+        let w = p[3] as u64 * p[3] as u64;
+        let rgb = expand(q.palette[index as usize] & 0x7fff);
+        error += (0..3).map(|c| sq(p[c] as i32 - rgb[c] as i32) as u64).sum::<u64>() * w;
+        weight += w;
+    }
+    error.div_ceil((weight * 3).max(1))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rare_alpha_levels_keep_their_classes_in_a_busy_palette() {
+        let mut rgba = Vec::new();
+        for i in 0..2048u32 {
+            rgba.extend_from_slice(&[(i * 7) as u8, (i * 13) as u8, (i * 29) as u8, 255]);
+        }
+        for alpha in [30, 100, 160, 220] { rgba.extend_from_slice(&[180, 200, 240, alpha]); }
+        let q = quantize(&rgba, 2052, 16, true);
+        for (p, &index) in rgba.chunks_exact(4).zip(&q.indices) {
+            assert_eq!(level_of(q.alpha[index as usize]), level_of(p[3]));
+            assert_eq!(class_of(q.alpha[index as usize]), class_of(p[3]));
+        }
+        assert!(q.palette.len() <= 16);
+        assert!(alpha_error(&rgba, &q) <= 63);
+        let repeat = quantize(&rgba, 2052, 16, true);
+        assert_eq!(q.palette, repeat.palette);
+        assert_eq!(q.alpha, repeat.alpha);
+        assert_eq!(q.indices, repeat.indices);
+    }
 
     #[test]
     fn few_colors_are_kept_exactly() {

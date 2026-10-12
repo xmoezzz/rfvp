@@ -849,7 +849,7 @@ fn convert_nvsg_with_options(bytes: &[u8], profile: &Profile, filter: Filter,
         "scaled NVSG dimensions exceed u16"
     );
 
-    let resized = if depth > 1 && filter == Filter::DpidBalanced {
+    let mut resized = if depth > 1 && filter == Filter::DpidBalanced {
         rfvp_image::resize_color_frames(&payload, header.width as usize, header.height as usize,
             new_w as usize, new_h as usize, depth, effective_entry_count as usize, filter)
     } else { match kind {
@@ -894,6 +894,12 @@ fn convert_nvsg_with_options(bytes: &[u8], profile: &Profile, filter: Filter,
             true,
         ),
     }};
+
+    if depth == 4 {
+        if let Some(threshold) = layout.and_then(|r| r.coverage_threshold) {
+            rfvp_image::preserve_alpha_coverage(&payload, &mut resized, depth, threshold);
+        }
+    }
 
     let mut original = bytes.to_vec();
     if depth > 1 {
@@ -1124,7 +1130,7 @@ mod tests {
         input.extend_from_slice(&header);
         let mut z = ZlibEncoder::new(Vec::new(), Compression::default());
         z.write_all(&px).unwrap(); input.extend(z.finish().unwrap());
-        let rule = LayoutRule { scale: 2.0, offset_x: Some(12), offset_y: Some(24) };
+        let rule = LayoutRule { scale: 2.0, offset_x: Some(12), offset_y: Some(24), coverage_threshold: None };
         let out = convert_nvsg_with_options(&input, &profile, Filter::DpidBalanced, Some(&rule)).unwrap();
         assert_eq!(read_u32le_at(&out, 32).unwrap(), 2);
         assert_eq!(read_u16le_at(&out, 20).unwrap(), 8);
@@ -1135,6 +1141,41 @@ mod tests {
         // A semantic mask stays on the original area path even in the UI pack.
         assert_eq!(rfvp_image::ui_filter("graph/title_bg_mask", Filter::DpidBalanced), Filter::Area);
         assert_eq!(rfvp_image::ui_filter("graph_bg/background", Filter::DpidBalanced), Filter::Area);
+    }
+
+    #[test]
+    fn explicit_coverage_is_applied_to_color_but_never_masks() {
+        let mut profile = make_profile(Platform::Psp, &HcbInfo {
+            path: PathBuf::from("game.hcb"), game_mode: 8, game_mode_reserved: 0,
+        }).unwrap();
+        profile.scale_num = 1; profile.scale_den = 2;
+        let rule = LayoutRule { scale: 1.0, offset_x: None, offset_y: None, coverage_threshold: Some(192) };
+        for kind in [1u16, 3] {
+            let mut header = vec![0u8; 32];
+            header[..4].copy_from_slice(b"NVSG");
+            header[6..8].copy_from_slice(&kind.to_le_bytes());
+            header[8..10].copy_from_slice(&4u16.to_le_bytes());
+            header[10..12].copy_from_slice(&2u16.to_le_bytes());
+            let alpha = [255u8, 255, 0, 0, 255, 0, 0, 0];
+            let pixels = if kind == 1 { alpha.into_iter().flat_map(|a| [a; 4]).collect::<Vec<_>>() }
+                else { alpha.to_vec() };
+            let mut input = Vec::from(&b"hzc1"[..]);
+            input.extend_from_slice(&(pixels.len() as u32).to_le_bytes());
+            input.extend_from_slice(&32u32.to_le_bytes()); input.extend(header);
+            let mut z = ZlibEncoder::new(Vec::new(), Compression::default());
+            z.write_all(&pixels).unwrap(); input.extend(z.finish().unwrap());
+            let before = convert_nvsg_with_options(&input, &profile, Filter::Area, None).unwrap();
+            let after = convert_nvsg_with_options(&input, &profile, Filter::Area, Some(&rule)).unwrap();
+            assert_eq!(&before[..44], &after[..44]);
+            if kind == 3 { assert_eq!(before, after); }
+            else {
+                let mut decoded = Vec::new();
+                ZlibDecoder::new(&after[44..]).read_to_end(&mut decoded).unwrap();
+                assert!(decoded[3] >= 192);
+                assert_eq!(&decoded[4..], &[0; 4]);
+                assert!(decoded[..3].iter().all(|&c| c <= decoded[3]));
+            }
+        }
     }
 
     #[test]

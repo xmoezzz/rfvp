@@ -5,212 +5,254 @@
     "graph/title_start": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 480
+      "offset_y": 480,
+      "coverage_threshold": 192
     },
     "graph/title_start1": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 480
+      "offset_y": 480,
+      "coverage_threshold": 192
     },
     "graph/title_start2": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 480
+      "offset_y": 480,
+      "coverage_threshold": 192
     },
     "graph/title_start3": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 480
+      "offset_y": 480,
+      "coverage_threshold": 192
     },
     "graph/title_start4": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 480
+      "offset_y": 480,
+      "coverage_threshold": 192
     },
     "graph/title_start5": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 480
+      "offset_y": 480,
+      "coverage_threshold": 192
     },
     "graph/title_continue": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 595
+      "offset_y": 595,
+      "coverage_threshold": 192
     },
     "graph/title_continue1": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 595
+      "offset_y": 595,
+      "coverage_threshold": 192
     },
     "graph/title_continue2": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 595
+      "offset_y": 595,
+      "coverage_threshold": 192
     },
     "graph/title_continue3": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 595
+      "offset_y": 595,
+      "coverage_threshold": 192
     },
     "graph/title_continue4": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 595
+      "offset_y": 595,
+      "coverage_threshold": 192
     },
     "graph/title_continue5": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 595
+      "offset_y": 595,
+      "coverage_threshold": 192
     },
     "graph/title_album": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 710
+      "offset_y": 710,
+      "coverage_threshold": 192
     },
     "graph/title_album1": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 710
+      "offset_y": 710,
+      "coverage_threshold": 192
     },
     "graph/title_album2": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 710
+      "offset_y": 710,
+      "coverage_threshold": 192
     },
     "graph/title_album3": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 710
+      "offset_y": 710,
+      "coverage_threshold": 192
     },
     "graph/title_album4": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 710
+      "offset_y": 710,
+      "coverage_threshold": 192
     },
     "graph/title_album5": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 710
+      "offset_y": 710,
+      "coverage_threshold": 192
     },
     "graph/title_option": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 825
+      "offset_y": 825,
+      "coverage_threshold": 192
     },
     "graph/title_option1": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 825
+      "offset_y": 825,
+      "coverage_threshold": 192
     },
     "graph/title_option2": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 825
+      "offset_y": 825,
+      "coverage_threshold": 192
     },
     "graph/title_option3": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 825
+      "offset_y": 825,
+      "coverage_threshold": 192
     },
     "graph/title_option4": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 825
+      "offset_y": 825,
+      "coverage_threshold": 192
     },
     "graph/title_option5": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 825
+      "offset_y": 825,
+      "coverage_threshold": 192
     },
     "graph/title_end": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 940
+      "offset_y": 940,
+      "coverage_threshold": 192
     },
     "graph/title_end1": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 940
+      "offset_y": 940,
+      "coverage_threshold": 192
     },
     "graph/title_end2": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 940
+      "offset_y": 940,
+      "coverage_threshold": 192
     },
     "graph/title_end3": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 940
+      "offset_y": 940,
+      "coverage_threshold": 192
     },
     "graph/title_end4": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 940
+      "offset_y": 940,
+      "coverage_threshold": 192
     },
     "graph/title_end5": {
       "scale": 1.25,
       "offset_x": 150,
-      "offset_y": 940
+      "offset_y": 940,
+      "coverage_threshold": 192
     },
     "graph/title_copyright": {
       "scale": 1.0,
       "offset_x": 1260,
-      "offset_y": 1033
+      "offset_y": 1033,
+      "coverage_threshold": 192
     },
     "graph/menu_exit_mes": {
       "scale": 2.0,
       "offset_x": 523,
-      "offset_y": 458
+      "offset_y": 458,
+      "coverage_threshold": 192
     },
     "graph/menu_del_mes": {
       "scale": 2.0,
       "offset_x": 561,
-      "offset_y": 458
+      "offset_y": 458,
+      "coverage_threshold": 192
     },
     "graph/menu_init_mes": {
       "scale": 2.0,
       "offset_x": 521,
-      "offset_y": 458
+      "offset_y": 458,
+      "coverage_threshold": 192
     },
     "graph/menu_ow_mes": {
       "scale": 2.0,
       "offset_x": 521,
-      "offset_y": 458
+      "offset_y": 458,
+      "coverage_threshold": 192
     },
     "graph/menu_qload_mes": {
       "scale": 2.0,
       "offset_x": 486,
-      "offset_y": 458
+      "offset_y": 458,
+      "coverage_threshold": 192
     },
     "graph/menu_title_mes": {
       "scale": 2.0,
       "offset_x": 525,
-      "offset_y": 458
+      "offset_y": 458,
+      "coverage_threshold": 192
     },
     "graph/menu_undo_mes": {
       "scale": 2.0,
       "offset_x": 442,
-      "offset_y": 458
+      "offset_y": 458,
+      "coverage_threshold": 192
     },
     "graph/menu_yes_1": {
       "scale": 2.0,
       "offset_x": 560,
-      "offset_y": 620
+      "offset_y": 620,
+      "coverage_threshold": 192
     },
     "graph/menu_yes_2": {
       "scale": 2.0,
       "offset_x": 560,
-      "offset_y": 620
+      "offset_y": 620,
+      "coverage_threshold": 192
     },
     "graph/menu_no_1": {
       "scale": 2.0,
       "offset_x": 1040,
-      "offset_y": 620
+      "offset_y": 620,
+      "coverage_threshold": 192
     },
     "graph/menu_no_2": {
       "scale": 2.0,
       "offset_x": 995,
-      "offset_y": 620
+      "offset_y": 620,
+      "coverage_threshold": 192
     },
     "graph/menu_bg": {
       "scale": 1.95,

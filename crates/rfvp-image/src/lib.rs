@@ -2,6 +2,8 @@
 //! DPID provenance and redistribution terms are in DPID-LICENSE.txt.
 
 mod dpid;
+mod coverage;
+pub use coverage::preserve_alpha_coverage;
 
 use serde::Deserialize;
 use std::{collections::BTreeMap, path::Path, str::FromStr};
@@ -47,6 +49,8 @@ pub struct LayoutRule {
     pub scale: f64,
     pub offset_x: Option<i16>,
     pub offset_y: Option<i16>,
+    /// Optional cutout threshold, for explicit UI labels rather than soft panels.
+    pub coverage_threshold: Option<u8>,
 }
 
 impl LayoutProfile {
@@ -55,6 +59,9 @@ impl LayoutProfile {
         for (name, rule) in &profile.assets {
             if !rule.scale.is_finite() || !(0.25..=4.0).contains(&rule.scale) {
                 return Err(format!("invalid layout scale for {name}: {}", rule.scale).into());
+            }
+            if matches!(rule.coverage_threshold, Some(0 | 255)) {
+                return Err(format!("coverage threshold for {name} must be 1..254").into());
             }
         }
         Ok(profile)
