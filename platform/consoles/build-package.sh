@@ -12,12 +12,12 @@ mkdir -p "$WORK" "$ROOT/dist/consoles"
 python3 platform/consoles/make-demo.py "$WORK/source"
 
 if [[ "$PLATFORM" == ps1 ]]; then
-    cargo "+$RFVP_CONSOLE_NIGHTLY" build --locked --release -p rfvp-psx
+    cargo +stable build --locked --release -p rfvp-psx
     "$CARGO_TARGET_DIR/release/rfvp-psx-convert" \
         --input "$WORK/source" --output "$WORK/game" --no-movies --threads 2
     RFVP_PS1_OUT_DIR="$CARGO_TARGET_DIR/ps1-exe" bash platform/ps1/build_ps1.sh "$WORK/game"
 else
-    cargo "+$RFVP_CONSOLE_NIGHTLY" build --locked --release -p rfvp-rebuilder
+    cargo +stable build --locked --release -p rfvp-rebuilder
     "$CARGO_TARGET_DIR/release/rfvp-rebuilder" --platform "$PLATFORM" \
         --input "$WORK/source" --output "$WORK/game"
     case "$PLATFORM" in
