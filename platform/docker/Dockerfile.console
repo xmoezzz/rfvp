@@ -1,0 +1,71 @@
+# syntax=docker/dockerfile:1.7
+# Build with context platform/ and target ps1, ps2, psp, or 3ds.
+FROM ubuntu:24.04 AS base
+ENV DEBIAN_FRONTEND=noninteractive CARGO_HOME=/opt/cargo RUSTUP_HOME=/opt/rustup
+ENV PATH="/opt/cargo/bin:${PATH}"
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential ca-certificates curl git cmake ninja-build python3 file \
+    zip unzip xz-utils pkg-config libssl-dev libgmp10 libmpfr6 libmpc3 \
+    && rm -rf /var/lib/apt/lists/*
+COPY consoles/toolchain.env /tmp/toolchain.env
+COPY docker/install-console-rust.sh /tmp/install-rust.sh
+WORKDIR /work
+
+FROM base AS llvm
+# The R5900 backend and its erratum fix require LLVM 23.
+RUN curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key -o /etc/apt/trusted.gpg.d/llvm.asc \
+    && echo 'deb https://apt.llvm.org/noble/ llvm-toolchain-noble main' > /etc/apt/sources.list.d/llvm.list \
+    && apt-get update && apt-get install -y --no-install-recommends llvm-23 \
+    && rm -rf /var/lib/apt/lists/*
+ENV LLVM=/usr/lib/llvm-23/bin
+
+FROM llvm AS ps1
+RUN bash /tmp/install-rust.sh
+ARG PSN00BSDK_VERSION=0.24
+RUN curl -fL --retry 3 "https://github.com/Lameguy64/PSn00bSDK/releases/download/v${PSN00BSDK_VERSION}/PSn00bSDK-${PSN00BSDK_VERSION}-Linux.zip" -o /tmp/sdk.zip \
+    && unzip -q /tmp/sdk.zip -d /opt \
+    && mv "/opt/PSn00bSDK-${PSN00BSDK_VERSION}-Linux" /opt/psn00bsdk \
+    && rm /tmp/sdk.zip \
+    && /opt/psn00bsdk/bin/mipsel-none-elf-gcc --version \
+    && /opt/psn00bsdk/bin/mkpsxiso -h >/dev/null
+ENV PSN00BSDK=/opt/psn00bsdk PSN00BSDK_TC=/opt/psn00bsdk
+ENV PATH="/opt/psn00bsdk/bin:${PATH}"
+
+FROM llvm AS ps2
+RUN bash /tmp/install-rust.sh legacy \
+    && apt-get update && apt-get install -y --no-install-recommends xorriso \
+    && rm -rf /var/lib/apt/lists/*
+ARG PS2DEV_VERSION=v2.0.0
+RUN mkdir -p /opt/ps2dev \
+    && curl -fL --retry 3 "https://github.com/ps2dev/ps2dev/releases/download/${PS2DEV_VERSION}/ps2dev-ubuntu-latest.tar.gz" -o /tmp/sdk.tar.gz \
+    && tar -xzf /tmp/sdk.tar.gz --strip-components=1 -C /opt/ps2dev \
+    && rm /tmp/sdk.tar.gz \
+    && /opt/ps2dev/ee/bin/mips64r5900el-ps2-elf-gcc --version \
+    && test -f /opt/ps2dev/gsKit/lib/libgskit.a \
+    && "$LLVM/llc" --version | grep -q mips
+ENV PS2DEV=/opt/ps2dev PS2SDK=/opt/ps2dev/ps2sdk GSKIT=/opt/ps2dev/gsKit
+ENV PATH="/opt/ps2dev/bin:/opt/ps2dev/ee/bin:/opt/ps2dev/iop/bin:/opt/ps2dev/dvp/bin:/opt/ps2dev/ps2sdk/bin:${PATH}"
+
+FROM base AS psp
+RUN bash /tmp/install-rust.sh legacy && cargo install cargo-psp --version 0.2.8 --locked
+ARG PSPDEV_VERSION=v20261001
+RUN mkdir -p /opt/pspdev \
+    && curl -fL --retry 3 "https://github.com/pspdev/pspdev/releases/download/${PSPDEV_VERSION}/pspdev-ubuntu-latest-x86_64.tar.gz" -o /tmp/sdk.tar.gz \
+    && tar -xzf /tmp/sdk.tar.gz --strip-components=1 -C /opt/pspdev \
+    && rm /tmp/sdk.tar.gz \
+    && test -x /opt/pspdev/bin/psp-gcc
+ENV PSPDEV=/opt/pspdev
+ENV PATH="/opt/pspdev/bin:${PATH}"
+
+FROM devkitpro/devkitarm:20260610 AS 3ds
+ENV DEBIAN_FRONTEND=noninteractive CARGO_HOME=/opt/cargo RUSTUP_HOME=/opt/rustup
+ENV PATH="/opt/cargo/bin:${PATH}"
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential ca-certificates curl git python3 file zip unzip pkg-config libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+COPY consoles/toolchain.env /tmp/toolchain.env
+COPY docker/install-console-rust.sh /tmp/install-rust.sh
+RUN bash /tmp/install-rust.sh && test -f /opt/devkitpro/libctru/lib/libcitro3d.a
+WORKDIR /work

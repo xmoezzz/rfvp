@@ -48,10 +48,13 @@ done
 "$LLVM/llvm-link" "${BITCODE[@]}" -o "$OUT/$NAME.bc"
 "$LLVM/llvm-dis" "$OUT/$NAME.bc" -o "$OUT/$NAME.ll"
 # Per-function attributes name rustc's CPU; retarget them to the R5900.
-sed -E -i '' \
-    -e 's/"target-cpu"="mips3"/"target-cpu"="r5900"/g' \
-    -e 's/"target-features"="[^"]*"/"target-features"="+single-float,+noabicalls,+fix-r5900"/g' \
-    "$OUT/$NAME.ll"
+python3 - "$OUT/$NAME.ll" <<'PY'
+import pathlib, re, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text().replace('"target-cpu"="mips3"', '"target-cpu"="r5900"')
+text = re.sub(r'"target-features"="[^"]*"', '"target-features"="+single-float,+noabicalls,+fix-r5900"', text)
+path.write_text(text)
+PY
 # LLVM 23 expands Rust's saturating float-to-int casts wrongly for the (soft-float) R5900.
 python3 "$HERE/fix_float_casts.py" "$OUT/$NAME.ll"
 # rustc's single-threaded setting does not survive in bitcode: lower the atomics to plain loads

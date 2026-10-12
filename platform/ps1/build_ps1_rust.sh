@@ -24,9 +24,9 @@ mkdir -p "$OUT"
 
 (
     cd "$CRATE"
-    RUSTFLAGS="-C linker-plugin-lto -C embed-bitcode=yes" \
     # `s` retains compact code while allowing the hot VM paths to inline. `z`
     # saves about 50 KiB but significantly slows the stock R3000 frame loop.
+    RUSTFLAGS="-C linker-plugin-lto -C embed-bitcode=yes" \
     CARGO_PROFILE_RELEASE_OPT_LEVEL="${RFVP_PS1_OPT_LEVEL:-s}" CARGO_PROFILE_RELEASE_LTO=thin \
         cargo "+$TOOLCHAIN" build --release \
         -Zjson-target-spec -Z build-std=core,alloc,compiler_builtins \
@@ -51,10 +51,13 @@ done
 "$LLVM/llvm-link" "${BITCODE[@]}" -o "$OUT/$NAME.bc"
 "$LLVM/llvm-dis" "$OUT/$NAME.bc" -o "$OUT/$NAME.ll"
 # Per-function attributes name rustc's CPU; retarget them to the R3000.
-sed -E -i '' \
-    -e 's/"target-cpu"="mips2"/"target-cpu"="mips1"/g' \
-    -e 's/"target-features"="[^"]*"/"target-features"="+soft-float,+noabicalls"/g' \
-    "$OUT/$NAME.ll"
+python3 - "$OUT/$NAME.ll" <<'PY'
+import pathlib, re, sys
+path = pathlib.Path(sys.argv[1])
+text = path.read_text().replace('"target-cpu"="mips2"', '"target-cpu"="mips1"')
+text = re.sub(r'"target-features"="[^"]*"', '"target-features"="+soft-float,+noabicalls"', text)
+path.write_text(text)
+PY
 "$LLVM/opt" -passes=lower-atomic "$OUT/$NAME.ll" -o "$OUT/$NAME.lowered.bc"
 # Whole program: everything but the entry points (rfvp_ps1_*) and the runtime routines code
 # generation may call (__*, mem*) and the C heap (malloc...) becomes internal, so what nothing reaches is dropped; the PS1
