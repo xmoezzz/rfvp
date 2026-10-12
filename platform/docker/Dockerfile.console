@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-# Build with context platform/ and target console-ps1, console-ps2, console-psp, or console-3ds.
+# Build with context platform/ and target console-PLATFORM.
 FROM ubuntu:24.04 AS base
 ENV DEBIAN_FRONTEND=noninteractive CARGO_HOME=/opt/cargo RUSTUP_HOME=/opt/rustup
 ENV PATH="/opt/cargo/bin:${PATH}"
@@ -10,6 +10,48 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 COPY consoles/toolchain.env /tmp/toolchain.env
 COPY docker/install-console-rust.sh /tmp/install-rust.sh
+WORKDIR /work
+
+FROM base AS console-ps3
+RUN bash /tmp/install-rust.sh
+ARG PS3DEV_VERSION=nightly-2026-07-26
+RUN apt-get update && apt-get install -y --no-install-recommends libelf1 libtinfo6 \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /opt/ps3dev \
+    && curl -fL --retry 3 "https://github.com/ps3dev/ps3dev/releases/download/${PS3DEV_VERSION}/ps3dev-linux-X64.tar.gz" -o /tmp/sdk.tar.gz \
+    && tar -xzf /tmp/sdk.tar.gz --strip-components=1 -C /opt/ps3dev \
+    && rm /tmp/sdk.tar.gz \
+    && /opt/ps3dev/ppu/bin/powerpc64-ps3-elf-gcc --version \
+    && test -f /opt/ps3dev/ppu/lib/liblv2.a \
+    && test -x /opt/ps3dev/bin/cgcomp && test -x /opt/ps3dev/bin/make_self
+ENV PS3DEV=/opt/ps3dev PSL1GHT=/opt/ps3dev
+ENV PATH="/opt/ps3dev/bin:/opt/ps3dev/ppu/bin:/opt/ps3dev/spu/bin:${PATH}"
+
+# Pin the full official SDK image, including the vita2d target library.
+FROM vitasdk/vitasdk@sha256:fd82d88ff456d118eef16533ebf9a3a6ae0e292684fb8a3a35f15f0707b4692d AS console-psv
+USER root
+ENV DEBIAN_FRONTEND=noninteractive CARGO_HOME=/opt/cargo RUSTUP_HOME=/opt/rustup
+ENV PATH="/opt/cargo/bin:${PATH}"
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential ca-certificates curl git python3 file zip unzip pkg-config libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+COPY consoles/toolchain.env /tmp/toolchain.env
+COPY docker/install-console-rust.sh /tmp/install-rust.sh
+RUN bash /tmp/install-rust.sh && cargo install cargo-vita --version 0.2.2 --locked \
+    && test -f "$VITASDK/arm-vita-eabi/lib/libvita2d.a"
+WORKDIR /work
+
+FROM devkitpro/devkita64:20260219 AS console-switch
+ENV DEBIAN_FRONTEND=noninteractive CARGO_HOME=/opt/cargo RUSTUP_HOME=/opt/rustup
+ENV PATH="/opt/cargo/bin:${PATH}"
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential ca-certificates curl git python3 file zip unzip pkg-config libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+COPY consoles/toolchain.env /tmp/toolchain.env
+COPY docker/install-console-rust.sh /tmp/install-rust.sh
+RUN bash /tmp/install-rust.sh && test -f /opt/devkitpro/libnx/lib/libnx.a
 WORKDIR /work
 
 FROM base AS llvm

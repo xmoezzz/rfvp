@@ -1,66 +1,13 @@
-name: Consoles
+name: Consoles (manual)
 
-# The Nintendo Switch and PS Vita ports, built on every change that can affect them. They are
-# built in the console image (devkitPro + VitaSDK) with the nightly pinned in
-# platform/consoles/toolchain.env.
-
+# Automatic builds and releases run through Build Artifacts.
 on:
-  push:
-    branches: [main]
-    paths:
-      - crates/rfvp/**
-      - platform/switch/**
-      - platform/vita/**
-      - platform/consoles/**
-      - platform/docker/Dockerfile.homebrew-consoles
-      - .github/workflows/consoles.yml
-  pull_request:
-    paths:
-      - crates/rfvp/**
-      - platform/switch/**
-      - platform/vita/**
-      - platform/consoles/**
-      - platform/docker/Dockerfile.homebrew-consoles
-      - .github/workflows/consoles.yml
   workflow_dispatch:
 
 permissions:
   contents: read
-  packages: read
+  packages: write
 
 jobs:
   consoles:
-    name: ${{ matrix.name }}
-    runs-on: ubuntu-24.04
-
-    container:
-      image: ghcr.io/${{ github.repository_owner }}/rfvp-homebrew-consoles:latest
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ github.token }}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: switch (nro)
-            script: platform/switch/build_switch.sh
-            artifact_name: rfvp-switch
-            artifact_path: target/rfvp-switch/switch/rfvp.nro
-          - name: psv (vpk)
-            script: platform/vita/build_vita.sh
-            artifact_name: rfvp-psv
-            artifact_path: target/rfvp-psv/psv/rfvp.vpk
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build
-        run: ${{ matrix.script }}
-
-      - name: Upload
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact_name }}
-          path: ${{ matrix.artifact_path }}
-          if-no-files-found: error
+    uses: ./.github/workflows/console-artifacts.yml

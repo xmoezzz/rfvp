@@ -25,6 +25,12 @@ jobs:
             file: EBOOT.PBP
           - platform: 3ds
             file: rfvp.3dsx
+          - platform: ps3
+            file: rfvp-ps3.*
+          - platform: psv
+            file: rfvp-psv-eboot.bin
+          - platform: switch
+            file: rfvp.nro
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3

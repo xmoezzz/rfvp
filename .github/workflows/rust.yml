@@ -712,7 +712,11 @@ jobs:
             _artifacts/rfvp-ps1/rfvp-ps1.exe \
             _artifacts/rfvp-ps2/rfvp-ps2.elf \
             _artifacts/rfvp-psp/EBOOT.PBP \
-            _artifacts/rfvp-3ds/rfvp.3dsx
+            _artifacts/rfvp-3ds/rfvp.3dsx \
+            _artifacts/rfvp-ps3/rfvp-ps3.elf \
+            _artifacts/rfvp-ps3/rfvp-ps3.self \
+            _artifacts/rfvp-psv/rfvp-psv-eboot.bin \
+            _artifacts/rfvp-switch/rfvp.nro
 
   release:
     name: Publish GitHub Release (tags only)
