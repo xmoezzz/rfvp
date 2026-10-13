@@ -1,5 +1,9 @@
 # Console executable CI
 
+Game conversion uses the separate [unified CLI](../../crates/rfvp-converter/README.md).
+Windows, Linux and universal macOS converter executables are included in the
+same pre-release; they prepare resources without installing a console SDK.
+
 Build Artifacts calls `console-artifacts.yml` for PS1, PS2, PSP, 3DS, PS3,
 PS Vita and Nintendo Switch on
 default-branch pushes, version tags and pull requests. Each platform builds in

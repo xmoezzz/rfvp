@@ -16,7 +16,7 @@ make -C platform/ps2/runtime          # -> target/ps2/rfvp-ps2.elf
 ## The game
 
 A game repacked for the small consoles, as for the PSP:
-`rfvp-rebuilder --platform psp <game> <out>` (480x270 pictures, loose folders, the `defualt.tmap`
+`rfvp-convert convert --platform ps2 --input <game> --output <out>` (640x448 target, loose folders, the `defualt.tmap`
 bitmap font, `rfvp.toml`). It is read from:
 
 - `host:game` when the ELF is started from `host:` (an emulator's host file system: in PCSX2,

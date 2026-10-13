@@ -1,0 +1,19 @@
+[package]
+name = "rfvp-converter"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "rfvp-convert"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+rfvp-converter-api = { path = "../rfvp-converter-api" }
+rfvp-rebuilder = { path = "../rfvp-rebuilder" }
+rfvp-psx = { path = "../rfvp-psx" }
+rfvp-image = { path = "../rfvp-image" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
