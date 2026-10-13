@@ -3792,6 +3792,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "rfvp-converter"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "rfvp-converter-api",
+ "rfvp-image",
+ "rfvp-psx",
+ "rfvp-rebuilder",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "rfvp-converter-api"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+]
+
+[[package]]
 name = "rfvp-horizon"
 version = "0.1.0"
 dependencies = [
@@ -3859,6 +3881,7 @@ dependencies = [
  "flate2",
  "fontdue",
  "rayon",
+ "rfvp-converter-api",
  "rfvp-image",
  "vorbis_rs",
  "walkdir",
@@ -3873,6 +3896,7 @@ dependencies = [
  "encoding_rs",
  "flate2",
  "rayon",
+ "rfvp-converter-api",
  "rfvp-image",
  "rfvp_bitmap",
  "serde",

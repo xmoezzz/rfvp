@@ -1,0 +1,71 @@
+name: Console Converters
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }} converter
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            runner: ubuntu-22.04
+            file: rfvp-convert-linux-x86_64
+            rustflags: ""
+          - name: macos-universal
+            runner: macos-14
+            file: rfvp-convert-macos-universal
+            rustflags: ""
+          - name: windows-x86_64
+            runner: windows-latest
+            file: rfvp-convert-windows-x86_64.exe
+            rustflags: "-C target-feature=+crt-static"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: converter-${{ matrix.name }}
+      - name: Build converter
+        if: runner.os != 'macOS'
+        shell: bash
+        run: |
+          cargo build --locked --release -p rfvp-converter
+          mkdir -p dist/converters
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            cp target/release/rfvp-convert.exe "dist/converters/${{ matrix.file }}"
+          else
+            cp target/release/rfvp-convert "dist/converters/${{ matrix.file }}"
+          fi
+      - name: Build universal macOS converter
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          cargo build --locked --release -p rfvp-converter --target aarch64-apple-darwin
+          cargo build --locked --release -p rfvp-converter --target x86_64-apple-darwin
+          mkdir -p dist/converters
+          lipo -create \
+            target/aarch64-apple-darwin/release/rfvp-convert \
+            target/x86_64-apple-darwin/release/rfvp-convert \
+            -output "dist/converters/${{ matrix.file }}"
+      - name: Verify converter executable
+        shell: bash
+        run: |
+          "./dist/converters/${{ matrix.file }}" --version
+          "./dist/converters/${{ matrix.file }}" --json platforms
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rfvp-converter-${{ matrix.name }}
+          path: dist/converters/${{ matrix.file }}
+          if-no-files-found: error
