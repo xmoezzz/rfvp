@@ -12,7 +12,7 @@
 
 use std::io::Read;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use anyhow::{Context, Result, ensure};
 use rayon::prelude::*;
@@ -38,7 +38,7 @@ pub fn convert(source: &Path, width: usize, height: usize, viewport_h: usize) ->
         height.min(viewport_h),
         viewport_h.saturating_sub(height) / 2
     );
-    let mut child = Command::new("ffmpeg")
+    let mut child = rfvp_converter_api::media_command("ffmpeg")
         .args(["-v", "error", "-i"])
         .arg(source)
         .args(["-vf", &filter, "-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
@@ -99,7 +99,7 @@ pub fn convert(source: &Path, width: usize, height: usize, viewport_h: usize) ->
 }
 
 fn decode_audio(source: &Path) -> Result<Vec<i16>> {
-    let output = Command::new("ffmpeg")
+    let output = rfvp_converter_api::media_command("ffmpeg")
         .args(["-v", "error", "-i"])
         .arg(source)
         .args(["-vn", "-ac", "2", "-ar", &AUDIO_RATE.to_string(), "-f", "s16le", "-"])

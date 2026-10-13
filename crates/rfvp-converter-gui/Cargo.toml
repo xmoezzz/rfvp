@@ -1,0 +1,17 @@
+[package]
+name = "rfvp-converter-gui"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+
+[[bin]]
+name = "rfvp-converter-gui"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+eframe = { version = "0.36.2", default-features = false, features = ["glow", "default_fonts", "x11", "wayland", "accesskit", "persistence"] }
+rfd = "0.17.2"
+rfvp-converter = { path = "../rfvp-converter" }
+serde = { version = "1", features = ["derive"] }

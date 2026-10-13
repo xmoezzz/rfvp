@@ -2,7 +2,7 @@
 use anyhow::{Context, Result, ensure};
 pub use rfvp_converter_api::{ConversionContext, ProgressEvent, ProgressKind};
 use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf, process::Command};
+use std::{fs, path::PathBuf};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, clap::ValueEnum)]
 #[serde(rename_all = "lowercase")]
@@ -173,7 +173,7 @@ pub fn dependencies(platform: Platform, mode: Mode, ps1: &Ps1Options) -> Vec<Dep
     [("ffmpeg", required_ffmpeg), ("ffprobe", required_ffprobe)]
         .into_iter()
         .map(|(name, required)| {
-            let available = Command::new(name)
+            let available = rfvp_converter_api::media_command(name)
                 .arg("-version")
                 .output()
                 .is_ok_and(|r| r.status.success());

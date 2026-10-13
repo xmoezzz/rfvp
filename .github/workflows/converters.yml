@@ -21,18 +21,26 @@ jobs:
           - name: linux-x86_64
             runner: ubuntu-22.04
             file: rfvp-convert-linux-x86_64
+            gui_file: rfvp-converter-gui-linux-x86_64
             rustflags: ""
           - name: macos-universal
             runner: macos-14
             file: rfvp-convert-macos-universal
+            gui_file: rfvp-converter-gui-macos-universal
             rustflags: ""
           - name: windows-x86_64
             runner: windows-latest
             file: rfvp-convert-windows-x86_64.exe
+            gui_file: rfvp-converter-gui-windows-x86_64.exe
             rustflags: "-C target-feature=+crt-static"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux window libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxkbcommon-dev libwayland-dev libgl1-mesa-dev
       - uses: Swatinem/rust-cache@v2
         with:
           key: converter-${{ matrix.name }}
@@ -40,32 +48,44 @@ jobs:
         if: runner.os != 'macOS'
         shell: bash
         run: |
-          cargo build --locked --release -p rfvp-converter
+          cargo build --locked --release -p rfvp-converter -p rfvp-converter-gui
           mkdir -p dist/converters
           if [[ "$RUNNER_OS" == Windows ]]; then
             cp target/release/rfvp-convert.exe "dist/converters/${{ matrix.file }}"
+            cp target/release/rfvp-converter-gui.exe "dist/converters/${{ matrix.gui_file }}"
           else
             cp target/release/rfvp-convert "dist/converters/${{ matrix.file }}"
+            cp target/release/rfvp-converter-gui "dist/converters/${{ matrix.gui_file }}"
           fi
       - name: Build universal macOS converter
         if: runner.os == 'macOS'
         shell: bash
         run: |
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
-          cargo build --locked --release -p rfvp-converter --target aarch64-apple-darwin
-          cargo build --locked --release -p rfvp-converter --target x86_64-apple-darwin
+          cargo build --locked --release -p rfvp-converter -p rfvp-converter-gui --target aarch64-apple-darwin
+          cargo build --locked --release -p rfvp-converter -p rfvp-converter-gui --target x86_64-apple-darwin
           mkdir -p dist/converters
           lipo -create \
             target/aarch64-apple-darwin/release/rfvp-convert \
             target/x86_64-apple-darwin/release/rfvp-convert \
             -output "dist/converters/${{ matrix.file }}"
+          lipo -create \
+            target/aarch64-apple-darwin/release/rfvp-converter-gui \
+            target/x86_64-apple-darwin/release/rfvp-converter-gui \
+            -output "dist/converters/${{ matrix.gui_file }}"
       - name: Verify converter executable
         shell: bash
         run: |
           "./dist/converters/${{ matrix.file }}" --version
           "./dist/converters/${{ matrix.file }}" --json platforms
+          "./dist/converters/${{ matrix.gui_file }}" --version
       - uses: actions/upload-artifact@v4
         with:
           name: rfvp-converter-${{ matrix.name }}
           path: dist/converters/${{ matrix.file }}
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rfvp-converter-gui-${{ matrix.name }}
+          path: dist/converters/${{ matrix.gui_file }}
           if-no-files-found: error
