@@ -3,6 +3,20 @@ use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
+/// Media helpers inherit redirected streams without opening a Windows console.
+pub fn media_command(program: &str) -> std::process::Command {
+    let command = std::process::Command::new(program);
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        let mut command = command;
+        command.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        command
+    }
+    #[cfg(not(target_os = "windows"))]
+    command
+}
+
 /// Reject aliased or overlapping source/destination trees before touching files.
 pub fn validate_paths(input: &std::path::Path, output: &std::path::Path) -> Result<()> {
     let input = input.canonicalize()?;

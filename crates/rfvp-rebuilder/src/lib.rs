@@ -5,7 +5,7 @@ use std::io::Cursor;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::num::NonZeroU32;
 use std::path::{Component, Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use rfvp_converter_api::ConversionContext;
 
@@ -566,7 +566,7 @@ fn probe_ogg_bitrate(
     file_size_bytes: usize,
     virtual_path: &Path,
 ) -> Result<u64> {
-    let output = Command::new("ffprobe")
+    let output = rfvp_converter_api::media_command("ffprobe")
         .args([
             "-v",
             "error",
@@ -742,7 +742,7 @@ fn transcode_video(
     profile: &Profile,
 ) -> Result<()> {
     ensure!(
-        Command::new("ffmpeg").arg("-version").output().is_ok(),
+        rfvp_converter_api::media_command("ffmpeg").arg("-version").output().is_ok(),
         "ffmpeg was not found in PATH"
     );
     if let Some(parent) = output_path.parent() {
@@ -767,7 +767,7 @@ fn transcode_video(
         profile.viewport_y
     );
 
-    let mut cmd = Command::new("ffmpeg");
+    let mut cmd = rfvp_converter_api::media_command("ffmpeg");
     cmd.arg("-y");
     match &resource.source {
         ResourceSource::Loose(path) => {
