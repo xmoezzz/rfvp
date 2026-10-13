@@ -1,6 +1,7 @@
 # Console executable CI
 
 Game conversion uses the separate [unified CLI](../../crates/rfvp-converter/README.md).
+The [native Rust GUI](../../crates/rfvp-converter-gui/README.md) uses the same conversion library.
 Windows, Linux and universal macOS converter executables are included in the
 same pre-release; they prepare resources without installing a console SDK.
 

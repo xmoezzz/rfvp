@@ -726,7 +726,10 @@ jobs:
             _artifacts/rfvp-switch/rfvp.nro \
             _artifacts/rfvp-converter-linux-x86_64/rfvp-convert-linux-x86_64 \
             _artifacts/rfvp-converter-macos-universal/rfvp-convert-macos-universal \
-            _artifacts/rfvp-converter-windows-x86_64/rfvp-convert-windows-x86_64.exe
+            _artifacts/rfvp-converter-windows-x86_64/rfvp-convert-windows-x86_64.exe \
+            _artifacts/rfvp-converter-gui-linux-x86_64/rfvp-converter-gui-linux-x86_64 \
+            _artifacts/rfvp-converter-gui-macos-universal/rfvp-converter-gui-macos-universal \
+            _artifacts/rfvp-converter-gui-windows-x86_64/rfvp-converter-gui-windows-x86_64.exe
 
   release:
     name: Publish GitHub Release (tags only)

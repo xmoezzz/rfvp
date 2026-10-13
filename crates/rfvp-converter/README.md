@@ -1,5 +1,7 @@
 # RFVP console converter
 
+For the native desktop interface, see [RFVP Converter GUI](../rfvp-converter-gui/README.md).
+
 One standalone CLI prepares games for PS1, PS2, PSP, 3DS, PS3, PS Vita and
 Nintendo Switch. The host program runs on Windows, macOS or Linux; it does not
 need a console SDK. The rolling pre-release includes a Windows x86-64 EXE,
