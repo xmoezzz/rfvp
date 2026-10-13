@@ -1,6 +1,6 @@
 //! Conversion API for the CLI and future GUI. No console SDK or GUI runtime is needed.
 use anyhow::{Context, Result, ensure};
-pub use rfvp_converter_api::{ConversionContext, ProgressEvent};
+pub use rfvp_converter_api::{ConversionContext, ProgressEvent, ProgressKind};
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf, process::Command};
 

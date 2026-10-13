@@ -12,6 +12,8 @@ jobs:
     name: ${{ matrix.name }} converter
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
+    env:
+      RUSTFLAGS: ${{ matrix.rustflags }}
     strategy:
       fail-fast: false
       matrix:
@@ -19,12 +21,15 @@ jobs:
           - name: linux-x86_64
             runner: ubuntu-22.04
             file: rfvp-convert-linux-x86_64
+            rustflags: ""
           - name: macos-universal
             runner: macos-14
             file: rfvp-convert-macos-universal
+            rustflags: ""
           - name: windows-x86_64
             runner: windows-latest
             file: rfvp-convert-windows-x86_64.exe
+            rustflags: "-C target-feature=+crt-static"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

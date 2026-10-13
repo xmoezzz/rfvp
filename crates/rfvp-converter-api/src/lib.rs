@@ -1,6 +1,6 @@
 //! Thread-safe conversion progress shared by CLI and future GUI clients.
 use anyhow::{Result, anyhow};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 
 /// Reject aliased or overlapping source/destination trees before touching files.
@@ -32,6 +32,16 @@ pub fn validate_paths(input: &std::path::Path, output: &std::path::Path) -> Resu
             "input and output must be separate, non-overlapping directories"
         ));
     }
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    {
+        let source = std::path::PathBuf::from(input.to_string_lossy().to_lowercase());
+        let destination = std::path::PathBuf::from(output.to_string_lossy().to_lowercase());
+        if source.starts_with(&destination) || destination.starts_with(&source) {
+            return Err(anyhow!(
+                "input and output must not overlap through case aliases"
+            ));
+        }
+    }
     if output.exists() && !output.is_dir() {
         return Err(anyhow!("output is not a directory"));
     }
@@ -56,9 +66,18 @@ pub fn validate_paths(input: &std::path::Path, output: &std::path::Path) -> Resu
     Ok(())
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProgressKind {
+    Started,
+    Resource,
+    Message,
+    Finished,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProgressEvent {
-    pub kind: &'static str,
+    pub kind: ProgressKind,
     pub stage: String,
     pub completed: usize,
     pub total: usize,
@@ -88,7 +107,7 @@ impl ConversionContext {
     pub fn new(observer: impl FnMut(&ProgressEvent) -> Result<()> + Send + 'static) -> Self {
         Self(Arc::new(Mutex::new(State {
             event: ProgressEvent {
-                kind: "started",
+                kind: ProgressKind::Started,
                 stage: String::new(),
                 completed: 0,
                 total: 0,
@@ -104,9 +123,9 @@ impl ConversionContext {
         Self::new(|event| {
             if let Some(message) = &event.message {
                 eprintln!("{message}");
-            } else if event.kind == "started" {
+            } else if event.kind == ProgressKind::Started {
                 eprintln!("{}: {} resources", event.stage, event.total);
-            } else if event.kind == "resource"
+            } else if event.kind == ProgressKind::Resource
                 && (event.completed % 200 == 0 || event.completed == event.total)
             {
                 eprintln!("{}: {}/{}", event.stage, event.completed, event.total);
@@ -146,7 +165,7 @@ impl ConversionContext {
     pub fn start(&self, stage: impl Into<String>, total: usize) -> Result<()> {
         let stage = stage.into();
         self.emit(|event| {
-            event.kind = "started";
+            event.kind = ProgressKind::Started;
             event.stage = stage;
             event.completed = 0;
             event.total = total;
@@ -158,7 +177,7 @@ impl ConversionContext {
     pub fn advance(&self, resource: impl Into<String>) -> Result<()> {
         let resource = resource.into();
         self.emit(|event| {
-            event.kind = "resource";
+            event.kind = ProgressKind::Resource;
             event.completed += 1;
             event.resource = Some(resource);
             event.message = None;
@@ -168,7 +187,7 @@ impl ConversionContext {
     pub fn message(&self, message: impl Into<String>) -> Result<()> {
         let message = message.into();
         self.emit(|event| {
-            event.kind = "message";
+            event.kind = ProgressKind::Message;
             event.message = Some(message);
             event.resource = None;
         })
@@ -176,7 +195,7 @@ impl ConversionContext {
 
     pub fn finish(&self) -> Result<()> {
         self.emit(|event| {
-            event.kind = "finished";
+            event.kind = ProgressKind::Finished;
             event.resource = None;
             event.message = None;
         })
