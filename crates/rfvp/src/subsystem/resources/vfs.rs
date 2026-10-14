@@ -473,7 +473,15 @@ impl Vfs {
             let Some(folder) = name
                 .len()
                 .checked_sub(4)
-                .filter(|&stem| stem > 0 && name[stem..].eq_ignore_ascii_case(".bin"))
+                // Unrelated names may end in multibyte UTF-8 characters. Only slice the
+                // stem after a valid ASCII extension proves this is a character boundary.
+                .filter(|&stem| {
+                    stem > 0
+                        && name
+                            .get(stem..)
+                            .map(|ext| ext.eq_ignore_ascii_case(".bin"))
+                            .unwrap_or(false)
+                })
                 .map(|stem| &name[..stem])
             else {
                 continue;
@@ -634,6 +642,39 @@ mod tests {
         out.extend_from_slice(&names);
         out.extend_from_slice(data);
         out
+    }
+
+    #[test]
+    fn directory_scan_skips_non_pack_names_without_slicing_unicode() {
+        let bytes = pack("a", b"image");
+        let vfs = Vfs::from_dir(
+            Nls::ShiftJIS,
+            dir(&[
+                ("汉化", b""),
+                ("font_中文", b""),
+                ("📁", b""),
+                ("汉", b""),
+                ("", b""),
+                (".bin", &bytes),
+                ("notes.txt", b"notes"),
+            ]),
+        )
+        .unwrap();
+        assert!(vfs.files.is_empty());
+        assert_eq!(vfs.read_file("notes.txt").unwrap(), b"notes");
+    }
+
+    #[test]
+    fn directory_scan_opens_unicode_pack_names_and_mixed_case_extensions() {
+        let bytes = pack("a", b"image");
+        let vfs = Vfs::from_dir(
+            Nls::ShiftJIS,
+            dir(&[("图像.BiN", &bytes), ("graph.bin", &bytes)]),
+        )
+        .unwrap();
+        assert_eq!(vfs.files.len(), 2);
+        assert_eq!(vfs.read_file("图像/a").unwrap(), b"image");
+        assert_eq!(vfs.read_file("graph/a").unwrap(), b"image");
     }
 
     #[test]
