@@ -33,6 +33,10 @@ mkdir -p "$VENDOR_DIR"
 rustup target add "$TGT_IOS" >/dev/null 2>&1 || true
 rustup target add "$TGT_SIM" >/dev/null 2>&1 || true
 
+# iOS 13: rustc and the C code built by cc (mimalloc) must agree, and that C code needs
+# ___chkstk_darwin (iOS 13+). Without it rustc links for iOS 10 while cc builds for the SDK's version.
+export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-13.0}"
+
 echo "[ios-xcf] Building Rust static libs..."
 pushd "$ROOT_DIR" >/dev/null
 cargo build --release -p "$RFVP_STATICLIB_CARGO_PKG" --target "$TGT_IOS"
