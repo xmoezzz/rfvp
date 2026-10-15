@@ -67,7 +67,7 @@ pub fn flag_get(game_data: &mut GameData, id_bit_pos: &Variant) -> Result<Varian
 ///
 pub struct FlagSet;
 impl Syscaller for FlagSet {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         flag_set(game_data, get_var!(args, 0), get_var!(args, 1))
     }
 }
@@ -82,7 +82,7 @@ unsafe impl Sync for FlagSet {}
 ///
 pub struct FlagGet;
 impl Syscaller for FlagGet {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         flag_get(game_data, get_var!(args, 0))
     }
 }

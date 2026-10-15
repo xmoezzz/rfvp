@@ -68,7 +68,7 @@ pub fn color_set(
 /// Arg2: the alpha value (0~255)
 pub struct ColorSet;
 impl Syscaller for ColorSet {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         color_set(
             game_data,
             get_var!(args, 0),

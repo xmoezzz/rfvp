@@ -49,7 +49,6 @@ pub struct Channels<const N: usize> {
     names: [Option<String>; N],
     kinds: [Option<i32>; N],
     type_volumes: [f32; SOUND_TYPE_COUNT],
-    muted: [bool; N],
     volumes: [f32; N],
     repeat: [bool; N],
     pan: [f64; N],
@@ -70,7 +69,6 @@ impl<const N: usize> Channels<N> {
             names: [(); N].map(|_| None),
             kinds: [None; N],
             type_volumes: [1.0; SOUND_TYPE_COUNT],
-            muted: [false; N],
             volumes: [1.0; N],
             repeat: [false; N],
             pan: [0.5; N],
@@ -98,11 +96,7 @@ impl<const N: usize> Channels<N> {
             _ => 1.0,
         };
         AudioParams {
-            volume: if self.muted[slot] {
-                0.0
-            } else {
-                self.volumes[slot] * type_volume
-            },
+            volume: self.volumes[slot] * type_volume,
             pan: (self.pan[slot] as f32) * 2.0 - 1.0,
             repeat: self.repeat[slot],
         }
@@ -199,12 +193,10 @@ impl<const N: usize> Channels<N> {
         self.apply_params(slot, tween);
     }
 
-    /// Permanently silence a slot (`AudioSilentOn` / `SoundSilentOn`).
-    pub fn silent_on(&mut self, slot: i32, tween: Tween) {
-        let Ok(slot) = self.slot(slot) else { return };
-        self.muted[slot] = true;
-        self.apply_params(slot, tween);
-    }
+    /// `AudioSilentOn` / `SoundSilentOn`. It does not mute the slot: scripts call it on a slot
+    /// while its sound plays (Sakura, on the voice slot at every line), and that sound is heard
+    /// in the original engine.
+    pub fn silent_on(&mut self, _slot: i32, _tween: Tween) {}
 
     pub fn stop(&mut self, slot: i32, fade_out: Tween) {
         let Ok(slot) = self.slot(slot) else { return };
@@ -256,7 +248,7 @@ impl<const N: usize> Channels<N> {
                         slot,
                         name: self.names[slot].clone(),
                         volume: self.volumes[slot] as f64,
-                        muted: self.muted[slot],
+                        muted: false,
                         kind: self.kinds[slot],
                         data_loaded,
                         playing,
@@ -275,7 +267,7 @@ impl<const N: usize> Channels<N> {
                 path: self.names[slot].clone(),
                 sound_type: self.kinds[slot],
                 volume: self.volumes[slot],
-                muted: self.muted[slot],
+                muted: false,
                 playing: self.is_playing(slot as i32),
                 repeat: self.repeat[slot],
                 pan: self.pan[slot] as f32,
@@ -293,7 +285,6 @@ impl<const N: usize> Channels<N> {
             self.released[slot] = false;
             self.kinds[slot] = None;
             self.names[slot] = None;
-            self.muted[slot] = false;
             self.volumes[slot] = 1.0;
             self.repeat[slot] = false;
             self.pan[slot] = 0.5;
@@ -305,7 +296,7 @@ impl<const N: usize> Channels<N> {
                 continue;
             }
             self.kinds[slot] = state.sound_type;
-            self.muted[slot] = state.muted;
+            // `muted` is ignored: saves made while SilentOn muted a slot would bring it back.
             self.volumes[slot] = state.volume;
             self.repeat[slot] = state.repeat;
             self.pan[slot] = state.pan as f64;

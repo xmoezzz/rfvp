@@ -39,6 +39,13 @@ impl Global {
     }
 
     pub fn set(&mut self, key: u16, value: Variant) {
+        // The PlayStation's globals are the compiled script's (crate::aot).
+        #[cfg(feature = "psx_aot")]
+        {
+            crate::aot::set_global_variant(key as usize, value);
+            return;
+        }
+        #[allow(unreachable_code)]
         // The PlayStation keeps no entries for Nil (absent reads as Nil).
         #[cfg(feature = "psx")]
         if value.is_nil() {
@@ -74,10 +81,21 @@ impl Global {
 
     pub fn get_int_var(&self, key: u16) -> i32 {
         let key = key + self.none_volatile_count;
+        #[cfg(feature = "psx_aot")]
+        return crate::aot::global_int(key as usize).unwrap_or(0);
+        #[allow(unreachable_code)]
         if let Some(Variant::Int(val)) = self.global_table.get(&key) {
             return *val;
         }
         0
+    }
+
+    /// Global `key`'s value (Nil when unset).
+    fn value(&self, key: u16) -> Variant {
+        #[cfg(feature = "psx_aot")]
+        return crate::aot::global_variant(key as usize);
+        #[cfg(not(feature = "psx_aot"))]
+        self.global_table.get(&key).cloned().unwrap_or(Variant::Nil)
     }
 
     pub fn non_volatile_count(&self) -> u16 {
@@ -93,7 +111,7 @@ impl Global {
     pub fn snapshot_non_volatile(&self) -> Vec<Variant> {
         let mut out: Vec<Variant> = Vec::with_capacity(self.none_volatile_count as usize);
         for i in 0..self.none_volatile_count {
-            out.push(self.global_table.get(&i).cloned().unwrap_or(Variant::Nil));
+            out.push(self.value(i));
         }
         out
     }
@@ -119,8 +137,7 @@ impl Global {
         let mut out: Vec<Variant> = Vec::with_capacity(self.volatile_count as usize);
         let base = self.none_volatile_count;
         for i in 0..self.volatile_count {
-            let key = base.saturating_add(i);
-            out.push(self.global_table.get(&key).cloned().unwrap_or(Variant::Nil));
+            out.push(self.value(base.saturating_add(i)));
         }
         out
     }
@@ -222,9 +239,14 @@ pub struct DenseGlobals<'a> {
 
 impl Serialize for DenseGlobals<'_> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let nil = Variant::Nil;
-        serializer.collect_seq(
-            (0..self.count).map(|i| self.global.global_table.get(&self.base.saturating_add(i)).unwrap_or(&nil)),
-        )
+        #[cfg(feature = "psx_aot")]
+        return serializer.collect_seq((0..self.count).map(|i| self.global.value(self.base.saturating_add(i))));
+        #[cfg(not(feature = "psx_aot"))]
+        {
+            let nil = Variant::Nil;
+            serializer.collect_seq(
+                (0..self.count).map(|i| self.global.global_table.get(&self.base.saturating_add(i)).unwrap_or(&nil)),
+            )
+        }
     }
 }

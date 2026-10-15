@@ -1083,7 +1083,7 @@ impl UnimplementedSyscall {
 }
 
 impl Syscaller for UnimplementedSyscall {
-    fn call(&self, _gd: &mut GameData, args: Vec<Variant>) -> anyhow::Result<Variant> {
+    fn call(&self, _gd: &mut GameData, args: &[Variant]) -> anyhow::Result<Variant> {
         // Keep behavior lenient for now; correctness will be validated later against the real engine.
         if self.argc >= 0 && args.len() != self.argc as usize {
             log::warn!(

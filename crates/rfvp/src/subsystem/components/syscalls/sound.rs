@@ -114,9 +114,7 @@ pub fn audio_stop(
     Ok(Variant::Nil)
 }
 
-/// Silence audio on a specific channel (BGM).
-///
-/// This implements the engine's `AudioSilentOn` semantics: once enabled, the channel remains muted.
+/// `AudioSilentOn` (BGM channel). It does not mute the channel: see `Channels::silent_on`.
 pub fn audio_silent_on(game_data: &mut GameData, channel: &Variant) -> Result<Variant> {
     let channel = match channel {
         Variant::Int(channel) => *channel,
@@ -375,9 +373,7 @@ pub fn sound_play(
     Ok(Variant::Nil)
 }
 
-/// Silence sound on a specific channel (SE).
-///
-/// This implements the engine's `SoundSilentOn` semantics: once enabled, the channel remains muted.
+/// `SoundSilentOn` (SE channel). It does not mute the channel: see `Channels::silent_on`.
 pub fn sound_silent_on(game_data: &mut GameData, channel: &Variant) -> Result<Variant> {
     let channel = match channel {
         Variant::Int(channel) => *channel,
@@ -594,7 +590,7 @@ pub fn sound_volume(
 
 pub struct AudioLoad;
 impl Syscaller for AudioLoad {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         audio_load(
             game_data,
             super::get_var!(args, 0),
@@ -608,7 +604,7 @@ unsafe impl Sync for AudioLoad {}
 
 pub struct AudioPlay;
 impl Syscaller for AudioPlay {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         audio_play(
             game_data,
             super::get_var!(args, 0),
@@ -622,7 +618,7 @@ unsafe impl Sync for AudioPlay {}
 
 pub struct AudioSilentOn;
 impl Syscaller for AudioSilentOn {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         audio_silent_on(game_data, super::get_var!(args, 0))
     }
 }
@@ -632,7 +628,7 @@ unsafe impl Sync for AudioSilentOn {}
 
 pub struct AudioSlientOn;
 impl Syscaller for AudioSlientOn {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         audio_slient_on(game_data, super::get_var!(args, 0))
     }
 }
@@ -642,7 +638,7 @@ unsafe impl Sync for AudioSlientOn {}
 
 pub struct AudioState;
 impl Syscaller for AudioState {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         audio_state(game_data, super::get_var!(args, 0))
     }
 }
@@ -652,7 +648,7 @@ unsafe impl Sync for AudioState {}
 
 pub struct AudioStop;
 impl Syscaller for AudioStop {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         audio_stop(
             game_data,
             super::get_var!(args, 0),
@@ -666,7 +662,7 @@ unsafe impl Sync for AudioStop {}
 
 pub struct AudioType;
 impl Syscaller for AudioType {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         audio_type(
             game_data,
             super::get_var!(args, 0),
@@ -680,7 +676,7 @@ unsafe impl Sync for AudioType {}
 
 pub struct AudioVol;
 impl Syscaller for AudioVol {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         if args.len() == 2 {
             return audio_vol_legacy_aw(
                 game_data,
@@ -702,7 +698,7 @@ unsafe impl Sync for AudioVol {}
 
 pub struct SoundLoad;
 impl Syscaller for SoundLoad {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         sound_load(
             game_data,
             super::get_var!(args, 0),
@@ -716,7 +712,7 @@ unsafe impl Sync for SoundLoad {}
 
 pub struct SoundMasterVol;
 impl Syscaller for SoundMasterVol {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         sound_master_vol(game_data, super::get_var!(args, 0))
     }
 }
@@ -726,7 +722,7 @@ unsafe impl Sync for SoundMasterVol {}
 
 pub struct SoundPlay;
 impl Syscaller for SoundPlay {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         sound_play(
             game_data,
             super::get_var!(args, 0),
@@ -741,7 +737,7 @@ unsafe impl Sync for SoundPlay {}
 
 pub struct SoundSilentOn;
 impl Syscaller for SoundSilentOn {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         sound_silent_on(game_data, super::get_var!(args, 0))
     }
 }
@@ -751,7 +747,7 @@ unsafe impl Sync for SoundSilentOn {}
 
 pub struct SoundSlientOn;
 impl Syscaller for SoundSlientOn {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         sound_slient_on(game_data, super::get_var!(args, 0))
     }
 }
@@ -761,7 +757,7 @@ unsafe impl Sync for SoundSlientOn {}
 
 pub struct SoundStop;
 impl Syscaller for SoundStop {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         sound_stop(
             game_data,
             super::get_var!(args, 0),
@@ -775,7 +771,7 @@ unsafe impl Sync for SoundStop {}
 
 pub struct SoundType;
 impl Syscaller for SoundType {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         sound_type(
             game_data,
             super::get_var!(args, 0),
@@ -789,7 +785,7 @@ unsafe impl Sync for SoundType {}
 
 pub struct SoundTypeVol;
 impl Syscaller for SoundTypeVol {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         sound_type_vol(
             game_data,
             super::get_var!(args, 0),
@@ -803,7 +799,7 @@ unsafe impl Sync for SoundTypeVol {}
 
 pub struct SoundVol;
 impl Syscaller for SoundVol {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         if args.len() == 2 {
             return sound_volume_legacy_aw(
                 game_data,
@@ -825,7 +821,7 @@ unsafe impl Sync for SoundVol {}
 
 pub struct SoundVolume;
 impl Syscaller for SoundVolume {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         if args.len() == 2 {
             return sound_volume_legacy_aw(
                 game_data,

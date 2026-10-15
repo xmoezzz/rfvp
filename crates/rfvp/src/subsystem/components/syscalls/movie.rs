@@ -156,7 +156,7 @@ fn movie_path_candidates(path: &str) -> Vec<String> {
 
 pub struct Movie;
 impl Syscaller for Movie {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         movie_play(
             game_data,
             super::get_var!(args, 0),
@@ -170,7 +170,7 @@ unsafe impl Sync for Movie {}
 
 pub struct MovieState;
 impl Syscaller for MovieState {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         movie_state(game_data, super::get_var!(args, 0))
     }
 }
@@ -180,7 +180,7 @@ unsafe impl Sync for MovieState {}
 
 pub struct MovieStop;
 impl Syscaller for MovieStop {
-    fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, _args: &[Variant]) -> Result<Variant> {
         movie_stop(game_data)
     }
 }

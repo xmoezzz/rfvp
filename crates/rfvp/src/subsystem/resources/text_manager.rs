@@ -1690,24 +1690,40 @@ impl TextItem {
         })
     }
 
-    fn crop_rgba(buf: Vec<u8>, width: u32, height: u32, rect: RectI32) -> Vec<u8> {
+    #[cfg_attr(not(feature = "psx"), allow(unused_mut))]
+    fn crop_rgba(mut buf: Vec<u8>, width: u32, height: u32, rect: RectI32) -> Vec<u8> {
         if rect.x == 0 && rect.y == 0 && rect.w == width as i32 && rect.h == height as i32 {
             return buf;
         }
         let crop_w = rect.w.max(0) as u32;
         let crop_h = rect.h.max(0) as u32;
-        let mut out = vec![0; (crop_w as usize).saturating_mul(crop_h as usize).saturating_mul(4)];
-        let src_stride = width as usize * 4;
-        let dst_stride = crop_w as usize * 4;
-        let x = rect.x.max(0) as usize;
-        let y = rect.y.max(0) as usize;
-        for row in 0..crop_h as usize {
-            let src_start = (y + row) * src_stride + x * 4;
-            let dst_start = row * dst_stride;
-            out[dst_start..dst_start + dst_stride]
-                .copy_from_slice(&buf[src_start..src_start + dst_stride]);
+        #[cfg(feature = "psx")]
+        {
+            let src_stride = width as usize * 4;
+            let dst_stride = crop_w as usize * 4;
+            for row in 0..crop_h as usize {
+                let start = (rect.y.max(0) as usize + row) * src_stride + rect.x.max(0) as usize * 4;
+                buf.copy_within(start..start + dst_stride, row * dst_stride);
+            }
+            buf.truncate(dst_stride * crop_h as usize);
+            buf.shrink_to_fit();
+            return buf;
         }
-        out
+        #[cfg(not(feature = "psx"))]
+        {
+            let mut out = vec![0; (crop_w as usize).saturating_mul(crop_h as usize).saturating_mul(4)];
+            let src_stride = width as usize * 4;
+            let dst_stride = crop_w as usize * 4;
+            let x = rect.x.max(0) as usize;
+            let y = rect.y.max(0) as usize;
+            for row in 0..crop_h as usize {
+                let src_start = (y + row) * src_stride + x * 4;
+                let dst_start = row * dst_stride;
+                out[dst_start..dst_start + dst_stride]
+                    .copy_from_slice(&buf[src_start..src_start + dst_stride]);
+            }
+            out
+        }
     }
 
     fn is_suspend_chr(&self, ch: char) -> bool {
@@ -2582,7 +2598,10 @@ impl TextItem {
         if self.pixel_buffer.len() != self.full_buffer.len() {
             return;
         }
+        #[cfg(not(feature = "psx"))]
         let (bw, bh) = self.raster_dimensions();
+        #[cfg(feature = "psx")]
+        let (bw, bh) = (self.surface_width_px, self.surface_height_px);
         let render_scale = self.effective_render_scale();
         let mut consumed_cols = 0usize;
         let old_visible = self.applied_visible_chars;
@@ -3092,14 +3111,39 @@ impl TextItem {
             self.reveal_queue.clear();
             self.applied_visible_chars = self.total_chars;
         } else {
-            self.surface_origin_x_px = 0;
-            self.surface_origin_y_px = 0;
-            self.surface_width_px = bw;
-            self.surface_height_px = bh;
-            self.full_buffer = full_buffer;
-            self.reveal_queue = reveal_queue;
-            self.ensure_visible_buffer(bw, bh)?;
-            self.apply_reveal_delta_to_current_target();
+            #[cfg(not(feature = "psx"))]
+            {
+                self.surface_origin_x_px = 0;
+                self.surface_origin_y_px = 0;
+                self.surface_width_px = bw;
+                self.surface_height_px = bh;
+                self.full_buffer = full_buffer;
+                self.reveal_queue = reveal_queue;
+                self.ensure_visible_buffer(bw, bh)?;
+                self.apply_reveal_delta_to_current_target();
+            }
+            #[cfg(feature = "psx")]
+            {
+                // Retain the complete reveal, but omit transparent textbox margins.
+                // Otherwise full/visible/GraphBuff copies of a 171x90 textbox
+                // exhaust 2 MiB before its first line can be shown.
+                if let Some(bounds) = Self::alpha_bounds(&full_buffer, bw, bh) {
+                    self.surface_origin_x_px = bounds.x as u32;
+                    self.surface_origin_y_px = bounds.y as u32;
+                    self.surface_width_px = bounds.w as u32;
+                    self.surface_height_px = bounds.h as u32;
+                    for item in &mut reveal_queue {
+                        item.rect.x -= bounds.x;
+                        item.rect.y -= bounds.y;
+                    }
+                    self.full_buffer = Self::crop_rgba(full_buffer, bw, bh, bounds);
+                    self.reveal_queue = reveal_queue;
+                    self.ensure_visible_buffer(self.surface_width_px, self.surface_height_px)?;
+                    self.apply_reveal_delta_to_current_target();
+                } else {
+                    self.release_surfaces();
+                }
+            }
         }
         self.layout_dirty = false;
         Ok(())

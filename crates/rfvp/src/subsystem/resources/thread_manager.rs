@@ -14,6 +14,11 @@ use crate::script::{
     VmSyscall,
 };
 
+// The PlayStation runs the script compiled (crate::aot), with its own threads.
+#[cfg(feature = "psx_aot")]
+pub use crate::aot::ThreadManager;
+
+#[cfg(not(feature = "psx_aot"))]
 #[derive(Debug)]
 pub struct ThreadManager {
     pub contexts: Vec<Context>,
@@ -28,12 +33,14 @@ pub struct ThreadManagerSnapshotV1 {
     pub contexts: Vec<ContextSnapshotV1>,
 }
 
+#[cfg(not(feature = "psx_aot"))]
 impl Default for ThreadManager {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg(not(feature = "psx_aot"))]
 impl ThreadManager {
     pub fn new() -> Self {
         let mut contexts = Vec::with_capacity(32);

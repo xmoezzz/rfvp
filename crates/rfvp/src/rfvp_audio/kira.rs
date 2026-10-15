@@ -63,8 +63,20 @@ pub struct KiraBackend {
 
 impl KiraBackend {
     pub fn new() -> Self {
-        let manager = KiraAudioManager::new(AudioManagerSettings::default())
-            .expect("failed to create Kira AudioManager");
+        // Every sound plays on the main track: Kira's default room for 128 sub-tracks (and send
+        // tracks, clocks, modulators, listeners), each with buffers made up front, held tens of
+        // MiB for nothing.
+        let settings = AudioManagerSettings {
+            capacities: ::kira::Capacities {
+                sub_track_capacity: 1,
+                send_track_capacity: 1,
+                clock_capacity: 1,
+                modulator_capacity: 1,
+                listener_capacity: 1,
+            },
+            ..AudioManagerSettings::default()
+        };
+        let manager = KiraAudioManager::new(settings).expect("failed to create Kira AudioManager");
         Self {
             manager: Mutex::new(manager),
             channels: Mutex::new(HashMap::new()),

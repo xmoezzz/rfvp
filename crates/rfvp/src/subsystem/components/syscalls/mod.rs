@@ -28,7 +28,7 @@ pub mod timer;
 pub mod utils;
 
 pub trait Syscaller {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> anyhow::Result<Variant>;
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> anyhow::Result<Variant>;
 }
 
 macro_rules! get_var {

@@ -103,7 +103,10 @@ anzu-hal = { path = "../anzu-hal", optional = true }
 
 [features]
 # Keep native movie support enabled by default for backward compatibility.
-default = ["runtime-core-deps", "gpu-render", "audio", "mp4", "native-video", "random", "uuid-support", "image-formats", "bevy-utils", "fontdue-compat", "cursor-ani", "zlib-flate2", "logging"]
+default = ["runtime-core-deps", "gpu-render", "audio", "mp4", "native-video", "random", "uuid-support", "image-formats", "bevy-utils", "fontdue-compat", "cursor-ani", "zlib-flate2", "logging", "mimalloc"]
+
+# mimalloc as the global allocator (desktop and mobile; never with `no_std`).
+mimalloc = ["dep:mimalloc"]
 
 # Independent no_std + alloc library surface. This feature intentionally does
 # not enable any runtime/backend dependency. Use it with:
@@ -142,7 +145,9 @@ no_std = [
 old_school = ["no_std", "dep:rfvp_bitmap", "rfvp_bitmap/alloc"]
 # The PlayStation (platform/ps1): old_school on a game converted by rfvp-psx-convert (CLUT
 # pictures, a fixed-size bitmap font, native sound), sized for 2 MiB of RAM.
-psx = ["old_school"]
+psx = ["old_school", "serde/rc"]
+# The PlayStation runs the script compiled ahead of time (src/aot.rs, platform/ps1/aot).
+psx_aot = ["psx"]
 
 # Dependencies required by the historical std/runtime engine modules. This is
 # deliberately separate from `no_std`; no_std builds must not enable it.
@@ -299,6 +304,8 @@ mp4 = { version = "0.14.0", optional = true }
 video-sys = { version = "0.1.0", optional = true }
 
 [target.'cfg(all(not(target_arch = "wasm32"), not(target_os = "uefi")))'.dependencies]
+# The allocator of the desktop and mobile builds (feature `mimalloc`): see lib.rs.
+mimalloc = { version = "0.1", default-features = false, optional = true }
 rodio = { version = "0.17.3", optional = true }
 uuid = { version = "1.19.0", optional = true }
 

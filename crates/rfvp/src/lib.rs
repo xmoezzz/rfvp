@@ -5,6 +5,10 @@ extern crate alloc;
 #[cfg(feature = "psx")]
 #[path = "../../../platform/ps1/mask_format.rs"]
 pub mod ps1_mask;
+#[cfg(feature = "psx")]
+mod ps1_math;
+#[cfg(feature = "psx_aot")]
+pub mod aot;
 #[cfg(feature = "no_std")]
 extern crate self as image;
 #[cfg(feature = "no_std")]
@@ -1024,6 +1028,13 @@ pub mod string {
     )
 ))]
 compile_error!("feature `no_std` is an independent core-library build and must not be combined with runtime/backend features");
+
+/// The allocator of the desktop and mobile builds. The system mallocs keep freed large blocks
+/// resident for reuse (on macOS about 100 MiB once a game had decoded its pictures and read back
+/// a frame for a save); mimalloc gives freed memory back to the system.
+#[cfg(all(feature = "mimalloc", not(feature = "no_std"), not(target_arch = "wasm32"), not(target_os = "uefi")))]
+#[global_allocator]
+static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 pub mod host_api;
 

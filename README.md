@@ -1,12 +1,5 @@
 # rfvp: A Non-Official Rust cross-platform implementation of the FVP engine and IDE.
 
-<p align="center">
-  <a href="README.md">English</a> |
-  <a href="README.ja.md">日本語</a> |
-  <a href="README.zh-Hant.md">繁體中文</a> |
-  <a href="README.zh-Hans.md">简体中文</a>
-</p>
-
 <img src="images/flake.png" width="20%">
 
 ### What is rfvp?
@@ -15,6 +8,28 @@
 ![legacy](./images/legacy.png)
 * You can even use rfvp as an **Operation System**! Turn on your computer and boot with the UEFI program.
 ![uefi](./images/uefi.png)
+
+### Console support
+
+These are game frames captured from RFVP running in emulators.
+
+<table>
+  <tr>
+    <td align="center" width="33%"><img src="images/platforms/ps1.png" alt="RFVP PS1 title screen in DuckStation" width="100%"><br><b>PlayStation</b><br><sub>DuckStation</sub></td>
+    <td align="center" width="33%"><img src="images/platforms/ps2.png" alt="RFVP PS2 dialogue scene in PCSX2" width="100%"><br><b>PlayStation 2</b><br><sub>PCSX2</sub></td>
+    <td align="center" width="33%"><img src="images/platforms/psp.png" alt="RFVP PSP title screen in PPSSPP" width="100%"><br><b>PSP</b><br><sub>PPSSPP</sub></td>
+  </tr>
+  <tr>
+    <td align="center" width="33%"><img src="images/platforms/3ds.png" alt="RFVP 3DS title screen in Azahar" width="100%"><br><b>Nintendo 3DS</b><br><sub>Azahar</sub></td>
+    <td align="center" width="33%"><img src="images/platforms/ps3.png" alt="RFVP PS3 dialogue scene in RPCS3" width="100%"><br><b>PlayStation 3</b><br><sub>RPCS3</sub></td>
+    <td align="center" width="33%"><img src="images/platforms/switch.png" alt="RFVP Switch title screen in Ryujinx" width="100%"><br><b>Nintendo Switch</b><br><sub>Ryujinx</sub></td>
+  </tr>
+  <tr>
+    <td align="center" width="33%"><img src="images/platforms/vita.png" alt="RFVP PS Vita startup screen in Vita3K" width="100%"><br><b>PS Vita</b><br><sub>Vita3K</sub></td>
+    <td align="center" width="33%"><img src="images/platforms/wii.png" alt="RFVP Wii title screen in Dolphin" width="100%"><br><b>Wii</b><br><sub>Dolphin</sub></td>
+    <td align="center" width="33%"><img src="images/platforms/wiiu.png" alt="RFVP Wii U dialogue scene in Cemu" width="100%"><br><b>Wii U</b><br><sub>Cemu; TV framebuffer.</sub></td>
+  </tr>
+</table>
 
 ### rfvp debug HUD
 * Enable it with F2 hotkey (Fn + F2 on MacOS)

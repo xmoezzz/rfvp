@@ -26,10 +26,8 @@ impl Ps1File {
         let mut size = 0u32;
         let handle = unsafe { ffi::rfvp_ps1_file_find(c.as_ptr() as *const c_char, &mut size) };
         if handle < 0 {
-            crate::ffi::log(&alloc::format!("rfvp: no file {path}\n"));
             return Err(RfvpError::NotFound);
         }
-        crate::ffi::log(&alloc::format!("rfvp: [{}] [heap {}] open {path} ({size} bytes)\n", crate::ffi::ticks_us() / 1000, unsafe { crate::ffi::HEAP_IN_USE } / 1024));
         Ok(Self { handle, size })
     }
 }

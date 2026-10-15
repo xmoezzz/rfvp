@@ -84,6 +84,8 @@ pub struct MotionManager {
     dissolve_duration_ms: u32,
     dissolve_elapsed_ms: u32,
     dissolve_alpha: f32,
+    /// Counts started dissolves: a mask dissolve wipes away the frame shown when it started.
+    dissolve_serial: u32,
     dissolve2: Dissolve2State,
 }
 
@@ -143,6 +145,7 @@ impl MotionManager {
             dissolve_duration_ms: 0,
             dissolve_elapsed_ms: 0,
             dissolve_alpha: 0.0,
+            dissolve_serial: 0,
             dissolve2: Dissolve2State::new(),
         }
     }
@@ -768,6 +771,11 @@ impl MotionManager {
         graph.load_texture(file_name, buff)
     }
 
+    #[cfg(feature = "psx")]
+    pub fn load_streamed_graph(&mut self, id: u16, path: &str, vfs: &Vfs, scale: f32) -> Result<bool> {
+        self.textures[id as usize].load_streamed_clut(vfs, path, scale)
+    }
+
     #[cfg(feature = "old_school")]
     pub fn load_graph_old_school(
         &mut self,
@@ -799,6 +807,10 @@ impl MotionManager {
             if !graph.is_cpu_evicted() || uploaded(id as u16, graph.get_generation()) {
                 continue;
             }
+            if graph.streamed_clut.is_some() {
+                upload(id as u16, graph);
+                continue;
+            }
             if let Err(e) = graph.ensure_cpu_pixels(vfs) {
                 log::error!("upload_evicted_one_by_one: graph {}: {:#}", id, e);
                 continue;
@@ -818,6 +830,11 @@ impl MotionManager {
     pub fn graph_color_tone(&mut self, id: u16, r: i32, g: i32, b: i32, vfs: &Vfs) {
         let graph = &mut self.textures[id as usize];
         // Color tone rewrites CPU pixels; restore them if they were evicted after upload.
+        #[cfg(feature = "psx")]
+        if graph.streamed_clut.is_some() {
+            graph.set_color_tone(r, g, b);
+            return;
+        }
         if let Err(e) = graph.ensure_cpu_pixels(vfs) {
             log::error!("graph_color_tone: failed to restore pixels for graph {}: {:#}", id, e);
             return;
@@ -979,11 +996,25 @@ impl MotionManager {
         &self.dissolve_mask_graph
     }
 
+    #[cfg(feature = "psx")]
+    pub fn get_dissolve_mask_graph_mut(&mut self) -> &mut GraphBuff {
+        &mut self.dissolve_mask_graph
+    }
+
     pub fn start_dissolve(&mut self, duration_ms: u32, typ: DissolveType) {
         self.dissolve_duration_ms = duration_ms.max(1);
         self.dissolve_elapsed_ms = 0;
         self.dissolve_type = typ;
-        self.dissolve_alpha = 0.0;
+        // A mask dissolve starts covered by the previous frame.
+        self.dissolve_alpha = match typ {
+            DissolveType::MaskFadeIn | DissolveType::MaskFadeInOut => 1.0,
+            _ => 0.0,
+        };
+        self.dissolve_serial = self.dissolve_serial.wrapping_add(1);
+    }
+
+    pub fn get_dissolve_serial(&self) -> u32 {
+        self.dissolve_serial
     }
 
     pub fn tick_dissolve(&mut self, elapsed_ms: u32) {
@@ -1005,7 +1036,8 @@ impl MotionManager {
         self.dissolve_alpha = match typ {
             DissolveType::ColoredFadeIn | DissolveType::MaskFadeIn => 1.0 - t,
             DissolveType::ColoredFadeOut | DissolveType::MaskFadeOut => t,
-            DissolveType::MaskFadeInOut => 1.0 - (2.0 * t - 1.0).abs(),
+            // Both mask dissolves (wait=4/5) wipe the frame shown when they started away.
+            DissolveType::MaskFadeInOut => 1.0 - t,
             _ => t,
         };
 

@@ -96,6 +96,12 @@ struct CliArgs {
     text_hidpi: bool,
 }
 
+/// The allocator of the desktop app (this binary compiles its own copy of the modules, so it
+/// declares it like lib.rs does for the mobile libraries): see `ALLOCATOR` in lib.rs.
+#[cfg(all(feature = "mimalloc", not(feature = "no_std"), not(target_arch = "wasm32"), not(target_os = "uefi")))]
+#[global_allocator]
+static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 // use dhat;
 
 // #[global_allocator]

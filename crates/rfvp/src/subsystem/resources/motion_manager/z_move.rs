@@ -140,42 +140,50 @@ impl ZMotion {
             return false;
         }
 
-        let src = self.src_z as i64;
-        let dst = self.dst_z as i64;
-        let delta = dst - src;
-        let e = self.elapsed as i64;
-        let d = self.duration as i64;
+        #[cfg(feature = "psx")]
+        let z = crate::ps1_math::interpolate(i32::from(self.src_z), i32::from(self.dst_z),
+            crate::ps1_math::progress(self.elapsed, self.duration, self.typ.clone() as u8));
+        #[cfg(not(feature = "psx"))]
+        let z = {
+            let src = self.src_z as i64;
+            let dst = self.dst_z as i64;
+            let delta = dst - src;
+            let e = self.elapsed as i64;
+            let d = self.duration as i64;
 
-        let z = match self.typ {
-            ZMotionType::Linear => src + delta * e / d,
-            ZMotionType::Accelerate => src + delta * e * e / (d * d),
-            ZMotionType::Decelerate => dst - delta * (d - e) * (d - e) / (d * d),
-            ZMotionType::Rebound => {
-                let half_delta = delta / 2;
-                let half_dur = d / 2;
-                if e > half_dur {
-                    let denom = (d - half_dur) * (d - half_dur);
-                    let t = (d - e) * (d - e);
-                    dst - (delta - half_delta) * t / denom
-                } else {
-                    let denom = half_dur * half_dur;
-                    src + half_delta * e * e / denom
+            let z = match self.typ {
+                ZMotionType::Linear => src + delta * e / d,
+                ZMotionType::Accelerate => src + delta * e * e / (d * d),
+                ZMotionType::Decelerate => dst - delta * (d - e) * (d - e) / (d * d),
+                ZMotionType::Rebound => {
+                    let half_delta = delta / 2;
+                    let half_dur = d / 2;
+                    if e > half_dur {
+                        let denom = (d - half_dur) * (d - half_dur);
+                        let t = (d - e) * (d - e);
+                        dst - (delta - half_delta) * t / denom
+                    } else {
+                        let denom = half_dur * half_dur;
+                        src + half_delta * e * e / denom
+                    }
                 }
-            }
-            ZMotionType::Bounce => {
-                let half_delta = delta / 2;
-                let half_dur = d / 2;
-                if e > half_dur {
-                    let t = (e - half_dur) * (e - half_dur);
-                    let denom = (d - half_dur) * (d - half_dur);
-                    half_delta + src + (delta - half_delta) * t / denom
-                } else {
-                    let t = (half_dur - e) * (half_dur - e);
-                    let denom = half_dur * half_dur;
-                    half_delta + src - half_delta * t / denom
+                ZMotionType::Bounce => {
+                    let half_delta = delta / 2;
+                    let half_dur = d / 2;
+                    if e > half_dur {
+                        let t = (e - half_dur) * (e - half_dur);
+                        let denom = (d - half_dur) * (d - half_dur);
+                        half_delta + src + (delta - half_delta) * t / denom
+                    } else {
+                        let t = (half_dur - e) * (half_dur - e);
+                        let denom = half_dur * half_dur;
+                        half_delta + src - half_delta * t / denom
+                    }
                 }
-            }
-            _ => dst,
+                _ => dst,
+            };
+
+            z
         };
 
         let mut prim = prim_manager.get_prim(self.prim_id as i16);
@@ -186,6 +194,8 @@ impl ZMotion {
 }
 
 pub struct ZMotionContainer {
+    /// Slots from here on have never been used (ids are taken from the start): scans stop there.
+    live_end: usize,
     motions: Vec<ZMotion>,
     free_ids: Vec<u16>,
 }
@@ -197,7 +207,7 @@ impl ZMotionContainer {
             motions.push(ZMotion::new(i));
         }
         let free_ids: Vec<u16> = (0..512u16).rev().collect();
-        ZMotionContainer { motions, free_ids }
+        ZMotionContainer { live_end: 0, motions, free_ids }
     }
 
     pub fn push_motion(
@@ -213,6 +223,7 @@ impl ZMotionContainer {
         let Some(id) = self.free_ids.pop() else {
             return Ok(());
         };
+        self.live_end = self.live_end.max(id as usize + 1);
         let m = &mut self.motions[id as usize];
         m.prim_id = prim_id;
         m.running = true;
@@ -226,7 +237,7 @@ impl ZMotionContainer {
     }
 
     pub fn stop_motion(&mut self, prim_id: u32) -> Result<()> {
-        for m in &mut self.motions {
+        for m in &mut self.motions[..self.live_end] {
             if m.is_running_for(prim_id) {
                 let id = m.id;
                 m.finish();
@@ -238,11 +249,11 @@ impl ZMotionContainer {
     }
 
     pub fn test_motion(&self, prim_id: u32) -> bool {
-        self.motions.iter().any(|m| m.is_running_for(prim_id))
+        self.motions[..self.live_end].iter().any(|m| m.is_running_for(prim_id))
     }
 
     pub fn exec_z_motion(&mut self, prim_manager: &PrimManager, flag: bool, elapsed: i32) {
-        for i in 0..self.motions.len() {
+        for i in 0..self.live_end {
             if !self.motions[i].running {
                 continue;
             }

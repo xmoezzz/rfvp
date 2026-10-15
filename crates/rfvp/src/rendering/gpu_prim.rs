@@ -168,6 +168,15 @@ impl GpuPrimRenderer {
         Some((e.generation, e.texture.raw_view(), e.texture.size()))
     }
 
+    /// Whether a mask dissolve needs the frame last shown (`set_mask_snapshot`) before `rebuild`.
+    pub fn mask_wants_snapshot(&self, motion: &MotionManager) -> bool {
+        self.mask_frame.wants_snapshot(motion)
+    }
+
+    pub fn set_mask_snapshot(&mut self, motion: &MotionManager, frame: image::RgbaImage) {
+        self.mask_frame.set_snapshot(motion, frame);
+    }
+
     pub fn remove_graph_cache(&mut self, graph_id: u16) {
         self.graph_cache.remove(&graph_id);
     }
@@ -983,7 +992,8 @@ impl GpuPrimRenderer {
             if !updated {
                 self.mask_texture = Some(GraphGpuEntry {
                     generation,
-                    texture: GpuTexture::new_rgba8_unorm(resources, image, Some("dissolve_mask")),
+                    // sRGB: the colors are a captured frame's (or black).
+                    texture: GpuTexture::new(resources, image, Some("dissolve_mask")),
                 });
             }
             self.emit_sprite_vertices(Mat4::IDENTITY,

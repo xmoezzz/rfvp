@@ -180,3 +180,41 @@ Validation: 39 converter/shared-image tests passed, including rare alpha levels,
 deterministic palettes, coverage through both encoders, unchanged masks, animated
 metadata, and the PS1 encoding/VRAM guard. Wii behavior and console runtimes were
 not changed in this resumed image work.
+
+## PS1 startup recovery and bounded-memory acceleration
+
+The current release executable is copied into `output/mask-dither/`, `output/disc/`
+and `output/new-game-optimized/`. Their BIN files were checked against the release
+EXE byte for byte. Release discs contain no DEBUG.TXT or scripted controller input.
+The command-line launcher defaults to `output/mask-dither/rfvp.cue`.
+
+Two reproduced failures were fixed: a 61,560-byte textbox allocation after New Game,
+and a 231,216-byte large-CG allocation. PS1 text reveals crop transparent margins in
+place; large CLUT images upload sequential scanline bands from disc. GPU mask pixels
+can be released after upload while the original 8-bit CPU mask remains available.
+CD reads wait for seek/pause completion, validate completion and retry failed reads.
+
+PS1-only visual math uses Q16 easing progress shared between axes and range-reduced
+fifth/sixth-degree sine/cosine polynomials, without a lookup table or persistent cache.
+A sweep of the engine's angle range measured less than 3.7e-5 absolute trigonometric
+error (under 0.024 pixels at a 640-pixel radius). Motion endpoints remain exact.
+VM table reads use copy-on-write storage; finite numeric comparisons preserve the
+existing ordering; only selected VM routines receive speed-oriented LLVM attributes.
+
+Measured with AKASEKA_HD, stock-clock DuckStation and 2 MiB RAM:
+
+| Measurement | Before | Updated |
+| --- | ---: | ---: |
+| Release resident code/data/BSS | 794,444 bytes | 778,284 bytes |
+| Steady introductory dialogue | 3.9 FPS after the allocation repairs | 5.4 FPS |
+| VM time, dialogue window | about 217 ms/frame | about 150 ms/frame |
+
+Diagnostic heap peak was about 890 KiB after entering the first CG; startup and
+CG-loading windows are excluded from steady FPS, as is the framebuffer dump.
+This is an emulator measurement, not a physical-console FPS claim. It does not reach
+20 FPS. `build_ps1.sh` enforces a 768 KiB resident code/data budget for stock-console
+release builds (`RFVP_PS1_STATIC_LIMIT` overrides it). Diagnostic builds are separate.
+Build and gameplay evidence is retained under ignored `output/recovery/`.
+
+The default desktop library and the UEFI no_std library compile successfully.
+No new tests were added. Other platforms retain their original motion formulas.

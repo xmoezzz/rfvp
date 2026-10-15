@@ -1,17 +1,20 @@
 # Mask dissolve
 
-Mask dissolves (`MaskFadeIn`, `MaskFadeInOut`, `MaskFadeOut`) composite a black
-mask over the main scene before dissolve2 and the HUD/custom root. They use the
-existing motion timing and retain the source Type 3 / Single8Bit values.
-The mask reveal evaluates `clamp(source_alpha + 2 * progress - 1, 0, 1)`.
-Progress zero is clear, progress one is black, and halfway retains the source
-mask coverage. This is a mask fade approximation, not a captured-scene wipe.
+`Dissolve` with a mask (`MaskFadeIn`, wait=4; `MaskFadeInOut`, wait=5, the one the
+scripts use for scene and character changes) wipes the frame shown when it started
+away through the mask, revealing the new scene under it. It is drawn after the main
+scene, before dissolve2 and the HUD/custom root, with the frame's own colors and an
+alpha of `clamp(source_alpha + 2 * (1 - progress) - 1, 0, 1)`: everything at the
+start, the mask's coverage halfway, nothing at the end. `MaskFadeOut` alone still
+fades the mask to black.
 
-The desktop/mobile GPU renderer and software renderer share the continuous-alpha
-mask frame with the portable host renderer. The RGBA allocation is reused, and
-pixels/GPU data are updated only when source or phase changes. Completing the
-effect releases its working buffer and GPU texture. Other platforms retain their
-existing image conversion formats; mask data is never reduced to 1-bit.
+The desktop/mobile GPU renderer reads the previous frame back from its render target
+when such a dissolve starts; the software renderer copies its framebuffer. Hosts that
+keep no previous frame (the portable host renderer: consoles, the `no_std` harness)
+cut to the new scene instead: drawing black there blacks the screen out at every
+transition. The RGBA allocation is reused, and pixels/GPU data are updated only when
+source or phase changes. Completing the effect releases its working buffer and GPU
+texture. Mask data is never reduced to 1-bit.
 
 ## PlayStation
 

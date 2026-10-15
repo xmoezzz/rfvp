@@ -426,6 +426,9 @@ impl Context {
                 syscall.name,
                 syscall.args
             );
+            #[cfg(feature = "psx")]
+            let mut args = Vec::with_capacity(usize::from(syscall.args));
+            #[cfg(not(feature = "psx"))]
             let mut args = Vec::new();
             for _ in 0..syscall.args {
                 uefi_context_stage!("[UEFI] Context::syscall before pop arg");
@@ -1108,7 +1111,16 @@ impl Context {
             self.get_pc()
         );
         let op_started = crate::perf::cycles();
+        #[cfg(test)]
+        page_trace::touch(self.get_pc() as u32 >> 10);
         let opcode = parser.read_u8(self.get_pc())? as i32;
+        #[cfg(test)]
+        {
+            if opcode == 0x01 {
+                page_trace::func(self.get_pc() as u32);
+            }
+            page_trace::pc(self.get_pc() as u32);
+        }
         crate::perf::count_op();
         uefi_context_stage!(
             "[UEFI] Context::dispatch_opcode after read pc={} opcode={}",
@@ -1297,5 +1309,40 @@ mod stack_move_tests {
         ctx.push(Variant::ConstString(String::from("title_start"), 2)).unwrap();
         ctx.add().unwrap();
         assert_eq!(ctx.pop().unwrap().as_string().unwrap(), "graph/title_start");
+    }
+}
+
+/// Test-only: the 1 KiB script pages instructions run from, in order (consecutive repeats
+/// dropped), for sizing the PlayStation's script cache (see `no_std_harness`).
+#[cfg(test)]
+pub mod page_trace {
+    extern crate std;
+    use std::sync::Mutex;
+    pub static PAGES: Mutex<std::vec::Vec<u32>> = Mutex::new(std::vec::Vec::new());
+
+
+    /// Script functions in the order they first ran (for the PlayStation's code layout).
+    pub static FUNCS: Mutex<std::vec::Vec<u32>> = Mutex::new(std::vec::Vec::new());
+
+    pub fn func(addr: u32) {
+        FUNCS.lock().unwrap().push(addr);
+    }
+
+    /// How many times each instruction ran, and when it first did (for the PlayStation's code
+    /// layout).
+    pub static PCS: Mutex<Option<std::collections::HashMap<u32, (u32, u32)>>> = Mutex::new(None);
+
+    pub fn pc(addr: u32) {
+        let mut pcs = PCS.lock().unwrap();
+        let pcs = pcs.get_or_insert_with(Default::default);
+        let next = pcs.len() as u32;
+        pcs.entry(addr).or_insert((0, next)).0 += 1;
+    }
+
+    pub fn touch(page: u32) {
+        let mut pages = PAGES.lock().unwrap();
+        if pages.last() != Some(&page) {
+            pages.push(page);
+        }
     }
 }

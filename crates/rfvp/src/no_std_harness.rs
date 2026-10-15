@@ -18,6 +18,12 @@
 //! title menu entry to click as fractions of the screen, default `0.144,0.5`, which is "New
 //! Game" on the games this was tried on) and `RFVP_HARNESS_SKIP_FROM` (frame from which Ctrl is
 //! held down to skip text). `RFVP_HARNESS_NO_CLICKS` turns all clicks off.
+//!
+//! For the PlayStation's compiled script (platform/ps1/aot/README.md): `RFVP_HARNESS_FUNCS`
+//! (file to write the script functions to, in the order they were first called, with their call
+//! counts), `RFVP_HARNESS_PCS` (file to write each instruction's run count and first run to)
+//! and `RFVP_HARNESS_PCS_FROM` (frame to start counting instructions at). Screenshots are taken
+//! every `RFVP_HARNESS_OUT_EVERY` frames (default 300).
 
 extern crate std as real_std;
 
@@ -679,6 +685,10 @@ fn boots_and_runs_a_real_game() {
         .ok()
         .and_then(|v| v.parse().ok());
     let out_dir = env::var("RFVP_HARNESS_OUT").ok().map(PathBuf::from);
+    // `RFVP_HARNESS_PCS_FROM`: count instructions (RFVP_HARNESS_PCS) from this frame on only.
+    let pcs_from: u32 = env::var("RFVP_HARNESS_PCS_FROM").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    // `RFVP_HARNESS_OUT_EVERY`: frames between screenshots (a multiple of 60, default 300).
+    let out_every: u32 = env::var("RFVP_HARNESS_OUT_EVERY").ok().and_then(|v| v.parse().ok()).unwrap_or(300);
     // `RFVP_HARNESS_SPRITES`: a frame whose sprites are printed.
     let sprites_at: Option<u32> = env::var("RFVP_HARNESS_SPRITES")
         .ok()
@@ -689,12 +699,16 @@ fn boots_and_runs_a_real_game() {
     let mut frame_time = real_std::time::Duration::ZERO;
     let mut worst = real_std::time::Duration::ZERO;
     for frame in 0..frames {
+        if frame == pcs_from {
+            *crate::script::context::page_trace::PCS.lock().unwrap() = None;
+        }
         if skip_from == Some(frame) {
             run.set_skip(true);
         }
         run.host.renderer.log_sprites = sprites_at == Some(frame);
         let started = Instant::now();
         run.step();
+        crate::script::context::page_trace::PAGES.lock().unwrap().push(u32::MAX);
         if sprites_at == Some(frame) {
             println!("{}", run.core.debug_threads().trim_end());
         }
@@ -745,7 +759,7 @@ fn boots_and_runs_a_real_game() {
                 host.audio.played,
             );
             if let Some(dir) = &out_dir {
-                if frame % 300 == 0 {
+                if frame % out_every == 0 {
                     let _ = fs::create_dir_all(dir);
                     host.renderer
                         .write_ppm(&dir.join(format!("frame_{frame:05}.ppm")));
@@ -762,6 +776,38 @@ fn boots_and_runs_a_real_game() {
         run.host.renderer.raster_time.as_secs_f64() * 1000.0 / frames as f64,
         worst.as_secs_f64() * 1000.0,
     );
+    if let Ok(path) = env::var("RFVP_HARNESS_PAGES") {
+        let pages = crate::script::context::page_trace::PAGES.lock().unwrap();
+        let bytes: real_std::vec::Vec<u8> = pages.iter().flat_map(|p| p.to_le_bytes()).collect();
+        real_std::fs::write(path, bytes).unwrap();
+    }
+    if let Ok(path) = env::var("RFVP_HARNESS_PCS") {
+        // How many times each instruction ran, and the order they first ran in.
+        let pcs = crate::script::context::page_trace::PCS.lock().unwrap();
+        let mut lines: real_std::vec::Vec<(u32, u32, u32)> = pcs
+            .as_ref()
+            .map(|m| m.iter().map(|(a, (n, first))| (*a, *n, *first)).collect())
+            .unwrap_or_default();
+        lines.sort();
+        let text: real_std::vec::Vec<real_std::string::String> =
+            lines.iter().map(|(a, n, first)| format!("{a} {n} {first}")).collect();
+        real_std::fs::write(path, text.join("\n")).unwrap();
+    }
+    if let Ok(path) = env::var("RFVP_HARNESS_FUNCS") {
+        // Each function once, in the order it first ran, with how many times it ran.
+        let funcs = crate::script::context::page_trace::FUNCS.lock().unwrap();
+        let mut counts = real_std::collections::HashMap::new();
+        for f in funcs.iter() {
+            *counts.entry(*f).or_insert(0u32) += 1;
+        }
+        let mut seen = real_std::collections::HashSet::new();
+        let order: real_std::vec::Vec<real_std::string::String> = funcs
+            .iter()
+            .filter(|f| seen.insert(**f))
+            .map(|f| format!("{} {}", f, counts[f]))
+            .collect();
+        real_std::fs::write(path, order.join("\n")).unwrap();
+    }
     assert!(run.host.renderer.sprites > 0, "nothing was drawn");
     // Every tick draws the frame once and puts it on the screen once: a host that never
     // presented would show a black screen, and one that drew twice would waste half its time.

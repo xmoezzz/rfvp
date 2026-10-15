@@ -576,6 +576,16 @@ fn round_half_up(v: f32) -> i32 {
     }
 }
 
+/// The handler of a syscall, found once: the PlayStation's compiled script calls syscalls by
+/// index (crate::aot).
+#[cfg(feature = "psx_aot")]
+pub fn syscall_handler(name: &str) -> Option<&'static (dyn Syscaller + Send + Sync)> {
+    let table = SYSCALL_TBL.borrow();
+    let handler: *const (dyn Syscaller + Send + Sync) = table.get(name)?.as_ref();
+    // The table is made once and never changed after: its handlers live as long as the program.
+    Some(unsafe { &*handler })
+}
+
 impl VmSyscall for GameData {
     fn do_syscall(&mut self, name: &str, args: Vec<Variant>) -> anyhow::Result<Variant> {
         let result = SYSCALL_TBL.borrow().get(name).map_or_else(
@@ -583,7 +593,7 @@ impl VmSyscall for GameData {
                 log::error!("Syscall {} not found", name);
                 Ok(Variant::Nil)
             },
-            |syscall| syscall.call(self, args),
+            |syscall| syscall.call(self, &args),
         );
         result
     }

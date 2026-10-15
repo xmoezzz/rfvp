@@ -147,65 +147,75 @@ impl MoveMotion {
             return false;
         }
 
-        let src_x = self.src_x as i64;
-        let src_y = self.src_y as i64;
-        let dst_x = self.dst_x as i64;
-        let dst_y = self.dst_y as i64;
-        let delta_x = dst_x - src_x;
-        let delta_y = dst_y - src_y;
-        let e = self.elapsed as i64;
-        let d = self.duration as i64;
+        #[cfg(feature = "psx")]
+        let (x, y) = {
+            let p = crate::ps1_math::progress(self.elapsed, self.duration, self.anm_type.clone() as u8);
+            (crate::ps1_math::interpolate(self.src_x, self.dst_x, p),
+             crate::ps1_math::interpolate(self.src_y, self.dst_y, p))
+        };
+        #[cfg(not(feature = "psx"))]
+        let (x, y) = {
+            let src_x = self.src_x as i64;
+            let src_y = self.src_y as i64;
+            let dst_x = self.dst_x as i64;
+            let dst_y = self.dst_y as i64;
+            let delta_x = dst_x - src_x;
+            let delta_y = dst_y - src_y;
+            let e = self.elapsed as i64;
+            let d = self.duration as i64;
 
-        let (x, y) = match self.anm_type {
-            MoveMotionType::Linear => (src_x + delta_x * e / d, src_y + delta_y * e / d),
-            MoveMotionType::Accelerate => (
-                src_x + delta_x * e * e / (d * d),
-                src_y + delta_y * e * e / (d * d),
-            ),
-            MoveMotionType::Decelerate => (
-                dst_x - delta_x * (d - e) * (d - e) / (d * d),
-                dst_y - delta_y * (d - e) * (d - e) / (d * d),
-            ),
-            MoveMotionType::Rebound => {
-                let half_delta_x = delta_x / 2;
-                let half_delta_y = delta_y / 2;
-                let half_dur = d / 2;
-                if e > half_dur {
-                    let denom = (d - half_dur) * (d - half_dur);
-                    let t = (d - e) * (d - e);
-                    (
-                        dst_x - (delta_x - half_delta_x) * t / denom,
-                        dst_y - (delta_y - half_delta_y) * t / denom,
-                    )
-                } else {
-                    let denom = half_dur * half_dur;
-                    (
-                        src_x + half_delta_x * e * e / denom,
-                        src_y + half_delta_y * e * e / denom,
-                    )
+            let (x, y) = match self.anm_type {
+                MoveMotionType::Linear => (src_x + delta_x * e / d, src_y + delta_y * e / d),
+                MoveMotionType::Accelerate => (
+                    src_x + delta_x * e * e / (d * d),
+                    src_y + delta_y * e * e / (d * d),
+                ),
+                MoveMotionType::Decelerate => (
+                    dst_x - delta_x * (d - e) * (d - e) / (d * d),
+                    dst_y - delta_y * (d - e) * (d - e) / (d * d),
+                ),
+                MoveMotionType::Rebound => {
+                    let half_delta_x = delta_x / 2;
+                    let half_delta_y = delta_y / 2;
+                    let half_dur = d / 2;
+                    if e > half_dur {
+                        let denom = (d - half_dur) * (d - half_dur);
+                        let t = (d - e) * (d - e);
+                        (
+                            dst_x - (delta_x - half_delta_x) * t / denom,
+                            dst_y - (delta_y - half_delta_y) * t / denom,
+                        )
+                    } else {
+                        let denom = half_dur * half_dur;
+                        (
+                            src_x + half_delta_x * e * e / denom,
+                            src_y + half_delta_y * e * e / denom,
+                        )
+                    }
                 }
-            }
-            MoveMotionType::Bounce => {
-                let half_delta_x = delta_x / 2;
-                let half_delta_y = delta_y / 2;
-                let half_dur = d / 2;
-                if e > half_dur {
-                    let t = (e - half_dur) * (e - half_dur);
-                    let denom = (d - half_dur) * (d - half_dur);
-                    (
-                        half_delta_x + src_x + (delta_x - half_delta_x) * t / denom,
-                        half_delta_y + src_y + (delta_y - half_delta_y) * t / denom,
-                    )
-                } else {
-                    let t = (half_dur - e) * (half_dur - e);
-                    let denom = half_dur * half_dur;
-                    (
-                        half_delta_x + src_x - half_delta_x * t / denom,
-                        half_delta_y + src_y - half_delta_y * t / denom,
-                    )
+                MoveMotionType::Bounce => {
+                    let half_delta_x = delta_x / 2;
+                    let half_delta_y = delta_y / 2;
+                    let half_dur = d / 2;
+                    if e > half_dur {
+                        let t = (e - half_dur) * (e - half_dur);
+                        let denom = (d - half_dur) * (d - half_dur);
+                        (
+                            half_delta_x + src_x + (delta_x - half_delta_x) * t / denom,
+                            half_delta_y + src_y + (delta_y - half_delta_y) * t / denom,
+                        )
+                    } else {
+                        let t = (half_dur - e) * (half_dur - e);
+                        let denom = half_dur * half_dur;
+                        (
+                            half_delta_x + src_x - half_delta_x * t / denom,
+                            half_delta_y + src_y - half_delta_y * t / denom,
+                        )
+                    }
                 }
-            }
-            _ => (dst_x, dst_y),
+                _ => (dst_x, dst_y),
+            };
+            (x, y)
         };
 
         let mut prim = prim_manager.get_prim(self.prim_id as i16);
@@ -217,6 +227,8 @@ impl MoveMotion {
 }
 
 pub struct MoveMotionContainer {
+    /// Slots from here on have never been used (ids are taken from the start): scans stop there.
+    live_end: usize,
     motions: Vec<MoveMotion>,
     free_ids: Vec<u16>,
 }
@@ -228,7 +240,7 @@ impl MoveMotionContainer {
             motions.push(MoveMotion::new(i));
         }
         let free_ids: Vec<u16> = (0..512u16).rev().collect();
-        MoveMotionContainer { motions, free_ids }
+        MoveMotionContainer { live_end: 0, motions, free_ids }
     }
 
     pub fn push_motion(
@@ -249,6 +261,7 @@ impl MoveMotionContainer {
             return Ok(());
         };
 
+        self.live_end = self.live_end.max(id as usize + 1);
         let m = &mut self.motions[id as usize];
         m.prim_id = prim_id;
         m.running = true;
@@ -264,7 +277,7 @@ impl MoveMotionContainer {
     }
 
     pub fn stop_motion(&mut self, prim_id: u32) -> Result<()> {
-        for m in &mut self.motions {
+        for m in &mut self.motions[..self.live_end] {
             if m.is_running_for(prim_id) {
                 let id = m.id;
                 m.finish();
@@ -276,11 +289,11 @@ impl MoveMotionContainer {
     }
 
     pub fn test_motion(&self, prim_id: u32) -> bool {
-        self.motions.iter().any(|m| m.is_running_for(prim_id))
+        self.motions[..self.live_end].iter().any(|m| m.is_running_for(prim_id))
     }
 
     pub fn exec_move_motion(&mut self, prim_manager: &PrimManager, flag: bool, elapsed: i32) {
-        for i in 0..self.motions.len() {
+        for i in 0..self.live_end {
             if !self.motions[i].running {
                 continue;
             }

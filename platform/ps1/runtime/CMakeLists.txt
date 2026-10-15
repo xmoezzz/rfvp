@@ -7,8 +7,16 @@ set(RFVP_RUST_OBJECT "" CACHE FILEPATH "The engine's object (build_ps1_rust.sh)"
 # 0x80200000 on a console (2 MiB), 0x80800000 with 8 MiB (development consoles, emulators).
 set(RFVP_RAM_TOP "0x80200000" CACHE STRING "End of usable RAM")
 
-psn00bsdk_add_executable(rfvp NOGPREL main.c math.c)
+psn00bsdk_add_executable(rfvp NOGPREL main.c math.c mem.c)
 target_sources(rfvp PRIVATE ${RFVP_RUST_OBJECT})
 set_source_files_properties(${RFVP_RUST_OBJECT} PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)
 target_compile_definitions(rfvp PRIVATE RAM_TOP=${RFVP_RAM_TOP}u)
-target_compile_options(rfvp PRIVATE -O2 -std=gnu17)
+target_compile_options(rfvp PRIVATE -Os -std=gnu17)
+# mem.c's memcpy and memmove replace libc's (its string.c is linked for the rest): the first
+# definition, ours, is kept.
+target_link_options(rfvp PRIVATE -Wl,--allow-multiple-definition)
+# DEBUG.TXT input scripting, screenshots and the TTY log (build_ps1.sh: RFVP_PS1_DEBUG=1).
+option(RFVP_DEBUG "Development build" OFF)
+if(RFVP_DEBUG)
+  target_compile_definitions(rfvp PRIVATE RFVP_DEBUG=1)
+endif()

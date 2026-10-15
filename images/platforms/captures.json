@@ -1,0 +1,83 @@
+{
+  "ps1": {
+    "file": "ps1.png",
+    "emulator": "DuckStation",
+    "width": 640,
+    "height": 480,
+    "captured": "2026-10-11T23:27:09+09:00",
+    "source_sha256": "fe0aa6fbc14191145d43cb51a34fa30d602c8cc23f6e4a286d5bb9cafd2ed84c",
+    "note": "Earlier working build; current startup regression is under investigation."
+  },
+  "ps2": {
+    "file": "ps2.png",
+    "emulator": "PCSX2",
+    "width": 640,
+    "height": 512,
+    "captured": "2026-10-11T17:53:34+09:00",
+    "source_sha256": "bd158290589f8093e323b491c385671877b7e164e96f5472e6e604628f4c0604",
+    "note": "Runtime GS framebuffer capture."
+  },
+  "psp": {
+    "file": "psp.png",
+    "emulator": "PPSSPP",
+    "width": 480,
+    "height": 272,
+    "captured": "2026-10-11T03:48:47+09:00",
+    "source_sha256": "4f2c55ad3422f4e6e41091a68cd03b2a98dbb8ecd58909c8e2c3e8550f48953b",
+    "note": "Runtime screenshot."
+  },
+  "3ds": {
+    "file": "3ds.png",
+    "emulator": "Azahar",
+    "width": 400,
+    "height": 240,
+    "captured": "2026-10-11T19:17:10+09:00",
+    "source_sha256": "5082dd68f0aadae1358f959b27db6c17197d4216ac8056996e2c837248ad1b66",
+    "note": "Top-screen framebuffer capture."
+  },
+  "ps3": {
+    "file": "ps3.png",
+    "emulator": "RPCS3",
+    "width": 1280,
+    "height": 720,
+    "captured": "2026-10-11T20:14:11+09:00",
+    "source_sha256": "af5be1da77833852d6b40c42225c6444a36e243023aefefe17a1c8b86ebe877d",
+    "note": "Runtime framebuffer capture."
+  },
+  "wiiu": {
+    "file": "wiiu.png",
+    "emulator": "Cemu",
+    "width": 1920,
+    "height": 1080,
+    "captured": "2026-10-12T00:11:42+09:00",
+    "source_sha256": "0b067a4a6dc6b3caba999b39203cd8030533061eba553dcc6083c86f1d344214",
+    "note": "TV framebuffer capture."
+  },
+  "switch": {
+    "file": "switch.png",
+    "emulator": "Ryujinx",
+    "width": 1280,
+    "height": 720,
+    "note": "Runtime RGBA framebuffer at frame 600; captured before libnx presentation.",
+    "captured": "2026-10-13T22:23:38+09:00",
+    "source_sha256": "4fdc4b3a4402a3c4424f35ce982b801692ca13cc2a0da13c419cc7de184d1080"
+  },
+  "vita": {
+    "file": "vita.png",
+    "emulator": "Vita3K",
+    "width": 1920,
+    "height": 1080,
+    "captured": "2026-10-13T22:38:24+09:00",
+    "note": "Emulator window crop of the startup screen.",
+    "image_sha256": "0b3a94a31960f56b496cc2056d1a71dee20869366b35c803acecc75ccd0f6cff"
+  },
+  "wii": {
+    "file": "wii.png",
+    "emulator": "Dolphin",
+    "width": 1280,
+    "height": 960,
+    "captured": "2026-10-13T22:42:25+09:00",
+    "note": "Emulator window crop of the title screen; letterboxing retained.",
+    "image_sha256": "5274b3907ed12575ff4c0e396b465152dcaa36f30b9833cb17fcc43be6bddb1e"
+  }
+}

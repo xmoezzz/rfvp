@@ -626,7 +626,7 @@ pub fn snow_stop(game_data: &mut GameData, id: &Variant) -> Result<Variant> {
 
 pub struct LipAnim;
 impl Syscaller for LipAnim {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         lip_anim(
             game_data,
             get_var!(args, 0),
@@ -646,7 +646,7 @@ unsafe impl Sync for LipAnim {}
 
 pub struct LipSync;
 impl Syscaller for LipSync {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         lip_sync(game_data, get_var!(args, 0), get_var!(args, 1))
     }
 }
@@ -656,7 +656,7 @@ unsafe impl Sync for LipSync {}
 
 pub struct Dissolve;
 impl Syscaller for Dissolve {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         dissolve(
             game_data,
             get_var!(args, 0),
@@ -675,7 +675,7 @@ unsafe impl Sync for Dissolve {}
 
 pub struct Snow;
 impl Syscaller for Snow {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         snow(
             game_data,
             get_var!(args, 0),
@@ -705,7 +705,7 @@ unsafe impl Sync for Snow {}
 
 pub struct SnowStart;
 impl Syscaller for SnowStart {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         snow_start(game_data, get_var!(args, 0))
     }
 }
@@ -715,7 +715,7 @@ unsafe impl Sync for SnowStart {}
 
 pub struct SnowStop;
 impl Syscaller for SnowStop {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         snow_stop(game_data, get_var!(args, 0))
     }
 }

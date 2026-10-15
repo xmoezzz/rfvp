@@ -967,7 +967,7 @@ pub fn text_test(game_data: &mut GameData, const_string: &Variant) -> Result<Var
 
 pub struct TextBuff;
 impl Syscaller for TextBuff {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         text_buff(
             game_data,
             get_var!(args, 0),
@@ -982,7 +982,7 @@ unsafe impl Sync for TextBuff {}
 
 pub struct TextClear;
 impl Syscaller for TextClear {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         text_clear(game_data, get_var!(args, 0))
     }
 }
@@ -992,7 +992,7 @@ unsafe impl Sync for TextClear {}
 
 pub struct TextColor;
 impl Syscaller for TextColor {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         if args.len() == 3 {
             return text_color_legacy_aw(
                 game_data,
@@ -1016,7 +1016,7 @@ unsafe impl Sync for TextColor {}
 
 pub struct TextFont;
 impl Syscaller for TextFont {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         if args.len() == 2 {
             return text_font_legacy_aw(game_data, get_var!(args, 0), get_var!(args, 1));
         }
@@ -1034,7 +1034,7 @@ unsafe impl Sync for TextFont {}
 
 pub struct TextFontCount;
 impl Syscaller for TextFontCount {
-    fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, _args: &[Variant]) -> Result<Variant> {
         text_font_count(game_data)
     }
 }
@@ -1044,7 +1044,7 @@ unsafe impl Sync for TextFontCount {}
 
 pub struct TextFontGet;
 impl Syscaller for TextFontGet {
-    fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, _args: &[Variant]) -> Result<Variant> {
         text_font_get(game_data)
     }
 }
@@ -1054,7 +1054,7 @@ unsafe impl Sync for TextFontGet {}
 
 pub struct TextFontName;
 impl Syscaller for TextFontName {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         text_font_name(game_data, get_var!(args, 0))
     }
 }
@@ -1064,7 +1064,7 @@ unsafe impl Sync for TextFontName {}
 
 pub struct TextFontSet;
 impl Syscaller for TextFontSet {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         text_font_set(game_data, get_var!(args, 0))
     }
 }
@@ -1074,7 +1074,7 @@ unsafe impl Sync for TextFontSet {}
 
 pub struct TextFormat;
 impl Syscaller for TextFormat {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         text_format(
             game_data,
             get_var!(args, 0),
@@ -1093,7 +1093,7 @@ unsafe impl Sync for TextFormat {}
 
 pub struct TextFunction;
 impl Syscaller for TextFunction {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         text_function(
             game_data,
             get_var!(args, 0),
@@ -1109,7 +1109,7 @@ unsafe impl Sync for TextFunction {}
 
 pub struct TextOutSize;
 impl Syscaller for TextOutSize {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         if args.len() == 2 {
             return text_out_size_legacy_aw(game_data, get_var!(args, 0), get_var!(args, 1));
         }
@@ -1127,7 +1127,7 @@ unsafe impl Sync for TextOutSize {}
 
 pub struct TextPause;
 impl Syscaller for TextPause {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         text_pause(game_data, get_var!(args, 0), get_var!(args, 1))
     }
 }
@@ -1137,7 +1137,7 @@ unsafe impl Sync for TextPause {}
 
 pub struct TextPos;
 impl Syscaller for TextPos {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         text_pos(
             game_data,
             get_var!(args, 0),
@@ -1152,7 +1152,7 @@ unsafe impl Sync for TextPos {}
 
 pub struct TextPrint;
 impl Syscaller for TextPrint {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         text_print(game_data, get_var!(args, 0), get_var!(args, 1))
     }
 }
@@ -1162,7 +1162,7 @@ unsafe impl Sync for TextPrint {}
 
 pub struct TextReprint;
 impl Syscaller for TextReprint {
-    fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, _args: &[Variant]) -> Result<Variant> {
         text_reprint(game_data)
     }
 }
@@ -1172,7 +1172,7 @@ unsafe impl Sync for TextReprint {}
 
 pub struct TextShadowDist;
 impl Syscaller for TextShadowDist {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         text_shadow_dist(game_data, get_var!(args, 0), get_var!(args, 1))
     }
 }
@@ -1182,7 +1182,7 @@ unsafe impl Sync for TextShadowDist {}
 
 pub struct TextSize;
 impl Syscaller for TextSize {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         if args.len() == 2 {
             return text_size_legacy_aw(game_data, get_var!(args, 0), get_var!(args, 1));
         }
@@ -1200,7 +1200,7 @@ unsafe impl Sync for TextSize {}
 
 pub struct TextSkip;
 impl Syscaller for TextSkip {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         text_skip(game_data, get_var!(args, 0), get_var!(args, 1))
     }
 }
@@ -1210,7 +1210,7 @@ unsafe impl Sync for TextSkip {}
 
 pub struct TextSpace;
 impl Syscaller for TextSpace {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         text_space(
             game_data,
             get_var!(args, 0),
@@ -1225,7 +1225,7 @@ unsafe impl Sync for TextSpace {}
 
 pub struct TextSpeed;
 impl Syscaller for TextSpeed {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         text_speed(game_data, get_var!(args, 0), get_var!(args, 1))
     }
 }
@@ -1235,7 +1235,7 @@ unsafe impl Sync for TextSpeed {}
 
 pub struct TextSuspendChr;
 impl Syscaller for TextSuspendChr {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         text_suspend_chr(game_data, get_var!(args, 0), get_var!(args, 1))
     }
 }
@@ -1245,7 +1245,7 @@ unsafe impl Sync for TextSuspendChr {}
 
 pub struct TextTest;
 impl Syscaller for TextTest {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         text_test(game_data, get_var!(args, 0))
     }
 }
@@ -1257,7 +1257,7 @@ unsafe impl Sync for TextTest {}
 /// IDA SYSCALL_SPECS: argc=0
 pub struct TextRepaint;
 impl super::Syscaller for TextRepaint {
-    fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, _args: &[Variant]) -> Result<Variant> {
         // Re-upload all text slots (GPU textures) without changing content.
         game_data
             .motion_manager

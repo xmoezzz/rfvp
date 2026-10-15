@@ -13,7 +13,15 @@ path = "src/lib.rs"
 # runtime (platform/ps1/runtime).
 crate-type = ["staticlib"]
 
+[features]
+default = ["quiet"]
+quiet = ["log/max_level_off", "log/release_max_level_off"]
+diagnostics = ["talc/counters"]
+
 [dependencies]
-rfvp = { path = "../../../crates/rfvp", default-features = false, features = ["no_std", "psx"] }
+rfvp = { path = "../../../crates/rfvp", default-features = false, features = ["no_std", "psx_aot"] }
 talc = { version = "4.4", default-features = false }
+# Every log line in the engine compiled out: the PlayStation keeps no log (and has no room for
+# its text and formatting).
+log = { version = "0.4.20", default-features = false }
 spin = { version = "0.9", default-features = false, features = ["mutex", "spin_mutex"] }

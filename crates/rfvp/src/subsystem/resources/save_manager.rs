@@ -205,6 +205,9 @@ pub struct SaveManager {
     storage: Option<StorageHandle>,
     /// Slots found on the last `refresh_all_savedata`.
     present: Vec<bool>,
+    /// Slots looked for in the storage and not found since (one bit each): scripts test a slot
+    /// every frame, and a look costs path formatting and file searches.
+    absent: [core::sync::atomic::AtomicU32; SLOT_COUNT.div_ceil(32)],
     wall_time: Option<WallTime>,
 }
 
@@ -234,6 +237,7 @@ impl SaveManager {
             local_saved_bytes: None,
             storage: None,
             present: vec![false; SLOT_COUNT],
+            absent: [const { core::sync::atomic::AtomicU32::new(0) }; SLOT_COUNT.div_ceil(32)],
             wall_time: None,
         }
     }
@@ -241,6 +245,7 @@ impl SaveManager {
     /// Where slot files are kept. Without it saves only last for the session.
     pub fn set_storage(&mut self, storage: Option<Arc<dyn RfvpStorage>>) {
         self.storage = storage.map(StorageHandle);
+        self.forget_absent();
     }
 
     pub fn storage(&self) -> Option<&Arc<dyn RfvpStorage>> {
@@ -351,7 +356,22 @@ impl SaveManager {
         if self.slots[slot as usize].is_some() || self.present[slot as usize] {
             return true;
         }
-        self.existing_path(slot).is_some()
+        use core::sync::atomic::Ordering::Relaxed;
+        let (word, bit) = (slot as usize / 32, 1u32 << (slot % 32));
+        if self.absent[word].load(Relaxed) & bit != 0 {
+            return false;
+        }
+        let found = self.existing_path(slot).is_some();
+        if !found {
+            self.absent[word].fetch_or(bit, Relaxed);
+        }
+        found
+    }
+
+    fn forget_absent(&mut self) {
+        for word in self.absent.iter_mut() {
+            *word.get_mut() = 0;
+        }
     }
 
     pub fn get_save_title(&self, slot: u32) -> String {
@@ -457,6 +477,7 @@ impl SaveManager {
         for present in self.present.iter_mut() {
             *present = false;
         }
+        self.forget_absent();
         let Some(storage) = self.storage() else {
             return Ok(());
         };

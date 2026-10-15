@@ -183,6 +183,49 @@ static void audio_exit(void) {
 
 /* ---- Main loop ------------------------------------------------------------------------------ */
 
+/* Optional framebuffer capture, using the same debug.txt convention as other ports. */
+static unsigned screenshot_frame(void) {
+    FILE* file = fopen("sdmc:/switch/rfvp/debug.txt", "r");
+    if (file == NULL) return UINT32_MAX;
+    char line[128];
+    unsigned frame = UINT32_MAX;
+    while (fgets(line, sizeof(line), file)) {
+        unsigned value;
+        if (sscanf(line, "shot=%u", &value) == 1) frame = value;
+    }
+    fclose(file);
+    return frame;
+}
+
+static void save_screenshot(const uint8_t* pixels, uint32_t stride) {
+    FILE* file = fopen("sdmc:/switch/rfvp/debug_screen.bmp", "wb");
+    if (file == NULL) return;
+    uint8_t header[54] = { 'B', 'M' };
+    const uint32_t fields[][2] = {
+        { 2, 54 + SCREEN_WIDTH * SCREEN_HEIGHT * 4 }, { 10, 54 }, { 14, 40 },
+        { 18, SCREEN_WIDTH }, { 22, SCREEN_HEIGHT },
+    };
+    for (unsigned field = 0; field < sizeof(fields) / sizeof(fields[0]); field++) {
+        for (unsigned byte = 0; byte < 4; byte++)
+            header[fields[field][0] + byte] = (uint8_t) (fields[field][1] >> (byte * 8));
+    }
+    header[26] = 1;
+    header[28] = 32;
+    fwrite(header, 1, sizeof(header), file);
+    uint8_t row[SCREEN_WIDTH * 4];
+    for (int y = SCREEN_HEIGHT - 1; y >= 0; y--) {
+        const uint8_t* source = pixels + (size_t) y * stride;
+        for (unsigned x = 0; x < SCREEN_WIDTH; x++) {
+            row[x * 4] = source[x * 4 + 2];
+            row[x * 4 + 1] = source[x * 4 + 1];
+            row[x * 4 + 2] = source[x * 4];
+            row[x * 4 + 3] = 255;
+        }
+        fwrite(row, 1, sizeof(row), file);
+    }
+    fclose(file);
+}
+
 int main(void) {
     rfvp_switch_log("rfvp: starting\n", 15);
 
@@ -210,6 +253,8 @@ int main(void) {
         return 1;
     }
 
+    const unsigned shot = screenshot_frame();
+    unsigned frame = 0;
     while (appletMainLoop()) {
         padUpdate(&pad);
         RfvpSwitchInput input = { 0 };
@@ -228,6 +273,7 @@ int main(void) {
         u32 stride = 0;
         uint32_t* pixels = (uint32_t*) framebufferBegin(&fb, &stride);
         int status = rfvp_switch_frame(app, &input, pixels, stride);
+        if (frame++ == shot) save_screenshot((const uint8_t*) pixels, stride);
         framebufferEnd(&fb);
         audio_pump(app);
         if (status != 0) break;

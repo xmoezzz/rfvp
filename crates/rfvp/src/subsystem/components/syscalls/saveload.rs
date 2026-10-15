@@ -374,7 +374,7 @@ pub fn load(game_data: &mut GameData, slot: &Variant) -> Result<Variant> {
 
 pub struct SaveCreate;
 impl Syscaller for SaveCreate {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         save_create(game_data, get_var!(args, 0), get_var!(args, 1))
     }
 }
@@ -383,7 +383,7 @@ unsafe impl Sync for SaveCreate {}
 
 pub struct SaveData;
 impl Syscaller for SaveData {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         save_data(
             game_data,
             get_var!(args, 0),
@@ -397,7 +397,7 @@ unsafe impl Sync for SaveData {}
 
 pub struct SaveThumbSize;
 impl Syscaller for SaveThumbSize {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         save_thumb_size(game_data, get_var!(args, 0), get_var!(args, 1))
     }
 }
@@ -406,7 +406,7 @@ unsafe impl Sync for SaveThumbSize {}
 
 pub struct SaveWrite;
 impl Syscaller for SaveWrite {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         save_write(game_data, get_var!(args, 0))
     }
 }
@@ -415,7 +415,7 @@ unsafe impl Sync for SaveWrite {}
 
 pub struct Load;
 impl Syscaller for Load {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         load(game_data, get_var!(args, 0))
     }
 }

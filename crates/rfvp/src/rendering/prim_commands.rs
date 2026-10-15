@@ -36,6 +36,11 @@ pub(crate) struct HostPrimRenderCache {
 }
 
 impl HostPrimRenderCache {
+    #[cfg(feature = "psx")]
+    pub fn is_mask_uploaded(&self, generation: u64, path: &str) -> bool {
+        self.mask_key.as_ref().is_some_and(|key| key.0 == generation && key.1 == path)
+    }
+
     pub fn new() -> Self {
         Self {
             graphs: Vec::new(),
@@ -56,10 +61,37 @@ impl HostPrimRenderCache {
 
     /// Upload one graph now (see `MotionManager::upload_evicted_one_by_one`).
     #[cfg(feature = "psx")]
-    pub fn upload_graph<B>(&mut self, backend: &mut B, graph_id: u16, graph: &GraphBuff) -> bool
+    pub fn upload_graph<B>(&mut self, backend: &mut B, graph_id: u16, graph: &GraphBuff, vfs: &crate::subsystem::resources::vfs::Vfs) -> bool
     where
         B: TextureBackend<Error = RfvpError>,
     {
+        if let Some(streamed) = &graph.streamed_clut {
+            use std::io::{Read, Seek, SeekFrom};
+            let result = (|| -> RfvpResult<()> {
+                let mut stream = vfs.open_stream(&graph.texture_path).map_err(|_| RfvpError::Io)?;
+                let per = if streamed.palette.bits == 4 { 2 } else { 1 };
+                let mut read = |x: u32, y: u32, w: u32, h: u32, out: &mut [u8], stride: u32| {
+                    let bytes = w.div_ceil(per) as usize;
+                    for row in 0..h as usize {
+                        let offset = streamed.indices_at + (y as u64 + row as u64) * streamed.row_bytes as u64 + u64::from(x / per);
+                        stream.seek(SeekFrom::Start(offset)).map_err(|_| RfvpError::Io)?;
+                        let start = row * stride as usize;
+                        stream.read_exact(out.get_mut(start..start + bytes).ok_or(RfvpError::InvalidArgument)?)
+                            .map_err(|_| RfvpError::Io)?;
+                    }
+                    Ok(())
+                };
+                backend.create_texture_rows(host_texture_id(graph_id), PortableTextureDesc {
+                    width: graph.width, height: graph.height,
+                    format: if streamed.palette.bits == 4 { TextureFormat::Indexed4 } else { TextureFormat::Indexed8 },
+                }, &streamed.palette.bytes, &mut read).ok_or(RfvpError::Unsupported)??;
+                Ok(())
+            })();
+            match result {
+                Ok(()) => { self.set_graph_generation(graph_id, graph.generation); return true; }
+                Err(error) => { log::error!("streamed graph {graph_id}: {error:?}"); return false; }
+            }
+        }
         match self.upload_graph_if_needed(backend, graph_id, graph) {
             Ok(done) => done,
             Err(err) => {
@@ -74,13 +106,26 @@ impl HostPrimRenderCache {
     where
         B: TextureBackend<Error = RfvpError>,
     {
-        if let Some(index) = self.graphs.iter().position(|entry| entry.graph_id == graph_id) {
+        #[cfg(feature = "psx")]
+        let index = self.graphs.binary_search_by_key(&graph_id, |entry| entry.graph_id).ok();
+        #[cfg(not(feature = "psx"))]
+        let index = self.graphs.iter().position(|entry| entry.graph_id == graph_id);
+        if let Some(index) = index {
+            #[cfg(feature = "psx")]
+            self.graphs.remove(index);
+            #[cfg(not(feature = "psx"))]
             self.graphs.swap_remove(index);
             backend.destroy_texture(host_texture_id(graph_id));
         }
     }
 
     fn graph_generation(&self, graph_id: u16) -> Option<u64> {
+        #[cfg(feature = "psx")]
+        {
+            return self.graphs.binary_search_by_key(&graph_id, |entry| entry.graph_id)
+                .ok().map(|index| self.graphs[index].generation);
+        }
+        #[cfg(not(feature = "psx"))]
         self.graphs
             .iter()
             .find(|entry| entry.graph_id == graph_id)
@@ -88,6 +133,16 @@ impl HostPrimRenderCache {
     }
 
     fn set_graph_generation(&mut self, graph_id: u16, generation: u64) {
+        #[cfg(feature = "psx")]
+        {
+            match self.graphs.binary_search_by_key(&graph_id, |entry| entry.graph_id) {
+                Ok(index) => self.graphs[index].generation = generation,
+                Err(index) => self.graphs.insert(index, HostGraphCacheEntry { graph_id, generation }),
+            }
+            return;
+        }
+        #[cfg(not(feature = "psx"))]
+        {
         if let Some(entry) = self
             .graphs
             .iter_mut()
@@ -100,6 +155,7 @@ impl HostPrimRenderCache {
             graph_id,
             generation,
         });
+        }
     }
 
     fn ensure_white<B>(&mut self, backend: &mut B) -> RfvpResult<()>
@@ -218,18 +274,23 @@ fn build_draw_model(
             pos_y + pivot_y + sy * (off_y - pivot_y), 0.0, 1.0,
         ]);
     }
+    #[cfg(not(feature = "psx"))]
     let theta = -(prim.get_angle() as f32) * core::f32::consts::TAU / 3600.0;
     let attr = prim.get_attr();
     let pos_x = parent_x + draw_x;
     let pos_y = parent_y + draw_y;
     let local_x = off_x - pivot_x;
     let local_y = off_y - pivot_y;
-
-    if (attr & 4) != 0 {
+    // A sprite is 2D: the model is a 2x2 matrix M = scale * rotation and a translation, worked
+    // out directly (four 4x4 matrix products cost thousands of software float operations a
+    // sprite on CPUs without floating point hardware). A point p goes to
+    // origin + scale * shift + M * (p + local).
+    #[cfg(not(feature = "psx"))]
+    let (sin, cos) = if theta == 0.0 { (0.0, 1.0) } else { (theta.sin(), theta.cos()) };
+    #[cfg(feature = "psx")]
+    let (sin, cos) = crate::ps1_math::sin_cos_angle(-i32::from(prim.get_angle()));
+    let (sx, sy, origin_x, origin_y, shift_x, shift_y) = if (attr & 4) != 0 {
         let (vw, vh) = (virtual_size.0 as f32, virtual_size.1 as f32);
-        let center_x = vw * 0.5;
-        let center_y = vh * 0.5;
-
         let mut fx = prim.get_factor_x() as f32;
         let mut fy = prim.get_factor_y() as f32;
         if fx.abs() < 1e-6 {
@@ -238,31 +299,27 @@ fn build_draw_model(
         if fy.abs() < 1e-6 {
             fy = 1.0;
         }
-
         let mut depth = prim.get_z() as f32 - v3d_z as f32;
         if depth.abs() < 1e-3 {
             depth = 1.0;
         }
-
-        let sx = fx / depth;
-        let sy = fy / depth;
         let cam_shift_x = 1000.0 * (v3d_x as f32) / fx;
         let cam_shift_y = 1000.0 * (v3d_y as f32) / fy;
-
-        Mat4::from_translation(vec3(center_x, center_y, 0.0))
-            * Mat4::from_scale(vec3(sx, sy, 1.0))
-            * Mat4::from_translation(vec3(pos_x - cam_shift_x, pos_y - cam_shift_y, 0.0))
-            * Mat4::from_rotation_z(theta)
-            * Mat4::from_translation(vec3(local_x, local_y, 0.0))
+        (fx / depth, fy / depth, vw * 0.5, vh * 0.5, pos_x - cam_shift_x, pos_y - cam_shift_y)
     } else {
         let sx = prim.get_factor_x() as f32 / 1000.0;
         let sy = prim.get_factor_y() as f32 / 1000.0;
-
-        Mat4::from_translation(vec3(pos_x + pivot_x, pos_y + pivot_y, 0.0))
-            * Mat4::from_scale(vec3(sx, sy, 1.0))
-            * Mat4::from_rotation_z(theta)
-            * Mat4::from_translation(vec3(local_x, local_y, 0.0))
-    }
+        (sx, sy, pos_x + pivot_x, pos_y + pivot_y, 0.0, 0.0)
+    };
+    let (m00, m01, m10, m11) = (sx * cos, -sx * sin, sy * sin, sy * cos);
+    let tx = origin_x + sx * shift_x + m00 * local_x + m01 * local_y;
+    let ty = origin_y + sy * shift_y + m10 * local_x + m11 * local_y;
+    Mat4::from_cols_array(&[
+        m00, m10, 0.0, 0.0,
+        m01, m11, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        tx, ty, 0.0, 1.0,
+    ])
 }
 
 /// `PrimSetBlend(id, 1)` selects additive blending (SRCALPHA/ONE) in the original engine.
@@ -434,12 +491,13 @@ where
     // Between the two trees, as the desktop renderer does: the scene dissolve (a full-screen
     // color fade), then dissolve2 (the engine's own fades around save, load and transitions).
     // PS1 masks blend a black reveal directly over the completed scene, before HUD/text.
-    // Other hosts keep continuous alpha and update a normal RGBA texture.
+    // Other hosts keep continuous alpha and update a normal RGBA texture. Mask dissolves
+    // (wait=4/5) wipe away the previous frame, which these hosts do not keep: the new scene shows
+    // at once (drawing black instead blacks the screen out at every transition).
     #[cfg(feature = "psx")]
     {
         use alloc::string::ToString;
-        let active = matches!(motion.get_dissolve_type(),
-            DissolveType::MaskFadeIn | DissolveType::MaskFadeInOut | DissolveType::MaskFadeOut);
+        let active = motion.get_dissolve_type() == DissolveType::MaskFadeOut;
         let graph = motion.get_dissolve_mask_graph();
         if let Some(crate::DynamicImage::ImagePs1Mask(mask)) = graph.get_texture().as_ref().filter(|_| active) {
             let key_matches = cache.mask_key.as_ref().map_or(false, |(generation, path)|

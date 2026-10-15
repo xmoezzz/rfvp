@@ -18,7 +18,7 @@ use super::{get_var, Syscaller};
 /// IDA SYSCALL_SPECS: argc=1
 pub struct CursorShow;
 impl Syscaller for CursorShow {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         let show = !get_var!(args, 0).is_nil();
         // Cursor visibility is handled at the window layer.
         // Keep the value for engine logic; the platform backend can consume it.
@@ -37,7 +37,7 @@ impl Syscaller for CursorShow {
 ///   (b) args[2] is non-nil (force move).
 pub struct CursorMove;
 impl Syscaller for CursorMove {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         let Some(x) = get_var!(args, 0).as_int() else {
             return Ok(Variant::Nil);
         };
@@ -62,7 +62,7 @@ impl Syscaller for CursorMove {
 /// IDA SYSCALL_SPECS: argc=1
 pub struct CursorChange;
 impl Syscaller for CursorChange {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         let Some(id) = get_var!(args, 0).as_int() else {
             return Ok(Variant::Nil);
         };

@@ -22,7 +22,6 @@
 #include <psxetc.h>
 #include <psxgpu.h>
 #include <psxpad.h>
-#include <psxsn.h>
 #include <psxspu.h>
 
 #define SCREEN_W 320
@@ -64,21 +63,53 @@ Session* rfvp_ps1_start(void);
 int rfvp_ps1_frame(Session* session, const RfvpPs1Input* input);
 void rfvp_ps1_stop(Session* session);
 void rfvp_ps1_heap_init(void* base, size_t size);
-void rfvp_ps1_set_profiling(int enabled);
 
 /* ---- Services ------------------------------------------------------------------------------- */
 
+/* The TTY, in RFVP_DEBUG builds; a release build keeps no log. */
 void rfvp_ps1_log(const char* message, size_t len) {
-    printf("%.*s", (int) len, message);
+#ifdef RFVP_DEBUG
+    printf("[v%d] %.*s", VSync(-1), (int) len, message);
+#else
+    (void) message;
+    (void) len;
+#endif
 }
 
-/* Microseconds: vertical blanks (NTSC, 59.94 a second). */
+/* Fatal allocation failures remain visible even in a quiet release build. */
+void rfvp_ps1_oom(size_t size) {
+    printf("rfvp: out of memory allocating %u bytes\n", (unsigned) size);
+}
+
+#ifdef RFVP_DEBUG
+void rfvp_ps1_stats(uint32_t frame, uint32_t ops, uint32_t vm, uint32_t tree, uint32_t submit, uint32_t syscalls, uint32_t script_io,
+                    size_t used, size_t peak, size_t free_bytes) {
+    printf("rfvp: stages %u: ops %u, vm %u us, tree %u us, submit %u us, syscalls %u us, script_io %u us, heap %u KiB, peak %u KiB, free %u KiB\n",
+        (unsigned) frame, (unsigned) ops, (unsigned) vm, (unsigned) tree, (unsigned) submit, (unsigned) syscalls, (unsigned) script_io,
+        (unsigned) (used / 1024), (unsigned) (peak / 1024), (unsigned) (free_bytes / 1024));
+}
+#endif
+
+/* The game's clock: the VBlank count (NTSC, 59.94 a second). */
+#ifdef RFVP_DEBUG
+/* For profiling (diagnostics builds): root counter 1 counts horizontal blanks (one per
+ * 63.56 us on NTSC), widened past its 16 bits; called often enough not to miss a wrap. */
+uint64_t rfvp_ps1_profile_us(void) {
+    static int started;
+    static uint32_t last, high;
+    if (!started) {
+        *(volatile uint32_t*) 0x1f801114 = 0x0100;
+        started = 1;
+    }
+    uint32_t now = *(volatile uint32_t*) 0x1f801110 & 0xffff;
+    if (now < last) high += 0x10000;
+    last = now;
+    return (uint64_t) (high + now) << 6; /* 64 us a line: close enough, and no division */
+}
+#endif
+
 uint64_t rfvp_ps1_ticks_us(void) {
     return (uint64_t) VSync(-1) * 16683u;
-}
-
-uint32_t rfvp_ps1_cycles(void) {
-    return (uint32_t) VSync(-1);
 }
 
 /* ---- Files ---------------------------------------------------------------------------------- */
@@ -100,18 +131,43 @@ static uint32_t cache_lba = 0xffffffffu;
 static int cache_len;
 
 static int xa_active;
-static void xa_suspend(void);
+static int xa_suspend(void);
 static void xa_resume(void);
 
-static void read_sectors(uint32_t lba, int count, void* buf) {
+static int wait_seek(void) {
+    uint8_t result[8];
+    uint32_t started = VSync(-1);
+    CdSync(0, 0);
+    do {
+        if (CdControl(CdlNop, 0, result) && !(result[0] & CdlStatSeek)) return 1;
+        VSync(0);
+    } while ((uint32_t) VSync(-1) - started < 300);
+    printf("rfvp: CD seek timed out\n");
+    return 0;
+}
+
+static int pause_drive(void) {
+    if (!wait_seek()) return 0;
+    if (!CdControlB(CdlPause, 0, 0)) return 0;
+    return CdSync(0, 0) != CdlDiskError;
+}
+
+static int read_sectors(uint32_t lba, int count, void* buf) {
     CdlLOC loc;
     uint8_t mode = CdlModeSpeed;
-    xa_suspend();
-    CdControl(CdlSetmode, &mode, 0);
+    if (!xa_suspend()) return 0;
     CdIntToPos(lba, &loc);
-    CdControl(CdlSetloc, &loc, 0);
-    CdRead(count, (uint32_t*) buf, CdlModeSpeed);
-    CdReadSync(0, 0);
+    for (int attempt = 0; attempt < 3; attempt++) {
+        CdSync(0, 0);
+        if (CdControlB(CdlSetmode, &mode, 0) && CdControlB(CdlSetloc, &loc, 0)
+            && CdRead(count, (uint32_t*) buf, CdlModeSpeed) && CdReadSync(0, 0) == 0) {
+            /* CdReadSync finishes DMA before the drive's final Pause completes. */
+            if (CdSync(0, 0) != CdlDiskError) return 1;
+        }
+        pause_drive();
+    }
+    printf("rfvp: CD read failed at LBA %u (%d sectors)\n", (unsigned) lba, count);
+    return 0;
 }
 
 static void load_file_map(void) {
@@ -122,7 +178,7 @@ static void load_file_map(void) {
     }
     int sectors = (f.size + 2047) / 2048;
     char* text = malloc(sectors * 2048 + 1);
-    read_sectors(CdPosToInt(&f.pos), sectors, text);
+    if (!text || !read_sectors(CdPosToInt(&f.pos), sectors, text)) { free(text); return; }
     text[f.size] = 0;
     int lines = 0;
     for (char* p = text; *p; p++) lines += *p == '\n';
@@ -201,12 +257,12 @@ int rfvp_ps1_file_read(int handle, uint32_t offset, uint8_t* buf, uint32_t len) 
         /* Whole sectors straight into the buffer when it is aligned and they are many. */
         if (in_sector == 0 && left >= 2048 * 4 && ((uintptr_t) (buf + done) & 3) == 0) {
             int n = left / 2048;
-            read_sectors(lba, n, buf + done);
+            if (!read_sectors(lba, n, buf + done)) return -1;
             done += n * 2048;
             continue;
         }
         if (lba < cache_lba || lba >= cache_lba + (uint32_t) cache_len) {
-            read_sectors(lba, CACHE_SECTORS, cache);
+            if (!read_sectors(lba, CACHE_SECTORS, cache)) { cache_lba = 0xffffffffu; cache_len = 0; return -1; }
             cache_lba = lba;
             cache_len = CACHE_SECTORS;
         }
@@ -216,7 +272,7 @@ int rfvp_ps1_file_read(int handle, uint32_t offset, uint8_t* buf, uint32_t len) 
         memcpy(buf + done, cache + at, n);
         done += n;
     }
-    xa_resume();
+    /* Resume XA once after the frame's complete batch of HCB/resource reads. */
     return (int) done;
 }
 
@@ -230,7 +286,7 @@ int rfvp_ps1_file_read(int handle, uint32_t offset, uint8_t* buf, uint32_t len) 
 #endif
 static DISPENV disp[2];
 static DRAWENV draw[2];
-static uint8_t prims[2][PRIM_BUFFER] __attribute__((aligned(4)));
+static uint8_t prims[PRIM_BUFFER] __attribute__((aligned(4)));
 static uint8_t* next_prim;
 static uint32_t* first_tag;
 static uint32_t* last_tag;
@@ -238,7 +294,7 @@ static int db;
 static int frame_open;
 
 static void* new_prim(size_t size) {
-    if (next_prim + size > prims[db] + PRIM_BUFFER) return 0;
+    if (next_prim + size > prims + PRIM_BUFFER) return 0;
     uint32_t* p = (uint32_t*) next_prim;
     next_prim += size;
     if (last_tag) catPrim(last_tag, p);
@@ -346,15 +402,18 @@ static int texels_per_unit(int format) {
 }
 
 /* Upload `rows` of a picture region to VRAM, packed for its depth. */
-static void upload_tile(const Tile* t, int format, const uint8_t* data, int stride_bytes) {
+static int upload_tile(const Tile* t, int format, const uint8_t* data, int stride_bytes) {
     int per = texels_per_unit(format);
     /* Whole 32-bit words: the GPU takes an even number of halfwords. */
     int units = ((t->w + per - 1) / per + 1) & ~1;
     int row_bytes = units * 2;
     uint8_t* buf = calloc(row_bytes, t->h);
+    if (!buf) return 0;
     for (int y = 0; y < t->h; y++) {
-        const uint8_t* src = data + (t->ty + y) * stride_bytes;
         uint8_t* dst = buf + y * row_bytes;
+        /* No pixels: a blank direct-color texture, left zero. */
+        if (!data) continue;
+        const uint8_t* src = data + (t->ty + y) * stride_bytes;
         /* Only the tile's own texels: the padding stays transparent. */
         if (format == FORMAT_CLUT4) {
             memcpy(dst, src + t->tx / 2, (t->w + 1) / 2);
@@ -369,6 +428,7 @@ static void upload_tile(const Tile* t, int format, const uint8_t* data, int stri
     LoadImage(&r, (uint32_t*) buf);
     DrawSync(0);
     free(buf);
+    return 1;
 }
 
 static void upload_clut(int16_t x, int16_t y, const uint16_t* colors, int count, int all_stp) {
@@ -386,7 +446,10 @@ static void upload_clut(int16_t x, int16_t y, const uint16_t* colors, int count,
 
 /* A texture. `pixels`: for FORMAT_DIRECT 15-bit colors, `width` a row; for the CLUT formats
  * u16 colors, u16 stride, the palette, then the indices (see PixelFormat::Clut8). */
-void* rfvp_ps1_gpu_create_texture(int format, uint32_t width, uint32_t height, const uint8_t* pixels) {
+typedef int (*TextureRows)(void*, uint32_t, uint32_t, uint32_t, uint32_t, uint8_t*, uint32_t);
+void rfvp_ps1_gpu_destroy_texture(void* texture);
+static void* create_texture(int format, uint32_t width, uint32_t height, const uint8_t* pixels,
+                            TextureRows read, void* user) {
     int mask = format == FORMAT_MASK8;
     if (mask) format = FORMAT_CLUT8;
     int per = texels_per_unit(format);
@@ -434,7 +497,11 @@ void* rfvp_ps1_gpu_create_texture(int format, uint32_t width, uint32_t height, c
             tile->tpage = getTPage(format == FORMAT_DIRECT ? 2 : format == FORMAT_CLUT8 ? 1 : 0, 0, page_x, page_y);
             tile->u = (tile->vx - page_x) * per;
             tile->v = tile->vy - page_y;
-            upload_tile(tile, format, indices, stride_bytes);
+            if (!read && !upload_tile(tile, format, indices, stride_bytes)) {
+                for (int k = 0; k <= r * cols + c; k++) bin_free(t->tiles[k].bin);
+                free(t);
+                return 0;
+            }
         }
     }
     if (format != FORMAT_DIRECT) {
@@ -446,23 +513,74 @@ void* rfvp_ps1_gpu_create_texture(int format, uint32_t width, uint32_t height, c
         if (!clut_alloc(t->clut_cells, &t->clut_x, &t->clut_y) ||
             (!mask && !clut_alloc(t->clut_cells, &t->stp_x, &t->stp_y))) {
             printf("rfvp: CLUT space is full\n");
-            if (mask) {
-                for (int i = 0; i < t->count; i++) bin_free(t->tiles[i].bin);
-                free(t);
-                return 0;
-            }
+            clut_free(t->clut_x, t->clut_y, t->clut_cells);
+            if (!mask) clut_free(t->stp_x, t->stp_y, t->clut_cells);
+            for (int i = 0; i < t->count; i++) bin_free(t->tiles[i].bin);
+            free(t);
+            return 0;
         } else {
             upload_clut(t->clut_x, t->clut_y, full, count, 0);
             if (!mask) upload_clut(t->stp_x, t->stp_y, full, count, 1);
         }
     }
+    if (read) {
+        /* Read each full-width band once. Revisiting earlier rows for each tile
+         * column can evict the CD cache and force repeated backwards seeks. */
+        int source_stride = (width + (format == FORMAT_CLUT4 ? 1 : 0)) /
+                            (format == FORMAT_CLUT4 ? 2 : 1);
+        int band_rows = 16384 / source_stride;
+        if (band_rows > 16) band_rows = 16;
+        if (band_rows < 1) band_rows = 1;
+        uint8_t* band = malloc(source_stride * band_rows);
+        uint8_t* tile_buffer = malloc(128 * band_rows);
+        if (!band || !tile_buffer) {
+            free(band); free(tile_buffer); rfvp_ps1_gpu_destroy_texture(t); return 0;
+        }
+        for (uint32_t y = 0; y < height; y += band_rows) {
+            int rows = height - y < (uint32_t) band_rows ? height - y : band_rows;
+            if (!read(user, 0, y, width, rows, band, source_stride)) {
+                free(band); free(tile_buffer); rfvp_ps1_gpu_destroy_texture(t); return 0;
+            }
+            for (int i = 0; i < t->count; i++) {
+                Tile* tile = &t->tiles[i];
+                uint32_t top = y > (uint32_t) tile->ty ? y : (uint32_t) tile->ty;
+                uint32_t bottom = y + rows < (uint32_t) (tile->ty + tile->h)
+                                  ? y + rows : (uint32_t) (tile->ty + tile->h);
+                if (bottom <= top) continue;
+                int tile_rows = bottom - top;
+                int units = ((tile->w + per - 1) / per + 1) & ~1;
+                int row_bytes = units * 2;
+                int source_x = format == FORMAT_CLUT4 ? tile->tx / 2 : tile->tx;
+                int count = format == FORMAT_CLUT4 ? (tile->w + 1) / 2 : tile->w;
+                memset(tile_buffer, 0, row_bytes * tile_rows);
+                for (int row = 0; row < tile_rows; row++)
+                    memcpy(tile_buffer + row * row_bytes, band + (top - y + row) * source_stride + source_x, count);
+                RECT rect;
+                setRECT(&rect, tile->vx, tile->vy + top - tile->ty, units, tile_rows);
+                LoadImage(&rect, (uint32_t*) tile_buffer);
+                DrawSync(0);
+            }
+        }
+        free(band);
+        free(tile_buffer);
+    }
     return t;
 }
 
-/* Replace a rectangle of a direct-color texture from its whole picture (`pixels`: 15-bit
- * colors, `stride` a row), widened to whole words where it has to be. */
+void* rfvp_ps1_gpu_create_texture(int format, uint32_t width, uint32_t height, const uint8_t* pixels) {
+    return create_texture(format, width, height, pixels, 0, 0);
+}
+
+void* rfvp_ps1_gpu_create_texture_rows(int format, uint32_t width, uint32_t height,
+                                     const uint8_t* palette, TextureRows read, void* user) {
+    return create_texture(format, width, height, palette, read, user);
+}
+
+/* Replace a rectangle of a direct-color texture with `pixels` (15-bit colors, `w` by `h`).
+ * Uploads start and end on even columns: a column next to the rectangle is read back from VRAM
+ * (so the engine keeps no copy of the texture). */
 void rfvp_ps1_gpu_update_texture(void* texture, uint32_t x, uint32_t y, uint32_t w, uint32_t h,
-                                 const uint16_t* pixels, uint32_t stride) {
+                                 const uint16_t* pixels) {
     Texture* t = texture;
     if (!t || t->format != FORMAT_DIRECT) return;
     DrawSync(0);
@@ -477,16 +595,26 @@ void rfvp_ps1_gpu_update_texture(void* texture, uint32_t x, uint32_t y, uint32_t
         x0 = tile->tx + ((x0 - tile->tx) & ~1);
         x1 = tile->tx + ((x1 - tile->tx + 1) & ~1);
         int cw = x1 - x0, ch = y1 - y0;
-        uint16_t* buf = calloc(cw * ch, 2);
+        int vx = tile->vx + (x0 - tile->tx), vy = tile->vy + (y0 - tile->ty);
+        uint16_t* buf = malloc(cw * ch * 2);
         if (!buf) return;
+        /* What is there now, where the rectangle leaves the even columns out. */
+        if (x0 < (int) x || x1 > (int) (x + w)) {
+            RECT r;
+            setRECT(&r, vx, vy, cw, ch);
+            StoreImage(&r, (uint32_t*) buf);
+            DrawSync(0);
+        }
         for (int row = 0; row < ch; row++) {
+            const uint16_t* src = pixels + (y0 + row - (int) y) * w;
             for (int col = 0; col < cw; col++) {
                 int sx = x0 + col;
-                buf[row * cw + col] = sx < t->width ? pixels[(y0 + row) * stride + sx] : 0;
+                if (sx >= (int) x && sx < (int) (x + w)) buf[row * cw + col] = src[sx - x];
+                else if (sx >= t->width) buf[row * cw + col] = 0;
             }
         }
         RECT r;
-        setRECT(&r, tile->vx + (x0 - tile->tx), tile->vy + (y0 - tile->ty), cw, ch);
+        setRECT(&r, vx, vy, cw, ch);
         LoadImage(&r, (uint32_t*) buf);
         DrawSync(0);
         free(buf);
@@ -529,7 +657,8 @@ void rfvp_ps1_gpu_set_clip(int32_t x0, int32_t y0, int32_t x1, int32_t y1) {
 }
 
 void rfvp_ps1_gpu_begin_frame(void) {
-    next_prim = prims[db];
+    DrawSync(0);
+    next_prim = prims;
     first_tag = last_tag = 0;
     frame_open = 1;
     /* Black behind everything (the letterbox). */
@@ -590,6 +719,45 @@ static void mask_palette(Texture* t, int phase) {
     upload_clut(t->clut_x, t->clut_y, colors, 256, 0);
     t->mask_low = lo;
     t->mask_high = hi;
+}
+
+/* Full axis-aligned images: no software floating-point division/interpolation.
+ * The original CLUT and STP rules are identical to the general quad path. */
+void rfvp_ps1_gpu_draw_sprite_rect(void* texture, int32_t x0, int32_t y0,
+                                  int32_t x1, int32_t y1, uint32_t rgba, int additive) {
+    Texture* t = texture;
+    if (!t || !frame_open || x1 <= x0 || y1 <= y0) return;
+    int stp, mode;
+    if (t->mask) {
+        mask_palette(t, (rgba >> 24) * 2);
+        stp = 1;
+        mode = 0;
+        additive = 0;
+    } else {
+        mode = alpha_mode(rgba, additive, &stp);
+    }
+    if (mode < 0) return;
+    int a = rgba >> 24;
+    for (int i = 0; i < t->count; i++) {
+        Tile* tile = &t->tiles[i];
+        POLY_FT4* p = new_prim(sizeof(POLY_FT4));
+        if (!p) return;
+        setPolyFT4(p);
+        setRGB0(p, tint(rgba, 0, additive, a), tint(rgba, 8, additive, a), tint(rgba, 16, additive, a));
+        if (stp) setSemiTrans(p, 1);
+        int left = x0 + (tile->tx * (x1 - x0) + t->width / 2) / t->width;
+        int right = x0 + ((tile->tx + tile->w) * (x1 - x0) + t->width / 2) / t->width;
+        int top = y0 + (tile->ty * (y1 - y0) + t->height / 2) / t->height;
+        int bottom = y0 + ((tile->ty + tile->h) * (y1 - y0) + t->height / 2) / t->height;
+        int u1 = tile->u + tile->w, v1 = tile->v + tile->h;
+        if (u1 > 255) u1 = 255;
+        if (v1 > 255) v1 = 255;
+        setXY4(p, left, top, right, top, left, bottom, right, bottom);
+        setUV4(p, tile->u, tile->v, u1, tile->v, tile->u, v1, u1, v1);
+        p->tpage = tile->tpage | ((mode & 3) << 5);
+        p->clut = t->format == FORMAT_DIRECT ? 0
+                  : stp && !t->mask ? getClut(t->stp_x, t->stp_y) : getClut(t->clut_x, t->clut_y);
+    }
 }
 
 /* `c`: screen x, y and texel u, v for each of the four corners, in any order (the texel
@@ -689,6 +857,26 @@ void rfvp_ps1_gpu_draw_rect(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint
     setXY4(p, x0, y0, x1, y0, x0, y1, x1, y1);
 }
 
+/* White-texel solid commands, including constant-UV dissolve overlays. */
+void rfvp_ps1_gpu_draw_solid_quad(const int16_t* xy, uint32_t rgba, int additive) {
+    if (!frame_open) return;
+    int stp;
+    int mode = alpha_mode(rgba, additive, &stp);
+    if (mode < 0) return;
+    if (stp) {
+        DR_TPAGE* tp = new_prim(sizeof(DR_TPAGE));
+        if (!tp) return;
+        setDrawTPage(tp, 0, 1, getTPage(0, mode, 0, 0));
+    }
+    POLY_F4* p = new_prim(sizeof(POLY_F4));
+    if (!p) return;
+    setPolyF4(p);
+    int a = rgba >> 24;
+    setRGB0(p, tint(rgba, 0, additive, a) * 2, tint(rgba, 8, additive, a) * 2, tint(rgba, 16, additive, a) * 2);
+    if (stp) setSemiTrans(p, 1);
+    setXY4(p, xy[2], xy[3], xy[6], xy[7], xy[0], xy[1], xy[4], xy[5]);
+}
+
 void rfvp_ps1_gpu_end_frame(void) {
 }
 
@@ -729,20 +917,6 @@ static void gpu_init(void) {
  * reverb). Filled as a ring: an old sound is overwritten when the ring comes around. */
 #define SPU_BASE 0x1010
 #define SPU_TOP 0x7e000
-/* While recording (see record_frame), what the sound hardware is told goes to audio.bin in the
- * PCdrv directory, so the soundtrack can be rebuilt offline: records of eight words (kind,
- * microseconds, six arguments), a sound RAM write followed by its bytes. */
-static int audio_fd = -1; /* the recording file (record_frame's), while recording */
-enum { A_WRITE = 1, A_PLAY, A_STOP, A_VOLUME, A_XA_BEGIN, A_XA_PAUSE, A_XA_VOLUME, A_LOOP };
-
-static void alog(uint32_t kind, uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e,
-                 uint32_t f, const void* data, uint32_t len) {
-    if (audio_fd < 0) return;
-    uint32_t rec[9] = { 0x41564652u /* "RFVA" */, kind, (uint32_t) rfvp_ps1_ticks_us(), a, b, c, d, e, f };
-    PCwrite(audio_fd, rec, sizeof(rec));
-    if (len) PCwrite(audio_fd, data, len);
-}
-
 static uint32_t spu_next = SPU_BASE;
 
 /* Copy SPU-ADPCM data to sound RAM; returns its address (0: too large). */
@@ -756,8 +930,14 @@ uint32_t rfvp_ps1_spu_upload(const uint8_t* data, uint32_t len) {
     SpuSetTransferStartAddr(addr);
     SpuWrite((const uint32_t*) data, len);
     SpuIsTransferCompleted(SPU_TRANSFER_WAIT);
-    alog(A_WRITE, addr, len, 0, 0, 0, 0, data, len);
     return addr;
+}
+
+/* The compiled script (crates/rfvp/src/aot.rs) loaded code: drop stale instructions. */
+void rfvp_ps1_flush_icache(void) {
+    EnterCriticalSection();
+    FlushCache();
+    ExitCriticalSection();
 }
 
 /* Reserve `len` bytes of sound RAM (filled with rfvp_ps1_spu_write); 0 if too big. */
@@ -776,7 +956,6 @@ void rfvp_ps1_spu_write(uint32_t addr, const uint8_t* data, uint32_t len) {
     SpuSetTransferStartAddr(addr);
     SpuWrite((const uint32_t*) data, len);
     SpuIsTransferCompleted(SPU_TRANSFER_WAIT);
-    alog(A_WRITE, addr, len, 0, 0, 0, 0, data, len);
 }
 
 /* Set the flags of a sound in sound RAM: its first block starts the loop and its last ends
@@ -798,7 +977,6 @@ void rfvp_ps1_spu_patch_loop(uint32_t addr, uint32_t len, int looped) {
         SpuWrite((uint32_t*) block, 16);
     }
     SpuSetTransferMode(SPU_TRANSFER_BY_DMA);
-    alog(A_LOOP, addr, len, looped, 0, 0, 0, 0, 0);
 }
 
 /* Play a sound on `voice` (0-23): volume 0-0x3fff per side. Looping sounds repeat from the
@@ -812,18 +990,15 @@ void rfvp_ps1_spu_play(int voice, uint32_t addr, uint32_t rate, int vol_l, int v
     SPU_CH_ADSR1(voice) = 0x00ff;
     SPU_CH_ADSR2(voice) = 0x0000;
     SpuSetKey(1, 1 << voice);
-    alog(A_PLAY, voice, addr, rate, vol_l, vol_r, 0, 0, 0);
 }
 
 void rfvp_ps1_spu_volume(int voice, int vol_l, int vol_r) {
     SPU_CH_VOL_L(voice) = vol_l;
     SPU_CH_VOL_R(voice) = vol_r;
-    alog(A_VOLUME, voice, vol_l, vol_r, 0, 0, 0, 0, 0);
 }
 
 void rfvp_ps1_spu_stop(int voice) {
     SpuSetKey(0, 1 << voice);
-    alog(A_STOP, voice, 0, 0, 0, 0, 0, 0, 0);
 }
 
 /* XA music: one channel of an interleaved file, from `start` (an absolute sector) for
@@ -841,7 +1016,6 @@ static void xa_begin(uint32_t lba) {
     CdIntToPos(lba, &loc);
     CdControl(CdlReadS, &loc, 0);
     cache_lba = 0xffffffffu; /* the drive has moved on */
-    alog(A_XA_BEGIN, lba, xa_file, xa_channel, xa_channels, 0, 0, 0, 0);
 }
 
 void rfvp_ps1_xa_play(uint32_t start, uint32_t sectors, uint32_t loop, int file, int channel,
@@ -862,13 +1036,11 @@ void rfvp_ps1_xa_stop(void) {
     if (!xa_active) return;
     xa_active = 0;
     CdControl(CdlPause, 0, 0);
-    alog(A_XA_PAUSE, 0, 0, 0, 0, 0, 0, 0, 0);
 }
 
 void rfvp_ps1_xa_volume(int volume) {
     SPU_CD_VOL_L = volume;
     SPU_CD_VOL_R = volume;
-    alog(A_XA_VOLUME, volume, 0, 0, 0, 0, 0, 0, 0);
 }
 
 static uint32_t drive_lba(void) {
@@ -879,13 +1051,14 @@ static uint32_t drive_lba(void) {
 }
 
 /* Before a file read: note where the music is and stop the drive playing it. */
-static void xa_suspend(void) {
-    if (!xa_active || xa_suspended) return;
+static int xa_suspend(void) {
+    if (!xa_active || xa_suspended) return 1;
+    if (!wait_seek()) return 0;
     uint32_t at = drive_lba();
     xa_resume_at = (at >= xa_start && at < xa_end) ? at : xa_start;
-    CdControl(CdlPause, 0, 0);
+    if (!pause_drive()) return 0;
     xa_suspended = 1;
-    alog(A_XA_PAUSE, 1, 0, 0, 0, 0, 0, 0, 0);
+    return 1;
 }
 
 static void xa_resume(void) {
@@ -896,7 +1069,10 @@ static void xa_resume(void) {
 
 /* Once a frame: past its last sector, the music repeats or stops. */
 static void xa_poll(void) {
-    if (!xa_active || xa_suspended) return;
+    if (!xa_active) return;
+    if (xa_suspended) { xa_resume(); return; }
+    uint8_t result[8];
+    if (!CdControl(CdlNop, 0, result) || (result[0] & CdlStatSeek) || !(result[0] & CdlStatRead)) return;
     uint32_t at = drive_lba();
     if (at && at >= xa_end) {
         if (xa_repeat) {
@@ -944,20 +1120,18 @@ static void read_input(RfvpPs1Input* in) {
     }
 }
 
-/* ---- Debugging ----------------------------------------------------------------------------- */
+#ifdef RFVP_DEBUG
+/* ---- Debugging (RFVP_DEBUG builds only) ----------------------------------------------------- */
 
-/* DEBUG.TXT on the disc (optional): `shot=N` prints the screen at frame N to the TTY (as
- * hex rows between RFVPSHOT lines); `press=cross@600` presses a button at a frame. */
-static unsigned shot_frame = 0xffffffffu;
-static int profile_enabled;
-/* `record=N` and `recordfor=M`: from frame N, M frames go to record.raw in the emulator's PCdrv
- * directory (an emulator only: on a console the break instructions hang). */
-static unsigned record_from = 0xffffffffu, record_for = 0;
-static int record_fd = -1;
+/* DEBUG.TXT on the disc: `press=cross@600` presses a button for 4 frames (`sleft`, `sright`,
+ * `sup`, `sdown` tilt the left stick), `shot=N` (up to 8 of them) prints the screen at frame N to the TTY (hex rows
+ * between RFVPSHOT lines). */
+#define MAX_SHOTS 8
+static unsigned shot_frames[MAX_SHOTS];
+static int shot_count;
 #define MAX_PRESSES 64
 static struct { uint32_t bit; unsigned frame; } presses[MAX_PRESSES];
 static int press_count;
-/* Scripted stick tilts, kept apart from the button bits. */
 #define STICK_LEFT (1u << 28)
 #define STICK_RIGHT (1u << 29)
 #define STICK_UP (1u << 30)
@@ -969,7 +1143,6 @@ static void read_debug_file(void) {
         { "square", BUTTON_Y }, { "up", BUTTON_UP }, { "down", BUTTON_DOWN },
         { "left", BUTTON_LEFT }, { "right", BUTTON_RIGHT }, { "start", BUTTON_START },
         { "select", BUTTON_SELECT }, { "l1", BUTTON_L }, { "r1", BUTTON_R },
-        /* The left stick at full tilt (to move the cursor). */
         { "sleft", STICK_LEFT }, { "sright", STICK_RIGHT }, { "sup", STICK_UP },
         { "sdown", STICK_DOWN },
     };
@@ -978,41 +1151,42 @@ static void read_debug_file(void) {
     char* text = calloc(1, ((f.size + 2047) & ~2047) + 1);
     read_sectors(CdPosToInt(&f.pos), (f.size + 2047) / 2048, text);
     text[f.size] = 0;
-    printf("rfvp: debug file: %u bytes: %.20s\n", (unsigned) f.size, text);
-    /* Line by line (PSn00bSDK's strtok stops after the first). */
     for (char *line = text, *next; *line; line = next) {
         next = line;
         while (*next && *next != '\n' && *next != '\r') next++;
         if (*next) *next++ = 0;
         while (*next == '\n' || *next == '\r') next++;
-        char name[16];
-        unsigned frame;
-        if (sscanf(line, "shot=%u", &frame) == 1) shot_frame = frame;
-        if (sscanf(line, "record=%u", &frame) == 1) record_from = frame;
-        if (sscanf(line, "recordfor=%u", &frame) == 1) record_for = frame;
-        if (sscanf(line, "profile=%u", &frame) == 1) {
-            profile_enabled = frame != 0;
-            rfvp_ps1_set_profiling(profile_enabled);
-        }
-        /* (PSn00bSDK's sscanf has no %[.) */
         char* at = strchr(line, '@');
-        if (!strncmp(line, "press=", 6) && at && at - line - 6 < (int) sizeof(name) &&
-            press_count < MAX_PRESSES) {
-            memcpy(name, line + 6, at - line - 6);
-            name[at - line - 6] = 0;
-            frame = 0;
-            for (const char* d = at + 1; *d >= '0' && *d <= '9'; d++) frame = frame * 10 + (*d - '0');
-            for (unsigned i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
-                if (!strcmp(name, names[i].name)) {
-                    presses[press_count].bit = names[i].bit;
-                    presses[press_count].frame = frame;
-                    press_count++;
-                }
+        unsigned frame = 0;
+        if (!strncmp(line, "shot=", 5)) {
+            for (const char* d = line + 5; *d >= '0' && *d <= '9'; d++) frame = frame * 10 + (*d - '0');
+            if (shot_count < MAX_SHOTS) shot_frames[shot_count++] = frame;
+        }
+        if (strncmp(line, "press=", 6) || !at || at - line - 6 >= 16 || press_count >= MAX_PRESSES) continue;
+        char name[16];
+        memcpy(name, line + 6, at - line - 6);
+        name[at - line - 6] = 0;
+        for (const char* d = at + 1; *d >= '0' && *d <= '9'; d++) frame = frame * 10 + (*d - '0');
+        for (unsigned i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+            if (!strcmp(name, names[i].name)) {
+                presses[press_count].bit = names[i].bit;
+                presses[press_count].frame = frame;
+                press_count++;
             }
         }
     }
     free(text);
-    printf("rfvp: debug: shot at %u, %d presses\n", shot_frame, press_count);
+}
+
+static void debug_input(RfvpPs1Input* input, unsigned frame) {
+    for (int i = 0; i < press_count; i++) {
+        if (frame >= presses[i].frame && frame < presses[i].frame + 4) input->buttons |= presses[i].bit;
+    }
+    if (input->buttons & STICK_LEFT) input->stick_x = 0;
+    if (input->buttons & STICK_RIGHT) input->stick_x = 255;
+    if (input->buttons & STICK_UP) input->stick_y = 0;
+    if (input->buttons & STICK_DOWN) input->stick_y = 255;
+    input->buttons &= ~(STICK_LEFT | STICK_RIGHT | STICK_UP | STICK_DOWN);
 }
 
 static void save_screenshot(void) {
@@ -1044,47 +1218,15 @@ static void save_screenshot(void) {
     }
     printf("RFVPSHOT end\n");
 }
-
-/* Whether frames are being recorded (audio.rs then logs what it plays, for the soundtrack). */
-int rfvp_ps1_recording(void) {
-    return record_fd >= 0;
-}
-
-/* Append the frame shown now to frames.raw: "RFVF", frame, microseconds, then 320x240 15-bit
- * pixels, a strip at a time (there is no room for a whole frame). */
-static void record_frame(unsigned frame) {
-    if (frame < record_from || frame >= record_from + record_for) {
-        if (record_fd >= 0 && frame >= record_from + record_for) {
-            PCclose(record_fd);
-            record_fd = -1;
-            audio_fd = -1;
-            printf("rfvp: recording done\n");
-        }
-        return;
-    }
-    if (record_fd < 0) return;
-    enum { STRIP = 16 };
-    static uint16_t* strip;
-    if (!strip) strip = malloc(SCREEN_W * STRIP * 2);
-    uint32_t head[3] = { 0x46564652u, frame, (uint32_t) rfvp_ps1_ticks_us() };
-    PCwrite(record_fd, head, sizeof(head));
-    RECT r;
-    DrawSync(0);
-    for (int y = 0; y < SCREEN_H; y += STRIP) {
-        setRECT(&r, disp[db ^ 1].disp.x, disp[db ^ 1].disp.y + y, SCREEN_W, STRIP);
-        StoreImage(&r, (uint32_t*) strip);
-        DrawSync(0);
-        PCwrite(record_fd, strip, SCREEN_W * STRIP * 2);
-    }
-}
+#endif
 
 /* ---- Main ----------------------------------------------------------------------------------- */
 
 extern uint8_t _end[];
 
 int main(void) {
-    /* The heap: from the end of the program to below the stack. */
-    /* One heap for C and Rust: malloc and free are the Rust side's (ffi.rs). */
+    /* One heap for C and Rust, from the end of the program to below the stack: malloc and free
+     * are the Rust side's (ffi.rs). */
     rfvp_ps1_heap_init((void*) (((uintptr_t) _end + 15) & ~15u), RAM_TOP - STACK_SIZE - (((uintptr_t) _end + 15) & ~15u));
     gpu_init();
     spu_setup();
@@ -1092,64 +1234,53 @@ int main(void) {
     StartPAD();
     ChangeClearPAD(0);
     CdInit();
-    printf("rfvp: starting, heap %u KiB\n", (unsigned) ((RAM_TOP - STACK_SIZE - (((uintptr_t) _end + 15) & ~15u)) / 1024));
     load_file_map();
+#ifdef RFVP_DEBUG
     read_debug_file();
-    if (record_for) {
-        /* One file for the frames and the sound events: DuckStation's PCdrv does not keep two
-         * open. */
-        PCinit();
-        record_fd = PCcreat("record.raw");
-        if (record_fd >= 0) {
-            PCclose(record_fd);
-            record_fd = PCopen("record.raw", PCDRV_MODE_WRITE);
-        }
-        audio_fd = record_fd;
-        rfvp_ps1_xa_volume(0x3fff);
-        printf("rfvp: recording %u frames from %u (audio log %d)\n", record_for, record_from, audio_fd);
-    }
+#endif
 
     Session* session = rfvp_ps1_start();
     if (!session) {
-        printf("rfvp: the game could not be started\n");
         for (;;) VSync(0);
     }
-    uint64_t frame_us = 0, present_us = 0, xa_us = 0;
     for (unsigned frame = 0;; frame++) {
         RfvpPs1Input input;
         read_input(&input);
-        for (int i = 0; i < press_count; i++) {
-            if (frame >= presses[i].frame && frame < presses[i].frame + 4) input.buttons |= presses[i].bit;
-        }
-        if (input.buttons & (STICK_LEFT | STICK_RIGHT | STICK_UP | STICK_DOWN)) {
-            if (input.buttons & STICK_LEFT) input.stick_x = 0;
-            if (input.buttons & STICK_RIGHT) input.stick_x = 255;
-            if (input.buttons & STICK_UP) input.stick_y = 0;
-            if (input.buttons & STICK_DOWN) input.stick_y = 255;
-            input.buttons &= ~(STICK_LEFT | STICK_RIGHT | STICK_UP | STICK_DOWN);
-        }
-        uint64_t started = profile_enabled ? rfvp_ps1_ticks_us() : 0;
+#ifdef RFVP_DEBUG
+        debug_input(&input, frame);
+#endif
+#ifdef RFVP_DEBUG
+        uint64_t t0 = rfvp_ps1_profile_us();
+#endif
         int status = rfvp_ps1_frame(session, &input);
-        uint64_t drawn = profile_enabled ? rfvp_ps1_ticks_us() : 0;
+#ifdef RFVP_DEBUG
+        uint64_t t1 = rfvp_ps1_profile_us();
+#endif
         present();
-        uint64_t shown = profile_enabled ? rfvp_ps1_ticks_us() : 0;
-        if (frame == shot_frame) save_screenshot();
-        record_frame(frame);
-        xa_poll();
-        if (profile_enabled) {
-            frame_us += drawn - started;
-            present_us += shown - drawn;
-            xa_us += rfvp_ps1_ticks_us() - shown;
-            if (frame % 30 == 29) {
-                printf("rfvp: host frame %u: core %u, present %u, xa %u us/frame\n",
-                    frame, (unsigned) (frame_us / 30), (unsigned) (present_us / 30),
-                    (unsigned) (xa_us / 30));
-                frame_us = present_us = xa_us = 0;
-            }
+#ifdef RFVP_DEBUG
+        static uint64_t tick_us, present_us;
+        tick_us += t1 - t0;
+        present_us += rfvp_ps1_profile_us() - t1;
+        if (frame % 100 == 99) {
+            printf("rfvp: frames: tick %u us, present %u us\n", (unsigned) (tick_us / 100), (unsigned) (present_us / 100));
+            tick_us = present_us = 0;
         }
+#endif
+#ifdef RFVP_DEBUG
+        for (int i = 0; i < shot_count; i++) {
+            if (frame == shot_frames[i]) save_screenshot();
+        }
+        static int fps_vsync;
+        if (frame % 100 == 0) {
+            int now = VSync(-1);
+            if (frame) printf("rfvp: frame %u: %d.%d fps\n", frame, 100 * 5994 / (now - fps_vsync) / 100,
+                              100 * 5994 / (now - fps_vsync) / 10 % 10);
+            fps_vsync = now;
+        }
+#endif
+        xa_poll();
         if (status != 0) break;
     }
     rfvp_ps1_stop(session);
-    printf("rfvp: stopped\n");
     for (;;) VSync(0);
 }

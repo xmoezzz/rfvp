@@ -212,6 +212,8 @@ impl AlphaMotion {
 }
 
 pub struct AlphaMotionContainer {
+    /// Slots from here on have never been used: scans stop there.
+    live_end: usize,
     motions: Vec<AlphaMotion>,
     current_id: u32,
     allocation_pool: Vec<u16>,
@@ -222,6 +224,7 @@ impl AlphaMotionContainer {
         let allocation_pool: Vec<u16> = (0..256).collect();
 
         AlphaMotionContainer {
+            live_end: 0,
             motions: vec![AlphaMotion::new(); 256],
             current_id: 0,
             allocation_pool,
@@ -230,8 +233,7 @@ impl AlphaMotionContainer {
 
     fn next_free_id(&mut self, prim_id: u32) -> Option<u32> {
         // Fast path: if this prim already has a running alpha motion, stop it and reuse its slot.
-        if let Some(i) = self
-            .motions
+        if let Some(i) = self.motions[..self.live_end]
             .iter()
             .position(|m| m.is_running() && m.get_prim_id() == prim_id)
         {
@@ -262,6 +264,7 @@ impl AlphaMotionContainer {
     ) -> Result<()> {
         if let Some(id) = self.next_free_id(prim_id) {
             let id = self.allocation_pool[id as usize];
+            self.live_end = self.live_end.max(id as usize + 1);
             self.current_id += 1;
             let alpha_motion = &mut self.motions[id as usize];
 
@@ -282,13 +285,12 @@ impl AlphaMotionContainer {
     }
 
     pub fn stop_motion(&mut self, prim_id: u32) -> Result<()> {
-        let mut i = 0;
-        while !self.motions[i].is_running() || self.motions[i].get_prim_id() != prim_id {
-            i += 1;
-            if i >= 256 {
-                return Ok(());
-            }
-        }
+        let Some(i) = self.motions[..self.live_end]
+            .iter()
+            .position(|m| m.is_running() && m.get_prim_id() == prim_id)
+        else {
+            return Ok(());
+        };
 
         self.motions[i].set_running(false);
         if self.current_id > 0 {
@@ -300,33 +302,27 @@ impl AlphaMotionContainer {
     }
 
     pub fn test_motion(&self, prim_id: u32) -> bool {
-        let mut i = 0;
-        while !self.motions[i].is_running() || self.motions[i].get_prim_id() != prim_id {
-            i += 1;
-            if i >= 256 {
-                return false;
-            }
-        }
-
-        self.motions[i].is_running()
+        self.motions[..self.live_end]
+            .iter()
+            .any(|m| m.is_running() && m.get_prim_id() == prim_id)
     }
 
     /// The prims whose alpha is fading out right now.
     pub fn running_fadeout_prims(&self) -> impl Iterator<Item = u32> + '_ {
-        self.motions
+        self.motions[..self.live_end]
             .iter()
             .filter(|m| m.is_running() && m.get_dst_alpha() < m.get_src_alpha())
             .map(|m| m.get_prim_id())
     }
 
     pub fn has_running_fadeout_motion(&self, prim_id: u32) -> bool {
-        self.motions.iter().any(|m| {
+        self.motions[..self.live_end].iter().any(|m| {
             m.is_running() && m.get_prim_id() == prim_id && m.get_dst_alpha() < m.get_src_alpha()
         })
     }
 
     pub fn exec_alpha_motion(&mut self, prim_manager: &PrimManager, flag: bool, elapsed: i32) {
-        for i in 0..256 {
+        for i in 0..self.live_end {
             if !self.motions[i].is_running() {
                 continue;
             }

@@ -90,6 +90,8 @@ pub struct GraphBuff {
     hit_mask: Option<Vec<u64>>,
     /// Pixel dimensions of the evicted image.
     evicted_dims: (u32, u32),
+    #[cfg(feature = "psx")]
+    pub(crate) streamed_clut: Option<alloc::boxed::Box<crate::rendering::ps1_stream::StreamedClut>>,
 }
 
 impl GraphBuff {
@@ -118,6 +120,8 @@ impl GraphBuff {
             cpu_evicted: false,
             hit_mask: None,
             evicted_dims: (0, 0),
+            #[cfg(feature = "psx")]
+            streamed_clut: None,
         }
     }
 
@@ -309,7 +313,7 @@ impl GraphBuff {
 
         match tex {
             #[cfg(feature = "psx")]
-            DynamicImage::ImagePs1Mask(img) => out.extend_from_slice(&img.alpha),
+            DynamicImage::ImagePs1Mask(img) => out.extend(img.alpha.iter().copied()),
             DynamicImage::ImageLumaA8(img) => {
                 let raw = img.as_raw();
                 if raw.len() < px_count * 2 {
@@ -338,11 +342,66 @@ impl GraphBuff {
         &mut self.texture
     }
 
+    #[cfg(feature = "psx")]
+    pub fn load_streamed_clut(&mut self, vfs: &Vfs, path: &str, scale: f32) -> Result<bool> {
+        let Some((streamed, header, hits)) = crate::rendering::ps1_stream::StreamedClut::load(vfs, path)? else { return Ok(false); };
+        let field = |at| u16::from_le_bytes([header[at], header[at + 1]]);
+        self.unload();
+        self.width = field(20);
+        self.height = field(22);
+        self.offset_x = field(24);
+        self.offset_y = field(26);
+        self.u = field(28);
+        self.v = field(30);
+        self.apply_old_school_scale_metadata(scale);
+        self.texture_path = path.to_string();
+        self.texture_ready = true;
+        self.load_kind = GraphBuffLoadKind::Texture;
+        self.r_value = 100; self.g_value = 100; self.b_value = 100;
+        self.cpu_pristine = true;
+        self.cpu_evicted = true;
+        self.evicted_dims = (u32::from(self.width), u32::from(self.height));
+        self.hit_mask = if hits.is_empty() { None } else { Some(hits) };
+        self.streamed_clut = Some(alloc::boxed::Box::new(streamed));
+        self.mark_dirty();
+        Ok(true)
+    }
+
+    /// Recover only the offline GPU derivative. Original 8-bit CPU alpha stays resident.
+    #[cfg(feature = "psx")]
+    pub fn ensure_ps1_mask_gpu(&mut self, vfs: &Vfs) -> Result<()> {
+        let Some(DynamicImage::ImagePs1Mask(mask)) = &mut self.texture else { return Ok(()); };
+        if !mask.gpu.is_empty() { return Ok(()); }
+        let mut bytes = vfs.read_file(&self.texture_path)?;
+        let (start, length) = {
+            let plane = crate::ps1_mask::read(&bytes).map_err(|error| anyhow::anyhow!(error))?
+                .ok_or_else(|| anyhow::anyhow!("missing offline PS1 mask plane"))?;
+            if u32::from(plane.width) != mask.width || u32::from(plane.height) != mask.height {
+                anyhow::bail!("PS1 mask dimensions changed after upload");
+            }
+            let frame = plane.frame(0).ok_or_else(|| anyhow::anyhow!("missing PS1 mask frame"))?;
+            (frame.as_ptr() as usize - bytes.as_ptr() as usize, frame.len())
+        };
+        bytes.copy_within(start..start + length, 0);
+        bytes.truncate(length);
+        mask.gpu = bytes;
+        Ok(())
+    }
+
+    #[cfg(feature = "psx")]
+    pub fn evict_ps1_mask_gpu(&mut self) {
+        if let Some(DynamicImage::ImagePs1Mask(mask)) = &mut self.texture {
+            mask.gpu = Vec::new();
+        }
+    }
+
     pub fn get_texture(&self) -> &Option<DynamicImage> {
         &self.texture
     }
 
     pub fn unload(&mut self) {
+        #[cfg(feature = "psx")]
+        { self.streamed_clut = None; }
         self.texture = None;
         self.texture_ready = false;
         self.texture_path = String::new();
@@ -887,6 +946,17 @@ impl GraphBuff {
         if !self.texture_ready {
             return;
         };
+
+        #[cfg(feature = "psx")]
+        if let Some(streamed) = &mut self.streamed_clut {
+            streamed.palette.tone(red_value.clamp(0, 200) as u32,
+                green_value.clamp(0, 200) as u32, blue_value.clamp(0, 200) as u32);
+            self.r_value = red_value.clamp(0, 200) as u8;
+            self.g_value = green_value.clamp(0, 200) as u8;
+            self.b_value = blue_value.clamp(0, 200) as u8;
+            self.mark_dirty();
+            return;
+        }
 
         let Some(texture) = &mut self.texture else {
             return;
@@ -1444,6 +1514,9 @@ mod cpu_eviction_tests {
 #[cfg(feature = "psx")]
 pub struct GraphSlots {
     slots: Vec<Option<alloc::boxed::Box<GraphBuff>>>,
+    /// The ids of the allocated slots, in order: the passes over the graphs every frame visit
+    /// these rather than all 4096.
+    used: Vec<u16>,
     empty: GraphBuff,
 }
 
@@ -1452,7 +1525,7 @@ impl GraphSlots {
     pub fn new(count: usize) -> Self {
         let mut slots = Vec::with_capacity(count);
         slots.resize_with(count, || None);
-        Self { slots, empty: GraphBuff::new() }
+        Self { slots, used: Vec::new(), empty: GraphBuff::new() }
     }
 
     pub fn len(&self) -> usize {
@@ -1469,12 +1542,18 @@ impl GraphSlots {
 
     /// The slots in use, with their ids.
     pub fn present_mut(&mut self) -> impl Iterator<Item = (usize, &mut GraphBuff)> + '_ {
-        self.slots.iter_mut().enumerate().filter_map(|(id, s)| s.as_deref_mut().map(|g| (id, g)))
+        let slots = self.slots.as_mut_ptr();
+        self.used.iter().filter_map(move |&id| {
+            // SAFETY: each id is in `used` once, so no two items borrow the same slot, and the
+            // slots stay put while the iterator borrows `self`.
+            unsafe { (*slots.add(id as usize)).as_deref_mut().map(|g| (id as usize, g)) }
+        })
     }
 
     /// Every slot back to empty.
     pub fn clear(&mut self) {
         self.slots.iter_mut().for_each(|s| *s = None);
+        self.used.clear();
     }
 }
 
@@ -1489,6 +1568,10 @@ impl core::ops::Index<usize> for GraphSlots {
 #[cfg(feature = "psx")]
 impl core::ops::IndexMut<usize> for GraphSlots {
     fn index_mut(&mut self, id: usize) -> &mut GraphBuff {
+        if self.slots[id].is_none() {
+            let at = self.used.partition_point(|&u| (u as usize) < id);
+            self.used.insert(at, id as u16);
+        }
         self.slots[id].get_or_insert_with(|| alloc::boxed::Box::new(GraphBuff::new()))
     }
 }

@@ -8,10 +8,17 @@ use core::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 static CLOCK: AtomicUsize = AtomicUsize::new(0);
 
 /// The stages that are measured.
-pub const STAGES: [&str; 22] = [
+pub const STAGES: [&str; 23] = [
     "text", "alpha", "move", "rotation", "scale", "z", "v3d", "anim", "parts", "snow",
     "dissolve", "tree", "submit", "end_frame", "text_tick", "text_raster", "audio_mix", "vm", "audio_cmds", "save", "syscalls", "vm_snapshot",
+    "script_io",
 ];
+
+/// [`STAGES`] index of reading script pages from the disc (counted in [`SCRIPT_PAGE_READS`]).
+pub const SCRIPT_IO: usize = 22;
+
+/// Script pages read since the last [`take`].
+pub static SCRIPT_PAGE_READS: AtomicU32 = AtomicU32::new(0);
 
 static TOTALS: [AtomicU32; STAGES.len()] = [const { AtomicU32::new(0) }; STAGES.len()];
 

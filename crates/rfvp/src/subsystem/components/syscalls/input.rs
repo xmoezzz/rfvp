@@ -106,7 +106,7 @@ pub fn control_mask(game_data: &mut GameData, mask: &Variant) -> Result<Variant>
 ///
 pub struct InputFlash;
 impl Syscaller for InputFlash {
-    fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, _args: &[Variant]) -> Result<Variant> {
         input_flash(game_data)
     }
 }
@@ -121,7 +121,7 @@ unsafe impl Sync for InputFlash {}
 ///
 pub struct InputGetCursIn;
 impl Syscaller for InputGetCursIn {
-    fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, _args: &[Variant]) -> Result<Variant> {
         input_get_curs_in(game_data)
     }
 }
@@ -136,7 +136,7 @@ unsafe impl Sync for InputGetCursIn {}
 ///
 pub struct InputGetCursX;
 impl Syscaller for InputGetCursX {
-    fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, _args: &[Variant]) -> Result<Variant> {
         input_get_curs_x(game_data)
     }
 }
@@ -151,7 +151,7 @@ unsafe impl Sync for InputGetCursX {}
 ///
 pub struct InputGetCursY;
 impl Syscaller for InputGetCursY {
-    fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, _args: &[Variant]) -> Result<Variant> {
         input_get_curs_y(game_data)
     }
 }
@@ -197,7 +197,7 @@ unsafe impl Sync for InputGetCursY {}
 ///
 pub struct InputGetDown;
 impl Syscaller for InputGetDown {
-    fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, _args: &[Variant]) -> Result<Variant> {
         input_get_down(game_data)
     }
 }
@@ -216,7 +216,7 @@ unsafe impl Sync for InputGetDown {}
 ///
 pub struct InputGetEvent;
 impl Syscaller for InputGetEvent {
-    fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, _args: &[Variant]) -> Result<Variant> {
         input_get_event(game_data)
     }
 }
@@ -232,7 +232,7 @@ unsafe impl Sync for InputGetEvent {}
 ///   
 pub struct InputGetRepeat;
 impl Syscaller for InputGetRepeat {
-    fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, _args: &[Variant]) -> Result<Variant> {
         input_get_repeat(game_data)
     }
 }
@@ -247,7 +247,7 @@ unsafe impl Sync for InputGetRepeat {}
 ///
 pub struct InputGetState;
 impl Syscaller for InputGetState {
-    fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, _args: &[Variant]) -> Result<Variant> {
         input_get_state(game_data)
     }
 }
@@ -262,7 +262,7 @@ unsafe impl Sync for InputGetState {}
 ///
 pub struct InputGetUp;
 impl Syscaller for InputGetUp {
-    fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, _args: &[Variant]) -> Result<Variant> {
         input_get_up(game_data)
     }
 }
@@ -278,7 +278,7 @@ unsafe impl Sync for InputGetUp {}
 ///
 pub struct InputGetWheel;
 impl Syscaller for InputGetWheel {
-    fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, _args: &[Variant]) -> Result<Variant> {
         input_get_wheel(game_data)
     }
 }
@@ -293,7 +293,7 @@ unsafe impl Sync for InputGetWheel {}
 ///
 pub struct InputSetClick;
 impl Syscaller for InputSetClick {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         input_set_click(game_data, get_var!(args, 0))
     }
 }
@@ -307,7 +307,7 @@ unsafe impl Sync for InputSetClick {}
 ///
 pub struct ControlPulse;
 impl Syscaller for ControlPulse {
-    fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, _args: &[Variant]) -> Result<Variant> {
         control_pulse(game_data)
     }
 }
@@ -322,7 +322,7 @@ unsafe impl Sync for ControlPulse {}
 ///
 pub struct ControlMask;
 impl Syscaller for ControlMask {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         if args.len() != 1 {
             return Err(anyhow::anyhow!("control_mask: invalid number of arguments"));
         }

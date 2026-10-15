@@ -111,7 +111,7 @@ pub fn thread_wait(game_data: &mut GameData, time: &Variant) -> Result<Variant> 
 
 pub struct ThreadExit;
 impl Syscaller for ThreadExit {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         thread_exit(game_data, super::get_var!(args, 0))
     }
 }
@@ -121,7 +121,7 @@ unsafe impl Sync for ThreadExit {}
 
 pub struct ThreadNext;
 impl Syscaller for ThreadNext {
-    fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, _args: &[Variant]) -> Result<Variant> {
         thread_next(game_data)
     }
 }
@@ -131,7 +131,7 @@ unsafe impl Sync for ThreadNext {}
 
 pub struct ThreadRaise;
 impl Syscaller for ThreadRaise {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         thread_raise(game_data, super::get_var!(args, 0))
     }
 }
@@ -141,7 +141,7 @@ unsafe impl Sync for ThreadRaise {}
 
 pub struct ThreadSleep;
 impl Syscaller for ThreadSleep {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         thread_sleep(game_data, super::get_var!(args, 0))
     }
 }
@@ -151,7 +151,7 @@ unsafe impl Sync for ThreadSleep {}
 
 pub struct ThreadStart;
 impl Syscaller for ThreadStart {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         thread_start(
             game_data,
             super::get_var!(args, 0),
@@ -165,7 +165,7 @@ unsafe impl Sync for ThreadStart {}
 
 pub struct ThreadWait;
 impl Syscaller for ThreadWait {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         thread_wait(game_data, super::get_var!(args, 0))
     }
 }

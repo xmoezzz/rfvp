@@ -22,15 +22,23 @@ TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
 OUT="$TARGET_DIR/ps1"
 mkdir -p "$OUT"
 
+BUILD_ARGS=()
+PANIC_FLAGS="-Cpanic=immediate-abort"
+if [[ "${RFVP_PS1_DEBUG:-0}" == 1 ]]; then
+    BUILD_ARGS+=(--no-default-features --features diagnostics)
+    PANIC_FLAGS="-Cpanic=abort"
+fi
+
 (
     cd "$CRATE"
-    # `s` retains compact code while allowing the hot VM paths to inline. `z`
-    # saves about 50 KiB but significantly slows the stock R3000 frame loop.
-    RUSTFLAGS="-C linker-plugin-lto -C embed-bitcode=yes" \
-    CARGO_PROFILE_RELEASE_OPT_LEVEL="${RFVP_PS1_OPT_LEVEL:-s}" CARGO_PROFILE_RELEASE_LTO=thin \
+    # The smallest build: code and data share 2 MiB. No debug information, no panic or
+    # location messages, no `Debug` formatting (the log is compiled out: see host/Cargo.toml).
+    RUSTFLAGS="-C linker-plugin-lto -C embed-bitcode=yes -C debuginfo=0 -Zlocation-detail=none -Zfmt-debug=none -Zunstable-options $PANIC_FLAGS" \
+    CARGO_PROFILE_RELEASE_OPT_LEVEL="${RFVP_PS1_OPT_LEVEL:-z}" CARGO_PROFILE_RELEASE_LTO=thin \
+    CARGO_PROFILE_RELEASE_DEBUG=0 CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
         cargo "+$TOOLCHAIN" build --release \
         -Zjson-target-spec -Z build-std=core,alloc,compiler_builtins \
-        --target "$TARGET_JSON" --target-dir "$TARGET_DIR"
+        --target "$TARGET_JSON" --target-dir "$TARGET_DIR" "${BUILD_ARGS[@]}"
 )
 
 LIB="$TARGET_DIR/mipsel-sony-psx-rfvp/release/lib$NAME.a"
@@ -63,8 +71,31 @@ PY
 # generation may call (__*, mem*) and the C heap (malloc...) becomes internal, so what nothing reaches is dropped; the PS1
 # has 2 MiB for code and data together. Functions retain rustc's size attributes.
 "$LLVM/llvm-nm" --defined-only --format=just-symbols "$OUT/$NAME.lowered.bc" \
-    | grep -E '^(rfvp_ps1_|__|mem|rust_|malloc$|free$|calloc$|realloc$)' > "$OUT/$NAME.exports"
-"$LLVM/opt" -passes='internalize,globaldce,default<O2>' \
+    | grep -E '^(rfvp_ps1_|aot_|__|mem|rust_|malloc$|free$|calloc$|realloc$)' > "$OUT/$NAME.exports"
+# Spend code bytes only on the small VM stack/operand routines. Cold resource,
+# decoder and serialization code keeps its size attributes.
+"$LLVM/llvm-nm" --defined-only --format=just-symbols "$OUT/$NAME.lowered.bc" > "$OUT/$NAME.symbols"
+"$LLVM/llvm-cxxfilt" < "$OUT/$NAME.symbols" > "$OUT/$NAME.demangled"
+python3 - "$OUT/$NAME.symbols" "$OUT/$NAME.demangled" "$OUT/$NAME.hot" <<'PY'
+from pathlib import Path
+import sys
+symbols, names, output = map(Path, sys.argv[1:])
+hot = []
+for symbol, name in zip(symbols.read_text().splitlines(), names.read_text().splitlines()):
+    if name.startswith('<rfvp::script::context::Context>::') and not any(
+        word in name for word in ('snapshot', 'backtrace', '::new', 'debug')
+    ):
+        hot.append(symbol)
+    elif name.startswith('<rfvp::script::parser::Parser>::fetch'):
+        hot.append(symbol)
+output.write_text('\n'.join(hot) + '\n')
+PY
+HOT_ARGS=()
+while IFS= read -r symbol; do
+    [[ -n "$symbol" ]] || continue
+    HOT_ARGS+=(-force-remove-attribute="$symbol:minsize" -force-remove-attribute="$symbol:optsize")
+done < "$OUT/$NAME.hot"
+"$LLVM/opt" -passes='forceattrs,internalize,globaldce,default<O2>' "${HOT_ARGS[@]}" \
     -internalize-public-api-file="$OUT/$NAME.exports" \
     "$OUT/$NAME.lowered.bc" -o "$OUT/$NAME.opt.bc"
 "$LLVM/llc" -mtriple=mipsel-unknown-none-elf -target-abi=o32 -mcpu=mips1 \

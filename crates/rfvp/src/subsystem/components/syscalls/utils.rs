@@ -252,7 +252,7 @@ pub fn exit_mode(game_data: &mut GameData, mode: &Variant) -> Result<Variant> {
 
 pub struct DebugMessage;
 impl Syscaller for DebugMessage {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         debug_message(game_data, get_var!(args, 0), get_var!(args, 1))
     }
 }
@@ -262,7 +262,7 @@ unsafe impl Sync for DebugMessage {}
 
 pub struct BreakPoint;
 impl Syscaller for BreakPoint {
-    fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, _args: &[Variant]) -> Result<Variant> {
         break_point(game_data)
     }
 }
@@ -272,7 +272,7 @@ unsafe impl Sync for BreakPoint {}
 
 pub struct FloatToInt;
 impl Syscaller for FloatToInt {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         float_to_int(game_data, get_var!(args, 0))
     }
 }
@@ -282,7 +282,7 @@ unsafe impl Sync for FloatToInt {}
 
 pub struct IntToText;
 impl Syscaller for IntToText {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         int_to_text(game_data, get_var!(args, 0), get_var!(args, 1))
     }
 }
@@ -292,7 +292,7 @@ unsafe impl Sync for IntToText {}
 
 pub struct Rand;
 impl Syscaller for Rand {
-    fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, _args: &[Variant]) -> Result<Variant> {
         rand(game_data)
     }
 }
@@ -302,7 +302,7 @@ unsafe impl Sync for Rand {}
 
 pub struct SysProjFolder;
 impl Syscaller for SysProjFolder {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         system_project_dir(game_data, get_var!(args, 0))
     }
 }
@@ -312,7 +312,7 @@ unsafe impl Sync for SysProjFolder {}
 
 pub struct SysAtSkipName;
 impl Syscaller for SysAtSkipName {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         system_at_skipname(game_data, get_var!(args, 0), get_var!(args, 1))
     }
 }
@@ -322,7 +322,7 @@ unsafe impl Sync for SysAtSkipName {}
 
 pub struct WindowMode;
 impl Syscaller for WindowMode {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         window_mode(game_data, get_var!(args, 0))
     }
 }
@@ -332,7 +332,7 @@ unsafe impl Sync for WindowMode {}
 
 pub struct ExitMode;
 impl Syscaller for ExitMode {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         let mode = get_var!(args, 0);
         exit_mode(game_data, mode)
     }
@@ -343,7 +343,7 @@ unsafe impl Sync for ExitMode {}
 
 pub struct TitleMenu;
 impl Syscaller for TitleMenu {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         title_menu(game_data, get_var!(args, 0))
     }
 }
@@ -370,7 +370,7 @@ mod tests {
 /// IDA SYSCALL_SPECS: argc=2
 pub struct Debmess;
 impl Syscaller for Debmess {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         // Reuse DebugMessage implementation if present.
         DebugMessage.call(game_data, args)
     }
@@ -380,7 +380,7 @@ impl Syscaller for Debmess {
 /// Used by auto-generated syscall specs for no-op placeholders.
 pub struct nullsub_2;
 impl Syscaller for nullsub_2 {
-    fn call(&self, _game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, _game_data: &mut GameData, _args: &[Variant]) -> Result<Variant> {
         Ok(Variant::Nil)
     }
 }
@@ -389,7 +389,7 @@ impl Syscaller for nullsub_2 {
 /// IDA SYSCALL_SPECS: argc=1
 pub struct DissolveWait;
 impl Syscaller for DissolveWait {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         // IDA: DissolveWait has two observable modes depending on the argument type:
         //   - DissolveWait(nil): returns true if dissolve-wait is active (used as a polling predicate).
         //   - DissolveWait(non-nil): blocks the current context until dissolve completes.
@@ -428,7 +428,7 @@ impl Syscaller for DissolveWait {
 /// and let the existing app/main-loop close path consume it.
 pub struct ExitDialog;
 impl Syscaller for ExitDialog {
-    fn call(&self, game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, _args: &[Variant]) -> Result<Variant> {
         request_exit_dialog();
         game_data.thread_wrapper.should_break();
         Ok(Variant::Nil)
@@ -439,7 +439,7 @@ impl Syscaller for ExitDialog {
 /// IDA SYSCALL_SPECS: argc=1
 pub struct MenuMessSkip;
 impl Syscaller for MenuMessSkip {
-    fn call(&self, _game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, _game_data: &mut GameData, _args: &[Variant]) -> Result<Variant> {
         Ok(Variant::Nil)
     }
 }
@@ -457,7 +457,7 @@ impl UnimplementedNamed {
 }
 
 impl Syscaller for UnimplementedNamed {
-    fn call(&self, _game_data: &mut GameData, _args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, _game_data: &mut GameData, _args: &[Variant]) -> Result<Variant> {
         log::warn!("Unimplemented syscall: {}", self.name);
         Ok(Variant::Nil)
     }

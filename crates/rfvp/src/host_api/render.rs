@@ -118,6 +118,11 @@ pub struct DrawSolidCommand {
 }
 
 pub trait RfvpRenderer {
+    /// PS1-only bounded row uploads for immutable CLUT resources.
+    #[cfg(feature = "psx")]
+    fn create_texture_rows(&mut self, _id: TextureId, _desc: TextureDesc, _palette: &[u8], _read: &mut TextureRowReader<'_>) -> RfvpResult<()> {
+        Err(RfvpError::Unsupported)
+    }
     fn create_texture(
         &mut self,
         id: TextureId,
@@ -281,11 +286,19 @@ pub trait TextureBackend {
 
     fn destroy_texture(&mut self, handle: TextureHandle);
 
+    #[cfg(feature = "psx")]
+    fn create_texture_rows(&mut self, _handle: TextureHandle, _desc: PortableTextureDesc, _palette: &[u8], _read: &mut TextureRowReader<'_>) -> Option<Result<(), Self::Error>> {
+        None
+    }
+
     /// Update a complete RGBA texture when supported, otherwise ask the caller to recreate it.
     fn update_texture_data(&mut self, _handle: TextureHandle, _desc: PortableTextureDesc, _data: &[u8]) -> Result<bool, Self::Error> {
         Ok(false)
     }
 }
+
+#[cfg(feature = "psx")]
+pub type TextureRowReader<'a> = dyn FnMut(u32, u32, u32, u32, &mut [u8], u32) -> RfvpResult<()> + 'a;
 
 pub trait RenderBackend {
     type Error;
@@ -369,6 +382,15 @@ fn command_rect_to_host(rect: RectI16) -> RectI32 {
 
 impl<T: RfvpRenderer> TextureBackend for T {
     type Error = RfvpError;
+
+    #[cfg(feature = "psx")]
+    fn create_texture_rows(&mut self, handle: TextureHandle, desc: PortableTextureDesc, palette: &[u8], read: &mut TextureRowReader<'_>) -> Option<Result<(), Self::Error>> {
+        Some(RfvpRenderer::create_texture_rows(self, TextureId(handle.0), TextureDesc {
+            width: u32::from(desc.width), height: u32::from(desc.height),
+            format: match portable_texture_format(desc.format) { Ok(format) => format, Err(error) => return Some(Err(error)) },
+            mip_count: 1,
+        }, palette, read))
+    }
 
     fn create_texture(
         &mut self,

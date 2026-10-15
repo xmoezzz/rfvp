@@ -142,6 +142,9 @@ pub struct RfvpCore {
 /// How often the global save (read-text marks, flags) is written during play. Consoles are often
 /// left through the home button or by power, so it cannot wait for a clean exit.
 const GLOBAL_SAVE_INTERVAL_US: u64 = 120_000_000;
+/// The PlayStation's cache of the HCB, for the strings of the compiled script (crate::aot).
+#[cfg(feature = "psx_aot")]
+const AOT_STRING_CACHE: usize = 4 * 1024;
 
 fn fnv1a(bytes: &[u8]) -> u64 {
     let mut hash = 0xcbf2_9ce4_8422_2325u64;
@@ -322,17 +325,33 @@ impl RfvpCore {
             const PAGE: usize = 1024;
             #[cfg(not(feature = "psx"))]
             const PAGE: usize = 4096;
-            let parser = if len as usize <= boot.hcb_cache_bytes {
+            // The PlayStation runs the script compiled (SCRIPT.AOT, beside the HCB): the HCB is
+            // only read for its header and, when a syscall needs one, a string's text, and the
+            // cache holds compiled code instead.
+            #[cfg(feature = "psx_aot")]
+            let (hcb_cache, code_cache) = (AOT_STRING_CACHE, boot.hcb_cache_bytes);
+            #[cfg(not(feature = "psx_aot"))]
+            let hcb_cache = boot.hcb_cache_bytes;
+            let parser = if len as usize <= hcb_cache {
                 let bytes = file.read_to_vec(len as usize)?;
                 Parser::from_bytes(bytes, boot.nls)
             } else {
-                let pages = (boot.hcb_cache_bytes / PAGE).max(8);
+                let pages = (hcb_cache / PAGE).max(if cfg!(feature = "psx_aot") { 4 } else { 8 });
                 Parser::from_paged_file(file, len as usize, boot.nls, PAGE, pages)
             }
             .map_err(|err| {
                 self.last_error_detail = Some(err.to_string());
                 RfvpError::InvalidData
             })?;
+            #[cfg(feature = "psx_aot")]
+            {
+                let dir = path.rfind('/').map_or("", |k| &path[..=k]);
+                let aot = host.fs().open(&format!("{dir}script.aot"))?;
+                crate::aot::init(alloc::boxed::Box::new(aot), &parser, code_cache).map_err(|err| {
+                    self.last_error_detail = Some(err.to_string());
+                    RfvpError::InvalidData
+                })?;
+            }
             (
                 LoadedHcb {
                     path,
@@ -492,6 +511,7 @@ impl RfvpCore {
                 .timer_manager
                 .tick(frame_time_ms.min(u32::MAX as u64) as u32);
             let t0 = host.clock().ticks_us();
+            let vm_started = crate::perf::start();
             crate::perf::mark(100);
             if let Err(err) = vm_runner.tick(&mut self.game_data, parser, frame_time_ms) {
                 let message = err.to_string();
@@ -503,7 +523,7 @@ impl RfvpCore {
 
             // The original engine advances scripts before text and motion updates.
             let t1 = host.clock().ticks_us();
-            crate::perf::stop(17, t0);
+            crate::perf::stop(17, vm_started);
             crate::perf::mark(200);
             let mut scene = AnzuScene::new();
             scene.update_after_vm(&mut self.game_data, frame_time_ms);
@@ -687,12 +707,21 @@ impl RfvpCore {
         }
         #[cfg(feature = "psx")]
         {
+            use crate::subsystem::resources::motion_manager::DissolveType;
+            let graph = motion.get_dissolve_mask_graph();
+            // Only a mask fade-out draws the mask here (prim_commands.rs).
+            if motion.get_dissolve_type() == DissolveType::MaskFadeOut
+                && !self.render_cache.is_mask_uploaded(graph.generation, &graph.texture_path)
+            {
+                motion.get_dissolve_mask_graph_mut().ensure_ps1_mask_gpu(&self.game_data.vfs)
+                    .map_err(|error| { log::error!("restore PS1 mask: {error:#}"); RfvpError::Io })?;
+            }
             let cache = core::cell::RefCell::new(&mut self.render_cache);
             let renderer = host.renderer();
             motion.upload_evicted_one_by_one(
                 &self.game_data.vfs,
                 |id, generation| cache.borrow().is_graph_uploaded(id, generation),
-                |id, graph| cache.borrow_mut().upload_graph(renderer, id, graph),
+                |id, graph| cache.borrow_mut().upload_graph(renderer, id, graph, &self.game_data.vfs),
             );
         }
         #[cfg(not(feature = "psx"))]
@@ -714,6 +743,16 @@ impl RfvpCore {
         self.game_data
             .motion_manager
             .evict_uploaded_cpu_pixels(|id, generation| cache.is_graph_uploaded(id, generation));
+        #[cfg(feature = "psx")]
+        {
+            use crate::subsystem::resources::motion_manager::DissolveType;
+            let graph = self.game_data.motion_manager.get_dissolve_mask_graph();
+            let active =
+                self.game_data.motion_manager.get_dissolve_type() == DissolveType::MaskFadeOut;
+            if !active || cache.is_mask_uploaded(graph.generation, &graph.texture_path) {
+                self.game_data.motion_manager.get_dissolve_mask_graph_mut().evict_ps1_mask_gpu();
+            }
+        }
         Ok(())
     }
 

@@ -630,7 +630,7 @@ macro_rules! simple_syscaller {
     ($name:ident, $body:expr) => {
         pub struct $name;
         impl Syscaller for $name {
-            fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+            fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
                 $body(game_data, args)
             }
         }
@@ -639,7 +639,7 @@ macro_rules! simple_syscaller {
     };
 }
 
-simple_syscaller!(ChrAdd, |game_data: &mut GameData, args: Vec<Variant>| {
+simple_syscaller!(ChrAdd, |game_data: &mut GameData, args: &[Variant]| {
     chr_add(
         game_data,
         get_var!(args, 0),
@@ -648,79 +648,79 @@ simple_syscaller!(ChrAdd, |game_data: &mut GameData, args: Vec<Variant>| {
         get_var!(args, 3),
     )
 });
-simple_syscaller!(ChrGetRGB, |game_data: &mut GameData, args: Vec<Variant>| {
+simple_syscaller!(ChrGetRGB, |game_data: &mut GameData, args: &[Variant]| {
     chr_get_rgb(game_data, get_var!(args, 0), get_var!(args, 1))
 });
 simple_syscaller!(
     ChrGetVol,
-    |_game_data: &mut GameData, args: Vec<Variant>| chr_get_vol(get_var!(args, 0))
+    |_game_data: &mut GameData, args: &[Variant]| chr_get_vol(get_var!(args, 0))
 );
 simple_syscaller!(
     ConfigDisplay,
-    |_game_data: &mut GameData, args: Vec<Variant>| config_display(&args)
+    |_game_data: &mut GameData, args: &[Variant]| config_display(&args)
 );
 simple_syscaller!(
     ConfigEtc,
-    |_game_data: &mut GameData, args: Vec<Variant>| config_etc(&args)
+    |_game_data: &mut GameData, args: &[Variant]| config_etc(&args)
 );
 simple_syscaller!(
     ConfigSet,
-    |game_data: &mut GameData, _args: Vec<Variant>| config_set(game_data)
+    |game_data: &mut GameData, _args: &[Variant]| config_set(game_data)
 );
 simple_syscaller!(
     ConfigSound,
-    |_game_data: &mut GameData, args: Vec<Variant>| config_sound(&args)
+    |_game_data: &mut GameData, args: &[Variant]| config_sound(&args)
 );
-simple_syscaller!(LoadFile, |game_data: &mut GameData, _args: Vec<Variant>| {
+simple_syscaller!(LoadFile, |game_data: &mut GameData, _args: &[Variant]| {
     load_file(game_data)
 });
-simple_syscaller!(LoadQuick, |game_data: &mut GameData, args: Vec<Variant>| {
+simple_syscaller!(LoadQuick, |game_data: &mut GameData, args: &[Variant]| {
     load_quick(game_data, get_var!(args, 0))
 });
 simple_syscaller!(
     LoadTitle,
-    |game_data: &mut GameData, _args: Vec<Variant>| load_title(game_data)
+    |game_data: &mut GameData, _args: &[Variant]| load_title(game_data)
 );
-simple_syscaller!(MoviePlay, |game_data: &mut GameData, args: Vec<Variant>| {
+simple_syscaller!(MoviePlay, |game_data: &mut GameData, args: &[Variant]| {
     movie_play_legacy(game_data, get_var!(args, 0), get_var!(args, 1))
 });
 simple_syscaller!(
     PrimSetClip,
-    |game_data: &mut GameData, args: Vec<Variant>| prim_set_clip_legacy(
+    |game_data: &mut GameData, args: &[Variant]| prim_set_clip_legacy(
         game_data,
         get_var!(args, 0)
     )
 );
-simple_syscaller!(QuickCopy, |game_data: &mut GameData, args: Vec<Variant>| {
+simple_syscaller!(QuickCopy, |game_data: &mut GameData, args: &[Variant]| {
     quick_copy(game_data, get_var!(args, 0), get_var!(args, 1))
 });
 simple_syscaller!(
     QuickState,
-    |game_data: &mut GameData, args: Vec<Variant>| quick_state(game_data, get_var!(args, 0))
+    |game_data: &mut GameData, args: &[Variant]| quick_state(game_data, get_var!(args, 0))
 );
-simple_syscaller!(SaveFile, |game_data: &mut GameData, _args: Vec<Variant>| {
+simple_syscaller!(SaveFile, |game_data: &mut GameData, _args: &[Variant]| {
     save_file(game_data)
 });
 simple_syscaller!(
     SaveLoadMenu,
-    |game_data: &mut GameData, args: Vec<Variant>| save_load_menu(game_data, get_var!(args, 0))
+    |game_data: &mut GameData, args: &[Variant]| save_load_menu(game_data, get_var!(args, 0))
 );
-simple_syscaller!(SaveName, |game_data: &mut GameData, args: Vec<Variant>| {
+simple_syscaller!(SaveName, |game_data: &mut GameData, args: &[Variant]| {
     save_name(game_data, get_var!(args, 0), get_var!(args, 1))
 });
-simple_syscaller!(SaveQuick, |game_data: &mut GameData, args: Vec<Variant>| {
+simple_syscaller!(SaveQuick, |game_data: &mut GameData, args: &[Variant]| {
     save_quick(game_data, get_var!(args, 0))
 });
 simple_syscaller!(
     SaveTitle,
-    |game_data: &mut GameData, _args: Vec<Variant>| save_title(game_data)
+    |game_data: &mut GameData, _args: &[Variant]| save_title(game_data)
 );
-simple_syscaller!(SoundPan, |game_data: &mut GameData, args: Vec<Variant>| {
+simple_syscaller!(SoundPan, |game_data: &mut GameData, args: &[Variant]| {
     sound_pan(game_data, get_var!(args, 0), get_var!(args, 1))
 });
 simple_syscaller!(
     TextDataGet,
-    |_game_data: &mut GameData, args: Vec<Variant>| text_data_get(
+    |_game_data: &mut GameData, args: &[Variant]| text_data_get(
         get_var!(args, 0),
         get_var!(args, 1),
         get_var!(args, 2)
@@ -728,7 +728,7 @@ simple_syscaller!(
 );
 simple_syscaller!(
     TextDataSet,
-    |_game_data: &mut GameData, args: Vec<Variant>| text_data_set(
+    |_game_data: &mut GameData, args: &[Variant]| text_data_set(
         get_var!(args, 0),
         get_var!(args, 1),
         get_var!(args, 2)
@@ -736,7 +736,7 @@ simple_syscaller!(
 );
 simple_syscaller!(
     TextHistory,
-    |_game_data: &mut GameData, args: Vec<Variant>| text_history(
+    |_game_data: &mut GameData, args: &[Variant]| text_history(
         get_var!(args, 0),
         get_var!(args, 1),
         get_var!(args, 2),
@@ -745,7 +745,7 @@ simple_syscaller!(
 );
 simple_syscaller!(
     TextHyphenation,
-    |game_data: &mut GameData, args: Vec<Variant>| text_hyphenation(
+    |game_data: &mut GameData, args: &[Variant]| text_hyphenation(
         game_data,
         get_var!(args, 0),
         get_var!(args, 1),

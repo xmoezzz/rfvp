@@ -81,6 +81,24 @@ impl SoftRenderer {
 
     pub fn render_motion(&mut self, motion: &MotionManager) -> Result<(), SoftRenderError> {
         self.stats = SoftRendererStats::default();
+        // A mask dissolve that just started wipes away the frame last shown.
+        if self.mask_frame.wants_snapshot(motion) {
+            let fb = &self.framebuffer;
+            let (w, h) = (fb.width(), fb.height());
+            let bpp = fb.format().bytes_per_pixel();
+            let mut rgba = Vec::with_capacity((w * h * 4) as usize);
+            for y in 0..h as usize {
+                for px in fb.pixels()[y * fb.stride()..][..w as usize * bpp].chunks_exact(bpp) {
+                    match fb.format() {
+                        PixelFormat::Rgba8 => rgba.extend_from_slice(&[px[0], px[1], px[2], px[3]]),
+                        PixelFormat::Bgra8 => rgba.extend_from_slice(&[px[2], px[1], px[0], px[3]]),
+                    }
+                }
+            }
+            if let Some(frame) = image::RgbaImage::from_raw(w, h, rgba) {
+                self.mask_frame.set_snapshot(motion, frame);
+            }
+        }
         self.framebuffer.clear_rgba(0, 0, 0, 255);
 
         let prim_manager = motion.prim_manager();
@@ -109,8 +127,12 @@ impl SoftRenderer {
             self.additive = false;
             for y in 0..h {
                 for x in 0..w {
-                    let alpha = sample_linear(&image, vec2((x as f32 + 0.5)/w as f32, (y as f32 + 0.5)/h as f32)).w;
-                    self.blend_pixel(x, y, vec4(0.0, 0.0, 0.0, alpha));
+                    let color = if image.dimensions() == (w, h) {
+                        rgba_to_vec4(image.get_pixel(x, y).0)
+                    } else {
+                        sample_linear(&image, vec2((x as f32 + 0.5)/w as f32, (y as f32 + 0.5)/h as f32))
+                    };
+                    self.blend_pixel(x, y, color);
                 }
             }
             self.mask_frame.image = Some(image);

@@ -83,6 +83,10 @@ pub struct Parser {
     pub buffer: Arc<Vec<u8>>,
     #[cfg(feature = "old_school")]
     source: Box<dyn HcbByteSource>,
+    /// The script bytes last fetched from `source`: an instruction and its operands come
+    /// from one fetch (on the PlayStation a fetch per byte was a fifth of the frame).
+    #[cfg(feature = "old_school")]
+    window: core::cell::UnsafeCell<FetchWindow>,
     pub nls: Nls,
     pub sys_desc_offset: u32,
     /// entry point (offset) of the script
@@ -99,7 +103,44 @@ pub struct Parser {
     pub syscalls: SyscallMap,
 }
 
+/// See `Parser::window`.
+#[cfg(feature = "old_school")]
+struct FetchWindow {
+    start: usize,
+    len: usize,
+    bytes: [u8; 32],
+}
+
+// SAFETY: `window` is only touched through `&self` methods of a parser used by one thread at a
+// time (the VM's); it holds no pointers.
+#[cfg(feature = "old_school")]
+unsafe impl Sync for Parser {}
+
 impl Parser {
+    /// `N` script bytes from `offset`, from the fetch window, refilling it if needed.
+    #[cfg(feature = "old_school")]
+    #[inline]
+    fn fetch<const N: usize>(&self, offset: usize) -> Result<[u8; N]> {
+        // SAFETY: see `FetchWindow`; no reference into the window outlives this call.
+        let window = unsafe { &mut *self.window.get() };
+        let at = offset.wrapping_sub(window.start);
+        if at <= window.len && window.len - at >= N {
+            let mut out = [0u8; N];
+            out.copy_from_slice(&window.bytes[at..at + N]);
+            return Ok(out);
+        }
+        let len = self.source.len().saturating_sub(offset).min(window.bytes.len());
+        if len < N {
+            return Err(anyhow::anyhow!("offset out of bounds"));
+        }
+        self.source.read_bytes(offset, &mut window.bytes[..len])?;
+        window.start = offset;
+        window.len = len;
+        let mut out = [0u8; N];
+        out.copy_from_slice(&window.bytes[..N]);
+        Ok(out)
+    }
+
     #[cfg(not(feature = "no_std"))]
     pub fn new(path: impl AsRef<Path>, nls: Nls) -> Result<Self> {
         let mut rdr = File::open(path)?;
@@ -166,6 +207,7 @@ impl Parser {
     fn from_source(source: Box<dyn HcbByteSource>, nls: Nls) -> Result<Self> {
         let mut parser = Parser {
             source,
+            window: core::cell::UnsafeCell::new(FetchWindow { start: 0, len: 0, bytes: [0; 32] }),
             nls,
             sys_desc_offset: 0,
             entry_point: 0,
@@ -187,7 +229,7 @@ impl Parser {
     pub fn read_u8(&self, offset: usize) -> Result<u8> {
         #[cfg(feature = "old_school")]
         {
-            return self.source.read_byte(offset);
+            return Ok(self.fetch::<1>(offset)?[0]);
         }
         #[cfg(not(feature = "old_school"))]
         {
@@ -202,9 +244,7 @@ impl Parser {
     pub fn read_u16(&self, offset: usize) -> Result<u16> {
         #[cfg(feature = "old_school")]
         {
-            let mut bytes = [0; 2];
-            self.source.read_bytes(offset, &mut bytes)?;
-            return Ok(u16::from_le_bytes(bytes));
+            return Ok(u16::from_le_bytes(self.fetch::<2>(offset)?));
         }
         #[cfg(not(feature = "old_school"))]
         {
@@ -222,9 +262,7 @@ impl Parser {
     pub fn read_u32(&self, offset: usize) -> Result<u32> {
         #[cfg(feature = "old_school")]
         {
-            let mut bytes = [0; 4];
-            self.source.read_bytes(offset, &mut bytes)?;
-            return Ok(u32::from_le_bytes(bytes));
+            return Ok(u32::from_le_bytes(self.fetch::<4>(offset)?));
         }
         #[cfg(not(feature = "old_school"))]
         {
@@ -259,9 +297,7 @@ impl Parser {
     pub fn read_i16(&self, offset: usize) -> Result<i16> {
         #[cfg(feature = "old_school")]
         {
-            let mut bytes = [0; 2];
-            self.source.read_bytes(offset, &mut bytes)?;
-            return Ok(i16::from_le_bytes(bytes));
+            return Ok(i16::from_le_bytes(self.fetch::<2>(offset)?));
         }
         #[cfg(not(feature = "old_school"))]
         {
@@ -279,9 +315,7 @@ impl Parser {
     pub fn read_i32(&self, offset: usize) -> Result<i32> {
         #[cfg(feature = "old_school")]
         {
-            let mut bytes = [0; 4];
-            self.source.read_bytes(offset, &mut bytes)?;
-            return Ok(i32::from_le_bytes(bytes));
+            return Ok(i32::from_le_bytes(self.fetch::<4>(offset)?));
         }
         #[cfg(not(feature = "old_school"))]
         {
@@ -301,9 +335,7 @@ impl Parser {
     pub fn read_f32(&self, offset: usize) -> Result<f32> {
         #[cfg(feature = "old_school")]
         {
-            let mut bytes = [0; 4];
-            self.source.read_bytes(offset, &mut bytes)?;
-            return Ok(f32::from_le_bytes(bytes));
+            return Ok(f32::from_le_bytes(self.fetch::<4>(offset)?));
         }
         #[cfg(not(feature = "old_school"))]
         {
@@ -331,13 +363,10 @@ impl Parser {
             {
                 return Err(anyhow::anyhow!("offset out of bounds"));
             }
-            let mut string = Vec::new();
-            for i in 0..len {
-                let byte = self.read_u8(offset + i)?;
-                if byte == 0 {
-                    break;
-                }
-                string.push(byte);
+            let mut string = alloc::vec![0u8; len];
+            self.source.read_bytes(offset, &mut string)?;
+            if let Some(end) = string.iter().position(|&b| b == 0) {
+                string.truncate(end);
             }
             return self.decode_string_bytes(&string);
         }
@@ -363,7 +392,7 @@ impl Parser {
         }
     }
 
-    fn decode_string_bytes(&self, string: &[u8]) -> Result<String> {
+    pub(crate) fn decode_string_bytes(&self, string: &[u8]) -> Result<String> {
         let (s, errors) = crate::text_codec::decode(self.nls.clone(), string);
         if errors {
             log::error!("failed to decode string as {:?}", self.nls);
@@ -563,25 +592,24 @@ impl HcbByteSource for MemoryHcbSource {
 struct HcbPage {
     index: usize,
     valid_len: usize,
-    age: u64,
+    age: u32,
     data: Vec<u8>,
 }
 
 #[cfg(feature = "old_school")]
 struct PagedHcbState<F: crate::host_api::RfvpFile> {
     file: F,
-    tick: u64,
+    tick: u32,
     pages: Vec<HcbPage>,
-    /// The page the last byte came from (an index into `pages`): scripts read on in the same
-    /// page almost always, and a lookup per byte made each instruction cost ~1600 cycles on
-    /// the PS2.
-    last: usize,
+    /// For each page of the file, its slot in `pages` plus one (0: not cached): a lookup per
+    /// page change instead of a search of every cached page.
+    slot_of: Vec<u16>,
 }
 
 #[cfg(feature = "old_school")]
 struct PagedHcbSource<F: crate::host_api::RfvpFile> {
     len: usize,
-    page_size: usize,
+    page_shift: u32,
     page_count: usize,
     state: spin::Mutex<PagedHcbState<F>>,
 }
@@ -589,59 +617,67 @@ struct PagedHcbSource<F: crate::host_api::RfvpFile> {
 #[cfg(feature = "old_school")]
 impl<F: crate::host_api::RfvpFile> PagedHcbSource<F> {
     fn new(file: F, len: usize, page_size: usize, page_count: usize) -> Self {
+        // Pages are a power of two, so a page and an offset in it are a shift and a mask.
+        let page_shift = page_size.next_power_of_two().trailing_zeros();
+        let total_pages = (len >> page_shift) + 1;
         Self {
             len,
-            page_size,
-            page_count,
+            page_shift,
+            page_count: page_count.clamp(1, u16::MAX as usize - 1),
             state: spin::Mutex::new(PagedHcbState {
                 file,
                 tick: 0,
                 pages: Vec::new(),
-                last: usize::MAX,
+                slot_of: alloc::vec![0; total_pages],
             }),
         }
     }
 
-    fn load_page(state: &mut PagedHcbState<F>, page_size: usize, page_index: usize) -> Result<u8> {
+    /// The slot holding page `page_index`, read from the file (in place of the page used
+    /// longest ago) if it is not cached.
+    fn slot(&self, state: &mut PagedHcbState<F>, page_index: usize) -> Result<usize> {
         state.tick = state.tick.wrapping_add(1);
-        if let Some(page) = state.pages.iter_mut().find(|page| page.index == page_index) {
-            page.age = state.tick;
-            return Ok(0);
+        let tick = state.tick;
+        let cached = state.slot_of[page_index] as usize;
+        if cached != 0 {
+            state.pages[cached - 1].age = tick;
+            return Ok(cached - 1);
         }
-
-        let victim_index = state
-            .pages
-            .iter()
-            .enumerate()
-            .min_by_key(|(_, page)| page.age)
-            .map(|(idx, _)| idx);
-        let mut data = alloc::vec![0; page_size];
-        let offset = page_index
-            .checked_mul(page_size)
-            .ok_or_else(|| anyhow::anyhow!("HCB page offset overflow"))?;
-        let read = state
-            .file
-            .read_at(offset as u64, &mut data)
+        let page_size = 1usize << self.page_shift;
+        let slot = if state.pages.len() < self.page_count {
+            state.pages.push(HcbPage { index: usize::MAX, valid_len: 0, age: 0, data: alloc::vec![0; page_size] });
+            state.pages.len() - 1
+        } else {
+            let victim = state
+                .pages
+                .iter()
+                .enumerate()
+                .max_by_key(|(_, page)| tick.wrapping_sub(page.age))
+                .map(|(idx, _)| idx)
+                .unwrap_or(0);
+            let old = state.pages[victim].index;
+            if old != usize::MAX {
+                state.slot_of[old] = 0;
+            }
+            victim
+        };
+        let PagedHcbState { file, pages, slot_of, .. } = state;
+        let page = &mut pages[slot];
+        let started = crate::perf::start();
+        let read = file
+            .read_at((page_index << self.page_shift) as u64, &mut page.data)
             .map_err(|err| anyhow::anyhow!("HCB page read failed: {:?}", err))?;
+        crate::perf::stop(crate::perf::SCRIPT_IO, started);
+        crate::perf::SCRIPT_PAGE_READS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         if read == 0 {
+            page.index = usize::MAX;
             return Err(anyhow::anyhow!("HCB page read returned EOF"));
         }
-        if let Some(idx) = victim_index {
-            state.pages[idx] = HcbPage {
-                index: page_index,
-                valid_len: read,
-                age: state.tick,
-                data,
-            };
-        } else {
-            state.pages.push(HcbPage {
-                index: page_index,
-                valid_len: read,
-                age: state.tick,
-                data,
-            });
-        }
-        Ok(0)
+        page.index = page_index;
+        page.valid_len = read;
+        page.age = tick;
+        slot_of[page_index] = (slot + 1) as u16;
+        Ok(slot)
     }
 }
 
@@ -651,24 +687,20 @@ impl<F: crate::host_api::RfvpFile> HcbByteSource for PagedHcbSource<F> {
         if offset.checked_add(out.len()).is_none_or(|end| end > self.len) {
             return Err(anyhow::anyhow!("offset out of bounds"));
         }
-        // Read a cached operand with one lock and one virtual call, rather than
-        // repeating both for each byte. Boundary crossings use the usual loader.
-        let (page_index, page_offset) = if self.page_size.is_power_of_two() {
-            (offset >> self.page_size.trailing_zeros(), offset & (self.page_size - 1))
-        } else {
-            (offset / self.page_size, offset % self.page_size)
-        };
-        {
-            let state = self.state.lock();
-            if let Some(page) = state.pages.get(state.last) {
-                if page.index == page_index && page_offset + out.len() <= page.valid_len {
-                    out.copy_from_slice(&page.data[page_offset..page_offset + out.len()]);
-                    return Ok(());
-                }
+        let mut state = self.state.lock();
+        let mask = (1usize << self.page_shift) - 1;
+        let mut done = 0;
+        while done < out.len() {
+            let at = offset + done;
+            let slot = self.slot(&mut state, at >> self.page_shift)?;
+            let page = &state.pages[slot];
+            let from = at & mask;
+            let n = (out.len() - done).min(page.valid_len.saturating_sub(from));
+            if n == 0 {
+                return Err(anyhow::anyhow!("offset out of bounds"));
             }
-        }
-        for (i, byte) in out.iter_mut().enumerate() {
-            *byte = self.read_byte(offset + i)?;
+            out[done..done + n].copy_from_slice(&page.data[from..from + n]);
+            done += n;
         }
         Ok(())
     }
@@ -678,57 +710,9 @@ impl<F: crate::host_api::RfvpFile> HcbByteSource for PagedHcbSource<F> {
     }
 
     fn read_byte(&self, offset: usize) -> Result<u8> {
-        if offset >= self.len {
-            return Err(anyhow::anyhow!("offset out of bounds"));
-        }
-        let (page_index, page_offset) = if self.page_size.is_power_of_two() {
-            let shift = self.page_size.trailing_zeros();
-            (offset >> shift, offset & (self.page_size - 1))
-        } else {
-            (offset / self.page_size, offset % self.page_size)
-        };
-        let mut state = self.state.lock();
-        if let Some(page) = state.pages.get(state.last) {
-            if page.index == page_index && page_offset < page.valid_len {
-                return Ok(page.data[page_offset]);
-            }
-        }
-        if state.pages.iter().all(|page| page.index != page_index) {
-            if state.pages.len() < self.page_count {
-                let mut data = alloc::vec![0; self.page_size];
-                let read = state
-                    .file
-                    .read_at((page_index * self.page_size) as u64, &mut data)
-                    .map_err(|err| anyhow::anyhow!("HCB page read failed: {:?}", err))?;
-                if read == 0 {
-                    return Err(anyhow::anyhow!("HCB page read returned EOF"));
-                }
-                state.tick = state.tick.wrapping_add(1);
-                let age = state.tick;
-                state.pages.push(HcbPage {
-                    index: page_index,
-                    valid_len: read,
-                    age,
-                    data,
-                });
-            } else {
-                Self::load_page(&mut state, self.page_size, page_index)?;
-            }
-        }
-        let tick = state.tick.wrapping_add(1);
-        state.tick = tick;
-        let slot = state
-            .pages
-            .iter()
-            .position(|page| page.index == page_index)
-            .ok_or_else(|| anyhow::anyhow!("HCB page cache miss"))?;
-        state.last = slot;
-        let page = &mut state.pages[slot];
-        if page_offset >= page.valid_len {
-            return Err(anyhow::anyhow!("offset out of bounds"));
-        }
-        page.age = tick;
-        Ok(page.data[page_offset])
+        let mut byte = [0u8; 1];
+        self.read_bytes(offset, &mut byte)?;
+        Ok(byte[0])
     }
 }
 

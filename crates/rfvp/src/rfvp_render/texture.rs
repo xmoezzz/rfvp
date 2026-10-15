@@ -183,6 +183,12 @@ impl GpuTexture {
                 ],
             });
 
+        super::mem_stats::TEXTURES_MADE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        super::mem_stats::add(
+            &super::mem_stats::TEXTURE_BYTES,
+            &super::mem_stats::TEXTURES,
+            w as u64 * h as u64 * 4,
+        );
         Self {
             texture,
             view,
@@ -212,6 +218,8 @@ impl GpuTexture {
         // Queue::write_texture has no COPY_BYTES_PER_ROW_ALIGNMENT requirement, so upload the
         // tightly packed rows directly instead of building a padded full-size copy per update.
         let bytes_per_row = 4u32.saturating_mul(src_w);
+        super::mem_stats::TEXTURE_WRITES
+            .fetch_add(bytes_per_row as u64 * src_h as u64, std::sync::atomic::Ordering::Relaxed);
 
         resources.queue.write_texture(
             wgpu::ImageCopyTexture {
@@ -246,5 +254,15 @@ impl GpuTexture {
 
     pub fn raw_view(&self) -> &wgpu::TextureView {
         &self.view
+    }
+}
+
+impl Drop for GpuTexture {
+    fn drop(&mut self) {
+        super::mem_stats::sub(
+            &super::mem_stats::TEXTURE_BYTES,
+            &super::mem_stats::TEXTURES,
+            self.size.0 as u64 * self.size.1 as u64 * 4,
+        );
     }
 }

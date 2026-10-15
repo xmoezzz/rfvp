@@ -271,7 +271,11 @@ impl VfsFile {
             let Some(raw) = names.get(name_off..).and_then(|rest| rest.split(|&b| b == 0).next()) else {
                 continue;
             };
-            let hash = name_hash(&crate::text_codec::decode(nls.clone(), raw).0);
+            // ASCII names (nearly all) hash the same undecoded: no string per entry.
+            let hash = match core::str::from_utf8(raw) {
+                Ok(text) if raw.is_ascii() => name_hash(text),
+                _ => name_hash(&crate::text_codec::decode(nls.clone(), raw).0),
+            };
             index.push((hash, offset, size));
         }
         index.sort_unstable_by_key(|e| e.0);

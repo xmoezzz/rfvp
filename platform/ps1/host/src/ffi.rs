@@ -2,8 +2,6 @@
 //! engine and the entry points it calls.
 
 use alloc::boxed::Box;
-use alloc::format;
-use alloc::string::String;
 use core::alloc::{GlobalAlloc, Layout};
 use core::ffi::{c_char, c_int, c_void};
 use core::panic::PanicInfo;
@@ -18,6 +16,10 @@ extern "C" {
     // main.c
     fn rfvp_ps1_log(message: *const u8, len: usize);
     fn rfvp_ps1_ticks_us() -> u64;
+    fn rfvp_ps1_oom(size: usize);
+    #[cfg(feature = "diagnostics")]
+    fn rfvp_ps1_stats(frame: u32, ops: u32, vm_us: u32, tree_us: u32, submit_us: u32, syscall_us: u32, script_io_us: u32,
+                      used: usize, peak: usize, free: usize);
     pub fn rfvp_ps1_file_find(name: *const c_char, size: *mut u32) -> c_int;
     pub fn rfvp_ps1_file_read(handle: c_int, offset: u32, buf: *mut u8, len: u32) -> c_int;
     pub fn rfvp_ps1_file_lba(handle: c_int) -> u32;
@@ -27,6 +29,14 @@ extern "C" {
 
 pub fn log(message: &str) {
     unsafe { rfvp_ps1_log(message.as_ptr(), message.len()) };
+}
+
+#[cfg(feature = "diagnostics")]
+fn profile_us() -> u64 {
+    extern "C" {
+        fn rfvp_ps1_profile_us() -> u64;
+    }
+    unsafe { rfvp_ps1_profile_us() }
 }
 
 pub fn ticks_us() -> u64 {
@@ -50,17 +60,15 @@ pub fn c_path(path: &str) -> Option<alloc::vec::Vec<u8>> {
 /// main.c hands over the memory with `rfvp_ps1_heap_init`; its malloc and free (weak in
 /// PSn00bSDK's libc) are the ones below.
 static mut TALC: talc::Talc<talc::ErrOnOom> = talc::Talc::new(talc::ErrOnOom);
+#[cfg(feature = "diagnostics")]
+static mut PEAK_HEAP: usize = 0;
 
-/// Bytes handed out, and the most at once (reported on the TTY).
-pub static mut HEAP_IN_USE: usize = 0;
-pub static mut HEAP_PEAK: usize = 0;
-
-fn account(delta: isize) {
+#[inline]
+fn track_heap() {
+    #[cfg(feature = "diagnostics")]
     unsafe {
-        HEAP_IN_USE = (HEAP_IN_USE as isize + delta) as usize;
-        if HEAP_IN_USE > HEAP_PEAK {
-            HEAP_PEAK = HEAP_IN_USE;
-        }
+        let counters = talc().get_counters();
+        PEAK_HEAP = PEAK_HEAP.max(counters.claimed_bytes - counters.available_bytes);
     }
 }
 
@@ -74,96 +82,32 @@ pub unsafe extern "C" fn rfvp_ps1_heap_init(base: *mut u8, size: usize) {
     let _ = unsafe { talc().claim(talc::Span::from_base_size(base, size)) };
 }
 
-unsafe fn allocate(layout: Layout) -> Option<core::ptr::NonNull<u8>> {
-    unsafe { talc().malloc(layout).ok() }
-}
-
-/// Reports an allocation that failed, with the heap in use, without allocating.
-fn trace_big(size: usize, _p: *mut u8) {
-    let mut buf = [0u8; 96];
-    let mut n = 0;
-    let mut put = |bytes: &[u8], buf: &mut [u8; 96], n: &mut usize| {
-        for b in bytes {
-            buf[*n] = *b;
-            *n += 1;
-        }
-    };
-    let mut number = |v: usize, buf: &mut [u8; 96], n: &mut usize| {
-        let mut digits = [0u8; 10];
-        let (mut d, mut v) = (0, v);
-        loop {
-            digits[d] = b'0' + (v % 10) as u8;
-            d += 1;
-            v /= 10;
-            if v == 0 {
-                break;
-            }
-        }
-        while d > 0 {
-            d -= 1;
-            buf[*n] = digits[d];
-            *n += 1;
-        }
-    };
-    put(if _p.is_null() { b"rfvp: no memory for " } else { b"rfvp: big alloc of  " }, &mut buf, &mut n);
-    number(size, &mut buf, &mut n);
-    put(b" bytes, in use ", &mut buf, &mut n);
-    number(unsafe { HEAP_IN_USE } / 1024, &mut buf, &mut n);
-    put(b" KiB\n", &mut buf, &mut n);
-    unsafe { rfvp_ps1_log(buf.as_ptr(), n) };
-}
-
 struct TalcAlloc;
 
 unsafe impl GlobalAlloc for TalcAlloc {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        match unsafe { allocate(layout) } {
-            Some(p) => {
-                account(layout.size() as isize);
-                p.as_ptr()
-            }
-            None => {
-                trace_big(layout.size(), core::ptr::null_mut());
+        match unsafe { talc().malloc(layout) } {
+            Ok(p) => { track_heap(); p.as_ptr() },
+            Err(_) => {
+                unsafe { rfvp_ps1_oom(layout.size()) };
                 core::ptr::null_mut()
             }
         }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        account(-(layout.size() as isize));
         unsafe { talc().free(core::ptr::NonNull::new_unchecked(ptr), layout) };
     }
 
     unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
         let p = unsafe { core::ptr::NonNull::new_unchecked(ptr) };
-        let heap = talc();
         if new_size <= layout.size() {
-            unsafe { heap.shrink(p, layout, new_size) };
-            account(new_size as isize - layout.size() as isize);
+            unsafe { talc().shrink(p, layout, new_size) };
             return ptr;
         }
-        if let Ok(grown) = unsafe { heap.grow_in_place(p, layout, new_size) } {
-            account(new_size as isize - layout.size() as isize);
-            return grown.as_ptr();
-        }
-        // Moved: to the heap a block of the new size belongs in.
-        let Ok(new_layout) = Layout::from_size_align(new_size, layout.align()) else {
-            return core::ptr::null_mut();
-        };
-        match unsafe { allocate(new_layout) } {
-            Some(moved) => {
-                unsafe {
-                    core::ptr::copy_nonoverlapping(ptr, moved.as_ptr(), layout.size());
-                    heap.free(p, layout);
-                }
-                account(new_size as isize - layout.size() as isize);
-                moved.as_ptr()
-            }
-            None => {
-                trace_big(new_size, core::ptr::null_mut());
-                core::ptr::null_mut()
-            }
-        }
+        let result = unsafe { talc().grow(p, layout, new_size) };
+        track_heap();
+        result.map_or(core::ptr::null_mut(), |p| p.as_ptr())
     }
 }
 
@@ -229,124 +173,54 @@ static ALLOCATOR: TalcAlloc = TalcAlloc;
 
 #[cfg(target_arch = "mips")]
 #[panic_handler]
-fn panic(info: &PanicInfo<'_>) -> ! {
-    let (in_use, peak) = unsafe { (HEAP_IN_USE, HEAP_PEAK) };
-    log(&format!("rfvp: panic (heap {} KiB, peak {} KiB): {info}\n", in_use / 1024, peak / 1024));
+fn panic(_info: &PanicInfo<'_>) -> ! {
+    // No message: formatting one would put the whole formatting machinery in 2 MiB.
+    log("rfvp: panic\n");
+    #[cfg(feature = "diagnostics")]
+    {
+        use core::fmt::Write;
+        struct Tty;
+        impl Write for Tty {
+            fn write_str(&mut self, value: &str) -> core::fmt::Result {
+                log(value);
+                Ok(())
+            }
+        }
+        let _ = writeln!(Tty, "{}", _info);
+    }
     loop {}
 }
 
 pub struct Session {
     app: Ps1App,
+    #[cfg(feature = "diagnostics")]
     frames: u32,
-    window_started_us: u64,
-    last_frame_us: u64,
-    worst_us: u64,
-    window_frames: u32,
 }
 
-/// Frames between two reports on the TTY.
-const REPORT_EVERY: u32 = 30;
-static mut PROFILING: bool = false;
-
-/// Enable stage timing from DEBUG.TXT. VBlank ticks are deliberately not
-/// registered as a per-opcode cycle counter: they are not CPU cycles.
-#[no_mangle]
-pub extern "C" fn rfvp_ps1_set_profiling(enabled: c_int) {
-    unsafe { PROFILING = enabled != 0; }
-    if enabled != 0 { rfvp::perf::set_clock(ticks_us); }
-}
-
-impl Session {
-    fn report_error(&mut self, what: &str, err: Option<rfvp::host_api::RfvpError>) {
-        let detail = self.app.core().last_error_detail().map(String::from).unwrap_or_default();
-        log(&format!(
-            "rfvp: {what}{} (at core mark {})\n{detail}\nlog:\n{}\n",
-            err.map(|err| format!(" ({err:?})")).unwrap_or_default(),
-            rfvp::perf::last_mark(),
-            rfvp::ring_log::dump()
-        ));
-    }
-
-    fn report(&mut self) {
-        let now = ticks_us();
-        if self.frames == 1 {
-            self.window_started_us = now;
-            self.last_frame_us = now;
-            rfvp::perf::take();
-            rfvp::perf::take_ops();
-            return;
-        }
-        self.worst_us = self.worst_us.max(now.saturating_sub(self.last_frame_us));
-        self.last_frame_us = now;
-        self.window_frames += 1;
-        if self.window_frames < REPORT_EVERY {
-            return;
-        }
-        let window_us = now.saturating_sub(self.window_started_us).max(1);
-        let (in_use, peak) = unsafe { (HEAP_IN_USE, HEAP_PEAK) };
-        log(&format!(
-            "rfvp: frame {}: {:.1} fps, slowest {} ms, heap {} KiB (peak {} KiB)\n",
-            self.app.core().frame_index(),
-            REPORT_EVERY as f32 * 1_000_000.0 / window_us as f32,
-            self.worst_us / 1000,
-            in_use / 1024,
-            peak / 1024,
-        ));
-        self.window_started_us = now;
-        self.worst_us = 0;
-        self.window_frames = 0;
-        if unsafe { PROFILING } {
-            let stages = rfvp::perf::take();
-            let ops = rfvp::perf::take_ops();
-            for (name, us) in rfvp::perf::STAGES.iter().zip(stages) {
-                if us != 0 { log(&format!("rfvp: perf {name}: {} us/frame\n", us / REPORT_EVERY)); }
-            }
-            log(&format!("rfvp: perf ops: {} per frame\n", ops / REPORT_EVERY));
-        }
-    }
-}
-
-/// Boot the game on the disc. Returns null if it cannot start (the reason goes to the TTY).
+/// Boot the game on the disc. Returns null if it cannot start.
 #[no_mangle]
 pub unsafe extern "C" fn rfvp_ps1_start() -> *mut Session {
-    rfvp::ring_log::install();
-    let app = Ps1App::new(RfvpCoreConfig::default(), 64);
-    let now = ticks_us();
+    #[cfg(feature = "diagnostics")]
+    rfvp::perf::set_clock(profile_us);
     let mut session = Box::new(Session {
-        app,
+        app: Ps1App::new(RfvpCoreConfig::default(), 64),
+        #[cfg(feature = "diagnostics")]
         frames: 0,
-        window_started_us: now,
-        last_frame_us: now,
-        worst_us: 0,
-        window_frames: 0,
     });
-    {
-        use core::mem::size_of;
-        use rfvp::subsystem::resources::*;
-        log(&format!(
-            "rfvp: sizes: prim {} graph {} text item {} save item {} motion manager {} game data {}\n",
-            size_of::<prim::Prim>(),
-            size_of::<graph_buff::GraphBuff>(),
-            size_of::<text_manager::TextItem>(),
-            size_of::<Option<save_manager::SaveItem>>(),
-            size_of::<motion_manager::MotionManager>(),
-            size_of::<rfvp::subsystem::world::GameData>(),
-        ));
-        log(&format!("rfvp: heap before boot {} KiB\n", unsafe { HEAP_IN_USE } / 1024));
-    }
-    log("rfvp: booting the game\n");
     let boot = RfvpBootConfig {
         nls: Nls::ShiftJIS,
         max_hcb_bytes: 4 * 1024 * 1024,
-        // Pages of the script in RAM; the rest stays on the disc.
-        hcb_cache_bytes: 48 * 1024,
+        // The compiled script's code in RAM (crates/rfvp/src/aot.rs); the rest stays on the
+        // disc. A miss costs a CD seek (and the music's), over half a second: 128 KiB holds the
+        // code that runs every frame (no more RAM in all than the interpreter took, with its
+        // 96 KiB of script pages and its own code).
+        hcb_cache_bytes: 128 * 1024,
         ..RfvpBootConfig::default()
     };
-    if let Err(err) = session.app.boot(boot) {
-        session.report_error("the game could not be loaded", Some(err));
+    if session.app.boot(boot).is_err() {
+        log("rfvp: the game could not be loaded\n");
         return core::ptr::null_mut();
     }
-    log("rfvp: the game is loaded, running\n");
     Box::into_raw(session)
 }
 
@@ -356,18 +230,36 @@ pub unsafe extern "C" fn rfvp_ps1_start() -> *mut Session {
 pub unsafe extern "C" fn rfvp_ps1_frame(session: *mut Session, input: *const Ps1Input) -> c_int {
     let session = unsafe { &mut *session };
     let input = unsafe { &*input };
-    if let Err(err) = session.app.run_frame(input) {
-        session.report_error("the game stopped with an error", Some(err));
+    if session.app.run_frame(input).is_err() {
+        log("rfvp: the game stopped with an error\n");
         return -1;
+    }
+    #[cfg(feature = "diagnostics")]
+    {
+        session.frames += 1;
+        if session.frames % 100 == 0 {
+            let totals = rfvp::perf::take();
+            {
+                let mut m = alloc::string::String::from("perf:");
+                for (name, us) in rfvp::perf::STAGES.iter().zip(totals.iter()) {
+                    if *us > 0 {
+                        m += &alloc::format!(" {}={}", name, us / 100);
+                    }
+                }
+                m.push('\n');
+                log(&m);
+            }
+            let ops = rfvp::perf::take_ops();
+            let counters = talc().get_counters();
+            unsafe { rfvp_ps1_stats(session.frames, ops / 100, totals[17] / 100,
+                totals[11] / 100, totals[12] / 100, totals[20] / 100, totals[22] / 100,
+                counters.claimed_bytes - counters.available_bytes, PEAK_HEAP,
+                counters.available_bytes) };
+        }
     }
     if session.app.quit_requested() {
         return 1;
     }
-    session.frames += 1;
-    if session.frames == 1 {
-        log("rfvp: the first frame was drawn\n");
-    }
-    session.report();
     0
 }
 
@@ -377,3 +269,4 @@ pub unsafe extern "C" fn rfvp_ps1_stop(session: *mut Session) {
         drop(unsafe { Box::from_raw(session) });
     }
 }
+

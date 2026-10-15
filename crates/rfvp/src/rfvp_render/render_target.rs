@@ -179,6 +179,7 @@ impl RenderTarget {
                 usage: wgpu::BufferUsages::VERTEX,
             });
 
+        super::mem_stats::add(&super::mem_stats::TARGET_BYTES, &super::mem_stats::TARGETS, w as u64 * h as u64 * 4);
         Self {
             texture,
             view,
@@ -293,5 +294,12 @@ impl RenderTarget {
             bytes_per_row,
             padded_bytes_per_row,
         }
+    }
+}
+
+impl Drop for RenderTarget {
+    fn drop(&mut self) {
+        let (w, h) = self.size;
+        super::mem_stats::sub(&super::mem_stats::TARGET_BYTES, &super::mem_stats::TARGETS, w as u64 * h as u64 * 4);
     }
 }

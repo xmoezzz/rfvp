@@ -303,6 +303,20 @@ impl VmRunner {
         }
     }
 
+    /// The PlayStation runs the compiled script (crate::aot), which handles the thread
+    /// requests after each syscall as the loop below does after each instruction.
+    #[cfg(feature = "psx_aot")]
+    fn run_one_context(
+        &mut self,
+        tid: u32,
+        game: &mut GameData,
+        parser: &mut Parser,
+    ) -> Result<()> {
+        self.tm.run(tid, game, parser);
+        Ok(())
+    }
+
+    #[cfg(not(feature = "psx_aot"))]
     fn run_one_context(
         &mut self,
         tid: u32,

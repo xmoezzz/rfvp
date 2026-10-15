@@ -616,10 +616,18 @@ impl NvsgTexture {
         let expected = usize::from(width) * usize::from(height);
         if field32(4) as usize != expected { return Err(bytes); }
         let compressed = 12 + field32(8) as usize;
-        let alpha = match miniz_oxide::inflate::decompress_to_vec_zlib(&bytes[compressed..]) {
-            Ok(alpha) if alpha.len() == expected => alpha,
-            _ => return Err(bytes),
+        // Exclude the uncompressed GPU trailer and decode into the exact-sized alpha plane.
+        let Some(compressed_end) = start.checked_sub(crate::ps1_mask::HEADER_SIZE) else {
+            return Err(bytes);
         };
+        if compressed > compressed_end { return Err(bytes); }
+        let mut alpha = vec![0u8; expected];
+        match miniz_oxide::inflate::decompress_slice_iter_to_slice(
+            &mut alpha, core::iter::once(&bytes[compressed..compressed_end]), true, false,
+        ) {
+            Ok(length) if length == expected => {},
+            _ => return Err(bytes),
+        }
         self.typ = TextureType::Single8Bit;
         self.unknown1 = field16(16);
         self.width = width;

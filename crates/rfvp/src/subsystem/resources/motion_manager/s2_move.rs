@@ -145,65 +145,76 @@ impl ScaleMotion {
             return false;
         }
 
-        let src_x = self.src_fx as i64;
-        let src_y = self.src_fy as i64;
-        let dst_x = self.dst_fx as i64;
-        let dst_y = self.dst_fy as i64;
-        let delta_x = dst_x - src_x;
-        let delta_y = dst_y - src_y;
-        let e = self.elapsed as i64;
-        let d = self.duration as i64;
+        #[cfg(feature = "psx")]
+        let (fx, fy) = {
+            let p = crate::ps1_math::progress(self.elapsed, self.duration, self.typ.clone() as u8);
+            (crate::ps1_math::interpolate(i32::from(self.src_fx), i32::from(self.dst_fx), p),
+             crate::ps1_math::interpolate(i32::from(self.src_fy), i32::from(self.dst_fy), p))
+        };
+        #[cfg(not(feature = "psx"))]
+        let (fx, fy) = {
+            let src_x = self.src_fx as i64;
+            let src_y = self.src_fy as i64;
+            let dst_x = self.dst_fx as i64;
+            let dst_y = self.dst_fy as i64;
+            let delta_x = dst_x - src_x;
+            let delta_y = dst_y - src_y;
+            let e = self.elapsed as i64;
+            let d = self.duration as i64;
 
-        let (fx, fy) = match self.typ {
-            ScaleMotionType::Linear => (src_x + delta_x * e / d, src_y + delta_y * e / d),
-            ScaleMotionType::Accelerate => (
-                src_x + delta_x * e * e / (d * d),
-                src_y + delta_y * e * e / (d * d),
-            ),
-            ScaleMotionType::Decelerate => (
-                dst_x - delta_x * (d - e) * (d - e) / (d * d),
-                dst_y - delta_y * (d - e) * (d - e) / (d * d),
-            ),
-            ScaleMotionType::Rebound => {
-                let half_delta_x = delta_x / 2;
-                let half_delta_y = delta_y / 2;
-                let half_dur = d / 2;
-                if e > half_dur {
-                    let denom = (d - half_dur) * (d - half_dur);
-                    let t = (d - e) * (d - e);
-                    (
-                        dst_x - (delta_x - half_delta_x) * t / denom,
-                        dst_y - (delta_y - half_delta_y) * t / denom,
-                    )
-                } else {
-                    let denom = half_dur * half_dur;
-                    (
-                        src_x + half_delta_x * e * e / denom,
-                        src_y + half_delta_y * e * e / denom,
-                    )
+            let (fx, fy) = match self.typ {
+                ScaleMotionType::Linear => (src_x + delta_x * e / d, src_y + delta_y * e / d),
+                ScaleMotionType::Accelerate => (
+                    src_x + delta_x * e * e / (d * d),
+                    src_y + delta_y * e * e / (d * d),
+                ),
+                ScaleMotionType::Decelerate => (
+                    dst_x - delta_x * (d - e) * (d - e) / (d * d),
+                    dst_y - delta_y * (d - e) * (d - e) / (d * d),
+                ),
+                ScaleMotionType::Rebound => {
+                    let half_delta_x = delta_x / 2;
+                    let half_delta_y = delta_y / 2;
+                    let half_dur = d / 2;
+                    if e > half_dur {
+                        let denom = (d - half_dur) * (d - half_dur);
+                        let t = (d - e) * (d - e);
+                        (
+                            dst_x - (delta_x - half_delta_x) * t / denom,
+                            dst_y - (delta_y - half_delta_y) * t / denom,
+                        )
+                    } else {
+                        let denom = half_dur * half_dur;
+                        (
+                            src_x + half_delta_x * e * e / denom,
+                            src_y + half_delta_y * e * e / denom,
+                        )
+                    }
                 }
-            }
-            ScaleMotionType::Bounce => {
-                let half_delta_x = delta_x / 2;
-                let half_delta_y = delta_y / 2;
-                let half_dur = d / 2;
-                if e > half_dur {
-                    let t = (e - half_dur) * (e - half_dur);
-                    let denom = (d - half_dur) * (d - half_dur);
-                    (
-                        half_delta_x + src_x + (delta_x - half_delta_x) * t / denom,
-                        half_delta_y + src_y + (delta_y - half_delta_y) * t / denom,
-                    )
-                } else {
-                    let t = (half_dur - e) * (half_dur - e);
-                    let denom = half_dur * half_dur;
-                    (
-                        half_delta_x + src_x - half_delta_x * t / denom,
-                        half_delta_y + src_y - half_delta_y * t / denom,
-                    )
+                ScaleMotionType::Bounce => {
+                    let half_delta_x = delta_x / 2;
+                    let half_delta_y = delta_y / 2;
+                    let half_dur = d / 2;
+                    if e > half_dur {
+                        let t = (e - half_dur) * (e - half_dur);
+                        let denom = (d - half_dur) * (d - half_dur);
+                        (
+                            half_delta_x + src_x + (delta_x - half_delta_x) * t / denom,
+                            half_delta_y + src_y + (delta_y - half_delta_y) * t / denom,
+                        )
+                    } else {
+                        let t = (half_dur - e) * (half_dur - e);
+                        let denom = half_dur * half_dur;
+                        (
+                            half_delta_x + src_x - half_delta_x * t / denom,
+                            half_delta_y + src_y - half_delta_y * t / denom,
+                        )
+                    }
                 }
-            }
-            _ => (dst_x, dst_y),
+                _ => (dst_x, dst_y),
+            };
+
+            (fx, fy)
         };
 
         let mut prim = prim_manager.get_prim(self.prim_id as i16);
@@ -215,6 +226,8 @@ impl ScaleMotion {
 }
 
 pub struct ScaleMotionContainer {
+    /// Slots from here on have never been used (ids are taken from the start): scans stop there.
+    live_end: usize,
     motions: Vec<ScaleMotion>,
     free_ids: Vec<u16>,
 }
@@ -226,7 +239,7 @@ impl ScaleMotionContainer {
             motions.push(ScaleMotion::new(i));
         }
         let free_ids: Vec<u16> = (0..512u16).rev().collect();
-        ScaleMotionContainer { motions, free_ids }
+        ScaleMotionContainer { live_end: 0, motions, free_ids }
     }
 
     pub fn push_motion(
@@ -244,6 +257,7 @@ impl ScaleMotionContainer {
         let Some(id) = self.free_ids.pop() else {
             return Ok(());
         };
+        self.live_end = self.live_end.max(id as usize + 1);
         let m = &mut self.motions[id as usize];
         m.prim_id = prim_id;
         m.running = true;
@@ -259,7 +273,7 @@ impl ScaleMotionContainer {
     }
 
     pub fn stop_motion(&mut self, prim_id: u32) -> Result<()> {
-        for m in &mut self.motions {
+        for m in &mut self.motions[..self.live_end] {
             if m.is_running_for(prim_id) {
                 let id = m.id;
                 m.finish();
@@ -271,11 +285,11 @@ impl ScaleMotionContainer {
     }
 
     pub fn test_motion(&self, prim_id: u32) -> bool {
-        self.motions.iter().any(|m| m.is_running_for(prim_id))
+        self.motions[..self.live_end].iter().any(|m| m.is_running_for(prim_id))
     }
 
     pub fn exec_scale_motion(&mut self, prim_manager: &PrimManager, flag: bool, elapsed: i32) {
-        for i in 0..self.motions.len() {
+        for i in 0..self.live_end {
             if !self.motions[i].running {
                 continue;
             }

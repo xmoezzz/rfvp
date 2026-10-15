@@ -125,7 +125,7 @@ pub fn history_get(game_data: &mut GameData, kind: &Variant, idx: &Variant) -> R
 ///
 pub struct HistoryGet;
 impl Syscaller for HistoryGet {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         history_get(
             game_data,
             super::get_var!(args, 0),
@@ -145,7 +145,7 @@ unsafe impl Sync for HistoryGet {}
 ///
 pub struct HistorySet;
 impl Syscaller for HistorySet {
-    fn call(&self, game_data: &mut GameData, args: Vec<Variant>) -> Result<Variant> {
+    fn call(&self, game_data: &mut GameData, args: &[Variant]) -> Result<Variant> {
         history_set(
             game_data,
             super::get_var!(args, 0),
