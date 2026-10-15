@@ -5,6 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
+rfvp-converter-api = { path = "../rfvp-converter-api" }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 encoding_rs = "0.8"
