@@ -536,6 +536,9 @@ impl RfvpCore {
             let t = crate::perf::start();
             // A SaveWrite whose payload was prepared earlier needs no capture of this frame.
             self.commit_prepared_save(host);
+            // The thumbnail is the frame last shown, as in the original engine (SaveCreate(3)
+            // reads its render target back when called), not one with the script's new state.
+            self.capture_pending_save(host);
             crate::perf::stop(19, t);
             crate::perf::mark(400);
             self.render_game_frame(host)?;
@@ -544,9 +547,6 @@ impl RfvpCore {
             vm_us = t1.saturating_sub(t0);
             scene_us = t2.saturating_sub(t1);
             render_us = t3.saturating_sub(t2);
-            let t = crate::perf::start();
-            self.capture_pending_save(host);
-            crate::perf::stop(19, t);
             self.us_since_global_save = self.us_since_global_save.saturating_add(elapsed_us);
             // The PlayStation writes the global save with each slot save only: encoding every
             // global on a timer needs RAM it does not have.
@@ -615,8 +615,8 @@ impl RfvpCore {
         }
     }
 
-    /// If a save asked for the current frame, take its thumbnail and the engine state now, and
-    /// write the slot (or prepare the payload for a later `SaveWrite`).
+    /// If a save asked for a capture, take the thumbnail of the frame last shown and the engine
+    /// state now, and write the slot (or prepare the payload for a later `SaveWrite`).
     fn capture_pending_save<H: RfvpHost>(&mut self, host: &mut H) {
         let Some((slot, thumb_w, thumb_h)) = self.game_data.save_manager.pending_save_capture()
         else {

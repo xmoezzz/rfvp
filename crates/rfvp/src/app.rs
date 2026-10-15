@@ -943,6 +943,21 @@ impl App {
                 .update(&self.resources, self.virtual_size, surface_size);
         }
 
+        // Save thumbnail: as in the original engine (SaveCreate(3) reads its render target back
+        // when called), the frame last shown, before the script's new state (a menu) is drawn.
+        let save_capture = gd_read(&self.game_data).save_manager.pending_save_capture();
+        let save_frame = save_capture.map(|_| {
+            let mut encoder = self.resources.device.create_command_encoder(
+                &wgpu::CommandEncoderDescriptor { label: Some("rfvp save capture") },
+            );
+            let readback = self
+                .render_target
+                .encode_readback_rgba8(&self.resources.device, &mut encoder);
+            self.resources.queue.submit(Some(encoder.finish()));
+            let rgba = readback.map_to_rgba8(&self.resources.device);
+            (readback.width, readback.height, rgba)
+        });
+
         let dissolve_color: Option<glam::Vec4>;
         let dissolve2_color: Option<glam::Vec4>;
         {
@@ -1047,12 +1062,6 @@ impl App {
                 .evict_uploaded_cpu_pixels(|id, gen| renderer.is_graph_uploaded(id, gen));
         }
 
-        // Save thumbnail capture request (resolved after the virtual pass).
-        let save_capture = {
-            let gd = gd_read(&self.game_data);
-            gd.save_manager.pending_save_capture()
-        };
-
         let mut encoder =
             self.resources
                 .device
@@ -1109,11 +1118,6 @@ impl App {
             );
         }
 
-        // If a SaveWrite is pending, capture the current virtual render target to CPU.
-        let save_readback = save_capture.map(|_| {
-            self.render_target
-                .encode_readback_rgba8(&self.resources.device, &mut encoder)
-        });
         // `RFVP_DUMP_FRAMES`: the frame as rendered, for comparing renderers.
         let dump_path = frame_dump_path(self.debug_frame_no);
         let dump_readback = dump_path.as_ref().map(|_| {
@@ -1223,10 +1227,9 @@ impl App {
             }
         }
 
-        if let (Some(readback), Some((slot, thumb_w, thumb_h))) = (save_readback, save_capture) {
-            let src_w = readback.width.max(1);
-            let src_h = readback.height.max(1);
-            let rgba = readback.map_to_rgba8(&self.resources.device);
+        if let (Some((src_w, src_h, rgba)), Some((slot, thumb_w, thumb_h))) = (save_frame, save_capture) {
+            let src_w = src_w.max(1);
+            let src_h = src_h.max(1);
 
             let thumb_rgba = if thumb_w > 0 && thumb_h > 0 && (thumb_w != src_w || thumb_h != src_h)
             {
