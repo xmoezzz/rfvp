@@ -59,7 +59,15 @@ impl MaskDissolveFrame {
             }
             return;
         };
-        let phase = (motion.get_dissolve_alpha().clamp(0.0, 1.0) * 510.0 + 0.5) as u16;
+        let alpha = motion.get_dissolve_alpha().clamp(0.0, 1.0);
+        // Original engine: wait=4 (sub_425130) alpha-tests mask + 255 - 255t against 255, a
+        // hard-edged wipe; wait=5 (sub_424C10) blends mask + 255 - 510t. The top bit marks hard.
+        let hard = motion.get_dissolve_type() == DissolveType::MaskFadeIn;
+        let phase = if hard {
+            0x8000 | ((1.0 - alpha) * 255.0) as u16
+        } else {
+            (alpha * 510.0 + 0.5) as u16
+        };
         let serial = snapshot.map(|(serial, _)| serial);
         let same = self.source.as_ref().map_or(false, |(generation, path, s)| {
             *generation == graph.generation && path == &graph.texture_path && *s == serial
@@ -97,7 +105,11 @@ impl MaskDissolveFrame {
         }
         let mut lut = [0u8; 256];
         for (alpha, value) in lut.iter_mut().enumerate() {
-            *value = (alpha as i32 + i32::from(phase) - 255).clamp(0, 255) as u8;
+            *value = if hard {
+                if alpha as u16 >= phase & 0xff { 255 } else { 0 }
+            } else {
+                (alpha as i32 + i32::from(phase) - 255).clamp(0, 255) as u8
+            };
         }
         let rgba = self.image.as_mut().unwrap().as_mut_rgba8().unwrap();
         for (pixel, alpha) in rgba.as_mut().chunks_exact_mut(4).zip(&self.alpha) {
