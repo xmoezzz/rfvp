@@ -77,6 +77,15 @@ impl ThreadWrapper {
         self.requests.push_back(ThreadRequest::TextResume(id));
     }
 
+    pub(crate) fn cancel_text_requests(&mut self, id: u32) {
+        self.requests.retain(|request| match request {
+            ThreadRequest::TextWait(target) | ThreadRequest::TextResume(target) => {
+                id != 0 && *target != id
+            }
+            _ => true,
+        });
+    }
+
     pub fn thread_exit(&mut self, id: Option<u32>) {
         self.requests.push_back(ThreadRequest::Exit(id));
     }
