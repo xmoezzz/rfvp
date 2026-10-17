@@ -946,6 +946,7 @@ impl GpuPrimRenderer {
     }
 
     /// Build geometry and draw items from the current primitive tree.
+    /// Each tree traversal uses its own bounded 4096-byte stack visitation buffer.
     pub fn build(&mut self, resources: &GpuCommonResources, motion: &MotionManager) {
         self.vertices.clear();
         self.draws.clear();
@@ -961,7 +962,7 @@ impl GpuPrimRenderer {
 
         // 1) draw root tree (slot 0) always
         {
-            let mut visit = vec![0u8; 4096];
+            let mut visit = [0u8; 4096];
             self.collect_tree(
                 resources,
                 prim_manager,
@@ -1008,7 +1009,7 @@ impl GpuPrimRenderer {
         // 2) draw optional overlay root if non-zero
         let root = prim_manager.get_custom_root_prim_id() as i16;
         if root != 0 {
-            let mut visit = vec![0u8; 4096]; // do NOT reuse visit; allow redraw
+            let mut visit = [0u8; 4096]; // do NOT reuse visit; allow redraw
             self.collect_tree(
                 resources,
                 prim_manager,
