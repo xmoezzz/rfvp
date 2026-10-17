@@ -227,9 +227,11 @@ impl VmRunner {
             match req {
                 ThreadRequest::TextResume(id) => {
                     let mut st = self.tm.get_context_status(id);
-                    st.remove(ThreadState::CONTEXT_STATUS_TEXT);
-                    st.insert(ThreadState::CONTEXT_STATUS_RUNNING);
-                    self.tm.set_context_status(id, st);
+                    if st.contains(ThreadState::CONTEXT_STATUS_TEXT) {
+                        st.remove(ThreadState::CONTEXT_STATUS_TEXT);
+                        st.insert(ThreadState::CONTEXT_STATUS_RUNNING);
+                        self.tm.set_context_status(id, st);
+                    }
                 }
                 other => keep.push_back(other),
             }
@@ -353,6 +355,8 @@ impl VmRunner {
             uefi_vm_stage!("[UEFI] run_one_context after dispatch tid={}", tid);
 
             if self.tm.get_contexct_should_exit(tid) {
+                game.thread_wrapper.cancel_text_requests(tid);
+                game.motion_manager.text_manager.cancel_sync_print_waits(tid);
                 self.tm.thread_exit(Some(tid));
                 break;
             }
@@ -368,7 +372,11 @@ impl VmRunner {
             // Drain all pending requests emitted by syscalls.
             while let Some(event) = game.thread_wrapper.pop() {
                 match event {
-                    ThreadRequest::Start(id, addr) => self.tm.thread_start(id, addr),
+                    ThreadRequest::Start(id, addr) => {
+                        game.thread_wrapper.cancel_text_requests(id);
+                        game.motion_manager.text_manager.cancel_sync_print_waits(id);
+                        self.tm.thread_start(id, addr);
+                    }
                     ThreadRequest::Wait(time) => {
                         self.tm.thread_wait(time);
                         must_yield = true;
@@ -398,11 +406,16 @@ impl VmRunner {
                     }
                     ThreadRequest::TextResume(id) => {
                         let mut st = self.tm.get_context_status(id);
-                        st.remove(ThreadState::CONTEXT_STATUS_TEXT);
-                        st.insert(ThreadState::CONTEXT_STATUS_RUNNING);
-                        self.tm.set_context_status(id, st);
+                        if st.contains(ThreadState::CONTEXT_STATUS_TEXT) {
+                            st.remove(ThreadState::CONTEXT_STATUS_TEXT);
+                            st.insert(ThreadState::CONTEXT_STATUS_RUNNING);
+                            self.tm.set_context_status(id, st);
+                        }
                     }
                     ThreadRequest::Exit(id) => {
+                        let target = id.unwrap_or(tid);
+                        game.thread_wrapper.cancel_text_requests(target);
+                        game.motion_manager.text_manager.cancel_sync_print_waits(target);
                         self.tm.thread_exit(id);
                         must_yield = true;
                     }
@@ -425,3 +438,7 @@ impl VmRunner {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "vm_runner/tests.rs"]
+mod tests;
