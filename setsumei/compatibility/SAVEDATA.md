@@ -208,6 +208,12 @@ Selection rule (recommended):
 - Otherwise use Pixels representation to preserve exact result.
 - Do not snapshot text-buffer graphs (e.g., 4064..4095); those are restored by TextSnapshotV1 and re-uploaded.
 
+The current `GraphBuffSnapshotV1` uses its existing optional `rgba` field for
+runtime-modified source textures, even when `texture_path` is non-empty.
+Embedded pixels are authoritative; a pristine path-only snapshot still requires
+the VFS asset. Both restore paths preserve saved display size, offset and UV.
+This does not add a schema version or a missing-asset fallback.
+
 ### SnowSnapshotV1
 Because fixed-size arrays can be problematic for serde across toolchains, represent large arrays as Vec:
 - all fields needed to resume snow effect deterministically
