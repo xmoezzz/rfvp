@@ -109,6 +109,9 @@ impl TimerManager {
     /// `TimerGet` derives a scaled value as `time * elapsed / resolution`.
     ///
     /// When suspended (`TimerSuspend`), elapsed does not advance.
+    ///
+    /// IDA (sub_412430 / sub_436EC0): once elapsed passes the resolution, it is clamped to the
+    /// resolution and the timer stops, so `TimerGet(id, nil)` then reads 0.
     pub fn tick(&mut self, delta_ms: u32) {
         if self.suspend || delta_ms == 0 {
             return;
@@ -116,7 +119,30 @@ impl TimerManager {
         for item in &mut self.items {
             if item.enabled {
                 item.elapsed = item.elapsed.saturating_add(delta_ms);
+                if item.elapsed > item.resolution {
+                    item.elapsed = item.resolution;
+                    item.enabled = false;
+                }
             }
         }
+    }
+}
+
+#[cfg(all(test, not(feature = "no_std")))]
+mod tests {
+    use super::TimerManager;
+
+    #[test]
+    fn a_timer_stops_at_its_resolution() {
+        let mut timers = TimerManager::new();
+        timers.set_elapsed(1, 0);
+        timers.set_resolution(1, 1000);
+        timers.set_enabled(1, true);
+        timers.tick(600);
+        assert!(timers.get_enabled(1));
+        assert_eq!(timers.get_elapsed(1), 600);
+        timers.tick(600);
+        assert!(!timers.get_enabled(1));
+        assert_eq!(timers.get_elapsed(1), 1000);
     }
 }
