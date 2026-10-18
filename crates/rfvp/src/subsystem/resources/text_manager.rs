@@ -3269,6 +3269,14 @@ impl TextManager {
         self.items[id as usize].arm_sync_print_wait(thread_id);
     }
 
+    pub(crate) fn cancel_sync_print_waits(&mut self, thread_id: u32) {
+        for text in &mut self.items {
+            if thread_id == 0 || text.sync_wait_thread == Some(thread_id) {
+                text.clear_sync_print_wait();
+            }
+        }
+    }
+
     pub fn collect_completed_sync_print_waiters(&mut self) -> Vec<u32> {
         let mut out = Vec::new();
         for t in self.items.iter_mut() {

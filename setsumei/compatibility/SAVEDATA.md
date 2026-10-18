@@ -145,6 +145,9 @@ Store the minimal data required to continue execution:
 Notes:
 - Pointers/handles must not be stored; only logical data.
 - If the runtime uses indices into tables, store indices, not raw pointers.
+- Text reveal completion resumes only a context currently waiting for text.
+  Exit/restart discards that context's queued text requests and active reveal
+  waiters; context zero clears all contexts' waiters, matching ThreadManager.
 
 ### Restore semantics
 Apply order (recommended):
