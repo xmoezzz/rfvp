@@ -608,7 +608,7 @@ impl MotionManager {
 
         // The destination GraphBuff pixels changed; bump generation so GPU cache can refresh.
         // They no longer match the source file, so they must stay resident.
-        texture.mark_pixels_modified();
+        texture.mark_pixels_overlaid();
 
         Ok(())
     }

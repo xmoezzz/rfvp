@@ -83,6 +83,9 @@ pub struct GraphBuff {
     /// CPU pixels are byte-identical to decoding `texture_path` (no GraphRGB / parts overlay
     /// has modified them), so they can be dropped and re-decoded from the VFS on demand.
     cpu_pristine: bool,
+    /// A parts overlay was drawn into the pixels. Unlike GraphRGB, which a restore replays from
+    /// the saved r/g/b, the V1 snapshot cannot replay this, so these pixels are saved as-is.
+    cpu_overlaid: bool,
     /// CPU pixels were dropped after the GPU upload (see `evict_cpu_pixels`).
     cpu_evicted: bool,
     /// Alpha coverage (1 bit per pixel) kept for hit tests while CPU pixels are evicted.
@@ -117,6 +120,7 @@ impl GraphBuff {
             generation: 0,
             load_kind: GraphBuffLoadKind::Unknown,
             cpu_pristine: false,
+            cpu_overlaid: false,
             cpu_evicted: false,
             hit_mask: None,
             evicted_dims: (0, 0),
@@ -140,6 +144,13 @@ impl GraphBuff {
     pub fn mark_pixels_modified(&mut self) {
         self.cpu_pristine = false;
         self.mark_dirty();
+    }
+
+    /// Mark CPU pixels as covered by a parts overlay (see `cpu_overlaid`).
+    #[inline]
+    pub fn mark_pixels_overlaid(&mut self) {
+        self.cpu_overlaid = true;
+        self.mark_pixels_modified();
     }
 
     pub fn get_r_value(&self) -> u8 {
@@ -418,6 +429,7 @@ impl GraphBuff {
         self.text_raster_scale = 0.0;
         self.load_kind = GraphBuffLoadKind::Unknown;
         self.cpu_pristine = false;
+        self.cpu_overlaid = false;
         self.cpu_evicted = false;
         self.hit_mask = None;
         self.mark_dirty();
@@ -1237,7 +1249,7 @@ pub struct GraphBuffSnapshotV1 {
     pub u: u16,
     pub v: u16,
     pub load_kind: GraphBuffLoadKind,
-    /// Raw RGBA8 pixels (width*height*4) for in-memory or runtime-modified textures.
+    /// Raw RGBA8 pixels (width*height*4) for in-memory textures and parts-overlaid sources.
     pub rgba: Option<Vec<u8>>,
 }
 
@@ -1281,8 +1293,9 @@ impl GraphBuff {
             u: self.u,
             v: self.v,
             load_kind: self.load_kind,
-            rgba: if self.texture_path.is_empty() || !self.cpu_pristine {
-                // Runtime edits cannot be reconstructed from the original asset.
+            rgba: if self.texture_path.is_empty() || self.cpu_overlaid {
+                // Path graphs are otherwise rebuilt from the asset plus r/g/b, as the
+                // original engine does.
                 self.texture.as_ref().map(|img| match img {
                     DynamicImage::ImageRgba8(rgba) => rgba.as_raw().clone(),
                     _ => img.to_rgba8().into_raw(),
@@ -1301,7 +1314,7 @@ impl GraphBuff {
         self.g_value = snap.g_value;
         self.b_value = snap.b_value;
 
-        // Only pristine sources can be reconstructed from their asset path.
+        // Original engine (sub_429190): reload the file, then replay GraphRGB once.
         if !snap.texture_path.is_empty() && snap.rgba.is_none() {
             let bytes = match vfs.read_file(&snap.texture_path) {
                 Ok(b) => b,
@@ -1322,16 +1335,15 @@ impl GraphBuff {
                 _ => self.load_texture(&snap.texture_path, bytes)?,
             }
 
-            self.offset_x = snap.offset_x;
-            self.offset_y = snap.offset_y;
-            self.u = snap.u;
-            self.v = snap.v;
-            self.display_width = snap.display_width;
-            self.display_height = snap.display_height;
+            self.set_color_tone(
+                snap.r_value as i32,
+                snap.g_value as i32,
+                snap.b_value as i32,
+            );
             return Ok(());
         }
 
-        // Restore embedded pixels, including runtime edits to source textures.
+        // Restore embedded pixels: in-memory textures and parts-overlaid sources.
         if let Some(rgba) = &snap.rgba {
             self.load_from_buff_ref_with_display_size(
                 rgba,
@@ -1345,6 +1357,7 @@ impl GraphBuff {
             self.u = snap.u;
             self.v = snap.v;
             self.texture_path = snap.texture_path.clone();
+            self.cpu_overlaid = !snap.texture_path.is_empty();
             self.texture_ready = snap.texture_ready;
             self.load_kind = snap.load_kind;
             self.mark_dirty();

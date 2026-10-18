@@ -208,10 +208,16 @@ Selection rule (recommended):
 - Otherwise use Pixels representation to preserve exact result.
 - Do not snapshot text-buffer graphs (e.g., 4064..4095); those are restored by TextSnapshotV1 and re-uploaded.
 
-The current `GraphBuffSnapshotV1` uses its existing optional `rgba` field for
-runtime-modified source textures, even when `texture_path` is non-empty.
-Embedded pixels are authoritative; a pristine path-only snapshot still requires
-the VFS asset. Both restore paths preserve saved display size, offset and UV.
+The current `GraphBuffSnapshotV1` follows the original engine (`sub_4292B0` /
+`sub_429190`) for graphs loaded from a file: it saves `texture_path` plus the
+last GraphRGB `r/g/b`, and restore reloads the asset and replays GraphRGB once.
+Geometry comes from the reloaded asset. Like the original, repeated GraphRGB
+calls are not compounded after a load.
+
+Exception: the original redraws the selected parts entry onto its target graph
+after load, but `PartsItemSnapshotV1` has no selected-entry field. A graph with a
+parts overlay therefore stores its pixels in the existing `rgba` field even when
+`texture_path` is set; embedded pixels take precedence over the asset.
 This does not add a schema version or a missing-asset fallback.
 
 ### SnowSnapshotV1

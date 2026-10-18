@@ -16,53 +16,49 @@ fn source() -> Vec<u8> {
     bytes
 }
 
-#[test]
-fn modified_source_pixels_and_geometry_survive_v1_restore() {
+fn vfs() -> Vfs {
     let mut vfs = Vfs::new(Nls::ShiftJIS).unwrap();
     vfs.add_loose_file("white.nvsg", source());
+    vfs
+}
+
+fn pixels(graph: &GraphBuff) -> Vec<u8> {
+    graph.texture.as_ref().unwrap().to_rgba8().into_raw()
+}
+
+#[test]
+fn toned_source_is_saved_as_path_and_rgb_then_replayed() {
     let mut graph = GraphBuff::new();
     graph.load_texture("white.nvsg", source()).unwrap();
     graph.set_color_tone(50, 25, 75);
-    graph.offset_x = 3;
-    graph.offset_y = 5;
-    graph.display_width = 8;
-    graph.display_height = 4;
-    graph.u = 1;
-    graph.v = 1;
-    let pixels = graph.texture.as_ref().unwrap().to_rgba8().into_raw();
     let saved = graph.capture_snapshot_with_id(0);
+    assert!(saved.rgba.is_none());
+    assert_eq!((saved.r_value, saved.g_value, saved.b_value), (50, 25, 75));
+
     let mut restored = GraphBuff::new();
-    restored.apply_snapshot_v1(&saved, &vfs).unwrap();
+    restored.apply_snapshot_v1(&saved, &vfs()).unwrap();
+    assert_eq!(pixels(&restored), pixels(&graph));
     assert_eq!(
-        restored.texture.as_ref().unwrap().to_rgba8().into_raw(),
-        pixels
+        (restored.get_r_value(), restored.get_g_value(), restored.get_b_value()),
+        (50, 25, 75)
     );
-    assert_eq!(
-        (restored.offset_x, restored.offset_y, restored.u, restored.v),
-        (3, 5, 1, 1)
-    );
-    assert_eq!((restored.display_width, restored.display_height), (8, 4));
     assert_eq!(restored.texture_path, "white.nvsg");
 }
 
 #[test]
-fn pristine_source_geometry_survives_v1_restore() {
-    let mut vfs = Vfs::new(Nls::ShiftJIS).unwrap();
-    vfs.add_loose_file("white.nvsg", source());
+fn parts_overlaid_source_keeps_its_pixels_across_restores() {
     let mut graph = GraphBuff::new();
     graph.load_texture("white.nvsg", source()).unwrap();
-    graph.offset_x = 3;
-    graph.offset_y = 5;
-    graph.display_width = 8;
-    graph.display_height = 4;
-    graph.u = 1;
-    graph.v = 1;
+    graph.texture.as_mut().unwrap().as_mut_rgba8().unwrap().put_pixel(1, 1, image::Rgba([9, 8, 7, 255]));
+    graph.mark_pixels_overlaid();
+    let overlaid = pixels(&graph);
     let saved = graph.capture_snapshot_with_id(0);
-    assert!(saved.rgba.is_none());
-    graph.apply_snapshot_v1(&saved, &vfs).unwrap();
-    assert_eq!(
-        (graph.offset_x, graph.offset_y, graph.u, graph.v),
-        (3, 5, 1, 1)
-    );
-    assert_eq!((graph.display_width, graph.display_height), (8, 4));
+    assert!(saved.rgba.is_some());
+
+    let mut restored = GraphBuff::new();
+    restored.apply_snapshot_v1(&saved, &vfs()).unwrap();
+    assert_eq!(pixels(&restored), overlaid);
+    assert_eq!(restored.texture_path, "white.nvsg");
+    // Saving the restored graph again must not fall back to the unmodified asset.
+    assert!(restored.capture_snapshot_with_id(0).rgba.is_some());
 }
