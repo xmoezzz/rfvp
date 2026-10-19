@@ -24,6 +24,10 @@ pub struct SoftRenderer {
     /// (SRCALPHA/ONE) in the original engine.
     additive: bool,
     mask_frame: crate::rendering::mask_dissolve::MaskDissolveFrame,
+    /// The frame last shown, for Sprt texture id -1 (when the last frame drew one).
+    prev_frame: Option<DynamicImage>,
+    /// Whether the frame drawn last has a Sprt with texture id -1.
+    wants_prev_frame: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -40,6 +44,8 @@ enum TextureRef<'a> {
         graph: &'a GraphBuff,
         image: &'a DynamicImage,
     },
+    /// The frame last shown (Sprt texture id -1).
+    PrevFrame(&'a DynamicImage),
     White,
 }
 
@@ -51,6 +57,8 @@ impl SoftRenderer {
             stats: SoftRendererStats::default(),
             additive: false,
             mask_frame: Default::default(),
+            prev_frame: None,
+            wants_prev_frame: false,
         })
     }
 
@@ -83,22 +91,17 @@ impl SoftRenderer {
         self.stats = SoftRendererStats::default();
         // A mask dissolve that just started wipes away the frame last shown.
         if self.mask_frame.wants_snapshot(motion) {
-            let fb = &self.framebuffer;
-            let (w, h) = (fb.width(), fb.height());
-            let bpp = fb.format().bytes_per_pixel();
-            let mut rgba = Vec::with_capacity((w * h * 4) as usize);
-            for y in 0..h as usize {
-                for px in fb.pixels()[y * fb.stride()..][..w as usize * bpp].chunks_exact(bpp) {
-                    match fb.format() {
-                        PixelFormat::Rgba8 => rgba.extend_from_slice(&[px[0], px[1], px[2], px[3]]),
-                        PixelFormat::Bgra8 => rgba.extend_from_slice(&[px[2], px[1], px[0], px[3]]),
-                    }
-                }
-            }
-            if let Some(frame) = image::RgbaImage::from_raw(w, h, rgba) {
+            if let Some(frame) = self.framebuffer_rgba() {
                 self.mask_frame.set_snapshot(motion, frame);
             }
         }
+        // Sprt texture id -1 draws the frame last shown (when the last frame drew one).
+        self.prev_frame = if self.wants_prev_frame {
+            self.framebuffer_rgba().map(DynamicImage::ImageRgba8)
+        } else {
+            None
+        };
+        self.wants_prev_frame = false;
         self.framebuffer.clear_rgba(0, 0, 0, 255);
 
         let prim_manager = motion.prim_manager();
@@ -349,6 +352,74 @@ impl SoftRenderer {
         Ok(())
     }
 
+    /// The framebuffer as RGBA8.
+    fn framebuffer_rgba(&self) -> Option<image::RgbaImage> {
+        let fb = &self.framebuffer;
+        let (w, h) = (fb.width(), fb.height());
+        let bpp = fb.format().bytes_per_pixel();
+        let mut rgba = Vec::with_capacity((w * h * 4) as usize);
+        for y in 0..h as usize {
+            for px in fb.pixels()[y * fb.stride()..][..w as usize * bpp].chunks_exact(bpp) {
+                match fb.format() {
+                    PixelFormat::Rgba8 => rgba.extend_from_slice(&[px[0], px[1], px[2], px[3]]),
+                    PixelFormat::Bgra8 => rgba.extend_from_slice(&[px[2], px[1], px[0], px[3]]),
+                }
+            }
+        }
+        image::RgbaImage::from_raw(w, h, rgba)
+    }
+
+    /// Sprt texture id -1: the frame last shown, stretched over the screen (or the prim's W/H
+    /// with attr bit 1). The whole frame is always sampled; U/V are not used.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_prev_frame_prim(
+        &mut self,
+        prim: &Prim,
+        parent_x: f32,
+        parent_y: f32,
+        draw_x: f32,
+        draw_y: f32,
+        draw_alpha: f32,
+        v3d_x: i32,
+        v3d_y: i32,
+        v3d_z: i32,
+    ) -> Result<(), SoftRenderError> {
+        // Copy the frame only for a sprite that shows.
+        self.wants_prev_frame |= draw_alpha > 0.0;
+        let attr = prim.get_attr();
+        let (mut w, mut h) = (self.virtual_size.0 as f32, self.virtual_size.1 as f32);
+        if (attr & 1) != 0 {
+            w = prim.get_w() as f32;
+            h = prim.get_h() as f32;
+        }
+        if w <= 0.0 || h <= 0.0 {
+            return Ok(());
+        }
+        let Some(frame) = self.prev_frame.take() else {
+            return Ok(());
+        };
+        let (pivot_x, pivot_y) = if (attr & 2) != 0 {
+            (prim.get_opx() as f32, prim.get_opy() as f32)
+        } else {
+            (0.0, 0.0)
+        };
+        let model = self.build_draw_model(
+            prim, parent_x, parent_y, draw_x, draw_y, 0.0, 0.0, pivot_x, pivot_y, v3d_x, v3d_y,
+            v3d_z,
+        );
+        let result = self.draw_textured_quad(
+            model,
+            w,
+            h,
+            vec2(0.0, 0.0),
+            vec2(1.0, 1.0),
+            vec4(1.0, 1.0, 1.0, draw_alpha),
+            TextureRef::PrevFrame(&frame),
+        );
+        self.prev_frame = Some(frame);
+        result
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn draw_sprite_prim(
         &mut self,
@@ -364,6 +435,11 @@ impl SoftRenderer {
         v3d_z: i32,
     ) -> Result<(), SoftRenderError> {
         let tex_id = prim.get_texture_id();
+        if tex_id == -1 {
+            return self.draw_prev_frame_prim(
+                prim, parent_x, parent_y, draw_x, draw_y, draw_alpha, v3d_x, v3d_y, v3d_z,
+            );
+        }
         let graph_id = if tex_id >= 0 {
             Some(tex_id as u16)
         } else if tex_id == -2 {
@@ -667,7 +743,7 @@ impl SoftRenderer {
         if w <= 0.0 || h <= 0.0 {
             return;
         }
-        let c = color_manager.get_entry(prim.get_tile() as u8);
+        let c = color_manager.tile_color(prim.get_tile());
         let color = vec4(
             c.get_r() as f32 / 255.0,
             c.get_g() as f32 / 255.0,
@@ -852,6 +928,7 @@ impl SoftRenderer {
     fn sample_texture(&self, texture: TextureRef<'_>, uv: Vec2) -> Vec4 {
         match texture {
             TextureRef::White => Vec4::ONE,
+            TextureRef::PrevFrame(image) => sample_nearest(image, uv),
             TextureRef::Graph {
                 graph_id,
                 graph,

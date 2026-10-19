@@ -1069,6 +1069,10 @@ impl App {
                     label: Some("rfvp frame encoder"),
                 });
 
+        // Sprt texture id -1 draws the frame last shown, which is still in the render target.
+        self.prim_renderer
+            .capture_prev_frame(&self.resources, &mut encoder, &self.render_target);
+
         // Pass 1: render primitives into the virtual render target.
         {
             let mut pass = self

@@ -29,8 +29,8 @@ pub fn color_set(
         }
     };
 
-    let id = id as u8; // compiler optimization
-
+    // Signed check, as in the original: ColorSet(-1, ...) is ignored rather than writing
+    // slot 255 (Tile id -1 is not a palette slot; see ColorManager::tile_color).
     if !(0..=255).contains(&id) {
         log::error!("id must be in range 0..256");
         return Ok(Variant::Nil);

@@ -7,7 +7,7 @@ use crate::{
     rfvp_render::{
         pipelines::sprite::SpritePipeline,
         vertices::{PosColTexVertex, VertexSource},
-        GpuCommonResources, GpuTexture, TextureBindGroup, VertexBuffer,
+        GpuCommonResources, GpuTexture, RenderTarget, TextureBindGroup, VertexBuffer,
     },
     subsystem::resources::{
         color_manager::ColorManager,
@@ -25,6 +25,8 @@ enum DrawTextureKey {
     Graph(u16),
     White,
     Mask,
+    /// Sprt texture id -1: the frame last shown (see `capture_prev_frame`).
+    PrevFrame,
 }
 
 #[derive(Clone, Debug)]
@@ -60,6 +62,10 @@ pub struct GpuPrimRenderer {
     white: GpuTexture,
     mask_frame: super::mask_dissolve::MaskDissolveFrame,
     mask_texture: Option<GraphGpuEntry>,
+    /// The frame last shown, for Sprt texture id -1; copied each frame one is drawn.
+    prev_frame: Option<RenderTarget>,
+    /// Whether the draw list built last samples `prev_frame`.
+    wants_prev_frame: bool,
 
     // Debug HUD: prim tile preview (opt-in via env)
     debug_tiles: Vec<DebugPrimTile>,
@@ -133,6 +139,8 @@ impl GpuPrimRenderer {
             white,
             mask_frame: Default::default(),
             mask_texture: None,
+            prev_frame: None,
+            wants_prev_frame: false,
 
             debug_tiles: Vec::new(),
             debug_tiles_enabled: false,
@@ -307,7 +315,35 @@ impl GpuPrimRenderer {
     /// Rebuild renderer draw lists from the current motion manager state.
     /// This matches the callsite in `app.rs`.
     pub fn rebuild(&mut self, resources: &GpuCommonResources, motion: &MotionManager) {
+        self.wants_prev_frame = false;
         self.build(resources, motion);
+    }
+
+    /// Copy the frame last shown out of `target` (before the next one is drawn into it) when
+    /// the draw list built last has a Sprt with texture id -1. The original engine copies its
+    /// back buffer into that texture after every present.
+    pub fn capture_prev_frame(
+        &mut self,
+        resources: &GpuCommonResources,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &RenderTarget,
+    ) {
+        if !self.wants_prev_frame {
+            self.prev_frame = None;
+            return;
+        }
+        let stale = self.prev_frame.as_ref().map_or(true, |f| {
+            f.backing_size() != target.backing_size() || f.logical_size() != target.logical_size()
+        });
+        if stale {
+            self.prev_frame = Some(RenderTarget::new(
+                resources,
+                target.logical_size(),
+                target.backing_size(),
+                Some("rfvp prev frame"),
+            ));
+        }
+        target.encode_copy_to(encoder, self.prev_frame.as_ref().expect("prev frame allocated"));
     }
 
     fn ensure_vb_capacity(&mut self, resources: &GpuCommonResources, needed_vertices: u32) {
@@ -446,6 +482,7 @@ impl GpuPrimRenderer {
         match key {
             DrawTextureKey::White => self.white.bind_group(),
             DrawTextureKey::Mask => self.mask_texture.as_ref().expect("mask texture uploaded").texture.bind_group(),
+            DrawTextureKey::PrevFrame => self.prev_frame.as_ref().expect("prev frame captured").bind_group(),
             DrawTextureKey::Graph(id) => self
                 .graph_cache
                 .get(&id)
@@ -599,6 +636,39 @@ impl GpuPrimRenderer {
         match draw_type {
             PrimType::PrimTypeGroup | PrimType::PrimTypeNone => {
                 // No direct draw. Traversal handled below.
+            }
+
+            PrimType::PrimTypeSprt if draw_prim.get_texture_id() == -1 => {
+                // The frame last shown, stretched over the screen (or the prim's W/H with
+                // attr bit 1). The whole frame is always sampled; U/V are not used.
+                let attr = draw_prim.get_attr();
+                let (mut w, mut h) = (self.virtual_size.0 as f32, self.virtual_size.1 as f32);
+                if (attr & 1) != 0 {
+                    w = draw_prim.get_w() as f32;
+                    h = draw_prim.get_h() as f32;
+                }
+                if w > 0.0 && h > 0.0 && draw_alpha > 0.0 {
+                    let (pivot_x, pivot_y) = if (attr & 2) != 0 {
+                        (draw_prim.get_opx() as f32, draw_prim.get_opy() as f32)
+                    } else {
+                        (0.0, 0.0)
+                    };
+                    let model = self.build_draw_model(
+                        &draw_prim, parent_x, parent_y, draw_x, draw_y, 0.0, 0.0, pivot_x,
+                        pivot_y, v3d_x, v3d_y, v3d_z,
+                    );
+                    self.wants_prev_frame = true;
+                    self.emit_sprite_vertices(
+                        model,
+                        w,
+                        h,
+                        vec2(0.0, 0.0),
+                        vec2(1.0, 1.0),
+                        vec4(1.0, 1.0, 1.0, draw_alpha),
+                        DrawTextureKey::PrevFrame,
+                        draw_prim.get_blend(),
+                    );
+                }
             }
 
             PrimType::PrimTypeSprt => {
@@ -865,8 +935,7 @@ impl GpuPrimRenderer {
             PrimType::PrimTypeTile => {
                 let w = draw_prim.get_w() as f32;
                 let h = draw_prim.get_h() as f32;
-                let color_id = draw_prim.get_tile();
-                let c = color_manager.get_entry(color_id as u8);
+                let c = color_manager.tile_color(draw_prim.get_tile());
                 if w > 0.0 && h > 0.0 {
                     let color = vec4(
                         c.get_r() as f32 / 255.0,

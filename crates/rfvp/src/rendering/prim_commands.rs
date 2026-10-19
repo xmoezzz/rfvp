@@ -33,6 +33,12 @@ pub(crate) struct HostPrimRenderCache {
     mask_frame: super::mask_dissolve::MaskDissolveFrame,
     #[cfg(not(feature = "psx"))]
     mask_upload: Option<(u64, u16, u16)>,
+    /// Size of the frame last shown as uploaded to `PREV_FRAME_TEXTURE` for this frame, if any.
+    #[cfg(not(feature = "psx"))]
+    prev_frame: Option<(u16, u16)>,
+    /// Whether the draw list built last has a Sprt with texture id -1.
+    #[cfg(not(feature = "psx"))]
+    wants_prev_frame: bool,
 }
 
 impl HostPrimRenderCache {
@@ -51,7 +57,44 @@ impl HostPrimRenderCache {
             mask_frame: Default::default(),
             #[cfg(not(feature = "psx"))]
             mask_upload: None,
+            #[cfg(not(feature = "psx"))]
+            prev_frame: None,
+            #[cfg(not(feature = "psx"))]
+            wants_prev_frame: false,
         }
+    }
+
+    /// Whether the frame being drawn needs the frame last shown (`set_prev_frame`): the last
+    /// one drew a Sprt with texture id -1.
+    #[cfg(not(feature = "psx"))]
+    pub fn wants_prev_frame(&self) -> bool {
+        self.wants_prev_frame
+    }
+
+    /// Hand over the frame last shown (RGBA8, the virtual size) for Sprt texture id -1, or
+    /// `None` when the host cannot read it back (the sprite is then not drawn).
+    #[cfg(not(feature = "psx"))]
+    pub fn set_prev_frame<B>(&mut self, backend: &mut B, frame: Option<(u16, u16, &[u8])>) -> RfvpResult<()>
+    where
+        B: TextureBackend<Error = RfvpError>,
+    {
+        let Some((width, height, rgba)) = frame else {
+            if self.prev_frame.take().is_some() {
+                backend.destroy_texture(PREV_FRAME_TEXTURE);
+            }
+            return Ok(());
+        };
+        let desc = PortableTextureDesc { width, height, format: TextureFormat::Rgba8 };
+        let updated = self.prev_frame == Some((width, height))
+            && backend.update_texture_data(PREV_FRAME_TEXTURE, desc, rgba)?;
+        if !updated {
+            if self.prev_frame.is_some() {
+                backend.destroy_texture(PREV_FRAME_TEXTURE);
+            }
+            backend.create_texture(PREV_FRAME_TEXTURE, desc, rgba)?;
+        }
+        self.prev_frame = Some((width, height));
+        Ok(())
     }
 
     /// Whether the host holds `graph_id` at `generation` (so its CPU copy may be evicted).
@@ -232,10 +275,14 @@ impl HostPrimRenderCache {
 enum DrawTextureKey {
     Graph(u16),
     White,
+    #[cfg(not(feature = "psx"))]
+    PrevFrame,
 }
 
 const WHITE_TEXTURE: TextureHandle = TextureHandle(u32::MAX);
 const MASK_TEXTURE: TextureHandle = TextureHandle(u32::MAX - 1);
+#[cfg(not(feature = "psx"))]
+const PREV_FRAME_TEXTURE: TextureHandle = TextureHandle(u32::MAX - 2);
 
 fn host_texture_id(graph_id: u16) -> TextureHandle {
     TextureHandle(graph_id as u32)
@@ -359,6 +406,8 @@ fn emit_sprite(
     let texture = match texture {
         DrawTextureKey::Graph(graph_id) => host_texture_id(graph_id),
         DrawTextureKey::White => WHITE_TEXTURE,
+        #[cfg(not(feature = "psx"))]
+        DrawTextureKey::PrevFrame => PREV_FRAME_TEXTURE,
     };
     let vertices = [
         vertex(p0, vec2(uv0.x, uv1.y), color),
@@ -458,6 +507,10 @@ where
         u16::try_from(virtual_size.1).map_err(|_| RfvpError::CapacityExceeded)?,
     )?;
     cache.ensure_white(backend)?;
+    #[cfg(not(feature = "psx"))]
+    {
+        cache.wants_prev_frame = false;
+    }
 
     let prim_manager = motion.prim_manager();
     let graphs = motion.graphs();
@@ -699,6 +752,45 @@ where
 
     match draw_prim.get_type() {
         PrimType::PrimTypeGroup | PrimType::PrimTypeNone => {}
+        #[cfg(not(feature = "psx"))]
+        PrimType::PrimTypeSprt if draw_prim.get_texture_id() == -1 => {
+            // The frame last shown, stretched over the screen (or the prim's W/H with attr
+            // bit 1). The whole frame is always sampled; U/V are not used.
+            // Read the frame back only for a sprite that shows.
+            cache.wants_prev_frame |= draw_alpha > 0.0;
+            let attr = draw_prim.get_attr();
+            let (mut w, mut h) = (virtual_size.0 as f32, virtual_size.1 as f32);
+            if (attr & 1) != 0 {
+                w = draw_prim.get_w() as f32;
+                h = draw_prim.get_h() as f32;
+            }
+            if cache.prev_frame.is_some() && w > 0.0 && h > 0.0 {
+                let (pivot_x, pivot_y) = if (attr & 2) != 0 {
+                    (draw_prim.get_opx() as f32, draw_prim.get_opy() as f32)
+                } else {
+                    (0.0, 0.0)
+                };
+                let model = build_draw_model(
+                    virtual_size, &draw_prim, parent_x, parent_y, draw_x, draw_y, 0.0, 0.0,
+                    pivot_x, pivot_y, v3d_x, v3d_y, v3d_z,
+                );
+                // No hit proxy: the original hit-tests a Sprt against graph[texture id].
+                emit_sprite(
+                    commands,
+                    hit_proxies,
+                    order,
+                    -1,
+                    model,
+                    w,
+                    h,
+                    vec2(0.0, 0.0),
+                    vec2(1.0, 1.0),
+                    vec4(1.0, 1.0, 1.0, draw_alpha),
+                    DrawTextureKey::PrevFrame,
+                    prim_blend(&draw_prim),
+                )?;
+            }
+        }
         PrimType::PrimTypeSprt => {
             let tex_id = draw_prim.get_texture_id();
             let graph_id = if tex_id >= 0 {
@@ -784,8 +876,7 @@ where
         PrimType::PrimTypeTile => {
             let w = draw_prim.get_w() as f32;
             let h = draw_prim.get_h() as f32;
-            let color_id = draw_prim.get_tile();
-            let color = color_manager.get_entry(color_id as u8);
+            let color = color_manager.tile_color(draw_prim.get_tile());
             if w > 0.0 && h > 0.0 {
                 let rgba = vec4(
                     color.get_r() as f32 / 255.0,
@@ -1171,5 +1262,59 @@ mod transform_tests {
                 assert!(delta.abs().max_element() < 0.001);
             }
         }
+    }
+}
+
+#[cfg(all(test, not(feature = "psx")))]
+mod prev_frame_tests {
+    use super::*;
+    use crate::host_api::{RfvpRenderer, SoftRaster};
+    use crate::subsystem::resources::motion_manager::MotionManager;
+
+    /// One frame as `RfvpCore` draws it: the frame last shown is read back first when the
+    /// frame before drew a Sprt with texture id -1.
+    fn draw(raster: &mut SoftRaster, cache: &mut HostPrimRenderCache, motion: &MotionManager) {
+        let rgba = cache.wants_prev_frame().then(|| raster.capture_thumbnail(8, 8)).flatten();
+        cache
+            .set_prev_frame(raster, rgba.as_deref().map(|rgba| (8, 8, rgba)))
+            .unwrap();
+        render_motion_to_host(raster, cache, motion, (8, 8)).unwrap();
+    }
+
+    #[test]
+    fn sprt_minus_one_draws_the_frame_last_shown() {
+        let mut motion = MotionManager::new();
+        let red = motion.color_manager.get_entry_mut(10);
+        red.set_r(255);
+        red.set_a(255);
+        let pm = &mut motion.prim_manager;
+        pm.prim_init_with_type(1, PrimType::PrimTypeTile);
+        pm.prim_set_alpha(1, 255);
+        pm.prim_set_size(1, 8, 8);
+        pm.prim_set_tile(1, 10);
+        pm.set_prim_group_in(0, 1);
+        pm.prim_init_with_type(2, PrimType::PrimTypeSprt);
+        pm.prim_set_alpha(2, 255);
+        pm.prim_set_scale(2, 1000, 1000);
+        pm.prim_set_texture_id(2, -1);
+        pm.set_prim_group_in(0, 2);
+
+        let mut raster = SoftRaster::new(8, 8);
+        let mut cache = HostPrimRenderCache::new();
+        // No frame was shown before: only the red tile.
+        draw(&mut raster, &mut cache, &motion);
+        assert_eq!(raster.frame()[0] & 0xff_ffff, 0xff);
+
+        // The tile is gone; the Sprt shows the red frame last shown.
+        motion.prim_manager.prim_set_alpha(1, 0);
+        draw(&mut raster, &mut cache, &motion);
+        assert_eq!(raster.frame()[0] & 0xff_ffff, 0xff);
+
+        // Without a Sprt -1 the frame is not read back.
+        motion.prim_manager.prim_set_alpha(2, 0);
+        draw(&mut raster, &mut cache, &motion);
+        draw(&mut raster, &mut cache, &motion);
+        assert!(!cache.wants_prev_frame());
+        assert_eq!(raster.frame()[0] & 0xff_ffff, 0);
     }
 }

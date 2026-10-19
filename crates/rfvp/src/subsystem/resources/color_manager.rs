@@ -8,6 +8,8 @@ use alloc::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::script::global::get_int_var;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ColorItem {
     r: u8,
@@ -100,6 +102,22 @@ impl ColorManager {
 
     pub fn get_entry(&self, id: u8) -> &ColorItem {
         &self.colors[id as usize]
+    }
+
+    /// The colour a Tile primitive draws with. Tile id -1 bypasses the palette: the original
+    /// engine reads R, G, B, A from volatile globals 5..8 each frame (the message window
+    /// colour the scripts' config screens edit), keeping the low byte of each.
+    pub fn tile_color(&self, tile: i16) -> ColorItem {
+        if tile == -1 {
+            let channel = |i| get_int_var(i) as u8;
+            return ColorItem {
+                r: channel(5),
+                g: channel(6),
+                b: channel(7),
+                a: channel(8),
+            };
+        }
+        self.colors[tile as u8 as usize].clone()
     }
 }
 

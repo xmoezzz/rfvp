@@ -731,6 +731,22 @@ impl RfvpCore {
                 cache.is_graph_uploaded(id, generation)
             });
         }
+        // Sprt texture id -1 draws the frame last shown: read it back while the host still
+        // holds it (not on the PlayStation, which has no memory for a frame of RGBA).
+        #[cfg(not(feature = "psx"))]
+        if self.render_cache.wants_prev_frame() {
+            let (w, h) = (self.config.virtual_width, self.config.virtual_height);
+            let rgba = host.renderer().capture_thumbnail(w, h);
+            let frame = match (&rgba, u16::try_from(w), u16::try_from(h)) {
+                (Some(rgba), Ok(fw), Ok(fh)) if rgba.len() == w as usize * h as usize * 4 => {
+                    Some((fw, fh, rgba.as_slice()))
+                }
+                _ => None,
+            };
+            self.render_cache.set_prev_frame(host.renderer(), frame)?;
+        } else {
+            self.render_cache.set_prev_frame(host.renderer(), None)?;
+        }
         let frame = render_motion_to_host(
             host.renderer(),
             &mut self.render_cache,

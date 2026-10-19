@@ -300,15 +300,11 @@ pub fn prim_set_rs(
         None => cur_rot,
     };
 
+    // The original clamps an int scale to [100, 10000] (it never resets it) and leaves the
+    // scale alone otherwise.
     let scale = match scale.as_int() {
-        Some(s) => s,
+        Some(s) => s.clamp(100, 10000),
         None => cur_fx,
-    };
-
-    let scale = if !(0..=10000).contains(&scale) {
-        1000
-    } else {
-        scale
     };
 
     game_data
@@ -373,25 +369,16 @@ pub fn prim_set_rs2(
         None => cur_rot,
     };
 
+    // The original clamps each int scale to [100, 10000] (it never resets them) and leaves
+    // the scale alone otherwise.
     let scale_x = match scale_x.as_int() {
-        Some(s) => s,
+        Some(s) => s.clamp(100, 10000),
         None => cur_fx,
     };
 
     let scale_y = match scale_y.as_int() {
-        Some(s) => s,
+        Some(s) => s.clamp(100, 10000),
         None => cur_fy,
-    };
-
-    let scale_x = if !(0..=10000).contains(&scale_x) {
-        1000
-    } else {
-        scale_x
-    };
-    let scale_y = if !(0..=10000).contains(&scale_y) {
-        1000
-    } else {
-        scale_y
     };
 
     game_data
@@ -633,7 +620,8 @@ pub fn prim_set_tile(
     // - initializes prim as Tile
     // - defaults: tile=255, x/y/w/h=0, alpha=255, blend=0
     // - for each arg, only applies if the Variant type is integer
-    // - tile is accepted in range [-1, 255] (where -1 behaves as 255 in later u8 usage)
+    // - tile is accepted in range [-1, 255]; -1 draws with the globals-backed window colour
+    //   (ColorManager::tile_color)
     let id = match id.as_int() {
         Some(id) => id,
         None => {
@@ -891,7 +879,7 @@ pub fn prim_set_z(game_data: &mut GameData, id: &Variant, z: &Variant) -> Result
 
     // Reverse-engineered semantics (do not reorder prim tree here):
     // - If z is Int: clamp to [100, 10000], set prim.z, and enable attr bit 0x04.
-    // - If z is Float: do NOT change prim.z, but still enable attr bit 0x04.
+    // - If z is True: do NOT change prim.z, but still enable attr bit 0x04.
     // - Otherwise: disable attr bit 0x04.
     // In all cases, mark dirty via attr bit 0x40.
 
@@ -909,7 +897,7 @@ pub fn prim_set_z(game_data: &mut GameData, id: &Variant, z: &Variant) -> Result
         return Ok(Variant::Nil);
     }
 
-    if z.as_float().is_some() {
+    if matches!(z, Variant::True) {
         game_data
             .motion_manager
             .prim_manager

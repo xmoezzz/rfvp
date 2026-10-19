@@ -215,6 +215,23 @@ impl RenderTarget {
         self.size
     }
 
+    pub fn logical_size(&self) -> (u32, u32) {
+        self.logical_size
+    }
+
+    /// Encode a copy of this target's pixels into `dst`, which has the same backing size.
+    pub fn encode_copy_to(&self, encoder: &mut wgpu::CommandEncoder, dst: &RenderTarget) {
+        encoder.copy_texture_to_texture(
+            self.texture.as_image_copy(),
+            dst.texture.as_image_copy(),
+            wgpu::Extent3d {
+                width: self.size.0,
+                height: self.size.1,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
     pub fn vertex_source<'a>(&'a self) -> VertexSource<'a> {
         VertexSource::VertexBuffer {
             vertex_buffer: &self.quad_vb,
