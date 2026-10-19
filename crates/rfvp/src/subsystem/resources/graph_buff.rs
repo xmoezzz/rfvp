@@ -484,6 +484,8 @@ impl GraphBuff {
         if !self.cpu_evicted {
             return Ok(());
         }
+        let _timing = crate::perf::scope(crate::perf::CPU_RESTORE);
+        crate::perf::event(format_args!("restore graph path={:?}", self.texture_path));
         let buff = vfs.read_file(&self.texture_path)?;
         let mut nvsg_texture = NvsgTexture::new(&self.texture_path);
         #[cfg(feature = "psx")]
@@ -542,6 +544,8 @@ impl GraphBuff {
     }
 
     pub fn load_texture(&mut self, file_name: &str, buff: Vec<u8>) -> Result<()> {
+        let _timing = crate::perf::scope(crate::perf::GRAPH_DECODE);
+        crate::perf::event(format_args!("graph decode path={file_name:?} bytes={}", buff.len()));
         let mut nvsg_texture = NvsgTexture::new(file_name);
         // The PlayStation makes a one-frame CLUT file into its picture in place: a picture is
         // never in its 2 MiB twice.

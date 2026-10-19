@@ -40,6 +40,8 @@ impl PartsItem {
     }
 
     pub fn load_texture(&mut self, file_name: &str, buff: Vec<u8>) -> Result<()> {
+        let _timing = crate::perf::scope(crate::perf::PARTS_DECODE);
+        crate::perf::event(format_args!("parts decode path={file_name:?} bytes={}", buff.len()));
         self.texture
             .read_texture(&buff, |typ| typ == TextureType::Multi32Bit)?;
 

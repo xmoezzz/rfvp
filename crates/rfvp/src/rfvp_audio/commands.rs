@@ -107,6 +107,7 @@ impl CommandBackend {
 
 impl AudioBackend for CommandBackend {
     fn load(&self, id: AudioStreamId, source: &SoundSource, vfs: &Vfs) -> Result<()> {
+        crate::perf::event(format_args!("audio source id={} path={:?}", id.0, source.name()));
         let kind = source.encoded_kind();
         if let SoundSource::Named(name) = source {
             let (stream, len) = vfs.open_stream_with_len(name)?;

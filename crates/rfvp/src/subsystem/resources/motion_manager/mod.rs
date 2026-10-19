@@ -558,6 +558,8 @@ impl MotionManager {
     }
 
     pub fn draw_parts_to_texture(&mut self, parts_id: u8, entry_id: u32, vfs: &Vfs) -> Result<()> {
+        let _timing = crate::perf::scope(crate::perf::PARTS_COMPOSE);
+        crate::perf::event(format_args!("parts select id={parts_id} entry={entry_id}"));
         let parts = self.parts_manager.get_mut().get(parts_id);
 
         // Best-effort behavior: if the parts buffer is absent, do nothing.

@@ -15,6 +15,8 @@ pub mod host;
 pub mod raw;
 pub mod render;
 pub mod status;
+pub mod texture_policy;
+pub mod thumbnail;
 
 pub use app::PsvApp;
 pub use audio::PsvAudio;

@@ -73,20 +73,33 @@ static volatile int g_rfvp_audio_run;
 static SceUID g_rfvp_audio_thread = -1;
 static int16_t g_rfvp_audio_buffers[2][RFVP_PSV_AUDIO_THREAD_FRAMES * 2] __attribute__((aligned(64)));
 
+/* Diagnostic counters are shared across threads. INT32_MIN means not attempted yet. */
+static int32_t g_rfvp_audio_diag[7] = { INT32_MIN, INT32_MIN, INT32_MIN, INT32_MIN, 0, 0, 0 };
+void rfvp_psv_audio_diag(int32_t *out) {
+    for (int i = 0; i < 7; ++i) out[i] = __atomic_load_n(&g_rfvp_audio_diag[i], __ATOMIC_RELAXED);
+}
+
 static int rfvp_psv_audio_thread(SceSize args, void *argp) {
     (void)args;
     (void)argp;
     int port = sceAudioOutOpenPort(SCE_AUDIO_OUT_PORT_TYPE_MAIN, RFVP_PSV_AUDIO_THREAD_FRAMES, 48000,
                                    SCE_AUDIO_OUT_MODE_STEREO);
+    __atomic_store_n(&g_rfvp_audio_diag[2], port, __ATOMIC_RELAXED);
     if (port < 0) {
         return sceKernelExitDeleteThread(0);
     }
     int vol[2] = { SCE_AUDIO_VOLUME_0DB, SCE_AUDIO_VOLUME_0DB };
-    sceAudioOutSetVolume(port, SCE_AUDIO_VOLUME_FLAG_L_CH | SCE_AUDIO_VOLUME_FLAG_R_CH, vol);
+    int volume_rc = sceAudioOutSetVolume(port, SCE_AUDIO_VOLUME_FLAG_L_CH | SCE_AUDIO_VOLUME_FLAG_R_CH, vol);
+    __atomic_store_n(&g_rfvp_audio_diag[3], volume_rc, __ATOMIC_RELAXED);
     int which = 0;
     while (g_rfvp_audio_run) {
         rfvp_psv_audio_pull(g_rfvp_audio_buffers[which], RFVP_PSV_AUDIO_THREAD_FRAMES);
-        sceAudioOutOutput(port, g_rfvp_audio_buffers[which]);
+        int output_rc = sceAudioOutOutput(port, g_rfvp_audio_buffers[which]);
+        __atomic_fetch_add(&g_rfvp_audio_diag[6], 1, __ATOMIC_RELAXED);
+        if (output_rc < 0) {
+            __atomic_fetch_add(&g_rfvp_audio_diag[4], 1, __ATOMIC_RELAXED);
+            __atomic_store_n(&g_rfvp_audio_diag[5], output_rc, __ATOMIC_RELAXED);
+        }
         which ^= 1;
     }
     sceAudioOutOutput(port, NULL);
@@ -102,12 +115,14 @@ void rfvp_psv_audio_thread_start(void) {
     /* Above the game loop's priority, so audio keeps up when a frame is slow. */
     SceUID thread = sceKernelCreateThread("rfvp_audio", rfvp_psv_audio_thread, 0x10000100 - 10, 0x10000,
                                           0, 0, NULL);
+    __atomic_store_n(&g_rfvp_audio_diag[0], thread, __ATOMIC_RELAXED);
     if (thread < 0) {
         g_rfvp_audio_run = 0;
         return;
     }
     g_rfvp_audio_thread = thread;
-    sceKernelStartThread(thread, 0, NULL);
+    int start_rc = sceKernelStartThread(thread, 0, NULL);
+    __atomic_store_n(&g_rfvp_audio_diag[1], start_rc, __ATOMIC_RELAXED);
 }
 
 void rfvp_psv_audio_thread_stop(void) {

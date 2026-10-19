@@ -51,6 +51,22 @@ If you want to run a translated game, currently we only support UTF-8 and GBK en
 * The translated game encrypts the translated assets.
 * Any other ways that the translated game differs from the original game in terms of data structure and format.
 
+#### `config.toml` (console ports)
+A console has no launcher to pick the encoding or the script, so the console ports (PS Vita, Switch, PSP, PS2, PS3, 3DS, Wii, Wii U; not the PS1, which runs what `rfvp-psx-convert` built) read an optional `config.toml` from the **game directory** (the folder that holds the `*.hcb` and `*.bin` files). What it sets wins over the port's defaults (the first `*.hcb` found, ShiftJIS) and over a port's `nls.txt`:
+
+```toml
+[game]
+# The script to run, relative to the game directory. Without it, the first *.hcb found is used.
+hcb = "MemoriaGBK.hcb"
+# The script's encoding: "sjis" (the default), "gbk" or "utf8".
+nls = "gbk"
+```
+
+* Every key is optional, and without the file the game starts as before.
+* Only `[section]` headers, `key = value` lines and `#` comments are read; strings may be quoted (`"..."` / `'...'`) or bare. Unknown sections and keys are ignored.
+* The file must be UTF-8. A mistake in it (an unknown `nls`, a missing `hcb` file) stops the boot and is written to the port's `last_error.txt`, with the line number.
+* A different `hcb` keeps its own saves: saves are kept per script name.
+
 ### HOW TO BUILD
 * macOS Bundle: [setsumei/HOW-TO-BUILD.macos-bundle.md](setsumei/HOW-TO-BUILD.macos-bundle.md)
 * iOS IPA: [setsumei/HOW-TO-BUILD.ios.md](setsumei/HOW-TO-BUILD.ios.md)
