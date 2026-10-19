@@ -40,6 +40,10 @@ The console ports run the engine's `no_std` core (`rfvp::RfvpCore`) through the 
 code. Rendering goes through `RfvpRenderer`; the shared software rasterizer
 (`rfvp::host_api::SoftRaster`) is there for ports without a GPU path.
 
+Every port but the PS1 reads an optional `config.toml` from the game directory (which script to
+run and its encoding; see "config.toml" in the top-level `README.md`). The core reads it in
+`RfvpCore::boot` (`crates/rfvp/src/game_config.rs`), so a port needs no code for it.
+
 The consoles that need a nightly compiler all use the one pinned in `consoles/toolchain.env`.
 
 The core can be run on a desktop through the same host API, with a real game, by the test

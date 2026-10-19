@@ -1,6 +1,6 @@
 # RFVP PSV 诊断与性能优化
 
-本 PR 分支 `psv-diagnostics-main` 基于 [xmoezzz/rfvp](https://github.com/xmoezzz/rfvp) 当前 `main`（`99435f22e94eaec27c0c1b9f22cc2a6b1910d7d1`），收录 2026-10-19 对《星空的记忆》PS Vita 移植版的实机诊断、渲染/内存优化、文字度量和可选的 GBK 汉化入口。
+本 PR 分支 `psv-diagnostics-main` 基于 [xmoezzz/rfvp](https://github.com/xmoezzz/rfvp) 当前 `main`（`99435f22e94eaec27c0c1b9f22cc2a6b1910d7d1`），收录 2026-10-19 对《星空的记忆》PS Vita 移植版的实机诊断、渲染/内存优化、文字度量和汉化脚本入口（合入时改为通用的 `config.toml`）。
 
 原始开发分支 `psv-diagnostics-20261019` 保留在 fork 中，基于固定提交 `709b6ba2f9ae4ba9f34c56df82a044eb958ff329`，包含一版“播放时清除临时静音”的音频实现；本 PR 分支已 rebase 到当前 `main`，沿用上游已有的 `AudioSilentOn` no-op 语义，只保留音频诊断事件。
 
@@ -14,7 +14,7 @@
   - 存档准备约 338ms → 102–104ms：缩略图直接采样帧缓冲；拆分截图/快照/整理计时。
   - 对白文字：每个字 4 次 `font.rasterize` → 1 次 metrics-only 路径；实机 `text_raster` 约 31–73ms。
   - 纹理：轻度缩小交给 GPU，RGBA 输入借用；失败回退旧尺寸。
-  - 可选汉化：存在 `MemoriaGBK.gbk` 时按 GBK 解码并枚举 `.gbk`，否则原 `.hcb` + ShiftJIS 不变。
+  - 汉化脚本：由游戏目录下的 `config.toml` 指定脚本和编码（见下文），没有该文件时原 `.hcb` + ShiftJIS 不变。
 - 验证：固定基线分支 61 项测试、1068 组字体度量、日文 14/14 张画面一致；本 PR 分支另跑 2 项真实游戏状态测试、GBK 4200 帧启动和 PSV 交叉编译，均通过。
 - PSV 实机：用户已确认第六版 + `MemoriaGBK.gbk` + Droid Sans Fallback 中文文本完整、运行正常（该验证来自基于固定基线的 v6 构建；本 PR 分支沿用上游音频语义，建议合入前再做一次实机 smoke test）。
 
@@ -33,13 +33,13 @@
 | 03 | 历史实现：下一次播放清除临时静音 | 原始分支已实机确认配音恢复；当前 `upstream/main` 已把 `AudioSilentOn` 改为 no-op，本 PR **不覆盖**该行为，仅保留零音量/类型音量诊断 |
 | 04 | 存档缩略图直接采样帧缓冲；拆分截图、快照、存档整理计时 | `save` 约 338ms → 102–104ms |
 | 05 | 纯度量改用 `Font::metrics`；单字绘制复用 `item_adv` | 文字光栅化明显下降；1068 组度量一致、日文 14/14 截图一致 |
-| 06 | 存在 `MemoriaGBK.gbk` 时选择 GBK 和 `.gbk` 扩展名 | 本机中文 4200 帧通过；PSV 实机（Droid Sans Fallback）已确认 |
+| 06 | 汉化脚本入口；合入时由 `MemoriaGBK.gbk` 文件名开关改为 `config.toml` | 本机中文 4200 帧通过；PSV 实机（Droid Sans Fallback）已确认（v6 文件名开关版本） |
 
 ## 诊断系统
 
 - `crates/rfvp/src/perf.rs`：阶段从 23 项扩到 **35** 项；新增 `enabled`、`Scope`、`scope`、`event`。新增阶段一律追加在末尾，并用 `VFS_READ`、`GRAPH_DECODE` 等常量给本分支的钩子使用；**数字索引是报告 ABI，禁止插入或重排**。
 - `platform/vita/host/src/diagnostics.rs`：有界慢帧历史（最慢 8 帧、最近 12 个 ≥50ms）、阶段汇总、音频累计；报告写入在测量帧之外。
-- `platform/vita/host/src/main.rs`：启用诊断时钟、周期写出 `debug_report.txt`/`debug_boot.txt`；`diagnostics_off.txt` 可关闭记录；检测 `MemoriaGBK.gbk`。
+- `platform/vita/host/src/main.rs`：启用诊断时钟、周期写出 `debug_report.txt`/`debug_boot.txt`；`diagnostics_off.txt` 可关闭记录。
 - `platform/vita/host/src/audio.rs` 与 `c/rfvp_psv_vitasdk.c`：记录混音/加载/播放错误、主线程等锁、硬件线程/端口/音量/输出计数。
 - 共享资源的 `perf::scope`/`event` 钩子：VFS 慢读、图片解码、CPU 副本恢复、差分合成、纹理上传、存档快照/整理；诊断时钟未安装时是 no-op。
 
@@ -59,9 +59,15 @@
 
 ### 汉化脚本入口（06）
 
-原流程按目录顺序取第一份 `.hcb` 并按 ShiftJIS 解码。第六版在 PSV 入口检查 `ux0:data/rfvp/game/MemoriaGBK.gbk`：存在时 `boot.hcb_extension = "gbk"`、`boot.nls = Nls::GBK`；否则保持默认 `.hcb` + ShiftJIS。GBK 解码器、按扩展名枚举和字体回退沿用上游实现。
+原流程按目录顺序取第一份 `.hcb` 并按 ShiftJIS 解码。第六版曾在 PSV 入口检查 `MemoriaGBK.gbk` 文件名；合入时改为通用的 `config.toml`：核心在 `RfvpCore::boot` 中读取游戏目录下的 `config.toml`（除 PS1 外所有主机移植共用），`[game]` 段的 `hcb` 指定脚本文件，`nls` 指定编码：
 
-这是当前游戏的约定文件名开关，不是通用汉化自动识别；核心按扩展名枚举后取第一份，应只保留一份 `.gbk`。
+```toml
+[game]
+hcb = "MemoriaGBK.gbk"
+nls = "gbk"
+```
+
+没有该文件时保持默认 `.hcb` + ShiftJIS。写法见仓库根目录 `README.md` 的 “config.toml” 一节。
 
 ### 纹理与内存策略（02）
 
@@ -87,7 +93,7 @@
 | [platform/vita/host/src/audio.rs](platform/vita/host/src/audio.rs) | 修改 | +47 / −5 | 混音/加载/播放错误、锁等待、音频事件 |
 | [platform/vita/host/src/diagnostics.rs](platform/vita/host/src/diagnostics.rs) | 新增 | +115 / −0 | 有界慢帧历史、阶段汇总、音频统计 |
 | [platform/vita/host/src/lib.rs](platform/vita/host/src/lib.rs) | 修改 | +2 / −0 | 导出纹理尺寸策略和缩略图模块 |
-| [platform/vita/host/src/main.rs](platform/vita/host/src/main.rs) | 修改 | +58 / −46 | 诊断时钟/周期报告；`.gbk` 汉化入口 |
+| [platform/vita/host/src/main.rs](platform/vita/host/src/main.rs) | 修改 | +58 / −46 | 诊断时钟/周期报告 |
 | [platform/vita/host/src/render.rs](platform/vita/host/src/render.rs) | 修改 | +44 / −28 | 尺寸策略、RGBA 借用/回退、缩略图直接采样 |
 | [platform/vita/host/src/texture_policy.rs](platform/vita/host/src/texture_policy.rs) | 新增 | +17 / −0 | 轻度缩小交给 GPU；保留大幅缩小/内存不足回退 |
 | [platform/vita/host/src/thumbnail.rs](platform/vita/host/src/thumbnail.rs) | 新增 | +91 / −0 | 裁切双线性缩略图采样及 5 项单元测试 |
@@ -126,7 +132,7 @@ PSV 实机：
 
 - 构建沿用上游 PSV 的 VitaSDK/cargo-vita 流程。
 - 日文：保留 `.hcb` + ShiftJIS，默认路径不变。
-- 中文：在 `ux0:data/rfvp/game/` 放置唯一一份 `MemoriaGBK.gbk`，并用覆盖简体中文字形的单文件 TTF 作为 `default.ttf`。推荐 Droid Sans Fallback（4,033,420 字节，Apache-2.0）；注意它缺少 `U+2026`，若游戏使用省略号需换字体或合并该字形。安装后检查 `debug_boot.txt`：
+- 中文：在 `ux0:data/rfvp/game/` 放置汉化脚本（如 `MemoriaGBK.gbk`）和上文的 `config.toml`，并用覆盖简体中文字形的单文件 TTF 作为 `default.ttf`。推荐 Droid Sans Fallback（4,033,420 字节，Apache-2.0）；注意它缺少 `U+2026`，若游戏使用省略号需换字体或合并该字形。安装后检查 `debug_boot.txt`：
   - `build=rfvp-psv-diag-20261019-06`
   - `hcb=MemoriaGBK.gbk`
 - 切换前备份存档；中文脚本通常使用独立存档目录，跨脚本兼容未验证。
@@ -139,7 +145,7 @@ PSV 实机：
 3. 诊断报告有开销；帧时间排除了报告整理/写入，不能当作无诊断版本的端到端帧率。
 4. 共享文字/音频改动影响其他平台；本轮只覆盖普通 no_std 路径，未测试所有平台/`old_school`。
 5. 上游 `main` 已 rebase；后续上游更新仍需重新 rebase 和回归。
-6. `.gbk` 入口是游戏专用约定，不是通用汉化识别；扩展名枚举取第一份，只保留一份 `.gbk`。
+6. `config.toml` 写错（未知 `nls`、`hcb` 文件不存在）时启动失败，原因写入 `last_error.txt`。
 7. 旧存档跨脚本兼容未验证；建议新开游戏。
 8. Droid Sans Fallback 缺少 `U+2026`；字体覆盖以外的稀有字/全流程仍需实机确认。
 

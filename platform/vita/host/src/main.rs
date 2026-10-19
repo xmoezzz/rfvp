@@ -11,7 +11,6 @@ use core::mem::MaybeUninit;
 use core::panic::PanicInfo;
 
 use rfvp::host_api::{RfvpFileSystem, RfvpHost};
-use rfvp::script::parser::Nls;
 use rfvp::{RfvpBootConfig, RfvpCoreConfig};
 use rfvp_psv::{PsvApp, RawPsvHost};
 
@@ -74,16 +73,8 @@ pub unsafe extern "C" fn main(_argc: i32, _argv: *mut *mut u8) -> i32 {
     if debug { rfvp::perf::set_clock(diagnostics::clock_us); }
     let boot_started = diagnostics::clock_us();
 
-    // Chinese fan translations ship a GBK-encoded script. A `.gbk` file in the
-    // game directory selects it explicitly: the core enumerates that extension
-    // instead of the Japanese `.hcb` files, and strings are decoded as GBK.
-    // Without it the normal Japanese script path is unchanged.
-    let mut boot = RfvpBootConfig::default();
-    if app.host().fs().exists("MemoriaGBK.gbk") {
-        boot.hcb_extension = "gbk";
-        boot.nls = Nls::GBK;
-    }
-    if let Err(err) = app.boot(boot) {
+    // A translated script (and its encoding) is picked by `config.toml` in the game directory.
+    if let Err(err) = app.boot(RfvpBootConfig::default()) {
         report_error(&mut app, "the game could not be loaded");
         let _ = app.render_frame();
         unsafe { rfvp_psv_vitasdk_fini() };

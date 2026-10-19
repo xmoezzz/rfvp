@@ -301,6 +301,24 @@ impl RfvpCore {
             return Err(RfvpError::InvalidArgument);
         }
 
+        // `config.toml` in the game directory overrides what the port asked for (the
+        // PlayStation's disc has no room for choices: it runs what the converter made).
+        #[cfg_attr(feature = "psx", allow(unused_mut))]
+        let mut boot = boot;
+        #[cfg(not(feature = "psx"))]
+        let hcb_override = {
+            let config = read_game_config(host, boot.asset_root).map_err(|detail| {
+                self.last_error_detail = Some(detail);
+                RfvpError::InvalidData
+            })?;
+            if let Some(nls) = config.nls {
+                boot.nls = nls;
+            }
+            config.hcb.map(|hcb| join_asset_path(boot.asset_root, &hcb))
+        };
+        #[cfg(feature = "psx")]
+        let hcb_override: Option<String> = None;
+
         host.log(
             RfvpLogLevel::Info,
             "rfvp no_std boot: scanning asset root for HCB",
@@ -312,8 +330,13 @@ impl RfvpCore {
                 host,
                 boot.asset_root,
                 boot.hcb_extension,
+                hcb_override.as_deref(),
                 boot.max_manifest_entries,
-            )?;
+            )
+            .map_err(|err| {
+                self.last_error_detail = hcb_not_found_detail(err, hcb_override.as_deref());
+                err
+            })?;
             let mut file = host.fs().open(&path)?;
             let len = file.len()?;
             if len == 0 || len as usize > boot.max_hcb_bytes {
@@ -369,9 +392,14 @@ impl RfvpCore {
                 host,
                 boot.asset_root,
                 boot.hcb_extension,
+                hcb_override.as_deref(),
                 boot.max_hcb_bytes,
                 boot.max_manifest_entries,
-            )?;
+            )
+            .map_err(|err| {
+                self.last_error_detail = hcb_not_found_detail(err, hcb_override.as_deref());
+                err
+            })?;
             let parser = Parser::from_bytes(hcb.bytes.clone(), boot.nls).map_err(|err| {
                 self.last_error_detail = Some(err.to_string());
                 RfvpError::InvalidData
@@ -1080,36 +1108,32 @@ fn find_and_load_hcb<H: RfvpHost>(
     host: &mut H,
     root: &str,
     extension: &str,
+    chosen: Option<&str>,
     max_hcb_bytes: usize,
     max_manifest_entries: usize,
 ) -> RfvpResult<(LoadedHcb, Vec<(String, RfvpFileInfo)>)> {
-    let mut found = Vec::new();
-    {
-        let visitor = &mut |path: &str, info: RfvpFileInfo| -> RfvpResult<()> {
-            if found.len() >= max_manifest_entries {
-                return Err(RfvpError::CapacityExceeded);
-            }
-            found.push((path.to_string(), info));
-            Ok(())
-        };
-        host.fs().enumerate_by_extension(root, extension, visitor)?;
-    }
-    let Some((path, info)) = found.first().cloned() else {
-        return Err(RfvpError::NotFound);
-    };
+    let (path, info, manifest) = find_hcb_info(host, root, extension, chosen, max_manifest_entries)?;
     let mut file = host.fs().open(&path)?;
     let bytes = file.read_to_vec(max_hcb_bytes)?;
-    let manifest = found.into_iter().skip(1).collect();
     Ok((LoadedHcb { path, bytes, info }, manifest))
 }
 
-#[cfg(feature = "old_school")]
+/// The script: `chosen` (from `config.toml`) if given, else the first file with `extension`
+/// under `root`; and the other scripts found there.
 fn find_hcb_info<H: RfvpHost>(
     host: &mut H,
     root: &str,
     extension: &str,
+    chosen: Option<&str>,
     max_manifest_entries: usize,
 ) -> RfvpResult<(String, RfvpFileInfo, Vec<(String, RfvpFileInfo)>)> {
+    if let Some(path) = chosen {
+        let info = host.fs().metadata(path)?;
+        if info.kind != crate::host_api::RfvpFileKind::File {
+            return Err(RfvpError::NotFound);
+        }
+        return Ok((path.to_string(), info, Vec::new()));
+    }
     let mut found = Vec::new();
     {
         let visitor = &mut |path: &str, info: RfvpFileInfo| -> RfvpResult<()> {
@@ -1126,6 +1150,47 @@ fn find_hcb_info<H: RfvpHost>(
     };
     let manifest = found.into_iter().skip(1).collect();
     Ok((path, info, manifest))
+}
+
+/// Reads `config.toml` from the game directory; no file is an empty config.
+#[cfg(not(feature = "psx"))]
+fn read_game_config<H: RfvpHost>(
+    host: &mut H,
+    asset_root: &str,
+) -> Result<crate::game_config::GameConfig, String> {
+    use crate::game_config::{GameConfig, GAME_CONFIG_FILE};
+    let path = join_asset_path(asset_root, GAME_CONFIG_FILE);
+    if !host.fs().exists(&path) {
+        return Ok(GameConfig::default());
+    }
+    let bytes = host
+        .fs()
+        .open(&path)
+        .and_then(|mut file| file.read_to_vec(64 * 1024))
+        .map_err(|err| format!("{GAME_CONFIG_FILE}: could not read it: {err:?}"))?;
+    let text = core::str::from_utf8(&bytes)
+        .map_err(|_| format!("{GAME_CONFIG_FILE}: not UTF-8 text"))?;
+    let config = GameConfig::parse(text).map_err(|err| format!("{GAME_CONFIG_FILE}: {err}"))?;
+    host.log(RfvpLogLevel::Info, &format!("{GAME_CONFIG_FILE}: {config:?}"));
+    Ok(config)
+}
+
+/// `path` in the game directory `root`, unless it is already absolute.
+#[cfg(not(feature = "psx"))]
+fn join_asset_path(root: &str, path: &str) -> String {
+    if path.starts_with('/') || path.contains(':') || root == "." {
+        path.to_string()
+    } else {
+        format!("{}/{}", root.trim_end_matches('/'), path)
+    }
+}
+
+/// Says which script `config.toml` named when it is not there.
+fn hcb_not_found_detail(err: RfvpError, chosen: Option<&str>) -> Option<String> {
+    match (err, chosen) {
+        (RfvpError::NotFound, Some(path)) => Some(format!("config.toml: hcb `{path}` not found")),
+        _ => None,
+    }
 }
 
 /// Where this game's saves go: its own folder in the platform's data directory
