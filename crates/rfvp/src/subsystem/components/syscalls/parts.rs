@@ -55,7 +55,9 @@ pub fn parts_load(game_data: &mut GameData, id: &Variant, path: &Variant) -> Res
                 pm.unload_parts_keep_name(id as u8);
             }
             Action::Load { path, buff } => {
-                let _ = pm.load_parts(id as u16, &path, buff);
+                if let Err(err) = pm.load_parts(id as u16, &path, buff) {
+                    crate::perf::event(format_args!("parts load FAILED id={id} path={path:?}: {err:?}"));
+                }
             }
         }
         pm.next_free_id(id as u8);
@@ -121,7 +123,7 @@ pub fn parts_select(game_data: &mut GameData, id: &Variant, entry_id: &Variant) 
                 .draw_parts_to_texture(id as u8, entry_id_u32, &game_data.vfs)
             {
                 // IDA: draw failure is non-fatal; still cancels the motion slot.
-                let _ = e;
+                crate::perf::event(format_args!("parts select FAILED id={id} entry={entry_id_u32}: {e:?}"));
             }
         }
     }

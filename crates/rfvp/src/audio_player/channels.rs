@@ -176,9 +176,19 @@ impl<const N: usize> Channels<N> {
             return Ok(());
         }
         log::info!("Playing {} slot {slot}", self.label);
+        // Diagnostic only: upstream's `silent_on` does not mute, so a zero gain here
+        // comes from slot/category volume, not from a transient silence state.
+        let params = self.params(slot);
+        if params.volume == 0.0 {
+            let type_volume = self.kinds[slot]
+                .and_then(|kind| usize::try_from(kind).ok())
+                .and_then(|kind| self.type_volumes.get(kind)).copied().unwrap_or(1.0);
+            crate::perf::event(format_args!("ZERO audio gain label={} slot={slot} path={:?} slot_volume={} type={:?} type_volume={type_volume}",
+                self.label, self.names[slot], self.volumes[slot], self.kinds[slot]));
+        }
         self.audio
             .backend()
-            .play(self.id(slot), self.params(slot), fade_in, vfs)
+            .play(self.id(slot), params, fade_in, vfs)
     }
 
     pub fn set_volume(&mut self, slot: i32, volume: f32, tween: Tween) {
@@ -231,6 +241,7 @@ impl<const N: usize> Channels<N> {
             return;
         }
         self.type_volumes[kind as usize] = volume;
+        crate::perf::event(format_args!("audio type_volume label={} type={kind} volume={volume}", self.label));
         for slot in 0..N {
             if self.kinds[slot] == Some(kind) {
                 self.apply_params(slot, tween);
@@ -317,3 +328,4 @@ impl<const N: usize> Channels<N> {
         Ok(())
     }
 }
+

@@ -659,30 +659,36 @@ impl RfvpCore {
                 Ok(())
             });
         #[cfg(not(feature = "psx"))]
-        let snap = crate::subsystem::save_state::SaveStateSnapshotV1::capture(&mut self.game_data);
+        let snap = {
+            let _timing = crate::perf::scope(crate::perf::SAVE_SNAPSHOT);
+            crate::subsystem::save_state::SaveStateSnapshotV1::capture(&mut self.game_data)
+        };
 
         #[cfg(not(feature = "psx"))]
-        let result = if slot == u32::MAX {
-            // SaveCreate(3, ..): prepare the payload in memory, and commit it if SaveWrite has
-            // already named a slot.
-            self.game_data
-                .save_manager
-                .finalize_local_savedata_prepare(nls.clone(), thumb_w, thumb_h, &thumb, Some(&snap))
-                .and_then(|()| {
-                    if self.game_data.save_manager.try_commit_local_savedata(nls)? {
+        let result = {
+            let _timing = crate::perf::scope(crate::perf::SAVE_FINALIZE);
+            if slot == u32::MAX {
+                // SaveCreate(3, ..): prepare the payload in memory, and commit it if SaveWrite
+                // has already named a slot.
+                self.game_data
+                    .save_manager
+                    .finalize_local_savedata_prepare(nls.clone(), thumb_w, thumb_h, &thumb, Some(&snap))
+                    .and_then(|()| {
+                        if self.game_data.save_manager.try_commit_local_savedata(nls)? {
+                            self.game_data.save_manager.consume_save_write_result();
+                            self.save_global_if_changed(host);
+                        }
+                        Ok(())
+                    })
+            } else {
+                self.game_data
+                    .save_manager
+                    .finalize_save_write(nls, thumb_w, thumb_h, &thumb, Some(&snap))
+                    .map(|()| {
                         self.game_data.save_manager.consume_save_write_result();
                         self.save_global_if_changed(host);
-                    }
-                    Ok(())
-                })
-        } else {
-            self.game_data
-                .save_manager
-                .finalize_save_write(nls, thumb_w, thumb_h, &thumb, Some(&snap))
-                .map(|()| {
-                    self.game_data.save_manager.consume_save_write_result();
-                    self.save_global_if_changed(host);
-                })
+                    })
+            }
         };
         if let Err(err) = result {
             host.log(RfvpLogLevel::Error, &format!("could not save: {err:#}"));
@@ -836,7 +842,8 @@ impl RfvpCore {
         let mut commands = Vec::new();
         self.game_data.audio_manager().drain_commands(&mut commands);
         for command in commands {
-            crate::perf::mark(1000 + audio_command_index(&command));
+            let command_index = audio_command_index(&command);
+            crate::perf::mark(1000 + command_index);
             let result = match command {
                 crate::rfvp_audio::AudioCommand::LoadEncoded { id, kind, bytes } => {
                     host.audio().load_encoded(id, kind, &bytes)
@@ -886,7 +893,7 @@ impl RfvpCore {
                 }
             };
             if let Err(err) = result {
-                log::warn!("audio command failed: {err:?}");
+                log::warn!("audio command {command_index} failed: {err:?}");
             }
         }
         Ok(())

@@ -521,6 +521,9 @@ impl Vfs {
 
     pub fn open_stream_with_len(&self, path: &str) -> Result<(VfsStream, Option<u64>)> {
         let key = normalize_vfs_key(path);
+        if key.starts_with("voice/") || key.starts_with("voice2/") {
+            crate::perf::event(format_args!("voice resource path={path:?}"));
+        }
         if let Some(bytes) = self.loose_files.get(&key) {
             return Ok((
                 Box::new(Cursor::new(bytes.clone())),
@@ -552,10 +555,23 @@ impl Vfs {
     }
 
     pub fn read_file(&self, path: &str) -> Result<Vec<u8>> {
-        let (mut stream, len) = self.open_stream_with_len(path)?;
-        let mut out = Vec::with_capacity(len.and_then(|n| usize::try_from(n).ok()).unwrap_or(0));
-        stream.read_to_end(&mut out)?;
-        Ok(out)
+        let _timing = crate::perf::scope(crate::perf::VFS_READ);
+        let started = crate::perf::start();
+        let result = (|| {
+            let (mut stream, len) = self.open_stream_with_len(path)?;
+            let mut out = Vec::with_capacity(len.and_then(|n| usize::try_from(n).ok()).unwrap_or(0));
+            stream.read_to_end(&mut out)?;
+            Ok(out)
+        })();
+        if crate::perf::enabled() {
+            let us = crate::perf::start().saturating_sub(started);
+            match &result {
+                Ok(bytes) if us >= 10_000 => crate::perf::event(format_args!("vfs path={path:?} bytes={} us={us}", bytes.len())),
+                Err(err) => crate::perf::event(format_args!("vfs FAILED path={path:?}: {err:?}")),
+                _ => {}
+            }
+        }
+        result
     }
 }
 

@@ -1,4 +1,5 @@
 use alloc::collections::BTreeMap;
+use alloc::borrow::Cow;
 use alloc::vec::Vec;
 use core::ffi::c_void;
 
@@ -38,9 +39,8 @@ struct GpuTexture {
 
 /// Draws the game with the Vita's GPU (through vita2d, see rfvp_psv_gpu.c).
 ///
-/// Textures are kept at screen resolution: the game's images and text (often 1920x1080) are
-/// shrunk to the 960x544 screen when they are uploaded, which saves most of the texture memory
-/// and the GPU's sampling work.
+/// Large reductions use screen-sized textures. Small reductions use native pixels and GPU
+/// filtering, avoiding expensive CPU resizes when expressions or text change.
 pub struct PsvRenderer {
     textures: BTreeMap<u32, GpuTexture>,
     virtual_size: (u32, u32),
@@ -103,13 +103,7 @@ impl PsvRenderer {
 
     /// Size a texture of `width` x `height` is kept at.
     fn kept_size(&self, width: u32, height: u32) -> (u32, u32) {
-        if self.scale >= 0.999 {
-            return (width, height);
-        }
-        (
-            (round(width as f32 * self.scale) as u32).max(1),
-            (round(height as f32 * self.scale) as u32).max(1),
-        )
+        crate::texture_policy::kept_size(self.scale, width, height)
     }
 }
 
@@ -128,7 +122,7 @@ impl Drop for PsvRenderer {
 }
 
 /// Pixels of `format` as RGBA8 bytes.
-fn to_rgba8(format: PixelFormat, src: &[u8], count: usize) -> RfvpResult<Vec<u8>> {
+fn to_rgba8(format: PixelFormat, src: &[u8], count: usize) -> RfvpResult<Cow<'_, [u8]>> {
     let bpp = match format {
         PixelFormat::Rgba8 | PixelFormat::Bgra8 => 4,
         PixelFormat::Rgb8 => 3,
@@ -139,7 +133,7 @@ fn to_rgba8(format: PixelFormat, src: &[u8], count: usize) -> RfvpResult<Vec<u8>
         return Err(RfvpError::InvalidArgument);
     }
     if format == PixelFormat::Rgba8 {
-        return Ok(src[..count * 4].to_vec());
+        return Ok(Cow::Borrowed(&src[..count * 4]));
     }
     let mut out = Vec::with_capacity(count * 4);
     for p in src[..count * bpp].chunks_exact(bpp) {
@@ -152,7 +146,7 @@ fn to_rgba8(format: PixelFormat, src: &[u8], count: usize) -> RfvpResult<Vec<u8>
             PixelFormat::Alpha8 => [255, 255, 255, p[0]],
         });
     }
-    Ok(out)
+    Ok(Cow::Owned(out))
 }
 
 /// `f32::round` and `f32::ceil`, which `core` does not have.
@@ -192,23 +186,41 @@ impl RfvpRenderer for PsvRenderer {
         desc: TextureDesc,
         pixels: Option<&[u8]>,
     ) -> RfvpResult<()> {
+        let _timing = rfvp::perf::scope(rfvp::perf::PSV_TEXTURE);
         if desc.width == 0 || desc.height == 0 {
             return Err(RfvpError::InvalidArgument);
         }
-        let (width, height) = self.kept_size(desc.width, desc.height);
+        let (mut width, mut height) = self.kept_size(desc.width, desc.height);
         let count = desc.width as usize * desc.height as usize;
-        let rgba = match pixels {
+        let mut rgba = match pixels {
             Some(src) => {
                 let full = to_rgba8(desc.format, src, count)?;
                 if (width, height) == (desc.width, desc.height) {
                     full
                 } else {
-                    downscale_rgba8(&full, desc.width, desc.height, width, height)
+                    let _resize = rfvp::perf::scope(rfvp::perf::PSV_RESIZE);
+                    Cow::Owned(downscale_rgba8(&full, desc.width, desc.height, width, height))
                 }
             }
-            None => alloc::vec![0u8; width as usize * height as usize * 4],
+            None => Cow::Owned(alloc::vec![0u8; width as usize * height as usize * 4]),
         };
-        let handle = unsafe { rfvp_psv_gpu_create_texture(width, height, rgba.as_ptr(), 1) };
+        let mut handle = {
+            let _upload = rfvp::perf::scope(rfvp::perf::PSV_GPU_UPLOAD);
+            unsafe { rfvp_psv_gpu_create_texture(width, height, rgba.as_ptr(), 1) }
+        };
+        if handle.is_null() && (width, height) == (desc.width, desc.height) {
+            let fallback = crate::texture_policy::scaled_size(self.scale, desc.width, desc.height);
+            if fallback != (width, height) {
+                rfvp::perf::event(format_args!("native texture allocation failed id={} size={}x{}; retry {}x{}", id.0, width, height, fallback.0, fallback.1));
+                {
+                    let _resize = rfvp::perf::scope(rfvp::perf::PSV_RESIZE);
+                    rgba = Cow::Owned(downscale_rgba8(&rgba, desc.width, desc.height, fallback.0, fallback.1));
+                }
+                (width, height) = fallback;
+                let _upload = rfvp::perf::scope(rfvp::perf::PSV_GPU_UPLOAD);
+                handle = unsafe { rfvp_psv_gpu_create_texture(width, height, rgba.as_ptr(), 1) };
+            }
+        }
         if handle.is_null() {
             return Err(RfvpError::OutOfMemory);
         }
@@ -233,6 +245,7 @@ impl RfvpRenderer for PsvRenderer {
         rect: TextureRect,
         pixels: &[u8],
     ) -> RfvpResult<()> {
+        let _timing = rfvp::perf::scope(rfvp::perf::PSV_TEXTURE);
         let texture = self.textures.get(&id.0).ok_or(RfvpError::NotFound)?;
         if rect.width == 0 || rect.height == 0 {
             return Ok(());
@@ -244,6 +257,7 @@ impl RfvpRenderer for PsvRenderer {
         let count = rect.width as usize * rect.height as usize;
         let src = to_rgba8(PixelFormat::Rgba8, pixels, count)?;
         if texture.width == texture.full_width && texture.height == texture.full_height {
+            let _upload = rfvp::perf::scope(rfvp::perf::PSV_GPU_UPLOAD);
             unsafe {
                 rfvp_psv_gpu_update_texture(texture.handle, rect.x, rect.y, rect.width, rect.height, src.as_ptr())
             };
@@ -256,7 +270,11 @@ impl RfvpRenderer for PsvRenderer {
         let y0 = (rect.y as f32 * sy) as u32;
         let x1 = (ceil((rect.x + rect.width) as f32 * sx) as u32).min(texture.width).max(x0 + 1);
         let y1 = (ceil((rect.y + rect.height) as f32 * sy) as u32).min(texture.height).max(y0 + 1);
-        let small = downscale_rgba8(&src, rect.width, rect.height, x1 - x0, y1 - y0);
+        let small = {
+            let _resize = rfvp::perf::scope(rfvp::perf::PSV_RESIZE);
+            downscale_rgba8(&src, rect.width, rect.height, x1 - x0, y1 - y0)
+        };
+        let _upload = rfvp::perf::scope(rfvp::perf::PSV_GPU_UPLOAD);
         unsafe { rfvp_psv_gpu_update_texture(texture.handle, x0, y0, x1 - x0, y1 - y0, small.as_ptr()) };
         Ok(())
     }
@@ -357,6 +375,7 @@ impl RfvpRenderer for PsvRenderer {
     /// The game frame read back from the display buffer just drawn. (Vita3K keeps GPU surfaces
     /// on the host, so there it reads back black.)
     fn capture_thumbnail(&mut self, width: u32, height: u32) -> Option<Vec<u8>> {
+        let _timing = rfvp::perf::scope(rfvp::perf::PSV_THUMBNAIL);
         if !self.frame_done || width == 0 || height == 0 {
             return None;
         }
@@ -365,14 +384,11 @@ impl RfvpRenderer for PsvRenderer {
             return None;
         }
         let (x0, y0, x1, y1) = self.screen_rect(None);
-        let (w, h) = ((x1 - x0) as usize, (y1 - y0) as usize);
-        let mut view = Vec::with_capacity(w * h * 4);
-        for y in y0 as usize..y1 as usize {
-            let row = unsafe {
-                core::slice::from_raw_parts(fb.add((y * SCREEN_WIDTH as usize + x0 as usize) * 4), w * 4)
-            };
-            view.extend_from_slice(row);
-        }
-        Some(downscale_rgba8(&view, w as u32, h as u32, width, height))
+        // The C bridge exposes exactly 960x544 packed RGBA8 pixels after GPU completion.
+        let frame = unsafe {
+            core::slice::from_raw_parts(fb, SCREEN_WIDTH as usize * SCREEN_HEIGHT as usize * 4)
+        };
+        crate::thumbnail::capture_rgba8(frame, SCREEN_WIDTH as usize, SCREEN_HEIGHT as usize,
+            (x0 as usize, y0 as usize, x1 as usize, y1 as usize), width, height)
     }
 }

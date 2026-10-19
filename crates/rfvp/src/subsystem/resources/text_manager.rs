@@ -1800,7 +1800,9 @@ impl TextItem {
         let extra = Self::layout_extra_advance_px(outline, distance);
         let eff_size = Self::effective_gdi_font_size(size, outline, distance);
         let font = fonts.for_char(ch);
-        let (metrics, _) = font.rasterize(ch, eff_size);
+        // Metrics only: this path discards the bitmap. `rasterize` would run the
+        // glyph coverage pass and allocate a Vec for every measurement.
+        let metrics = font.metrics(ch, eff_size);
         metrics.advance_width.ceil() as i32 + extra
     }
 
@@ -2200,7 +2202,8 @@ impl TextItem {
     ) -> RectI32 {
         let eff_size = Self::effective_gdi_font_size(size, outline, shadow_dist);
         let font = fonts.for_char(ch);
-        let (metrics, _) = font.rasterize(ch, eff_size);
+        // Bounds only: no coverage bitmap is used here.
+        let metrics = font.metrics(ch, eff_size);
         let gx = x + metrics.xmin;
         let gy = y - (metrics.ymin + metrics.height as i32);
         Self::glyph_bounds(
@@ -2873,15 +2876,10 @@ impl TextItem {
                         pen_y += line_h;
                     }
 
-                    let logical_adv = self.measure_char_advance(
-                        &main_fonts,
-                        main_size,
-                        gaiji,
-                        main_slot,
-                        ch,
-                        self.outline_size1,
-                        self.shadow_distance,
-                    );
+                    // `item_adv` was computed above with the same font, size and
+                    // effects and already includes `main_gap_x`; reuse it instead
+                    // of measuring (and re-rasterizing) the glyph a second time.
+                    let logical_adv = item_adv - self.main_gap_x as i32;
                     let draw_x = Self::scale_pos_i32(pen_x, render_scale);
                     let draw_cell_top = Self::scale_pos_i32(pen_y, render_scale);
                     let draw_y = Self::baseline_from_cell_top(

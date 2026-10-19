@@ -1,5 +1,5 @@
 use core::cell::UnsafeCell;
-use core::sync::atomic::{AtomicBool, AtomicPtr, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicPtr, AtomicU32, Ordering};
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -10,6 +10,25 @@ use rfvp::host_api::{
 
 const OUTPUT_SAMPLE_RATE: u32 = 48_000;
 const MIX_FRAMES: usize = 1024;
+
+static PULLS: AtomicU32 = AtomicU32::new(0);
+static NONZERO_BUFFERS: AtomicU32 = AtomicU32::new(0);
+static MIX_ERRORS: AtomicU32 = AtomicU32::new(0);
+static LOAD_ERRORS: AtomicU32 = AtomicU32::new(0);
+static PLAY_ERRORS: AtomicU32 = AtomicU32::new(0);
+static LAST_MIX_ERROR: AtomicU32 = AtomicU32::new(0);
+static MAX_PULL_US: AtomicU32 = AtomicU32::new(0);
+static MAX_LOCK_US: AtomicU32 = AtomicU32::new(0);
+
+/// Cumulative, approximate snapshots: audio continues while the main thread reads these.
+pub fn diagnostic_stats() -> [u32; 8] {
+    [&PULLS, &NONZERO_BUFFERS, &MIX_ERRORS, &LOAD_ERRORS, &PLAY_ERRORS,
+     &LAST_MIX_ERROR, &MAX_PULL_US, &MAX_LOCK_US].map(|v| v.load(Ordering::Relaxed))
+}
+
+fn error_code(error: RfvpError) -> u32 {
+    error.code()
+}
 
 #[repr(C)]
 struct RfvpOggVorbisInfo {
@@ -74,6 +93,8 @@ extern "C" {
 /// plays.
 #[no_mangle]
 pub unsafe extern "C" fn rfvp_psv_audio_pull(dst: *mut i16, frames: usize) {
+    let started = rfvp::perf::start();
+    PULLS.fetch_add(1, Ordering::Relaxed);
     let out = unsafe { core::slice::from_raw_parts_mut(dst, frames * 2) };
     let shared = SHARED.load(Ordering::Acquire);
     if shared.is_null() {
@@ -81,13 +102,23 @@ pub unsafe extern "C" fn rfvp_psv_audio_pull(dst: *mut i16, frames: usize) {
         return;
     }
     unsafe { &*shared }.with(|mixer, chunk| {
+        MAX_LOCK_US.fetch_max(rfvp::perf::start().saturating_sub(started).min(u32::MAX as u64) as u32, Ordering::Relaxed);
         for part in out.chunks_mut(MIX_FRAMES * 2) {
             match mixer.mix_next(chunk) {
                 Ok(true) => part.copy_from_slice(&chunk[..part.len()]),
-                _ => part.fill(0),
+                Ok(false) => part.fill(0),
+                Err(error) => {
+                    MIX_ERRORS.fetch_add(1, Ordering::Relaxed);
+                    LAST_MIX_ERROR.store(error_code(error), Ordering::Relaxed);
+                    part.fill(0);
+                }
             }
         }
     });
+    if out.iter().any(|&sample| sample != 0) {
+        NONZERO_BUFFERS.fetch_add(1, Ordering::Relaxed);
+    }
+    MAX_PULL_US.fetch_max(rfvp::perf::start().saturating_sub(started).min(u32::MAX as u64) as u32, Ordering::Relaxed);
 }
 
 pub struct PsvAudio {
@@ -115,7 +146,11 @@ impl PsvAudio {
     }
 
     fn mixer<R>(&mut self, f: impl FnOnce(&mut SoftAudioMixer<PsvVorbisBackend>) -> R) -> R {
-        self.shared.with(|mixer, _| f(mixer))
+        let started = rfvp::perf::start();
+        self.shared.with(|mixer, _| {
+            rfvp::perf::stop(rfvp::perf::MAIN_AUDIO_LOCK, started);
+            f(mixer)
+        })
     }
 }
 
@@ -142,7 +177,10 @@ impl RfvpAudio for PsvAudio {
         kind: EncodedAudioKind,
         bytes: &[u8],
     ) -> RfvpResult<()> {
-        self.mixer(|m| m.load_encoded(id, kind, bytes))
+        let result = self.mixer(|m| m.load_encoded(id, kind, bytes));
+        if result.is_err() { LOAD_ERRORS.fetch_add(1, Ordering::Relaxed); }
+        rfvp::perf::event(format_args!("audio load id={} kind={kind:?} bytes={} result={result:?}", id.0, bytes.len()));
+        result
     }
 
     fn create_stream(&mut self, id: AudioStreamId, desc: AudioStreamDesc) -> RfvpResult<()> {
@@ -158,7 +196,10 @@ impl RfvpAudio for PsvAudio {
     }
 
     fn play(&mut self, id: AudioStreamId, params: AudioParams, fade_in_ms: u32) -> RfvpResult<()> {
-        self.mixer(|m| m.play(id, params, fade_in_ms))
+        let result = self.mixer(|m| m.play(id, params, fade_in_ms));
+        if result.is_err() { PLAY_ERRORS.fetch_add(1, Ordering::Relaxed); }
+        rfvp::perf::event(format_args!("audio play id={} params={params:?} fade={fade_in_ms} result={result:?}", id.0));
+        result
     }
 
     fn stop(&mut self, id: AudioStreamId, fade_ms: u32) -> RfvpResult<()> {
@@ -178,6 +219,7 @@ impl RfvpAudio for PsvAudio {
     }
 
     fn set_master_volume(&mut self, volume: f32) -> RfvpResult<()> {
+        rfvp::perf::event(format_args!("audio master volume={volume}"));
         self.mixer(|m| m.set_master_volume(volume))
     }
 

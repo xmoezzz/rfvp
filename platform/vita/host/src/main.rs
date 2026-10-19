@@ -3,13 +3,15 @@
 #![feature(alloc_error_handler)]
 
 extern crate alloc;
+mod diagnostics;
 
 use alloc::format;
 use core::fmt::Write;
 use core::mem::MaybeUninit;
 use core::panic::PanicInfo;
 
-use rfvp::host_api::{RfvpClock, RfvpFileSystem, RfvpHost};
+use rfvp::host_api::{RfvpFileSystem, RfvpHost};
+use rfvp::script::parser::Nls;
 use rfvp::{RfvpBootConfig, RfvpCoreConfig};
 use rfvp_psv::{PsvApp, RawPsvHost};
 
@@ -35,12 +37,9 @@ pub static _newlib_heap_size_user: u32 = 320 * 1024 * 1024;
 /// Written next to the game when it cannot start or stops, so the reason can be read off the
 /// memory card.
 const ERROR_FILE: &str = "last_error.txt";
-/// If this file is in the game folder, the port reports how it is doing in `DEBUG_REPORT_FILE`
-/// about once a second: frame rate, slowest frame and the recent log.
-const DEBUG_FLAG_FILE: &str = "debug.txt";
+/// This diagnostic build records automatically. This flag permits a comparison with timing off.
+const DEBUG_OFF_FILE: &str = "diagnostics_off.txt";
 const DEBUG_REPORT_FILE: &str = "debug_report.txt";
-/// Frames between two reports.
-const DEBUG_REPORT_EVERY: u32 = 60;
 
 fn report_error(app: &mut PsvApp, what: &str) {
     let detail = app
@@ -71,65 +70,78 @@ pub unsafe extern "C" fn main(_argc: i32, _argv: *mut *mut u8) -> i32 {
 
     let raw_host = unsafe { raw_host.assume_init() };
     let mut app = PsvApp::new(raw_host, RfvpCoreConfig::default(), 256);
+    let debug = !app.host().fs().exists(DEBUG_OFF_FILE);
+    if debug { rfvp::perf::set_clock(diagnostics::clock_us); }
+    let boot_started = diagnostics::clock_us();
 
-    if let Err(err) = app.boot(RfvpBootConfig::default()) {
+    // Chinese fan translations ship a GBK-encoded script. A `.gbk` file in the
+    // game directory selects it explicitly: the core enumerates that extension
+    // instead of the Japanese `.hcb` files, and strings are decoded as GBK.
+    // Without it the normal Japanese script path is unchanged.
+    let mut boot = RfvpBootConfig::default();
+    if app.host().fs().exists("MemoriaGBK.gbk") {
+        boot.hcb_extension = "gbk";
+        boot.nls = Nls::GBK;
+    }
+    if let Err(err) = app.boot(boot) {
         report_error(&mut app, "the game could not be loaded");
         let _ = app.render_frame();
         unsafe { rfvp_psv_vitasdk_fini() };
         return err_to_status(err);
     }
 
-    let debug = app.host().fs().exists(DEBUG_FLAG_FILE);
-    let mut frames = 0u32;
-    let mut window_started_us = app.host().clock().ticks_us();
-    let mut last_frame_us = window_started_us;
-    let mut worst_us = 0u64;
+    let header = format!("hcb={}\nboot_us={}\ndiagnostics_off.txt disables recording on next launch",
+        app.core().loaded_game().map(|game| game.hcb_path.as_str()).unwrap_or("unknown"),
+        diagnostics::clock_us().saturating_sub(boot_started));
+    let mut diagnostics = diagnostics::Diagnostics::new(header.clone());
+    if debug {
+        let boot_report = format!("build={}\n{}\nboot stages (inclusive us) {:?}\n{:?}\n{}",
+            diagnostics::BUILD, header, rfvp::perf::STAGES, rfvp::perf::take(), rfvp::ring_log::dump());
+        let _ = app.host().fs().write_all("debug_boot.txt", boot_report.as_bytes());
+        let _ = rfvp::perf::take_ops();
+    }
+    let mut frames = 0u64;
+    let mut last_report_us = diagnostics::clock_us();
+    let (mut unused_present, mut unused_draws) = (0, 0);
+    unsafe { rfvp_psv_gpu_stats(&mut unused_present, &mut unused_draws) };
 
     loop {
+        let started = diagnostics::clock_us();
         let poll_status = unsafe { rfvp_psv_platform_poll(&mut app) };
         if poll_status != 0 {
             unsafe { rfvp_psv_vitasdk_fini() };
             return poll_status;
         }
 
-        if let Err(err) = app.run_frame() {
-            report_error(&mut app, "the game stopped with an error");
-            unsafe { rfvp_psv_vitasdk_fini() };
-            return err_to_status(err);
-        }
-
-        if app.quit_requested() || unsafe { rfvp_psv_platform_should_exit() } != 0 {
-            break;
-        }
+        let tick = match app.run_frame() {
+            Ok(tick) => tick,
+            Err(err) => {
+                report_error(&mut app, "the game stopped with an error");
+                if debug { let _ = app.host().fs().write_all(DEBUG_REPORT_FILE, diagnostics.report().as_bytes()); }
+                unsafe { rfvp_psv_vitasdk_fini() };
+                return err_to_status(err);
+            }
+        };
+        let ended = diagnostics::clock_us();
+        let quitting = app.quit_requested() || unsafe { rfvp_psv_platform_should_exit() } != 0;
 
         frames += 1;
         if debug {
-            let now = app.host().clock().ticks_us();
-            worst_us = worst_us.max(now.saturating_sub(last_frame_us));
-            last_frame_us = now;
-            if frames % DEBUG_REPORT_EVERY == 0 {
-                let window_us = now.saturating_sub(window_started_us).max(1);
-                let (mut present_us, mut draw_calls) = (0u64, 0u64);
-                unsafe { rfvp_psv_gpu_stats(&mut present_us, &mut draw_calls) };
-                let per_frame = |us: u64| us as f64 / 1000.0 / DEBUG_REPORT_EVERY as f64;
-                let text = format!(
-                    "frame {}: {:.1} fps over the last {} frames, slowest frame {:.1} ms\n\
-                     per frame: {:.1} ms engine and GPU, {:.1} ms waiting for vblank, {} draw calls\n\n\
-                     log:\n{}",
-                    app.core().frame_index(),
-                    DEBUG_REPORT_EVERY as f64 * 1_000_000.0 / window_us as f64,
-                    DEBUG_REPORT_EVERY,
-                    worst_us as f64 / 1000.0,
-                    per_frame(window_us.saturating_sub(present_us)),
-                    per_frame(present_us),
-                    draw_calls / DEBUG_REPORT_EVERY as u64,
-                    rfvp::ring_log::dump()
-                );
-                let _ = app.host().fs().write_all(DEBUG_REPORT_FILE, text.as_bytes());
-                window_started_us = now;
-                worst_us = 0;
+            let (mut present_us, mut draws) = (0, 0);
+            unsafe { rfvp_psv_gpu_stats(&mut present_us, &mut draws) };
+            diagnostics.record(tick, started, ended, present_us, draws);
+            if frames == 1 || frames % diagnostics::REPORT_EVERY == 0
+                || ended.saturating_sub(last_report_us) >= 2_000_000 || quitting {
+                let write_started = diagnostics::clock_us();
+                let text = diagnostics.report();
+                if app.host().fs().write_all(DEBUG_REPORT_FILE, text.as_bytes()).is_err() {
+                    report_error(&mut app, "diagnostic report could not be written");
+                }
+                diagnostics.last_write_us = diagnostics::clock_us().saturating_sub(write_started);
+                last_report_us = diagnostics::clock_us();
             }
         }
+        if quitting { break; }
     }
 
     unsafe { rfvp_psv_vitasdk_fini() };
