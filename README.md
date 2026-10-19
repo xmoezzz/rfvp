@@ -78,6 +78,10 @@ The Rust API documentation for this project is available here:
 
 - [RFVP Rust API Docs](https://xmoezzz.github.io/rfvp/)
 
+**A**rchitecture **D**ecision **R**ecords (ADR) are available here:
+- [RFVP ADRs](/docs/adr/README.md)
+
+
 
 ### Supported Platforms and Packaging Types
 | Platform | Packaging Type(s) Supported                                | Launcher | Standalone Executable | Architectures                       | Status |
