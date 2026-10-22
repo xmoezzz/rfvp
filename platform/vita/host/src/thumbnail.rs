@@ -35,17 +35,9 @@ pub fn capture_rgba8(
             let p01 = (row0 + left + x1) * 4;
             let p10 = (row1 + left + x0) * 4;
             let p11 = (row1 + left + x1) * 4;
-            // Read each framebuffer sample as a packed word once. Framebuffer reads
-            // can be uncached on Vita; avoid separate byte reads in every channel.
-            let sample = |p: usize| u32::from_le_bytes([frame[p], frame[p + 1], frame[p + 2], frame[p + 3]]);
-            let a = sample(p00);
-            let b = sample(p01);
-            let c = sample(p10);
-            let d = sample(p11);
             for channel in 0..4 {
-                let shift = channel * 8;
-                let upper = ((a >> shift) & 255) * (256 - wx) + ((b >> shift) & 255) * wx;
-                let lower = ((c >> shift) & 255) * (256 - wx) + ((d >> shift) & 255) * wx;
+                let upper = frame[p00 + channel] as u32 * (256 - wx) + frame[p01 + channel] as u32 * wx;
+                let lower = frame[p10 + channel] as u32 * (256 - wx) + frame[p11 + channel] as u32 * wx;
                 out.push(((upper * (256 - wy) + lower * wy + 32768) >> 16) as u8);
             }
         }

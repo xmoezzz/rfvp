@@ -1003,31 +1003,11 @@ impl Prim {
 impl PrimManager {
     pub fn capture_snapshot_v1(&self) -> PrimManagerSnapshotV1 {
         let mut prims = Vec::new();
-        #[cfg_attr(not(any(feature = "psx", feature = "no_std")), allow(unused_mut))]
+        #[cfg_attr(not(feature = "psx"), allow(unused_mut))]
         let mut ids = Vec::new();
-        #[cfg(not(any(feature = "psx", feature = "no_std")))]
+        #[cfg(not(feature = "psx"))]
         for cell in &self.prims {
             prims.push(cell.borrow().capture_snapshot_v1());
-        }
-        #[cfg(all(feature = "no_std", not(feature = "psx")))]
-        {
-            // The V1 decoder already supports IDs. Avoid copying/serializing thousands
-            // of default entries on every SaveCreate, without changing the schema.
-            let blank = Prim::new().capture_snapshot_v1();
-            for (id, cell) in self.prims.iter().enumerate() {
-                let snap = cell.borrow().capture_snapshot_v1();
-                if snap != blank {
-                    ids.push(id as u16);
-                    prims.push(snap);
-                }
-            }
-            // Empty ids means a dense snapshot to existing readers. Keep an explicit
-            // default entry even for a completely blank scene, to request a full reset.
-            if ids.is_empty() {
-                ids.push(0);
-                prims.push(blank);
-            }
-            crate::perf::event(format_args!("save capture prims stored={} total={} mode=sparse-v1", prims.len(), self.prims.len()));
         }
         // Only the prims in use, with their ids.
         #[cfg(feature = "psx")]

@@ -599,31 +599,18 @@ impl MotionManager {
             Err(_) => return Ok(()),
         };
 
-        let mut patch = None;
         if let Some(dest) = texture.get_texture_mut().as_mut() {
             let src_x = 0;
             let src_y = 0;
             let src_w = parts.get_width() as u32;
             let src_h = parts.get_height() as u32;
 
-            copy_rect_clipped(&parts_texture, src_x, src_y, src_w, src_h, dest, dx, dy)?;
-            let (dw, dh) = dest.dimensions();
-            let x0 = dx.max(0) as u32;
-            let y0 = dy.max(0) as u32;
-            let x1 = end_x.max(0) as u32;
-            let y1 = end_y.max(0) as u32;
-            let x1 = x1.min(dw);
-            let y1 = y1.min(dh);
-            if x1 > x0 && y1 > y0 && x1 <= u16::MAX as u32 && y1 <= u16::MAX as u32 {
-                patch = Some(crate::host_api::RectU16 {
-                    x: x0 as u16, y: y0 as u16, w: (x1 - x0) as u16, h: (y1 - y0) as u16,
-                });
-            }
+            let _ = copy_rect_clipped(&parts_texture, src_x, src_y, src_w, src_h, dest, dx, dy);
         }
 
         // The destination GraphBuff pixels changed; bump generation so GPU cache can refresh.
         // They no longer match the source file, so they must stay resident.
-        texture.mark_pixels_overlaid_rect(patch);
+        texture.mark_pixels_overlaid();
 
         Ok(())
     }
@@ -1406,14 +1393,8 @@ impl MotionManager {
             if self.textures.len() != 4096 {
                 self.textures = vec![GraphBuff::new(); 4096];
             }
-            // Let matching snapshots decide whether a pristine resident resource
-            // can be reused. Unload every graph absent from the target scene.
-            let mut keep = vec![false; self.textures.len()];
-            for graph in &snap.textures {
-                if let Some(entry) = keep.get_mut(graph.id as usize) { *entry = true; }
-            }
-            for (id, gb) in self.textures.iter_mut().enumerate() {
-                if !keep[id] { gb.unload(); }
+            for gb in &mut self.textures {
+                gb.unload();
             }
         }
         for t in &snap.textures {

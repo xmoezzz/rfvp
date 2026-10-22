@@ -76,10 +76,6 @@ pub struct GraphBuff {
     /// Any CPU-side pixel mutation (including replacing the texture) must bump this counter so the
     /// GPU cache can refresh the corresponding texture.
     pub generation: u64,
-    // Conservative union of pixel patches since the last full mutation. Uploads
-    // older than partial_base must recreate the image, never skip a full change.
-    partial_base: u64,
-    partial_rect: Option<crate::host_api::RectU16>,
 
     /// Track how this graph was populated so it can be restored correctly.
     pub load_kind: GraphBuffLoadKind,
@@ -122,8 +118,6 @@ impl GraphBuff {
             text_origin_y_px: 0,
             text_raster_scale: 0.0,
             generation: 0,
-            partial_base: 0,
-            partial_rect: None,
             load_kind: GraphBuffLoadKind::Unknown,
             cpu_pristine: false,
             cpu_overlaid: false,
@@ -143,8 +137,6 @@ impl GraphBuff {
     #[inline]
     pub fn mark_dirty(&mut self) {
         self.generation = self.generation.wrapping_add(1);
-        self.partial_base = self.generation;
-        self.partial_rect = None;
     }
 
     /// Mark CPU pixels as modified in place (e.g. a parts overlay), so they are never evicted.
@@ -159,45 +151,6 @@ impl GraphBuff {
     pub fn mark_pixels_overlaid(&mut self) {
         self.cpu_overlaid = true;
         self.mark_pixels_modified();
-    }
-
-    pub fn mark_pixels_overlaid_rect(&mut self, rect: Option<crate::host_api::RectU16>) {
-        self.cpu_overlaid = true;
-        if let Some(rect) = rect { self.mark_pixels_modified_rect(rect); }
-        else { self.mark_pixels_modified(); }
-    }
-
-    /// A clipped parts overlay modifies only these pixels. Keep a conservative union
-    /// across uploads so multiple consumers or missed frames cannot lose a patch.
-    pub fn mark_pixels_modified_rect(&mut self, rect: crate::host_api::RectU16) {
-        if rect.w == 0 || rect.h == 0 { return; }
-        self.cpu_pristine = false;
-        if let Some(old) = self.partial_rect {
-            let x0 = old.x.min(rect.x);
-            let y0 = old.y.min(rect.y);
-            let x1 = (u32::from(old.x) + u32::from(old.w)).max(u32::from(rect.x) + u32::from(rect.w));
-            let y1 = (u32::from(old.y) + u32::from(old.h)).max(u32::from(rect.y) + u32::from(rect.h));
-            if x1 > u16::MAX as u32 || y1 > u16::MAX as u32 {
-                self.mark_dirty();
-                return;
-            }
-            self.partial_rect = Some(crate::host_api::RectU16 {
-                x: x0, y: y0, w: x1 as u16 - x0, h: y1 as u16 - y0,
-            });
-        } else {
-            self.partial_base = self.generation;
-            self.partial_rect = Some(rect);
-        }
-        self.generation = self.generation.wrapping_add(1);
-    }
-
-    pub fn partial_rect_since(&self, uploaded: u64) -> Option<crate::host_api::RectU16> {
-        // Wrapping, stale generations and full changes conservatively fall back.
-        if uploaded >= self.partial_base && uploaded < self.generation {
-            self.partial_rect
-        } else {
-            None
-        }
     }
 
     pub fn get_r_value(&self) -> u8 {
@@ -531,11 +484,9 @@ impl GraphBuff {
         if !self.cpu_evicted {
             return Ok(());
         }
-        let started = crate::perf::start();
         let _timing = crate::perf::scope(crate::perf::CPU_RESTORE);
         crate::perf::event(format_args!("restore graph path={:?}", self.texture_path));
         let buff = vfs.read_file(&self.texture_path)?;
-        let bytes = buff.len();
         let mut nvsg_texture = NvsgTexture::new(&self.texture_path);
         #[cfg(feature = "psx")]
         let buff = match nvsg_texture.read_single_clut(buff) {
@@ -563,15 +514,6 @@ impl GraphBuff {
         self.texture = Some(texture);
         self.cpu_evicted = false;
         self.hit_mask = None;
-        if crate::perf::enabled() {
-            let us = crate::perf::start().saturating_sub(started);
-            if us >= 50_000 {
-                crate::perf::event(format_args!(
-                    "restore graph slow path={:?} type={:?} size={}x{} bytes={bytes} us={us}",
-                    self.texture_path, nvsg_texture.get_type(), nvsg_texture.get_width(), nvsg_texture.get_height()
-                ));
-            }
-        }
         Ok(())
     }
 
@@ -602,10 +544,8 @@ impl GraphBuff {
     }
 
     pub fn load_texture(&mut self, file_name: &str, buff: Vec<u8>) -> Result<()> {
-        let started = crate::perf::start();
-        let bytes = buff.len();
         let _timing = crate::perf::scope(crate::perf::GRAPH_DECODE);
-        crate::perf::event(format_args!("graph decode path={file_name:?} bytes={bytes}"));
+        crate::perf::event(format_args!("graph decode path={file_name:?} bytes={}", buff.len()));
         let mut nvsg_texture = NvsgTexture::new(file_name);
         // The PlayStation makes a one-frame CLUT file into its picture in place: a picture is
         // never in its 2 MiB twice.
@@ -643,15 +583,6 @@ impl GraphBuff {
         self.cpu_pristine = true;
         self.mark_dirty();
 
-        if crate::perf::enabled() {
-            let us = crate::perf::start().saturating_sub(started);
-            if us >= 50_000 {
-                crate::perf::event(format_args!(
-                    "graph decode slow path={file_name:?} type={:?} size={}x{} bytes={bytes} us={us}",
-                    nvsg_texture.get_type(), self.width, self.height
-                ));
-            }
-        }
         Ok(())
     }
 
@@ -1380,21 +1311,6 @@ impl GraphBuff {
     }
 
     pub fn apply_snapshot_v1(&mut self, snap: &GraphBuffSnapshotV1, vfs: &Vfs) -> Result<()> {
-        // Only unmodified file pixels may be reused. Parts overlays, GraphRGB,
-        // raw buffers and changed metadata must follow the original reload path.
-        // Evicted CPU pixels are valid too: their generation/GPU copy is unchanged.
-        if self.cpu_pristine && (self.texture.is_some() || self.cpu_evicted)
-            && self.texture_ready && snap.texture_ready && !snap.texture_path.is_empty()
-            && self.texture_path == snap.texture_path && self.load_kind == snap.load_kind
-            && snap.rgba.is_none() && self.r_value == 100 && self.g_value == 100 && self.b_value == 100
-            && snap.r_value == 100 && snap.g_value == 100 && snap.b_value == 100
-            && self.width == snap.width && self.height == snap.height
-            && self.get_display_width() == snap.display_width && self.get_display_height() == snap.display_height
-            && self.offset_x == snap.offset_x && self.offset_y == snap.offset_y && self.u == snap.u && self.v == snap.v
-        {
-            crate::perf::event(format_args!("save load reuse graph id={} path={:?} generation={}", snap.id, snap.texture_path, self.generation));
-            return Ok(());
-        }
         // Always reset, then rehydrate.
         self.unload();
 

@@ -45,13 +45,6 @@ impl ThreadWrapper {
         self.requests.pop_front()
     }
 
-    /// Requests refer to the VM scene that emitted them; they cannot cross a load.
-    pub fn clear_after_load(&mut self) -> usize {
-        let count = self.requests.len();
-        self.requests.clear();
-        count
-    }
-
     pub fn thread_start(&mut self, id: u32, addr: u32) {
         self.requests.push_back(ThreadRequest::Start(id, addr));
     }

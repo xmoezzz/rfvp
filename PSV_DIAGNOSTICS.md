@@ -154,7 +154,3 @@ PSV 实机：
 - 本分支基于 MPL-2.0 的 rfvp 源码，修改部分沿用同一许可证。
 - 仓库不包含《星空的记忆》的游戏脚本、图片、音频、字体、存档，也不包含第三方汉化补丁文件；这些内容由用户自行准备。
 - 游戏名称、商标和第三方汉化文本归各自权利人所有；本仓库仅包含引擎侧的加载/诊断/性能改动。
-
-## Follow-up: resource performance and translation overlays
-
-See [PSV_PERFORMANCE_LOCALIZATION.md](PSV_PERFORMANCE_LOCALIZATION.md) for subsequent sprite-loading, partial-upload, save/input, and config.toml translation-overlay work, including the two games exercised on real PSV hardware.

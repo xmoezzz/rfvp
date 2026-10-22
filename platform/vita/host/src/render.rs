@@ -3,7 +3,7 @@ use alloc::borrow::Cow;
 use alloc::vec::Vec;
 use core::ffi::c_void;
 
-use crate::downscale::downscale_rgba8;
+use rfvp::host_api::soft_raster::downscale_rgba8;
 use rfvp::host_api::{
     BlendMode, ColorRgba, DrawSolidCommand, DrawSpriteCommand, PixelFormat, RectI32, RfvpError,
     RfvpRenderer, RfvpResult, TextureDesc, TextureId, TextureRect,
@@ -17,8 +17,6 @@ extern "C" {
     // rfvp_psv_gpu.c
     fn rfvp_psv_gpu_create_texture(width: u32, height: u32, rgba: *const u8, linear: i32) -> *mut c_void;
     fn rfvp_psv_gpu_update_texture(texture: *mut c_void, x: u32, y: u32, w: u32, h: u32, rgba: *const u8);
-    fn rfvp_psv_gpu_update_texture_strided(texture: *mut c_void, x: u32, y: u32,
-        w: u32, h: u32, rgba: *const u8, source_stride: u32) -> i32;
     fn rfvp_psv_gpu_destroy_texture(texture: *mut c_void);
     fn rfvp_psv_gpu_begin_frame();
     fn rfvp_psv_gpu_set_clip(enabled: i32, x0: i32, y0: i32, x1: i32, y1: i32);
@@ -37,8 +35,6 @@ struct GpuTexture {
     /// Size kept on the GPU: shrunk to the screen scale.
     width: u32,
     height: u32,
-    format: PixelFormat,
-    resample_opaque: Option<bool>,
 }
 
 /// Draws the game with the Vita's GPU (through vita2d, see rfvp_psv_gpu.c).
@@ -105,6 +101,10 @@ impl PsvRenderer {
         unsafe { rfvp_psv_gpu_set_clip(1, x0, y0, x1, y1) };
     }
 
+    /// Size a texture of `width` x `height` is kept at.
+    fn kept_size(&self, width: u32, height: u32) -> (u32, u32) {
+        crate::texture_policy::kept_size(self.scale, width, height)
+    }
 }
 
 impl Default for PsvRenderer {
@@ -150,10 +150,6 @@ fn to_rgba8(format: PixelFormat, src: &[u8], count: usize) -> RfvpResult<Cow<'_,
 }
 
 /// `f32::round` and `f32::ceil`, which `core` does not have.
-/// A resize/upload worth one bounded diagnostic line. Native textures are not logged unless
-/// their upload is this slow; a scaled texture is logged regardless so the policy path is visible.
-const SLOW_TEXTURE_US: u64 = 10_000;
-
 fn round(v: f32) -> f32 {
     let t = v as i64 as f32;
     if v - t >= 0.5 {
@@ -183,16 +179,6 @@ fn rgba8(c: ColorRgba) -> u32 {
     to_u8(c.r) | (to_u8(c.g) << 8) | (to_u8(c.b) << 16) | (to_u8(c.a) << 24)
 }
 
-/// (bytes per pixel, alpha byte index) for source formats that have an alpha channel.
-fn alpha_layout(format: PixelFormat) -> Option<(usize, usize)> {
-    match format {
-        PixelFormat::Rgba8 | PixelFormat::Bgra8 => Some((4, 3)),
-        PixelFormat::LumaA8 => Some((2, 1)),
-        PixelFormat::Alpha8 => Some((1, 0)),
-        _ => None,
-    }
-}
-
 impl RfvpRenderer for PsvRenderer {
     fn create_texture(
         &mut self,
@@ -204,94 +190,39 @@ impl RfvpRenderer for PsvRenderer {
         if desc.width == 0 || desc.height == 0 {
             return Err(RfvpError::InvalidArgument);
         }
-        let count = (desc.width as usize)
-            .checked_mul(desc.height as usize)
-            .ok_or(RfvpError::InvalidArgument)?;
-        count.checked_mul(4).ok_or(RfvpError::InvalidArgument)?;
-        // Only near the old 2 MiB cap: a transparent character sprite may keep native pixels
-        // (the device's 1362x1813 sprite is 2.47M pixels). Opaque backgrounds stay scaled.
-        let near_cap = self.scale >= 0.75
-            && desc.width <= 2048
-            && desc.height <= 2048
-            && (count as u64) > crate::texture_policy::NATIVE_PIXEL_LIMIT
-            && (count as u64) <= crate::texture_policy::NEAR_CAP_PIXEL_LIMIT;
-        let transparent = if near_cap {
-            pixels
-                .and_then(|src| alpha_layout(desc.format).map(|(bpp, alpha)| {
-                    crate::texture_policy::has_transparent_alpha(src, count, bpp, alpha)
-                }))
-                .unwrap_or(false)
-        } else {
-            false
-        };
-        let ((mut width, mut height), mut reason) =
-            crate::texture_policy::policy_with_alpha(self.scale, desc.width, desc.height, transparent);
-        let mut resized = (width, height) != (desc.width, desc.height);
-        let mut resize_us = 0u64;
-        let mut resample_opaque = None;
+        let (mut width, mut height) = self.kept_size(desc.width, desc.height);
+        let count = desc.width as usize * desc.height as usize;
         let mut rgba = match pixels {
             Some(src) => {
                 let full = to_rgba8(desc.format, src, count)?;
-                if resized {
-                    resample_opaque = Some(full.chunks_exact(4).all(|p| p[3] == 255));
-                    let resize_start = rfvp::perf::start();
-                    let small = {
-                        let _resize = rfvp::perf::scope(rfvp::perf::PSV_RESIZE);
-                        crate::downscale::downscale_rgba8_region_with_opacity(&full, desc.width, desc.height,
-                            width, height, 0, 0, width, height, resample_opaque.unwrap())
-                            .ok_or(RfvpError::InvalidArgument)?
-                    };
-                    resize_us = rfvp::perf::start().saturating_sub(resize_start);
-                    Cow::Owned(small)
-                } else {
+                if (width, height) == (desc.width, desc.height) {
                     full
+                } else {
+                    let _resize = rfvp::perf::scope(rfvp::perf::PSV_RESIZE);
+                    Cow::Owned(downscale_rgba8(&full, desc.width, desc.height, width, height))
                 }
             }
             None => Cow::Owned(alloc::vec![0u8; width as usize * height as usize * 4]),
         };
-        let upload_start = rfvp::perf::start();
         let mut handle = {
             let _upload = rfvp::perf::scope(rfvp::perf::PSV_GPU_UPLOAD);
             unsafe { rfvp_psv_gpu_create_texture(width, height, rgba.as_ptr(), 1) }
         };
-        let mut upload_us = rfvp::perf::start().saturating_sub(upload_start);
         if handle.is_null() && (width, height) == (desc.width, desc.height) {
             let fallback = crate::texture_policy::scaled_size(self.scale, desc.width, desc.height);
             if fallback != (width, height) {
-                reason = "native-alloc-fallback";
-                resized = true;
-                resample_opaque = Some(rgba.chunks_exact(4).all(|p| p[3] == 255));
                 rfvp::perf::event(format_args!("native texture allocation failed id={} size={}x{}; retry {}x{}", id.0, width, height, fallback.0, fallback.1));
-                let resize_start = rfvp::perf::start();
                 {
                     let _resize = rfvp::perf::scope(rfvp::perf::PSV_RESIZE);
-                    rgba = Cow::Owned(
-                        crate::downscale::downscale_rgba8_region_with_opacity(&rgba, desc.width, desc.height,
-                            fallback.0, fallback.1, 0, 0, fallback.0, fallback.1, resample_opaque.unwrap())
-                            .ok_or(RfvpError::OutOfMemory)?,
-                    );
+                    rgba = Cow::Owned(downscale_rgba8(&rgba, desc.width, desc.height, fallback.0, fallback.1));
                 }
-                resize_us += rfvp::perf::start().saturating_sub(resize_start);
                 (width, height) = fallback;
-                let upload_start = rfvp::perf::start();
                 let _upload = rfvp::perf::scope(rfvp::perf::PSV_GPU_UPLOAD);
                 handle = unsafe { rfvp_psv_gpu_create_texture(width, height, rgba.as_ptr(), 1) };
-                upload_us += rfvp::perf::start().saturating_sub(upload_start);
             }
         }
         if handle.is_null() {
             return Err(RfvpError::OutOfMemory);
-        }
-        if rfvp::perf::enabled()
-            && (resized
-                || reason == "native-transparent-near-cap"
-                || resize_us >= SLOW_TEXTURE_US
-                || upload_us >= SLOW_TEXTURE_US)
-        {
-            rfvp::perf::event(format_args!(
-                "texture create id={} fmt={:?} src={}x{} dst={}x{} scale={:.3} reason={} resize_us={} upload_us={}",
-                id.0, desc.format, desc.width, desc.height, width, height, self.scale, reason, resize_us, upload_us
-            ));
         }
         if let Some(old) = self.textures.insert(
             id.0,
@@ -301,75 +232,11 @@ impl RfvpRenderer for PsvRenderer {
                 full_height: desc.height,
                 width,
                 height,
-                format: desc.format,
-                resample_opaque,
             },
         ) {
             unsafe { rfvp_psv_gpu_destroy_texture(old.handle) };
         }
         Ok(())
-    }
-
-    fn update_texture_region_from_full(&mut self, id: TextureId, desc: TextureDesc,
-        rect: TextureRect, pixels: &[u8]) -> RfvpResult<bool> {
-        let _timing = rfvp::perf::scope(rfvp::perf::PSV_TEXTURE);
-        let texture = match self.textures.get(&id.0) {
-            Some(texture) if texture.full_width == desc.width && texture.full_height == desc.height
-                && texture.format == PixelFormat::Rgba8 && desc.format == PixelFormat::Rgba8 => texture,
-            _ => return Ok(false),
-        };
-        let len = (desc.width as usize).checked_mul(desc.height as usize)
-            .and_then(|n| n.checked_mul(4)).ok_or(RfvpError::InvalidArgument)?;
-        if pixels.len() < len { return Err(RfvpError::InvalidArgument); }
-        if rect.width == 0 || rect.height == 0 { return Ok(true); }
-        let right = rect.x.checked_add(rect.width).ok_or(RfvpError::InvalidArgument)?;
-        let bottom = rect.y.checked_add(rect.height).ok_or(RfvpError::InvalidArgument)?;
-        if right > desc.width || bottom > desc.height { return Err(RfvpError::InvalidArgument); }
-
-        let mut resize_us = 0;
-        let mut small = None;
-        let (x, y, width, height, offset, stride) = if texture.width == desc.width && texture.height == desc.height {
-            (rect.x, rect.y, rect.width, rect.height,
-                (rect.y as usize * desc.width as usize + rect.x as usize) * 4, desc.width * 4)
-        } else {
-            // A global opaque/nonopaque branch transition can affect rounding outside
-            // the patch. Recreate rather than leave differently filtered pixels behind.
-            let opaque = pixels[..len].chunks_exact(4).all(|p| p[3] == 255);
-            if texture.resample_opaque != Some(opaque) { return Ok(false); }
-            if texture.width == 0 || texture.height == 0 || texture.width > desc.width || texture.height > desc.height {
-                return Ok(false);
-            }
-            let rx = ((u64::from(desc.width)) << 16) / u64::from(texture.width);
-            let ry = ((u64::from(desc.height)) << 16) / u64::from(texture.height);
-            // Include a one-destination-pixel halo and sample from complete source rows.
-            let x0 = (((u64::from(rect.x) << 16) / rx).saturating_sub(1) as u32).min(texture.width - 1);
-            let y0 = (((u64::from(rect.y) << 16) / ry).saturating_sub(1) as u32).min(texture.height - 1);
-            let x1 = ((((u64::from(right) << 16) + rx - 1) / rx + 1) as u32).min(texture.width);
-            let y1 = ((((u64::from(bottom) << 16) + ry - 1) / ry + 1) as u32).min(texture.height);
-            if x1 <= x0 || y1 <= y0 { return Ok(false); }
-            let started = rfvp::perf::start();
-            {
-                let _resize = rfvp::perf::scope(rfvp::perf::PSV_RESIZE);
-                small = Some(crate::downscale::downscale_rgba8_region_with_opacity(pixels, desc.width, desc.height,
-                    texture.width, texture.height, x0, y0, x1 - x0, y1 - y0, opaque)
-                    .ok_or(RfvpError::InvalidArgument)?);
-            }
-            resize_us = rfvp::perf::start().saturating_sub(started);
-            (x0, y0, x1 - x0, y1 - y0, 0, (x1 - x0) * 4)
-        };
-        let data = small.as_deref().unwrap_or(&pixels[offset..]);
-        let upload_started = rfvp::perf::start();
-        let result = {
-            let _upload = rfvp::perf::scope(rfvp::perf::PSV_GPU_UPLOAD);
-            unsafe { rfvp_psv_gpu_update_texture_strided(texture.handle, x, y, width, height, data.as_ptr(), stride) }
-        };
-        if result != 0 { return Err(RfvpError::Backend); }
-        let upload_us = rfvp::perf::start().saturating_sub(upload_started);
-        rfvp::perf::event(format_args!(
-            "texture partial id={} src={}x{} dirty={}x{}+{},{} dst={}x{}+{},{} bytes={} resize_us={} upload_us={}",
-            id.0, desc.width, desc.height, rect.width, rect.height, rect.x, rect.y,
-            width, height, x, y, width as u64 * height as u64 * 4, resize_us, upload_us));
-        Ok(true)
     }
 
     fn update_texture(
@@ -383,16 +250,11 @@ impl RfvpRenderer for PsvRenderer {
         if rect.width == 0 || rect.height == 0 {
             return Ok(());
         }
-        let right = rect.x.checked_add(rect.width).ok_or(RfvpError::InvalidArgument)?;
-        let bottom = rect.y.checked_add(rect.height).ok_or(RfvpError::InvalidArgument)?;
-        if right > texture.full_width || bottom > texture.full_height {
+        if rect.x + rect.width > texture.full_width || rect.y + rect.height > texture.full_height {
             return Err(RfvpError::InvalidArgument);
         }
         // The engine's pixels are RGBA8 here (text and movie frames).
-        let count = (rect.width as usize)
-            .checked_mul(rect.height as usize)
-            .ok_or(RfvpError::InvalidArgument)?;
-        count.checked_mul(4).ok_or(RfvpError::InvalidArgument)?;
+        let count = rect.width as usize * rect.height as usize;
         let src = to_rgba8(PixelFormat::Rgba8, pixels, count)?;
         if texture.width == texture.full_width && texture.height == texture.full_height {
             let _upload = rfvp::perf::scope(rfvp::perf::PSV_GPU_UPLOAD);
@@ -408,19 +270,10 @@ impl RfvpRenderer for PsvRenderer {
         let y0 = (rect.y as f32 * sy) as u32;
         let x1 = (ceil((rect.x + rect.width) as f32 * sx) as u32).min(texture.width).max(x0 + 1);
         let y1 = (ceil((rect.y + rect.height) as f32 * sy) as u32).min(texture.height).max(y0 + 1);
-        let resize_start = rfvp::perf::start();
         let small = {
             let _resize = rfvp::perf::scope(rfvp::perf::PSV_RESIZE);
             downscale_rgba8(&src, rect.width, rect.height, x1 - x0, y1 - y0)
-                .ok_or(RfvpError::InvalidArgument)?
         };
-        let resize_us = rfvp::perf::start().saturating_sub(resize_start);
-        if rfvp::perf::enabled() && resize_us >= SLOW_TEXTURE_US {
-            rfvp::perf::event(format_args!(
-                "texture update id={} rect={}x{}+{},{} dst={}x{} reason=screen-size resize_us={}",
-                id.0, rect.width, rect.height, rect.x, rect.y, x1 - x0, y1 - y0, resize_us
-            ));
-        }
         let _upload = rfvp::perf::scope(rfvp::perf::PSV_GPU_UPLOAD);
         unsafe { rfvp_psv_gpu_update_texture(texture.handle, x0, y0, x1 - x0, y1 - y0, small.as_ptr()) };
         Ok(())

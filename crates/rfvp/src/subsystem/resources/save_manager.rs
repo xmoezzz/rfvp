@@ -663,7 +663,6 @@ impl SaveManager {
 
     /// Write `bytes` to the file of the current slot and refresh the cache for it.
     fn write_current_slot(&mut self, bytes: &[u8], nls: Nls) -> Result<()> {
-        let started = crate::perf::start();
         let slot = self.current_save_slot;
         if let Some(storage) = self.storage() {
             let path = SaveItem::get_save_path(slot);
@@ -675,8 +674,6 @@ impl SaveManager {
             self.slots[slot as usize] = Some(Box::new(item));
         }
         self.present[slot as usize] = true;
-        crate::perf::event(format_args!("save write slot={} bytes={} total_us={}", slot, bytes.len(),
-            crate::perf::start().saturating_sub(started)));
         Ok(())
     }
 

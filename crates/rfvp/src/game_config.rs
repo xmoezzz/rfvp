@@ -29,12 +29,6 @@ pub struct GameConfig {
     pub hcb: Option<String>,
     /// The script's text encoding.
     pub nls: Option<Nls>,
-    /// Optional offset-based translation table; original script bytes stay intact.
-    pub text_patch: Option<String>,
-    pub text_nls: Option<Nls>,
-    pub hcb_crc32: Option<u32>,
-    /// UTF-8 TSV mapping original VFS paths to replacement VFS paths.
-    pub asset_aliases: Option<String>,
 }
 
 impl GameConfig {
@@ -42,7 +36,7 @@ impl GameConfig {
     pub fn parse(text: &str) -> Result<Self, String> {
         let mut config = GameConfig::default();
         let mut section = String::new();
-        for (index, raw) in text.trim_start_matches('\u{feff}').lines().enumerate() {
+        for (index, raw) in text.lines().enumerate() {
             let line_no = index + 1;
             let line = strip_comment(raw).trim();
             if line.is_empty() {
@@ -78,25 +72,8 @@ impl GameConfig {
                             .map_err(|err| format!("line {line_no}: {err}"))?,
                     );
                 }
-                "text_patch" | "asset_aliases" => {
-                    if value.is_empty() || value.starts_with('/') || value.contains(['\\', ':', '\0'])
-                        || value.chars().any(char::is_control)
-                        || value.split('/').any(|p| p.is_empty() || p == "." || p == "..") {
-                        return Err(format!("line {line_no}: {key} must be relative to the game directory"));
-                    }
-                    if key == "text_patch" { config.text_patch = Some(value.to_string()); }
-                    else { config.asset_aliases = Some(value.to_string()); }
-                }
-                "text_nls" => config.text_nls = Some(value.parse().map_err(|e| format!("line {line_no}: {e}"))?),
-                "hcb_crc32" => config.hcb_crc32 = Some(u32::from_str_radix(value, 16).map_err(|e| format!("line {line_no}: invalid hcb_crc32: {e}"))?),
                 _ => {}
             }
-        }
-        if config.text_patch.is_some() && (config.hcb.is_none() || config.hcb_crc32.is_none() || config.text_nls.is_none()) {
-            return Err("text_patch requires hcb, hcb_crc32 and text_nls".to_string());
-        }
-        if config.text_patch.is_none() && config.text_nls.is_some() {
-            return Err("text_nls requires text_patch".to_string());
         }
         Ok(config)
     }
@@ -153,16 +130,4 @@ mod tests {
         assert!(GameConfig::parse("[game\n").unwrap_err().starts_with("line 1:"));
         assert!(GameConfig::parse("[game]\nhcb = \"x\n").unwrap_err().starts_with("line 2:"));
     }
-}
-
-pub(crate) fn crc32(bytes: &[u8]) -> u32 {
-    let mut table = [0u32; 256];
-    for (i, slot) in table.iter_mut().enumerate() {
-        let mut n = i as u32;
-        for _ in 0..8 { n = (n >> 1) ^ (0xedb88320u32 & 0u32.wrapping_sub(n & 1)); }
-        *slot = n;
-    }
-    let mut crc = !0u32;
-    for &byte in bytes { crc = table[((crc as u8) ^ byte) as usize] ^ (crc >> 8); }
-    !crc
 }

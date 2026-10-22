@@ -166,26 +166,6 @@ void rfvp_psv_gpu_update_texture(void *handle, uint32_t x, uint32_t y, uint32_t 
     }
 }
 
-/* Called while building the frame, BEFORE submit_commands draws any sprites.
- * end_frame waits for the previous frame's GPU work, so no texture reader is
- * outstanding here. Source rows retain the complete CPU image stride. */
-int32_t rfvp_psv_gpu_update_texture_strided(void *handle, uint32_t x, uint32_t y,
-        uint32_t w, uint32_t h, const uint8_t *rgba, uint32_t source_stride) {
-    if (!g_gpu_ready || handle == NULL || rgba == NULL || w == 0 || h == 0) return -1;
-    vita2d_texture *texture = (vita2d_texture *)handle;
-    uint32_t tw = vita2d_texture_get_width(texture);
-    uint32_t th = vita2d_texture_get_height(texture);
-    if (x >= tw || y >= th || w > tw - x || h > th - y || source_stride < w * 4u) return -1;
-    uint8_t *dst = (uint8_t *)vita2d_texture_get_datap(texture);
-    if (dst == NULL) return -1;
-    const unsigned stride = vita2d_texture_get_stride(texture);
-    for (uint32_t row = 0; row < h; ++row) {
-        memcpy(dst + (size_t)(y + row) * stride + (size_t)x * 4u,
-               rgba + (size_t)row * source_stride, (size_t)w * 4u);
-    }
-    return 0;
-}
-
 void rfvp_psv_gpu_destroy_texture(void *handle) {
     if (handle == NULL) {
         return;

@@ -3,7 +3,7 @@ use alloc::{collections::VecDeque, format, string::String, vec::Vec};
 use core::fmt::Write;
 use rfvp::{perf, RfvpTickResult};
 
-pub const BUILD: &str = "rfvp-psv-pr-20261022-17";
+pub const BUILD: &str = "rfvp-psv-diag-20261019-06";
 pub const REPORT_EVERY: u64 = 120;
 const SLOW_US: u64 = 50_000;
 
@@ -107,7 +107,6 @@ impl Diagnostics {
             hardware[0], hardware[1], hardware[2], hardware[3], hardware[4], hardware[5], hardware[6]);
         out.push_str("recent engine/resource/audio events (diag timestamps use same clock as frames):\n");
         out.push_str(&rfvp::ring_log::dump());
-        out.push_str(&rfvp::ring_log::dump_resources());
         self.window_frames = 0;
         self.window_us = 0;
         self.totals.fill(0);

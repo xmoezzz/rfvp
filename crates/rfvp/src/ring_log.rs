@@ -7,7 +7,6 @@
 use alloc::collections::VecDeque;
 use alloc::format;
 use alloc::string::String;
-use alloc::vec::Vec;
 use core::fmt::Write;
 
 use log::{LevelFilter, Log, Metadata, Record};
@@ -18,11 +17,6 @@ const CAPACITY: usize = 400;
 const MAX_LINE: usize = 400;
 
 static LINES: spin::Mutex<VecDeque<String>> = spin::Mutex::new(VecDeque::new());
-// Resource records survive repetitive script errors, without an unbounded log.
-const RESOURCE_CAPACITY: usize = 128;
-const ERROR_KEYS: usize = 16;
-static RESOURCES: spin::Mutex<VecDeque<String>> = spin::Mutex::new(VecDeque::new());
-static ERRORS: spin::Mutex<Vec<(String, u64)>> = spin::Mutex::new(Vec::new());
 
 struct RingLogger;
 
@@ -45,47 +39,6 @@ impl Log for RingLogger {
                 end -= 1;
             }
             line.truncate(end);
-        }
-        if record.level() == log::Level::Error {
-            // Dynamic duration counters/values must not consume a key each time.
-            // Keep full details in emitted lines, group the summary by action.
-            let key = if let Some(detail) = line.strip_prefix("[ERROR] motion invalid duration action=") {
-                let action = detail.split_whitespace().next().unwrap_or("unknown");
-                format!("[ERROR] motion invalid duration action={action}")
-            } else {
-                line.clone()
-            };
-            let count = {
-                let mut errors = ERRORS.lock();
-                if let Some((_, count)) = errors.iter_mut().find(|(stored, _)| *stored == key) {
-                    *count = count.saturating_add(1);
-                    *count
-                } else if errors.len() < ERROR_KEYS {
-                    errors.push((key, 1));
-                    1
-                } else {
-                    // Untracked errors remain fully visible.
-                    1
-                }
-            };
-            if count > 3 && count % 100 != 0 {
-                return;
-            }
-            if count > 3 {
-                let _ = write!(line, " [occurrences={count}]");
-            }
-        }
-        if line.contains("nvsg inflate ") || line.contains("nvsg convert ")
-            || line.contains("parts decode ") || line.contains("graph decode slow ")
-            || line.contains("restore graph slow ") || line.contains("texture create ")
-            || line.contains("texture partial ") || line.contains("graph partial fallback ")
-            || line.contains("save load ") || line.contains("save write ")
-            || line.contains("save encode ") || line.contains("save capture ")
-            || line.contains("parts reuse ")
-        {
-            let mut resources = RESOURCES.lock();
-            if resources.len() == RESOURCE_CAPACITY { resources.pop_front(); }
-            resources.push_back(line.clone());
         }
         let mut lines = LINES.lock();
         if lines.len() >= CAPACITY {
@@ -114,27 +67,6 @@ pub fn dump() -> String {
     for line in lines.iter() {
         out.push_str(line);
         out.push('\n');
-    }
-    out
-}
-
-/// Extra diagnostics are independent of the general ring and cannot be overwritten
-/// by script error floods. Locks are taken separately, never while another is held.
-pub fn dump_resources() -> String {
-    let mut out = String::from("\nretained resource events (separate bounded 128 records; may duplicate recent events):\n");
-    {
-        let resources = RESOURCES.lock();
-        for line in resources.iter() {
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
-    out.push_str("\nrepeated error counts (up to 16 keys; first 3 and each 100th occurrence logged):\n");
-    {
-        let errors = ERRORS.lock();
-        for (line, count) in errors.iter() {
-            let _ = writeln!(out, "count={count} {line}");
-        }
     }
     out
 }

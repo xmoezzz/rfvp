@@ -26,7 +26,7 @@ cc = "1"
 default = []
 entrypoint = ["vitasdk-backend", "global-allocator"]
 c-glue = []
-vitasdk-backend = ["c-glue", "rfvp/vita-zlib"]
+vitasdk-backend = ["c-glue"]
 global-allocator = []
 
 [package.metadata.vita]

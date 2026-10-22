@@ -27,17 +27,21 @@ pub fn parts_load(game_data: &mut GameData, id: &Variant, path: &Variant) -> Res
         return Ok(Variant::Nil);
     }
 
-    // Keep the path until the manager has checked its bounded decoded-parts cache.
+    // Prepare the action first (avoid holding a mutable borrow of game_data while doing VFS I/O).
     enum Action {
         Noop,
         Unload,
-        Load { path: String },
+        Load { path: String, buff: Vec<u8> },
     }
 
     let action = match path {
         Variant::Nil => Action::Unload,
-        Variant::String(p) | Variant::ConstString(p, _) => Action::Load {
-            path: p.to_string(),
+        Variant::String(p) | Variant::ConstString(p, _) => match game_data.vfs_load_file(p) {
+            Ok(buff) => Action::Load {
+                path: p.to_string(),
+                buff,
+            },
+            Err(_) => Action::Noop,
         },
         _ => Action::Noop,
     };
@@ -50,8 +54,8 @@ pub fn parts_load(game_data: &mut GameData, id: &Variant, path: &Variant) -> Res
             Action::Unload => {
                 pm.unload_parts_keep_name(id as u8);
             }
-            Action::Load { path } => {
-                if let Err(err) = pm.load_parts_named(id as u16, &path, &game_data.vfs) {
+            Action::Load { path, buff } => {
+                if let Err(err) = pm.load_parts(id as u16, &path, buff) {
                     crate::perf::event(format_args!("parts load FAILED id={id} path={path:?}: {err:?}"));
                 }
             }
