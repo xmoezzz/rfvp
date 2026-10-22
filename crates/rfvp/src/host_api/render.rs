@@ -133,6 +133,12 @@ pub trait RfvpRenderer {
     fn update_texture(&mut self, id: TextureId, rect: TextureRect, pixels: &[u8])
         -> RfvpResult<()>;
 
+    /// Pixels are the COMPLETE image at `desc` size; `rect` marks the changed source
+    /// area. The host may resample in global coordinates and reuse its texture.
+    /// False means unsupported/incompatible and asks the caller for full recreation.
+    fn update_texture_region_from_full(&mut self, _id: TextureId, _desc: TextureDesc,
+        _rect: TextureRect, _pixels: &[u8]) -> RfvpResult<bool> { Ok(false) }
+
     fn destroy_texture(&mut self, id: TextureId);
 
     fn begin_frame(&mut self, width: u32, height: u32, clear: Option<ColorRgba>) -> RfvpResult<()>;
@@ -295,6 +301,9 @@ pub trait TextureBackend {
     fn update_texture_data(&mut self, _handle: TextureHandle, _desc: PortableTextureDesc, _data: &[u8]) -> Result<bool, Self::Error> {
         Ok(false)
     }
+
+    fn update_texture_region_from_full(&mut self, _handle: TextureHandle, _desc: PortableTextureDesc,
+        _rect: RectU16, _data: &[u8]) -> Result<bool, Self::Error> { Ok(false) }
 }
 
 #[cfg(feature = "psx")]
@@ -413,6 +422,18 @@ impl<T: RfvpRenderer> TextureBackend for T {
 
     fn destroy_texture(&mut self, handle: TextureHandle) {
         RfvpRenderer::destroy_texture(self, TextureId(handle.0));
+    }
+
+    fn update_texture_region_from_full(&mut self, handle: TextureHandle, desc: PortableTextureDesc,
+        rect: RectU16, data: &[u8]) -> Result<bool, Self::Error> {
+        if desc.format != TextureFormat::Rgba8 { return Ok(false); }
+        RfvpRenderer::update_texture_region_from_full(self, TextureId(handle.0), TextureDesc {
+            width: u32::from(desc.width), height: u32::from(desc.height),
+            format: PixelFormat::Rgba8, mip_count: 1,
+        }, TextureRect {
+            x: u32::from(rect.x), y: u32::from(rect.y),
+            width: u32::from(rect.w), height: u32::from(rect.h),
+        }, data)
     }
 
     fn update_texture_data(&mut self, handle: TextureHandle, desc: PortableTextureDesc, data: &[u8]) -> Result<bool, Self::Error> {

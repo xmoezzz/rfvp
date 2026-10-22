@@ -257,6 +257,16 @@ impl HostPrimRenderCache {
             #[cfg(feature = "psx")]
             crate::DynamicImage::ImagePs1Mask(img) => (TextureFormat::Native(crate::ps1_mask::NATIVE_FORMAT), img.gpu.as_slice()),
         };
+        if let Some(uploaded) = self.graph_generation(graph_id) {
+            if let Some(rect) = graph.partial_rect_since(uploaded) {
+                if backend.update_texture_region_from_full(host_texture_id(graph_id),
+                    PortableTextureDesc { width, height, format }, rect, pixels)? {
+                    self.set_graph_generation(graph_id, generation);
+                    return Ok(true);
+                }
+                crate::perf::event(format_args!("graph partial fallback id={} generation={}", graph_id, generation));
+            }
+        }
         backend.create_texture(
             host_texture_id(graph_id),
             PortableTextureDesc {

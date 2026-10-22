@@ -1,0 +1,4 @@
+# Copy to ux0:data/rfvp/game/config.toml with your matching translated script.
+[game]
+hcb = "MemoriaGBK.hcb"
+nls = "gbk"

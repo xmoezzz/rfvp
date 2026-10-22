@@ -72,6 +72,17 @@ impl TryFrom<u16> for TextureType {
 const HZC1_SIGNATURE: [u8; 4] = [b'h', b'z', b'c', b'1'];
 const NVSG_SIGNATURE: [u8; 4] = [b'N', b'V', b'S', b'G'];
 
+#[cfg(all(target_os = "vita", feature = "vita-zlib"))]
+extern "C" {
+    fn libdeflate_alloc_decompressor() -> *mut core::ffi::c_void;
+    fn libdeflate_free_decompressor(decoder: *mut core::ffi::c_void);
+    fn libdeflate_zlib_decompress(decoder: *mut core::ffi::c_void,
+        source: *const u8, source_len: usize, dest: *mut u8, dest_len: usize,
+        actual_out: *mut usize) -> core::ffi::c_int;
+    fn rfvp_psv_bgra_to_rgba(src: *const u8, dst: *mut u8, count: usize);
+    fn rfvp_psv_bgr_to_rgba(src: *const u8, dst: *mut u8, count: usize);
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct NvsgTexture {
     unknown1: u16,
@@ -86,6 +97,9 @@ pub struct NvsgTexture {
     unknown3: u32,
     unknown4: u32,
     slices: Vec<Vec<u8>>,
+    // Multi32Bit frames are views into one owned decompression buffer. This avoids
+    // allocating/copying the entire decoded expression set a second time.
+    packed_frames: Option<Vec<u8>>,
     #[cfg(feature = "psx")]
     clut_stride: u32,
     #[cfg(feature = "psx")]
@@ -109,6 +123,7 @@ impl NvsgTexture {
             unknown3: 0,
             unknown4: 0,
             slices: vec![],
+            packed_frames: None,
             #[cfg(feature = "psx")]
             clut_stride: 0,
             #[cfg(feature = "psx")]
@@ -128,6 +143,7 @@ impl NvsgTexture {
     /// is released, but header fields and the name pointer are left untouched.
     pub fn clear_slices_keep_header(&mut self) {
         self.slices.clear();
+        self.packed_frames = None;
         self.outlen = None;
     }
 
@@ -232,7 +248,8 @@ impl NvsgTexture {
             self.entry_count = 1;
         }
 
-        let data_buff = &data_buff[hzc1hdr.header_length as usize..];
+        let data_buff = data_buff.get(hzc1hdr.header_length as usize..)
+            .ok_or_else(|| anyhow::anyhow!("NVSG header exceeds input"))?;
 
         #[cfg(feature = "psx")]
         if matches!(self.typ, TextureType::Clut8 | TextureType::Clut4) {
@@ -254,8 +271,31 @@ impl NvsgTexture {
         }
 
         let out_len = hzc1hdr.original_length as usize;
+        let inflate_started = crate::perf::start();
 
-        #[cfg(all(feature = "zlib-flate2", not(feature = "no_std")))]
+        #[cfg(all(target_os = "vita", feature = "vita-zlib"))]
+        let mut out_buff = {
+            let mut decoded = Vec::new();
+            decoded.try_reserve_exact(out_len.max(1))
+                .map_err(|_| anyhow!("cannot allocate {} decoded bytes", out_len))?;
+            let decoder = unsafe { libdeflate_alloc_decompressor() };
+            if decoder.is_null() { bail!("cannot allocate libdeflate decoder"); }
+            // SAFETY: buffers cover the supplied input and output capacity. With
+            // actual_out=NULL, success requires EXACTLY out_len initialized bytes;
+            // zlib wrapper and Adler32 are checked. No retained decoded-resource cache.
+            let status = unsafe { libdeflate_zlib_decompress(decoder, data_buff.as_ptr(), data_buff.len(),
+                decoded.as_mut_ptr(), out_len, core::ptr::null_mut()) };
+            unsafe { libdeflate_free_decompressor(decoder) };
+            if status != 0 {
+                bail!("libdeflate zlib decompress failed: status={} expected={}", status, out_len);
+            }
+            // No zero-fill pass: successful exact-length decode initialized all bytes.
+            unsafe { decoded.set_len(out_len); }
+            decoded
+        };
+
+        #[cfg(all(feature = "zlib-flate2", not(feature = "no_std"),
+            not(all(target_os = "vita", feature = "vita-zlib"))))]
         let mut out_buff = {
             let mut out_buff = vec![0; out_len];
             let mut decoder = ZlibDecoder::new(data_buff);
@@ -265,16 +305,30 @@ impl NvsgTexture {
 
         #[cfg(all(
             not(feature = "zlib-flate2"),
-            any(feature = "uefi-zlib", feature = "no_std")
+            any(feature = "uefi-zlib", feature = "no_std"),
+            not(all(target_os = "vita", feature = "vita-zlib"))
         ))]
         let mut out_buff = {
-            let decoded = miniz_oxide::inflate::decompress_to_vec_zlib(data_buff)
-                .map_err(|e| anyhow!("zlib decompress failed: {e:?}"))?;
-            if decoded.len() != out_len {
+            use miniz_oxide::inflate::{core::{decompress, inflate_flags, DecompressorOxide}, TINFLStatus};
+            // The file declares the exact output length. Do not grow a vector from
+            // compressed_size*2 and repeatedly copy tens of MiB for expression sets.
+            let mut decoded = Vec::new();
+            decoded.try_reserve_exact(out_len)
+                .map_err(|_| anyhow!("cannot allocate {} decoded bytes", out_len))?;
+            decoded.resize(out_len, 0);
+            let mut state = Box::<DecompressorOxide>::default();
+            let flags = inflate_flags::TINFL_FLAG_PARSE_ZLIB_HEADER
+                | inflate_flags::TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
+            // Keep the default Adler32 verification; no unchecked/truncated decode.
+            let (status, _, written) = decompress(&mut state, data_buff, &mut decoded, 0, flags);
+            if status != TINFLStatus::Done {
+                bail!("zlib decompress failed: {:?}", status);
+            }
+            if written != out_len {
                 bail!(
                     "zlib output length mismatch: expected {}, got {}",
                     out_len,
-                    decoded.len()
+                    written
                 );
             }
             decoded
@@ -282,6 +336,22 @@ impl NvsgTexture {
 
         #[cfg(not(any(feature = "zlib-flate2", feature = "uefi-zlib", feature = "no_std")))]
         compile_error!("Texture decompression requires either zlib-flate2 or uefi-zlib feature");
+
+        if crate::perf::enabled() {
+            let us = crate::perf::start().saturating_sub(inflate_started);
+            if us >= 50_000 || self.typ == TextureType::Multi32Bit {
+                let backend = if cfg!(all(target_os = "vita", feature = "vita-zlib")) {
+                    "libdeflate"
+                } else if cfg!(all(feature = "zlib-flate2", not(feature = "no_std"))) {
+                    "flate2"
+                } else { "miniz" };
+                crate::perf::event(format_args!(
+                    "nvsg inflate path={:?} type={:?} size={}x{} frames={} packed={} decoded={} us={us} backend={backend}",
+                    self.name, self.typ, self.width, self.height, self.entry_count,
+                    data_buff.len(), out_buff.len()
+                ));
+            }
+        }
 
         if self.typ == TextureType::Single1Bit {
             for byte in &mut out_buff {
@@ -293,8 +363,21 @@ impl NvsgTexture {
 
         // avoid the re-using issue
         self.slices.clear();
+        self.packed_frames = None;
         self.outlen = Some(out_len);
         let frame_len = self.width as u64 * self.height as u64 * depth;
+
+        if self.typ == TextureType::Multi32Bit {
+            self.packed_frames = Some(out_buff);
+            return Ok(());
+        }
+
+        // A single-frame picture already owns exactly the required pixel buffer.
+        // Move it instead of allocating and copying another complete image.
+        if self.entry_count == 1 && frame_len == out_buff.len() as u64 {
+            self.slices.push(out_buff);
+            return Ok(());
+        }
 
         for i in 0..self.entry_count as u64 {
             let frame = out_buff
@@ -312,6 +395,7 @@ impl NvsgTexture {
     /// palette, then each frame's indices.
     #[cfg(feature = "psx")]
     fn read_clut(&mut self, payload: &[u8]) -> Result<()> {
+        self.packed_frames = None;
         let colors = self.read_u16le(payload, 0)? as usize;
         let stride = self.read_u16le(payload, 2)? as usize;
         let palette_end = 4 + colors * 2;
@@ -355,6 +439,7 @@ impl NvsgTexture {
         }
         let h = 12usize;
         self.typ = if typ == 0x11 { TextureType::Clut4 } else { TextureType::Clut8 };
+        self.packed_frames = None;
         self.width = field16(&buff, h + 8).unwrap_or(0);
         self.height = field16(&buff, h + 10).unwrap_or(0);
         self.offset_x = field16(&buff, h + 12).unwrap_or(0);
@@ -398,7 +483,7 @@ impl NvsgTexture {
         green_value: i32,
         blue_value: i32,
     ) -> Result<()> {
-        if index >= self.slices.len() {
+        if self.frame_slice(index).is_none() {
             bail!("Invalid index: {}", index);
         }
 
@@ -412,7 +497,8 @@ impl NvsgTexture {
         //
         // Script contract for GraphRGB/PartsRGB tone values:
         //   0..=200, where 100 is a no-op.
-        let texture = &mut self.slices[index];
+        let texture = self.frame_slice_mut(index)
+            .ok_or_else(|| anyhow::anyhow!("invalid texture frame {}", index))?;
 
         let r_adj = red_value.clamp(0, 200) as u32;
         let g_adj = green_value.clamp(0, 200) as u32;
@@ -465,7 +551,7 @@ impl NvsgTexture {
 
     #[cfg(not(feature = "no_std"))]
     fn extract_8bit_texture(&self, index: usize, out_path: impl AsRef<Path>) -> Result<()> {
-        let slice = &self.slices[index];
+        let slice = self.frame_bytes(index, 1)?;
         let mut img = GrayAlphaImage::new(self.width as u32, self.height as u32);
 
         for (x, y, mut pixel) in img.enumerate_pixels_mut() {
@@ -479,21 +565,20 @@ impl NvsgTexture {
     }
 
     fn as_8bit_texture(&self, index: usize) -> Result<GrayAlphaImage> {
-        let slice = &self.slices[index];
-        let mut img = GrayAlphaImage::new(self.width as u32, self.height as u32);
-
-        for (x, y, mut pixel) in img.enumerate_pixels_mut() {
-            let index = (y * self.width as u32 + x) as usize;
-            let alpha_value = slice[index];
-            *pixel = image::LumaA([0xff, alpha_value]);
+        let slice = self.frame_bytes(index, 1)?;
+        let output_len = slice.len().checked_mul(2)
+            .ok_or_else(|| anyhow::anyhow!("alpha image size overflow"))?;
+        let mut pixels = Vec::with_capacity(output_len);
+        for &alpha in slice {
+            pixels.extend_from_slice(&[0xff, alpha]);
         }
-
-        Ok(img)
+        GrayAlphaImage::from_raw(self.width as u32, self.height as u32, pixels)
+            .ok_or_else(|| anyhow::anyhow!("invalid alpha image dimensions"))
     }
 
     #[cfg(not(feature = "no_std"))]
     fn extract_24bit_texture(&self, index: usize, out_path: impl AsRef<Path>) -> Result<()> {
-        let slice = &self.slices[index];
+        let slice = self.frame_bytes(index, 3)?;
         let mut img = ImageBuffer::new(self.width as u32, self.height as u32);
 
         for (x, y, mut pixel) in img.enumerate_pixels_mut() {
@@ -509,41 +594,44 @@ impl NvsgTexture {
     }
 
     fn as_24bit_texture(&self, index: usize) -> Result<ImageBuffer<image::Rgb<u8>, Vec<u8>>> {
-        let slice = &self.slices[index];
-        let mut img = ImageBuffer::new(self.width as u32, self.height as u32);
-
-        for (x, y, mut pixel) in img.enumerate_pixels_mut() {
-            let index = (y * self.width as u32 + x) as usize * 3;
-            let r = slice[index + 2];
-            let g = slice[index + 1];
-            let b = slice[index + 0];
-            *pixel = image::Rgb([r, g, b]);
+        let mut pixels = self.frame_bytes(index, 3)?.to_vec();
+        for pixel in pixels.chunks_exact_mut(3) {
+            pixel.swap(0, 2);
         }
-
-        Ok(img)
+        ImageBuffer::from_raw(self.width as u32, self.height as u32, pixels)
+            .ok_or_else(|| anyhow::anyhow!("invalid RGB image dimensions"))
     }
 
     fn as_24bit_to_32bit_texture(
         &self,
         index: usize,
     ) -> Result<ImageBuffer<image::Rgba<u8>, Vec<u8>>> {
-        let slice = &self.slices[index];
-        let mut img = ImageBuffer::new(self.width as u32, self.height as u32);
-
-        for (x, y, mut pixel) in img.enumerate_pixels_mut() {
-            let index = (y * self.width as u32 + x) as usize * 3;
-            let r = slice[index + 2];
-            let g = slice[index + 1];
-            let b = slice[index + 0];
-            *pixel = image::Rgba([r, g, b, 0xff]);
+        let slice = self.frame_bytes(index, 3)?;
+        let output_len = (self.width as usize)
+            .checked_mul(self.height as usize)
+            .and_then(|n| n.checked_mul(4))
+            .ok_or_else(|| anyhow::anyhow!("RGBA image size overflow"))?;
+        let mut pixels = Vec::with_capacity(output_len);
+        #[cfg(all(target_os = "vita", feature = "vita-zlib"))]
+        {
+            // SAFETY: frame_bytes validated 3 bytes per pixel; output_len is the
+            // checked 4-byte size. The converter writes all pixels, including tails.
+            unsafe {
+                rfvp_psv_bgr_to_rgba(slice.as_ptr(), pixels.as_mut_ptr(), output_len / 4);
+                pixels.set_len(output_len);
+            }
         }
-
-        Ok(img)
+        #[cfg(not(all(target_os = "vita", feature = "vita-zlib")))]
+        for pixel in slice.chunks_exact(3) {
+            pixels.extend_from_slice(&[pixel[2], pixel[1], pixel[0], 0xff]);
+        }
+        ImageBuffer::from_raw(self.width as u32, self.height as u32, pixels)
+            .ok_or_else(|| anyhow::anyhow!("invalid RGBA image dimensions"))
     }
 
     #[cfg(not(feature = "no_std"))]
     fn extract_32bit_texture(&self, index: usize, out_path: impl AsRef<Path>) -> Result<()> {
-        let slice = &self.slices[index];
+        let slice = self.frame_bytes(index, 4)?;
         let mut img = ImageBuffer::new(self.width as u32, self.height as u32);
 
         for (x, y, mut pixel) in img.enumerate_pixels_mut() {
@@ -560,19 +648,67 @@ impl NvsgTexture {
     }
 
     fn as_32bit_texture(&self, index: usize) -> Result<ImageBuffer<image::Rgba<u8>, Vec<u8>>> {
-        let slice = &self.slices[index];
-        let mut img = ImageBuffer::new(self.width as u32, self.height as u32);
-
-        for (x, y, mut pixel) in img.enumerate_pixels_mut() {
-            let index = (y * self.width as u32 + x) as usize * 4;
-            let r = slice[index + 2];
-            let g = slice[index + 1];
-            let b = slice[index + 0];
-            let a = slice[index + 3];
-            *pixel = image::Rgba([r, g, b, a]);
+        #[cfg(all(target_os = "vita", feature = "vita-zlib"))]
+        {
+            let source = self.frame_bytes(index, 4)?;
+            let mut pixels = Vec::with_capacity(source.len());
+            // SAFETY: full nonoverlapping buffers, exactly source.len()/4 pixels;
+            // the NEON and scalar tail paths write every output byte.
+            unsafe {
+                rfvp_psv_bgra_to_rgba(source.as_ptr(), pixels.as_mut_ptr(), source.len() / 4);
+                pixels.set_len(source.len());
+            }
+            return ImageBuffer::from_raw(self.width as u32, self.height as u32, pixels)
+                .ok_or_else(|| anyhow::anyhow!("invalid RGBA image dimensions"));
         }
+        #[cfg(not(all(target_os = "vita", feature = "vita-zlib")))]
+        {
+        let mut pixels = self.frame_bytes(index, 4)?.to_vec();
+        // Iterate packed pixels directly. Enumerating (x,y) performs integer division
+        // and remainder for every pixel on the no_std image shim, expensive on Vita.
+        // Only exchange B/R; preserve every alpha and RGB byte exactly as before.
+        for pixel in pixels.chunks_exact_mut(4) {
+            pixel.swap(0, 2);
+        }
+        ImageBuffer::from_raw(self.width as u32, self.height as u32, pixels)
+            .ok_or_else(|| anyhow::anyhow!("invalid RGBA image dimensions"))
+        }
+    }
 
-        Ok(img)
+    fn frame_bytes(&self, index: usize, channels: usize) -> Result<&[u8]> {
+        let length = (self.width as usize)
+            .checked_mul(self.height as usize)
+            .and_then(|n| n.checked_mul(channels))
+            .ok_or_else(|| anyhow::anyhow!("image size overflow"))?;
+        self.frame_slice(index)
+            .and_then(|frame| frame.get(..length))
+            .ok_or_else(|| anyhow::anyhow!("invalid or truncated texture frame {}", index))
+    }
+
+    fn packed_frame_range(&self, index: usize) -> Option<core::ops::Range<usize>> {
+        if self.typ != TextureType::Multi32Bit || index >= self.entry_count as usize {
+            return None;
+        }
+        let stride = (self.width as usize).checked_mul(self.height as usize)?.checked_mul(4)?;
+        let start = index.checked_mul(stride)?;
+        Some(start..start.checked_add(stride)?)
+    }
+
+    fn frame_slice(&self, index: usize) -> Option<&[u8]> {
+        if let Some(pixels) = self.packed_frames.as_ref() {
+            pixels.get(self.packed_frame_range(index)?)
+        } else {
+            self.slices.get(index).map(Vec::as_slice)
+        }
+    }
+
+    fn frame_slice_mut(&mut self, index: usize) -> Option<&mut [u8]> {
+        if self.packed_frames.is_some() {
+            let range = self.packed_frame_range(index)?;
+            self.packed_frames.as_mut()?.get_mut(range)
+        } else {
+            self.slices.get_mut(index).map(Vec::as_mut_slice)
+        }
     }
 
     #[cfg(not(feature = "no_std"))]
@@ -629,6 +765,7 @@ impl NvsgTexture {
             _ => return Err(bytes),
         }
         self.typ = TextureType::Single8Bit;
+        self.packed_frames = None;
         self.unknown1 = field16(16);
         self.width = width;
         self.height = height;
@@ -664,7 +801,8 @@ impl NvsgTexture {
     }
 
     pub fn get_texture(&self, index: usize) -> Result<DynamicImage> {
-        if index >= self.slices.len() {
+        let convert_started = crate::perf::start();
+        if self.frame_slice(index).is_none() {
             bail!("Invalid index: {}", index);
         }
 
@@ -690,6 +828,16 @@ impl NvsgTexture {
             _ => bail!("Invalid texture type: {:?}", self.typ),
         };
 
+        if crate::perf::enabled() {
+            let us = crate::perf::start().saturating_sub(convert_started);
+            if us >= 50_000 || self.typ == TextureType::Single32Bit {
+                let backend = if cfg!(all(target_os = "vita", feature = "vita-zlib")) { "neon" } else { "scalar" };
+                crate::perf::event(format_args!(
+                    "nvsg convert path={:?} type={:?} size={}x{} frame={} us={us} backend={backend}",
+                    self.name, self.typ, self.width, self.height, index
+                ));
+            }
+        }
         Ok(img)
     }
 }

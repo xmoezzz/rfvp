@@ -1,0 +1,9 @@
+# Copy to config.toml only with a matching original HCB and your own patch files.
+# This CRC identifies the user's tested Sakura.hcb edition, not every edition.
+[game]
+hcb = "Sakura.hcb"
+nls = "sjis"
+text_patch = "patch.dat"
+text_nls = "gbk"
+hcb_crc32 = "9974eff7"
+asset_aliases = "chs-assets.tsv"

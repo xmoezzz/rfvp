@@ -288,14 +288,22 @@ impl<const N: usize> Channels<N> {
 
     /// Replace every slot with the saved ones.
     pub fn restore(&mut self, saved: impl IntoIterator<Item = SlotState>, vfs: &Vfs) -> Result<()> {
+        let saved: Vec<SlotState> = saved.into_iter().collect();
         for slot in 0..N {
+            // PSV's mixer keeps loaded bytes independently of the playing voice.
+            // Stop + Play opens a fresh decoder at the beginning, so retaining the
+            // same slot/source avoids re-reading megabytes without resuming old audio.
+            let keep_source = cfg!(target_os = "vita") && saved.iter().any(|state| {
+                state.slot == slot && matches!((&self.sources[slot], &state.path),
+                    (Some(SoundSource::Named(current)), Some(path)) if current == path)
+            });
             self.audio.backend().stop(self.id(slot), Tween::default());
-            if self.sources[slot].take().is_some() {
+            if !keep_source && self.sources[slot].take().is_some() {
                 self.audio.backend().unload(self.id(slot));
             }
             self.released[slot] = false;
             self.kinds[slot] = None;
-            self.names[slot] = None;
+            if !keep_source { self.names[slot] = None; }
             self.volumes[slot] = 1.0;
             self.repeat[slot] = false;
             self.pan[slot] = 0.5;
@@ -312,7 +320,14 @@ impl<const N: usize> Channels<N> {
             self.repeat[slot] = state.repeat;
             self.pan[slot] = state.pan as f64;
             if let Some(path) = state.path {
-                self.load_named(slot as i32, path, vfs)?;
+                let reuse = cfg!(target_os = "vita") && matches!(&self.sources[slot],
+                    Some(SoundSource::Named(current)) if current == &path);
+                if reuse {
+                    crate::perf::event(format_args!("save load reuse audio label={} slot={slot} path={path:?}", self.label));
+                    self.names[slot] = Some(path);
+                } else {
+                    self.load_named(slot as i32, path, vfs)?;
+                }
             }
             if state.playing && self.is_loaded(slot) {
                 self.play(

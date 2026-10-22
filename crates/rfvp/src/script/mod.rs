@@ -16,6 +16,8 @@ pub mod global;
 pub mod inst;
 pub mod opcode;
 pub mod parser;
+#[cfg(feature = "no_std")]
+mod text_patch;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct SavedStackInfo {

@@ -61,6 +61,7 @@ impl SaveStateSnapshotV1 {
     }
 
     pub fn apply(&self, game_data: &mut GameData, tm: &mut ThreadManager) -> Result<()> {
+        let started = crate::perf::start();
         let GameData {
             motion_manager,
             vfs,
@@ -72,7 +73,11 @@ impl SaveStateSnapshotV1 {
         motion_manager
             .apply_snapshot_v1(&self.motion, vfs)
             .context("apply MotionManagerSnapshotV1")?;
+        crate::perf::event(format_args!("save load graphics graphs={} prims={} us={}",
+            self.motion.textures.len(), self.motion.prim_manager.prims.len(),
+            crate::perf::start().saturating_sub(started)));
 
+        let audio_started = crate::perf::start();
         bgm_player
             .apply_snapshot_v1(&self.audio.bgm, vfs)
             .context("apply BgmPlayerSnapshotV1")?;
@@ -80,6 +85,8 @@ impl SaveStateSnapshotV1 {
         se_player
             .apply_snapshot_v1(&self.audio.se, vfs)
             .context("apply SePlayerSnapshotV1")?;
+        crate::perf::event(format_args!("save load audio_state us={} (backend command execution may follow)",
+            crate::perf::start().saturating_sub(audio_started)));
 
         {
             let mut g = GLOBAL.lock().unwrap();
@@ -87,11 +94,36 @@ impl SaveStateSnapshotV1 {
         }
 
         tm.apply_snapshot_v1(&self.vm);
+        crate::perf::event(format_args!("save load apply total_us={}", crate::perf::start().saturating_sub(started)));
         Ok(())
     }
 }
 
 pub fn append_state_chunk_v1(out: &mut Vec<u8>, snap: &SaveStateSnapshotV1) -> Result<()> {
+    #[cfg(feature = "no_std")]
+    {
+        let started = crate::perf::start();
+        // Append directly to the file buffer. Postcard emits the same V1 payload;
+        // avoid a second complete payload allocation and copy into the slot file.
+        let start = out.len();
+        let mut bytes = postcard::to_extend(snap, core::mem::take(out))
+            .context("serialize SaveStateSnapshotV1")?;
+        let length = bytes.len() - start;
+        if length > MAX_STATE_PAYLOAD_BYTES {
+            bytes.truncate(start);
+            *out = bytes;
+            bail!("SaveStateSnapshotV1 payload too large: {}", length);
+        }
+        let length = u32::try_from(length).context("SaveStateSnapshotV1 length overflow")?;
+        bytes.extend_from_slice(&length.to_le_bytes());
+        bytes.extend_from_slice(&snapshot_codec::STATE_MAGIC);
+        *out = bytes;
+        crate::perf::event(format_args!("save encode state bytes={} us={}", length,
+            crate::perf::start().saturating_sub(started)));
+        Ok(())
+    }
+    #[cfg(not(feature = "no_std"))]
+    {
     let payload = snapshot_codec::encode(snap).context("serialize SaveStateSnapshotV1")?;
     snapshot_codec::append_chunk(
         out,
@@ -100,6 +132,7 @@ pub fn append_state_chunk_v1(out: &mut Vec<u8>, snap: &SaveStateSnapshotV1) -> R
         MAX_STATE_PAYLOAD_BYTES,
     )
     .context("SaveStateSnapshotV1")
+    }
 }
 
 /// `append_state_chunk_v1(out, &SaveStateSnapshotV1::capture(game_data))` without the

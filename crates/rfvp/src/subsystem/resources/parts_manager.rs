@@ -23,6 +23,8 @@ pub struct PartsItem {
     texture: NvsgTexture,
     texture_name: String,
     loaded: bool,
+    load_count: u32,
+    pixels_pristine: bool,
 }
 
 impl PartsItem {
@@ -36,16 +38,20 @@ impl PartsItem {
             texture: NvsgTexture::new(""),
             texture_name: String::new(),
             loaded: false,
+            load_count: 0,
+            pixels_pristine: false,
         }
     }
 
     pub fn load_texture(&mut self, file_name: &str, buff: Vec<u8>) -> Result<()> {
+        let started = crate::perf::start();
+        self.load_count = self.load_count.saturating_add(1);
         let _timing = crate::perf::scope(crate::perf::PARTS_DECODE);
         crate::perf::event(format_args!("parts decode path={file_name:?} bytes={}", buff.len()));
+        self.texture.set_name(file_name);
         self.texture
             .read_texture(&buff, |typ| typ == TextureType::Multi32Bit)?;
 
-        self.texture.set_name(file_name);
         self.texture_name = file_name.to_string();
         self.r_value = 100;
         self.g_value = 100;
@@ -53,8 +59,33 @@ impl PartsItem {
         // `PartsLoad` resets the pause flag in the original engine.
         self.running = false;
         self.loaded = true;
+        self.pixels_pristine = true;
+
+        if crate::perf::enabled() {
+            let us = crate::perf::start().saturating_sub(started);
+            if us >= 50_000 {
+                crate::perf::event(format_args!(
+                    "parts decode slow path={file_name:?} size={}x{} frames={} bytes={} slot_loads={} storage=contiguous us={us}",
+                    self.get_width(), self.get_height(), self.get_texture_count(), buff.len(), self.load_count
+                ));
+            }
+        }
 
         Ok(())
+    }
+
+    fn load_named(&mut self, file_name: &str, vfs: &Vfs) -> Result<()> {
+        if cfg!(target_os = "vita") && self.loaded && self.pixels_pristine && self.texture_name == file_name {
+            self.running = false;
+            self.r_value = 100;
+            self.g_value = 100;
+            self.b_value = 100;
+            crate::perf::event(format_args!("parts reuse resident path={file_name:?} frames={}", self.get_texture_count()));
+            return Ok(());
+        }
+        // A missing file must leave the existing slot untouched, as before.
+        let bytes = vfs.read_file(file_name)?;
+        self.load_texture(file_name, bytes)
     }
 
     pub fn get_loaded(&self) -> bool {
@@ -68,6 +99,7 @@ impl PartsItem {
         self.texture.clear_slices_keep_header();
         self.loaded = false;
         self.running = false;
+        self.pixels_pristine = false;
     }
 
     pub fn set_color_tone(&mut self, r: u8, g: u8, b: u8) {
@@ -75,6 +107,7 @@ impl PartsItem {
         if !self.loaded {
             return;
         }
+        if r != 100 || g != 100 || b != 100 { self.pixels_pristine = false; }
         for index in 0..self.texture.get_entry_count() as usize {
             let _ = self
                 .texture
@@ -229,6 +262,10 @@ impl PartsManager {
     pub fn load_parts(&mut self, id: u16, file_name: &str, buff: Vec<u8>) -> Result<()> {
         self.parts[id as usize].load_texture(file_name, buff)?;
         Ok(())
+    }
+
+    pub fn load_parts_named(&mut self, id: u16, file_name: &str, vfs: &Vfs) -> Result<()> {
+        self.parts[id as usize].load_named(file_name, vfs)
     }
 
     /// Release decoded pixel data while keeping header metadata and the stored name.
@@ -419,20 +456,31 @@ impl PartsItem {
     }
 
     fn apply_snapshot_v1(&mut self, snap: &PartsItemSnapshotV1, vfs: &Vfs) -> Result<()> {
+        if self.loaded && snap.loaded && self.pixels_pristine && !snap.texture_name.is_empty()
+            && self.texture_name == snap.texture_name
+            && self.r_value == 100 && self.g_value == 100 && self.b_value == 100
+            && snap.r_value == 100 && snap.g_value == 100 && snap.b_value == 100
+        {
+            self.prim_id = snap.prim_id;
+            // PartsLoad historically clears pause during snapshot restoration too.
+            self.running = false;
+            crate::perf::event(format_args!("save load reuse parts path={:?} frames={}", snap.texture_name, self.get_texture_count()));
+            return Ok(());
+        }
         self.prim_id = snap.prim_id;
         self.r_value = snap.r_value;
         self.g_value = snap.g_value;
         self.b_value = snap.b_value;
         self.running = snap.running;
 
-        self.texture_name = snap.texture_name.clone();
-        self.loaded = false;
-        self.texture = NvsgTexture::new("");
-
         if snap.loaded && !snap.texture_name.is_empty() {
-            let bytes = vfs.read_file(&snap.texture_name)?;
-            self.load_texture(&snap.texture_name, bytes)?;
+            self.load_named(&snap.texture_name, vfs)?;
             self.set_color_tone(snap.r_value, snap.g_value, snap.b_value);
+        } else {
+            self.texture_name = snap.texture_name.clone();
+            self.loaded = false;
+            self.pixels_pristine = false;
+            self.texture = NvsgTexture::new("");
         }
         self.loaded = snap.loaded;
         Ok(())

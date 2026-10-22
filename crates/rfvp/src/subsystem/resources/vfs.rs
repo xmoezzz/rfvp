@@ -27,6 +27,28 @@ impl<T: Read + Seek> ReadSeek for T {}
 
 pub type VfsStream = Box<dyn ReadSeek + Send + Sync>;
 
+/// A PSV pack slice has an exact logical length. Fill the final allocation in
+/// larger reads instead of the no_std shim's 4 KiB stack buffer + copy loop.
+/// Unknown-length streams and other platforms keep their previous behavior.
+fn read_whole_stream(stream: &mut dyn ReadSeek, length: Option<u64>) -> Result<Vec<u8>> {
+    #[cfg(target_os = "vita")]
+    if let Some(length) = length {
+        let length = usize::try_from(length).map_err(|_| anyhow!("asset length exceeds address space"))?;
+        let mut out = Vec::new();
+        out.try_reserve_exact(length).map_err(|_| anyhow!("cannot allocate {} asset bytes", length))?;
+        out.resize(length, 0);
+        // No large stack allocation. read_exact also handles short positive reads;
+        // an early EOF is an error rather than handing a truncated asset to a decoder.
+        for block in out.chunks_mut(128 * 1024) {
+            stream.read_exact(block)?;
+        }
+        return Ok(out);
+    }
+    let mut out = Vec::with_capacity(length.and_then(|n| usize::try_from(n).ok()).unwrap_or(0));
+    stream.read_to_end(&mut out)?;
+    Ok(out)
+}
+
 #[derive(Debug, Clone)]
 pub struct VfsEntry {
     pub offset: u64,
@@ -382,9 +404,7 @@ impl VfsFile {
 
     pub fn read_file(&self, name: &str) -> Result<Vec<u8>> {
         let (mut stream, len) = self.open_stream_with_len(name)?;
-        let mut out = Vec::with_capacity(len.and_then(|n| usize::try_from(n).ok()).unwrap_or(0));
-        stream.read_to_end(&mut out)?;
-        Ok(out)
+        read_whole_stream(&mut *stream, len)
     }
 }
 
@@ -437,6 +457,7 @@ impl fmt::Debug for LooseDir {
 pub struct Vfs {
     pub files: StableHashMap<String, VfsFile>,
     loose_files: StableHashMap<String, Vec<u8>>,
+    aliases: StableHashMap<String, String>,
     /// The game directory, for assets shipped as loose files.
     loose_dir: Option<LooseDir>,
     pub nls: Nls,
@@ -447,6 +468,7 @@ impl Default for Vfs {
         Self {
             files: StableHashMap::default(),
             loose_files: StableHashMap::default(),
+            aliases: StableHashMap::default(),
             loose_dir: None,
             nls: Nls::ShiftJIS,
         }
@@ -519,8 +541,41 @@ impl Vfs {
         Ok(())
     }
 
+    /// UTF-8 TSV: original VFS path, tab, replacement VFS path. Targets must
+    /// exist and aliases must not chain, including through case folding.
+    pub fn load_aliases(&mut self, text: &str) -> Result<usize> {
+        let mut aliases = StableHashMap::default();
+        for line in text.trim_start_matches('\u{feff}').lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') { continue; }
+            let (from, to) = line.split_once('\t').ok_or_else(|| anyhow!("expected two tab-separated resource paths"))?;
+            let from = from.trim();
+            let to = to.trim();
+            // Identical path checks apply to loose files as well as pack paths.
+            for value in [from, to] {
+                if value.is_empty() || value.starts_with('/') || value.contains(['\\', ':', '\0'])
+                    || value.chars().any(char::is_control)
+                    || value.split('/').any(|part| part.is_empty() || part == "." || part == "..") {
+                    bail!("invalid resource alias path");
+                }
+            }
+            let key = normalize_vfs_key(from);
+            if aliases.insert(key, to.to_string()).is_some() { bail!("duplicate resource alias"); }
+        }
+        for to in aliases.values() {
+            if aliases.contains_key(&normalize_vfs_key(to)) { bail!("resource alias chains/cycles are unsupported"); }
+            self.open_stream_with_len(to)?;
+        }
+        let count = aliases.len();
+        self.aliases = aliases;
+        Ok(count)
+    }
+
     pub fn open_stream_with_len(&self, path: &str) -> Result<(VfsStream, Option<u64>)> {
         let key = normalize_vfs_key(path);
+        let replacement = self.aliases.get(&key);
+        let path = replacement.map(String::as_str).unwrap_or(path);
+        let key = replacement.map(|name| normalize_vfs_key(name)).unwrap_or(key);
         if key.starts_with("voice/") || key.starts_with("voice2/") {
             crate::perf::event(format_args!("voice resource path={path:?}"));
         }
@@ -557,16 +612,16 @@ impl Vfs {
     pub fn read_file(&self, path: &str) -> Result<Vec<u8>> {
         let _timing = crate::perf::scope(crate::perf::VFS_READ);
         let started = crate::perf::start();
+        let mut read_mode = "stream";
         let result = (|| {
             let (mut stream, len) = self.open_stream_with_len(path)?;
-            let mut out = Vec::with_capacity(len.and_then(|n| usize::try_from(n).ok()).unwrap_or(0));
-            stream.read_to_end(&mut out)?;
-            Ok(out)
+            if cfg!(target_os = "vita") && len.is_some() { read_mode = "bulk128k"; }
+            read_whole_stream(&mut *stream, len)
         })();
         if crate::perf::enabled() {
             let us = crate::perf::start().saturating_sub(started);
             match &result {
-                Ok(bytes) if us >= 10_000 => crate::perf::event(format_args!("vfs path={path:?} bytes={} us={us}", bytes.len())),
+                Ok(bytes) if us >= 10_000 => crate::perf::event(format_args!("vfs path={path:?} bytes={} us={us} read_mode={read_mode}", bytes.len())),
                 Err(err) => crate::perf::event(format_args!("vfs FAILED path={path:?}: {err:?}")),
                 _ => {}
             }

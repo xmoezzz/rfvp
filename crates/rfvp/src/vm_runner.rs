@@ -101,8 +101,11 @@ impl VmRunner {
         // Process deferred load requests at a safe point (between VM ticks).
         uefi_vm_stage!("[UEFI] VmRunner::tick before take_load_request");
         if let Some(slot) = game.save_manager.take_load_request() {
+            let load_started = crate::perf::start();
             match read_slot_for_load(game, slot) {
                 Ok(bytes) => {
+                    crate::perf::event(format_args!("save load read slot={} bytes={} us={}", slot, bytes.len(),
+                        crate::perf::start().saturating_sub(load_started)));
                     let nls = game.get_nls();
                     if let Err(e) = game
                         .save_manager
@@ -115,10 +118,21 @@ impl VmRunner {
                         );
                     }
 
-                    match try_decode_state_chunk_v1(&bytes) {
+                    let decode_started = crate::perf::start();
+                    let decoded = try_decode_state_chunk_v1(&bytes);
+                    crate::perf::event(format_args!("save load decode slot={} us={} ok={}", slot,
+                        crate::perf::start().saturating_sub(decode_started), decoded.is_ok()));
+                    match decoded {
                         Ok(Some(s)) => {
                             if let Err(e) = s.apply(game, &mut self.tm) {
                                 log::error!("load: apply SaveStateSnapshotV1 failed: {:#}", e);
+                            } else {
+                                // Old UI clicks and deferred coroutine requests are not
+                                // part of the restored snapshot. A held confirmation
+                                // button's later release must not reopen a menu.
+                                let discarded = game.thread_wrapper.clear_after_load();
+                                game.inputs_manager.reset_after_load();
+                                crate::perf::event(format_args!("save load transient_reset slot={} thread_requests={}", slot, discarded));
                             }
                         }
                         Ok(None) => {

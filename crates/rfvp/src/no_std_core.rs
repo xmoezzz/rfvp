@@ -306,16 +306,14 @@ impl RfvpCore {
         #[cfg_attr(feature = "psx", allow(unused_mut))]
         let mut boot = boot;
         #[cfg(not(feature = "psx"))]
-        let hcb_override = {
-            let config = read_game_config(host, boot.asset_root).map_err(|detail| {
-                self.last_error_detail = Some(detail);
-                RfvpError::InvalidData
-            })?;
-            if let Some(nls) = config.nls {
-                boot.nls = nls;
-            }
-            config.hcb.map(|hcb| join_asset_path(boot.asset_root, &hcb))
-        };
+        let game_config = read_game_config(host, boot.asset_root).map_err(|detail| {
+            self.last_error_detail = Some(detail);
+            RfvpError::InvalidData
+        })?;
+        #[cfg(not(feature = "psx"))]
+        if let Some(nls) = game_config.nls { boot.nls = nls; }
+        #[cfg(not(feature = "psx"))]
+        let hcb_override = game_config.hcb.as_deref().map(|path| join_asset_path(boot.asset_root, path));
         #[cfg(feature = "psx")]
         let hcb_override: Option<String> = None;
 
@@ -406,6 +404,37 @@ impl RfvpCore {
             })?;
             (hcb, hcb_manifest, parser)
         };
+        #[allow(unused_mut)]
+        let mut parser = parser;
+        #[cfg(not(feature = "psx"))]
+        {
+        // CRC binding prevents an offset translation from being used with a
+        // different edition of the script. Read only, performed once at boot.
+        if let Some(expected) = game_config.hcb_crc32 {
+            #[cfg(not(feature = "old_school"))]
+            let actual = crate::game_config::crc32(&hcb.bytes);
+            #[cfg(feature = "old_school")]
+            let actual = {
+                let mut file = host.fs().open(&hcb.path)?;
+                let bytes = file.read_to_vec(boot.max_hcb_bytes)?;
+                crate::game_config::crc32(&bytes)
+            };
+            if actual != expected {
+                self.last_error_detail = Some(format!("config.toml HCB CRC32 mismatch: expected {expected:08x}, got {actual:08x}"));
+                return Err(RfvpError::InvalidData);
+            }
+        }
+        if let Some(path) = game_config.text_patch.as_deref() {
+            let path = join_asset_path(boot.asset_root, path);
+            let mut file = host.fs().open(&path).map_err(|err| {
+                self.last_error_detail = Some(format!("cannot open text_patch {path}: {err:?}")); err
+            })?;
+            let bytes = file.read_to_vec(16 * 1024 * 1024)?;
+            parser.load_text_patch(bytes, game_config.text_nls.unwrap()).map_err(|e| {
+                self.last_error_detail = Some(format!("text_patch {path}: {e}")); RfvpError::InvalidData
+            })?;
+        }
+        }
         #[cfg(feature = "old_school")]
         let old_school_scale = load_required_old_school_scale(host).map_err(|(err, detail)| {
             self.last_error_detail = Some(detail);
@@ -435,6 +464,17 @@ impl RfvpCore {
         #[cfg(feature = "psx")]
         host.log(RfvpLogLevel::Debug, "boot: before packs");
         let mut vfs = build_host_vfs(host, boot)?;
+        #[cfg(not(feature = "psx"))]
+        if let Some(path) = game_config.asset_aliases.as_deref() {
+            let path = join_asset_path(boot.asset_root, path);
+            let mut file = host.fs().open(&path)?;
+            let bytes = file.read_to_vec(1024 * 1024)?;
+            let text = core::str::from_utf8(&bytes).map_err(|_| RfvpError::InvalidData)?;
+            let aliases = vfs.load_aliases(text).map_err(|e| {
+                self.last_error_detail = Some(format!("asset_aliases {path}: {e}")); RfvpError::InvalidData
+            })?;
+            host.log(RfvpLogLevel::Info, &format!("asset aliases loaded count={aliases}"));
+        }
         #[cfg(not(feature = "old_school"))]
         vfs.add_loose_file(&hcb.path, hcb.bytes.clone());
 
@@ -1159,10 +1199,11 @@ fn read_game_config<H: RfvpHost>(
     asset_root: &str,
 ) -> Result<crate::game_config::GameConfig, String> {
     use crate::game_config::{GameConfig, GAME_CONFIG_FILE};
-    let path = join_asset_path(asset_root, GAME_CONFIG_FILE);
-    if !host.fs().exists(&path) {
-        return Ok(GameConfig::default());
-    }
+    let primary = join_asset_path(asset_root, GAME_CONFIG_FILE);
+    let legacy = join_asset_path(asset_root, "game.toml");
+    let path = if host.fs().exists(&primary) { primary }
+        else if host.fs().exists(&legacy) { legacy }
+        else { return Ok(GameConfig::default()); };
     let bytes = host
         .fs()
         .open(&path)

@@ -9,6 +9,7 @@ pub mod allocator;
 pub mod app;
 pub mod audio;
 pub mod clock;
+pub mod downscale;
 pub mod event;
 pub mod fs;
 pub mod host;

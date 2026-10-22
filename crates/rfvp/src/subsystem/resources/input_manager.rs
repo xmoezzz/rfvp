@@ -130,6 +130,12 @@ pub struct InputManager {
     control_is_masked: bool,
     control_is_pulse: bool,
     suppress_next_mouse: u8,
+    // Inputs held in the discarded scene must be released before they can act
+    // in a restored scene. In particular, a mouse-up can itself enqueue a click.
+    load_blocked_keys: u32,
+    // InputFlash may have forgotten a held mouse button already. After a load,
+    // require a fresh down before accepting that button's release as a click.
+    post_load_mouse_guard: u32,
 
     input_down_pending: u32,
     input_up_pending: u32,
@@ -166,6 +172,8 @@ impl InputManager {
             control_is_masked: false,
             control_is_pulse: false,
             suppress_next_mouse: 0,
+            load_blocked_keys: 0,
+            post_load_mouse_guard: 0,
             current_index: 0,
             next_index: 0,
             new_input_state: 0,
@@ -208,6 +216,38 @@ impl InputManager {
         let _g = self.cs.enter();
         // Eat the activation click fully (down + up).
         self.suppress_next_mouse = 2;
+    }
+
+    /// A successful load replaces the scene, but input is live state, not saved
+    /// state. Discard old queued events and quarantine only already-held buttons
+    /// until their release. Fresh presses remain usable without a timed delay.
+    pub fn reset_after_load(&mut self) {
+        let _g = self.cs.enter();
+        let queued = self.current_index.wrapping_sub(self.next_index) & 0x3f;
+        self.load_blocked_keys |= self.new_input_state;
+        self.post_load_mouse_guard = Self::bit_for(KeyCode::MouseLeft) | Self::bit_for(KeyCode::MouseRight);
+        crate::perf::event(format_args!("save load input_reset queued={} held={:#x} blocked={:#x}",
+            queued, self.new_input_state, self.load_blocked_keys));
+        self.current_index = 0;
+        self.next_index = 0;
+        self.press_items.fill(PressItem::default());
+        self.current_event = PressItem::default();
+        self.new_input_state = 0;
+        self.old_input_state = 0;
+        self.input_state = 0;
+        self.input_down = 0;
+        self.input_up = 0;
+        self.input_repeat = 0;
+        self.input_down_pending = 0;
+        self.input_up_pending = 0;
+        self.input_repeat_pending = 0;
+        self.wheel_value = 0;
+        self.wheel_pending = 0;
+        self.hud_down = 0;
+        self.hud_up = 0;
+        self.control_is_pulse = false;
+        self.suppress_next_mouse = 0;
+        // Keep cursor position, click mode and the script's control mask.
     }
 
     pub fn get_cursor_in(&self) -> bool {
@@ -389,6 +429,8 @@ impl InputManager {
             prev_bits = self.new_input_state;
             let mask = Self::bit_for(keycode.clone());
 
+            if self.load_blocked_keys & mask != 0 { return; }
+
             if (self.new_input_state & mask) == 0 {
                 self.new_input_state |= mask;
                 self.input_down_pending |= mask;
@@ -412,6 +454,12 @@ impl InputManager {
 
             prev_bits = self.new_input_state;
             let mask = Self::bit_for(keycode.clone());
+
+            if self.load_blocked_keys & mask != 0 {
+                self.load_blocked_keys &= !mask;
+                crate::perf::event(format_args!("save load input_release key={} blocked={:#x}", keycode as u8, self.load_blocked_keys));
+                return;
+            }
 
             if (self.new_input_state & mask) != 0 {
                 self.new_input_state &= !mask;
@@ -445,6 +493,8 @@ impl InputManager {
         {
             let _g = self.cs.enter();
 
+            if self.load_blocked_keys & Self::bit_for(keycode.clone()) != 0 { return; }
+
             if self.suppress_next_mouse != 0 {
                 // Eat the activation click (down + up).
                 self.suppress_next_mouse = self.suppress_next_mouse.saturating_sub(1);
@@ -453,6 +503,7 @@ impl InputManager {
 
             prev_bits = self.new_input_state;
             let mask = Self::bit_for(keycode.clone());
+            self.post_load_mouse_guard &= !mask;
 
             if (self.new_input_state & mask) == 0 {
                 self.new_input_state |= mask;
@@ -483,6 +534,17 @@ impl InputManager {
         let mut prev_bits = 0u32;
         {
             let _g = self.cs.enter();
+
+            let mask = Self::bit_for(keycode.clone());
+            if self.load_blocked_keys & mask != 0 {
+                self.load_blocked_keys &= !mask;
+                crate::perf::event(format_args!("save load input_release mouse={} blocked={:#x}", keycode as u8, self.load_blocked_keys));
+                return;
+            }
+            if self.post_load_mouse_guard & mask != 0 {
+                crate::perf::event(format_args!("save load input_unpaired_release mouse={}", keycode as u8));
+                return;
+            }
 
             if self.suppress_next_mouse != 0 {
                 // Eat the activation click (down + up).

@@ -140,6 +140,11 @@ no_std = [
     "serde/derive",
 ]
 
+# Vita native zlib-format decode and exact SIMD pixel conversion, opted in
+# by the PSV host only. The decode backend is vendored libdeflate. Other targets keep
+# their existing flate2/miniz backends even if features are unified.
+vita-zlib = ["no_std"]
+
 # PSP old-school no_std profile. This is opt-in only and is used by
 # rfvp-psp; default desktop/mobile/wasm builds must not enable it.
 old_school = ["no_std", "dep:rfvp_bitmap", "rfvp_bitmap/alloc"]
