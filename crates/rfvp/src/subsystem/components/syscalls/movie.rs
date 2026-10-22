@@ -39,6 +39,8 @@ pub fn movie_play(game_data: &mut GameData, path: &Variant, flag: &Variant) -> R
         is_layer_effect
     );
 
+    log::info!("Movie: path={path:?} layer_effect={is_layer_effect}");
+
     let (w, h) = (game_data.get_width() as u32, game_data.get_height() as u32);
 
     let mode = if is_layer_effect {

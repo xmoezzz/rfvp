@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
 use std::sync::Mutex;
 
+use super::AudioStreamSource;
 use anyhow::{anyhow, Context, Result};
 #[cfg(target_arch = "wasm32")]
 use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings};
@@ -117,10 +118,37 @@ fn streaming_data(source: &SoundSource, vfs: &Vfs) -> Result<StreamingSoundData<
         SoundSource::Bytes(bytes) => Ok(StreamingSoundData::from_cursor(std::io::Cursor::new(
             bytes.clone(),
         ))?),
+        SoundSource::Stream(source) => Ok(StreamingSoundData::from_media_source(
+            PcmMediaSource {
+                inner: source.clone(),
+            },
+        )?),
     }
 }
 
 impl AudioBackend for KiraBackend {
+    fn supports_pcm_stream(&self) -> bool {
+        // kira pulls from a `MediaSource` on its own thread, so a producer can
+        // feed it while it plays.
+        cfg!(not(target_arch = "wasm32"))
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn load_pcm_stream(
+        &self,
+        id: AudioStreamId,
+        source: AudioStreamSource,
+        vfs: &Vfs,
+    ) -> Result<()> {
+        // No format probe here, unlike `load`: building a `StreamingSoundData`
+        // consumes the stream (symphonia parses the header), and `play` builds
+        // its own from the stored source. A live stream cannot be rewound, so a
+        // probe would leave `play` starting after the header.
+        let _ = vfs;
+        self.channels().entry(id.0).or_default().loaded = Some(SoundSource::Stream(source));
+        Ok(())
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     fn load(&self, id: AudioStreamId, source: &SoundSource, vfs: &Vfs) -> Result<()> {
         // Decode the header now so a bad file fails here rather than when it is played.
@@ -257,5 +285,65 @@ impl symphonia_core::io::MediaSource for VfsMediaSource {
 
     fn byte_len(&self) -> Option<u64> {
         self.byte_len
+    }
+}
+
+/// A live PCM stream, presented to kira as a WAV byte source.
+///
+/// Not seekable: the bytes behind the read position were produced once and are
+/// gone. kira reads it sequentially, which is all a soundtrack needs.
+#[cfg(not(target_arch = "wasm32"))]
+struct PcmMediaSource {
+    inner: AudioStreamSource,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Read for PcmMediaSource {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.inner.with(|stream| stream.read(buf))
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Seek for PcmMediaSource {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        self.inner.with(|stream| stream.seek(pos))
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl symphonia_core::io::MediaSource for PcmMediaSource {
+    fn is_seekable(&self) -> bool {
+        false
+    }
+
+    fn byte_len(&self) -> Option<u64> {
+        None
+    }
+}
+
+#[cfg(test)]
+mod pcm_source_tests {
+    use super::*;
+    use crate::rfvp_audio::pcm_stream::PcmWavStream;
+
+    /// kira parses the WAV header when it builds the sound, and our header
+    /// declares a maximum data length because a live stream has no known end.
+    /// If symphonia rejected that, `play` would fail and the movie would be
+    /// silent instead of falling back, so this pins the acceptance.
+    #[test]
+    fn symphonia_accepts_a_live_pcm_wav_header() {
+        let (stream, writer) = PcmWavStream::new(44100, 2);
+        let samples: Vec<i16> = (0..44100).map(|i| ((i % 100) as i16) * 10).collect();
+        writer.push(&samples);
+        writer.finish();
+
+        let source = AudioStreamSource::new(Box::new(stream));
+        let built = StreamingSoundData::from_media_source(PcmMediaSource { inner: source });
+        assert!(
+            built.is_ok(),
+            "symphonia rejected the live WAV header: {:?}",
+            built.err()
+        );
     }
 }
