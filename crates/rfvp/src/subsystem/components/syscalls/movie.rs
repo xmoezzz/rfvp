@@ -18,12 +18,15 @@ use super::Syscaller;
 ///
 /// Original-engine semantics (IDA):
 /// - `flag` is treated as a boolean by **Type**, not by value.
-///   - `flag == nil`  => effect/layer movie (video only)
-///   - `flag != nil`  => normal modal movie (video + audio)
+///   - `flag == nil`  => effect/layer movie: the video is rendered into a reserved
+///     GraphBuff slot and drawn via a reserved sprite in the root=0 prim tree.
+///   - `flag != nil`  => normal modal movie.
+/// - In layer mode the original executable keeps running script contexts while a
+///   movie is active; a non-nil flag halts the script engine.
 ///
-/// In layer mode, the movie is rendered into a reserved GraphBuff slot and drawn via a reserved
-/// sprite in the root=0 prim tree. A non-nil flag enables movie audio, but does not halt the
-/// script engine; the original executable keeps running script contexts while a movie is active.
+/// The clip's soundtrack plays in **both** modes: audio is orthogonal to the flag.
+/// The song lives in the movie's own audio track and games rely on it — real
+/// titles run their OP as a layer movie with the song inside the WMV.
 pub fn movie_play(game_data: &mut GameData, path: &Variant, flag: &Variant) -> Result<Variant> {
     let path = match path {
         Variant::String(path) | Variant::ConstString(path, _) => path.as_str(),
@@ -49,11 +52,12 @@ pub fn movie_play(game_data: &mut GameData, path: &Variant, flag: &Variant) -> R
         MovieMode::ModalWithAudio
     };
 
-    let audio = if matches!(mode, MovieMode::ModalWithAudio) {
-        Some(game_data.audio_manager())
-    } else {
-        None
-    };
+    // The clip's own soundtrack plays in both modes. `layer` only changes how the
+    // video is composited (a reserved GraphBuff slot) and that the script keeps
+    // running; it says nothing about audio. Games depend on this: real titles run
+    // their OP with a nil flag (layer mode) while the song lives in the WMV's
+    // audio track, so withholding the AudioManager here silenced the whole OP.
+    let audio = Some(game_data.audio_manager());
 
     for cand in movie_path_candidates(path) {
         let cand = normalize_vfs_path(&cand);
