@@ -474,6 +474,12 @@ impl Vfs {
             .list("")
             .map_err(|err| anyhow!("list the game directory: {err:?}"))?;
         for name in names {
+            // macOS AppleDouble sidecars (`._name.bin`) end in `.bin` too, but
+            // they are file metadata: opening one fails and logs a warning for
+            // every pack on a FAT/exFAT volume.
+            if name.starts_with("._") {
+                continue;
+            }
             let Some(folder) = name
                 .len()
                 .checked_sub(4)

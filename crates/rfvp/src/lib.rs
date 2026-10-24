@@ -1111,6 +1111,7 @@ pub mod soft_host;
 pub mod soft_render;
 pub mod subsystem;
 pub mod text_codec;
+pub mod text_restore;
 pub mod trace;
 #[cfg(not(feature = "no_std"))]
 pub mod utils;

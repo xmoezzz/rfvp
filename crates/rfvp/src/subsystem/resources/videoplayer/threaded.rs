@@ -10,8 +10,9 @@ use std::sync::{
 
 use anyhow::{anyhow, Context, Result};
 
-use crate::host_api::{AudioParams, AudioStreamId};
-use crate::rfvp_audio::{AudioManager, SoundSource, Tween};
+use crate::host_api::{AudioParams, AudioSampleFormat, AudioStreamDesc, AudioStreamId};
+use crate::rfvp_audio::pcm_stream::PcmWavStream;
+use crate::rfvp_audio::{AudioManager, AudioStreamSource, SoundSource, Tween};
 use crate::subsystem::resources::vfs::Vfs;
 
 use na_mpeg2_decoder::{MpegAvEvent, MpegAvPipeline};
@@ -33,7 +34,7 @@ use symphonia::core::probe::Hint;
 #[cfg(feature = "mp4")]
 use symphonia::default::{get_codecs, get_probe};
 
-use super::{MovieFrame, MovieMode, MovieRequest, MovieSource};
+use super::{MovieFrame, MovieRequest, MovieSource};
 use crate::utils::file::app_base_path;
 
 /// Cap buffered decoded frames on the main thread.
@@ -63,40 +64,31 @@ struct Mp4Playback {
 impl Mp4Playback {
     fn open_from_mp4_bytes(
         mp4_path: impl AsRef<Path>,
-        mode: MovieMode,
         audio_manager: Option<Arc<AudioManager>>,
     ) -> Result<Self> {
         let stream = video_sys::VideoStream::open(&mp4_path).context("VideoStream::open")?;
 
-        let (audio_data, audio_manager) = match mode {
-            MovieMode::ModalWithAudio => {
-                let am = audio_manager;
-                let data = match am.as_ref() {
-                    None => {
-                        log::warn!("Movie audio decode skipped: no AudioManager");
-                        None
-                    }
-                    Some(_) => match decode_mp4_audio_to_wav_bytes(&mp4_path) {
-                        Ok(Some(wav_bytes)) => {
-                            Some(Arc::from(wav_bytes))
-                        }
-                        Ok(None) => {
-                            log::warn!(
-                                "Movie audio: no decodable audio track: {}",
-                                mp4_path.as_ref().display()
-                            );
-                            None
-                        }
-                        Err(e) => {
-                            // Audio is best-effort; keep video playing even if audio fails.
-                            log::warn!("Movie audio decode failed: {e:?}");
-                            None
-                        }
-                    },
-                };
-                (data, am)
+        // Audio is orthogonal to the movie mode (see WmvPlayback above).
+        let (audio_data, audio_manager) = match audio_manager {
+            None => {
+                log::warn!("Movie audio decode skipped: no AudioManager");
+                (None, None)
             }
-            MovieMode::LayerNoAudio => (None, None),
+            Some(am) => match decode_mp4_audio_to_wav_bytes(&mp4_path) {
+                Ok(Some(wav_bytes)) => (Some(Arc::from(wav_bytes)), Some(am)),
+                Ok(None) => {
+                    log::warn!(
+                        "Movie audio: no decodable audio track: {}",
+                        mp4_path.as_ref().display()
+                    );
+                    (None, Some(am))
+                }
+                Err(e) => {
+                    // Audio is best-effort; keep video playing even if audio fails.
+                    log::warn!("Movie audio decode failed: {e:?}");
+                    (None, Some(am))
+                }
+            },
         };
 
         Ok(Self {
@@ -218,6 +210,9 @@ struct WmvPlayback {
     // Audio (decoded to a WAV container and played via Kira).
     audio_manager: Option<Arc<AudioManager>>,
     audio_data: Option<Arc<[u8]>>,
+    /// True when the soundtrack is streamed as decoded PCM instead of handed to
+    /// the host as one WAV blob; `audio_data` is then unused.
+    audio_streaming: bool,
     audio_playing: bool,
     audio_started: bool,
 }
@@ -225,45 +220,53 @@ struct WmvPlayback {
 impl WmvPlayback {
     fn open_from_wmv_path(
         wmv_path: impl AsRef<Path>,
-        mode: MovieMode,
         screen_w: u32,
         screen_h: u32,
         audio_manager: Option<Arc<AudioManager>>,
     ) -> Result<Self> {
         let wmv_path = wmv_path.as_ref().to_path_buf();
+        let stop_flag = Arc::new(AtomicBool::new(false));
 
-        let (audio_data, audio_manager) = match mode {
-            MovieMode::ModalWithAudio => {
-                let am = audio_manager;
-                let data = match am.as_ref() {
-                    None => {
-                        log::warn!("WMV movie audio decode skipped: no AudioManager");
-                        None
-                    }
-                    Some(_) => match decode_wmv_audio_to_wav_bytes(&wmv_path) {
-                        Ok(Some(wav_bytes)) => {
-                            Some(Arc::from(wav_bytes))
-                        }
-                        Ok(None) => {
-                            log::warn!(
-                                "WMV movie audio: no decodable audio track: {}",
-                                wmv_path.display()
-                            );
-                            None
-                        }
-                        Err(e) => {
-                            // Audio is best-effort; keep video playing even if audio fails.
-                            log::warn!("WMV movie audio decode failed: {e:?}");
-                            None
-                        }
-                    },
-                };
-                (data, am)
+        // The soundtrack is orthogonal to the movie mode: a layer movie is
+        // composited differently and does not halt the script, but its audio
+        // track still plays (real titles run their OP in layer mode with the
+        // song inside the WMV).
+        let (audio_data, audio_manager, audio_streaming) = match audio_manager {
+            None => {
+                log::warn!("WMV movie audio decode skipped: no AudioManager");
+                (None, None, false)
             }
-            MovieMode::LayerNoAudio => (None, None),
+            // The backend pulls decoded PCM as it plays, so the soundtrack
+            // is streamed instead of decoded whole: memory stays at the
+            // ring's size rather than the clip's.
+            Some(am) if am.pcm_stream_supported() => {
+                match start_wma_pcm_stream(&am, &wmv_path, &stop_flag) {
+                    Ok(()) => (None, Some(am), true),
+                    Err(e) => {
+                        log::warn!(
+                            "WMV movie audio streaming failed, falling back to whole-clip decode: {e:?}"
+                        );
+                        (decode_wmv_audio_to_wav_bytes_fallback(&wmv_path), Some(am), false)
+                    }
+                }
+            }
+            Some(am) => match decode_wmv_audio_to_wav_bytes(&wmv_path) {
+                Ok(Some(wav_bytes)) => (Some(Arc::from(wav_bytes)), Some(am), false),
+                Ok(None) => {
+                    log::warn!(
+                        "WMV movie audio: no decodable audio track: {}",
+                        wmv_path.display()
+                    );
+                    (None, Some(am), false)
+                }
+                Err(e) => {
+                    // Audio is best-effort; keep video playing even if audio fails.
+                    log::warn!("WMV movie audio decode failed: {e:?}");
+                    (None, Some(am), false)
+                }
+            },
         };
 
-        let stop_flag = Arc::new(AtomicBool::new(false));
         let (tx, rx) = crossbeam_channel::bounded::<WmvRgbaFrame>(2);
 
         // Video decode thread.
@@ -329,6 +332,7 @@ impl WmvPlayback {
             screen_h,
             audio_manager,
             audio_data,
+            audio_streaming,
             audio_playing: false,
             audio_started: false,
         })
@@ -343,6 +347,12 @@ impl WmvPlayback {
         let Some(am) = self.audio_manager.as_ref() else {
             return;
         };
+        if self.audio_streaming {
+            // The stream was loaded at construction and the decode thread has
+            // been filling it since, so playback can start right away.
+            self.audio_playing = play_movie_audio(am);
+            return;
+        }
         let Some(data) = self.audio_data.take() else {
             return;
         };
@@ -414,7 +424,11 @@ impl WmvPlayback {
     fn stop_and_cleanup(mut self) {
         self.stop_flag.store(true, Ordering::Relaxed);
 
-        if std::mem::take(&mut self.audio_playing) {
+        let was_playing = std::mem::take(&mut self.audio_playing);
+        // Also unload when the movie stopped before its first frame: a stream
+        // that was loaded but never played still has a decode thread blocked on
+        // a full ring, and only dropping the stream releases it.
+        if (was_playing || self.audio_streaming) && self.audio_manager.is_some() {
             if let Some(am) = self.audio_manager.as_ref() {
                 stop_movie_audio(am);
             }
@@ -462,42 +476,33 @@ struct MpegPlayback {
 impl MpegPlayback {
     fn open_from_mpeg_path(
         mpeg_path: impl AsRef<Path>,
-        mode: MovieMode,
         screen_w: u32,
         screen_h: u32,
         audio_manager: Option<Arc<AudioManager>>,
     ) -> Result<Self> {
         let mpeg_path = mpeg_path.as_ref().to_path_buf();
 
-        let (audio_data, audio_manager) = match mode {
-            MovieMode::ModalWithAudio => {
-                let am = audio_manager;
-                let data = match am.as_ref() {
-                    None => {
-                        log::warn!("MPEG movie audio decode skipped: no AudioManager");
-                        None
-                    }
-                    Some(_) => match decode_mpeg_audio_to_wav_bytes(&mpeg_path) {
-                        Ok(Some(wav_bytes)) => {
-                            Some(Arc::from(wav_bytes))
-                        }
-                        Ok(None) => {
-                            log::warn!(
-                                "MPEG movie audio: no decodable audio track: {}",
-                                mpeg_path.display()
-                            );
-                            None
-                        }
-                        Err(e) => {
-                            // Audio is best-effort; keep video playing even if audio fails.
-                            log::warn!("MPEG movie audio decode failed: {e:?}");
-                            None
-                        }
-                    },
-                };
-                (data, am)
+        // Audio is orthogonal to the movie mode (see WmvPlayback above).
+        let (audio_data, audio_manager) = match audio_manager {
+            None => {
+                log::warn!("MPEG movie audio decode skipped: no AudioManager");
+                (None, None)
             }
-            MovieMode::LayerNoAudio => (None, None),
+            Some(am) => match decode_mpeg_audio_to_wav_bytes(&mpeg_path) {
+                Ok(Some(wav_bytes)) => (Some(Arc::from(wav_bytes)), Some(am)),
+                Ok(None) => {
+                    log::warn!(
+                        "MPEG movie audio: no decodable audio track: {}",
+                        mpeg_path.display()
+                    );
+                    (None, Some(am))
+                }
+                Err(e) => {
+                    // Audio is best-effort; keep video playing even if audio fails.
+                    log::warn!("MPEG movie audio decode failed: {e:?}");
+                    (None, Some(am))
+                }
+            },
         };
 
         let stop_flag = Arc::new(AtomicBool::new(false));
@@ -1053,9 +1058,111 @@ fn start_movie_audio(audio: &AudioManager, wav: Arc<[u8]>) -> bool {
     started.is_ok()
 }
 
+/// Start the already-loaded movie soundtrack.
+///
+/// The streaming path loads the source at construction, so only `play` is left;
+/// the whole-clip path loads and plays in one go (see `start_movie_audio`).
+fn play_movie_audio(audio: &AudioManager) -> bool {
+    let vfs = Vfs::default();
+    let started = audio.backend().play(
+        AudioStreamId::MOVIE,
+        AudioParams {
+            volume: 1.0,
+            pan: 0.0,
+            repeat: false,
+        },
+        Tween::default(),
+        &vfs,
+    );
+    if let Err(e) = &started {
+        log::warn!("Movie audio could not be played: {e:?}");
+    }
+    started.is_ok()
+}
+
 fn stop_movie_audio(audio: &AudioManager) {
     audio.backend().stop(AudioStreamId::MOVIE, Tween::default());
     audio.backend().unload(AudioStreamId::MOVIE);
+}
+
+/// Stream a WMV's WMA soundtrack as decoded PCM.
+///
+/// The decode thread pushes into a [`PcmWavStream`] that the audio backend reads
+/// from its own playback thread. `push` blocks while the ring is full, so the
+/// backend's pull is what paces the decoder and memory stays at the ring's size
+/// instead of the clip's — decoding runs at over 1000x realtime, so the thread
+/// spends nearly all of its time waiting.
+fn start_wma_pcm_stream(
+    am: &Arc<AudioManager>,
+    wmv_path: &Path,
+    stop_flag: &Arc<AtomicBool>,
+) -> Result<()> {
+    let f = std::fs::File::open(wmv_path)
+        .with_context(|| format!("wma stream open: {}", wmv_path.display()))?;
+    let mut dec = wmv_decoder::AsfWmaDecoder::open(std::io::BufReader::new(f))
+        .with_context(|| format!("wma decoder open: {}", wmv_path.display()))?;
+    let sample_rate = dec.sample_rate();
+    let channels = dec.channels();
+    if sample_rate == 0 || channels == 0 {
+        return Err(anyhow!("wma stream declares no audio"));
+    }
+
+    let (stream, writer) = PcmWavStream::new(sample_rate, channels);
+    // Fails here, before the movie starts, if the backend cannot take a stream.
+    am.load_pcm_stream(
+        AudioStreamId::MOVIE,
+        AudioStreamSource::new(Box::new(stream)),
+    )?;
+
+    let stop = Arc::clone(stop_flag);
+    std::thread::Builder::new()
+        .name("wma-pcm-stream".into())
+        .spawn(move || {
+            while !stop.load(Ordering::Relaxed) {
+                match dec.next_frame() {
+                    Ok(Some(frame)) => {
+                        let mut chunk: Vec<i16> = Vec::with_capacity(frame.frame.samples.len());
+                        for &s in frame.frame.samples.iter() {
+                            let s = s.clamp(-1.0, 1.0);
+                            chunk.push(((s * 32767.0).round() as i32).clamp(-32768, 32767) as i16);
+                        }
+                        // Blocks while the ring is full: that is the backpressure.
+                        // `false` means the movie stopped and the reader is gone.
+                        if !writer.push(&chunk) {
+                            return;
+                        }
+                    }
+                    Ok(None) => break,
+                    // Audio is best-effort: a broken tail must not take the movie down.
+                    Err(e) => {
+                        log::warn!("wma pcm stream decode stopped early: {e:?}");
+                        break;
+                    }
+                }
+            }
+            writer.finish();
+        })
+        .with_context(|| "wma pcm stream thread spawn")?;
+    Ok(())
+}
+
+/// The whole-clip fallback for hosts without PCM-stream support.
+fn decode_wmv_audio_to_wav_bytes_fallback(wmv_path: &Path) -> Option<Arc<[u8]>> {
+    match decode_wmv_audio_to_wav_bytes(wmv_path) {
+        Ok(Some(bytes)) => Some(Arc::from(bytes)),
+        Ok(None) => {
+            log::warn!(
+                "WMV movie audio: no decodable audio track: {}",
+                wmv_path.display()
+            );
+            None
+        }
+        Err(e) => {
+            // Audio is best-effort; keep video playing even if audio fails.
+            log::warn!("WMV movie audio decode failed: {e:?}");
+            None
+        }
+    }
 }
 
 #[cfg(feature = "mp4")]
@@ -1139,7 +1246,7 @@ impl MovieSource for MpegPlayback {
 pub(super) fn open(request: &MovieRequest<'_>) -> Result<Box<dyn MovieSource>> {
     let path = resolve_movie_real_path(request.vfs, request.name)?;
     let audio = request.audio.clone();
-    let (mode, screen_w, screen_h) = (request.mode, request.screen_w, request.screen_h);
+    let (screen_w, screen_h) = (request.screen_w, request.screen_h);
     let ext = path
         .extension()
         .and_then(|s| s.to_str())
@@ -1148,23 +1255,23 @@ pub(super) fn open(request: &MovieRequest<'_>) -> Result<Box<dyn MovieSource>> {
 
     if ext == "wmv" || ext == "asf" {
         Ok(Box::new(WmvPlayback::open_from_wmv_path(
-            &path, mode, screen_w, screen_h, audio,
+            &path, screen_w, screen_h, audio,
         )?))
     } else if matches!(
         ext.as_str(),
         "mpg" | "mpeg" | "m2v" | "ts" | "ps" | "vob" | "dat"
     ) {
         Ok(Box::new(MpegPlayback::open_from_mpeg_path(
-            &path, mode, screen_w, screen_h, audio,
+            &path, screen_w, screen_h, audio,
         )?))
     } else {
         #[cfg(feature = "mp4")]
         {
-            Ok(Box::new(Mp4Playback::open_from_mp4_bytes(&path, mode, audio)?))
+            Ok(Box::new(Mp4Playback::open_from_mp4_bytes(&path, audio)?))
         }
         #[cfg(not(feature = "mp4"))]
         {
-            let _ = (mode, audio);
+            let _ = audio;
             Err(anyhow!(
                 "mp4 movie backend is disabled (build without feature \"mp4\")"
             ))
@@ -1270,4 +1377,114 @@ fn resolve_movie_real_path(vfs: &Vfs, mapped: &str) -> Result<PathBuf> {
     }
 
     Ok(cache_path)
+}
+
+#[cfg(test)]
+mod stream_tests {
+    use super::*;
+    use crate::rfvp_audio::AudioBackend;
+    use std::io::Read;
+
+    /// A backend that consumes a live PCM stream the way a real one does: it
+    /// drains the source on its own thread instead of holding it whole.
+    #[derive(Clone, Default)]
+    struct CollectBackend {
+        pcm: Arc<std::sync::Mutex<Vec<i16>>>,
+        done: Arc<AtomicBool>,
+    }
+
+    impl AudioBackend for CollectBackend {
+        fn load(&self, _: AudioStreamId, _: &SoundSource, _: &Vfs) -> Result<()> {
+            Ok(())
+        }
+        fn unload(&self, _: AudioStreamId) {}
+        fn play(&self, _: AudioStreamId, _: AudioParams, _: Tween, _: &Vfs) -> Result<()> {
+            Ok(())
+        }
+        fn set_params(&self, _: AudioStreamId, _: AudioParams, _: Tween) {}
+        fn stop(&self, _: AudioStreamId, _: Tween) {}
+        fn is_playing(&self, _: AudioStreamId) -> bool {
+            true
+        }
+        fn set_master_volume(&self, _: f32) {}
+        fn supports_pcm_stream(&self) -> bool {
+            true
+        }
+        fn load_pcm_stream(
+            &self,
+            _: AudioStreamId,
+            source: AudioStreamSource,
+            _: &Vfs,
+        ) -> Result<()> {
+            let pcm = Arc::clone(&self.pcm);
+            let done = Arc::clone(&self.done);
+            std::thread::spawn(move || {
+                let mut bytes = Vec::new();
+                source.with(|stream| {
+                    let _ = stream.read_to_end(&mut bytes);
+                });
+                let samples: Vec<i16> = bytes
+                    .get(44..)
+                    .unwrap_or(&[])
+                    .chunks_exact(2)
+                    .map(|b| i16::from_le_bytes([b[0], b[1]]))
+                    .collect();
+                *pcm.lock().unwrap() = samples;
+                done.store(true, Ordering::Relaxed);
+            });
+            Ok(())
+        }
+    }
+
+    /// End-to-end check of the streaming path: the PCM a backend drains from the
+    /// live stream must be identical to the whole-clip decode.
+    ///
+    /// Needs a real file, so it is ignored by default. Run it with
+    /// `RFVP_WMV_STREAM_TEST=/path/to/movie.wmv cargo test -p rfvp --lib -- --ignored`.
+    #[test]
+    #[ignore = "needs RFVP_WMV_STREAM_TEST pointing at a WMV with a WMA track"]
+    fn streamed_pcm_matches_the_whole_clip_decode() {
+        let path = PathBuf::from(
+            std::env::var("RFVP_WMV_STREAM_TEST")
+                .expect("set RFVP_WMV_STREAM_TEST to a WMV path"),
+        );
+
+        let backend = CollectBackend::default();
+        let am = Arc::new(AudioManager::with_backend(Box::new(backend.clone())));
+        let stop = Arc::new(AtomicBool::new(false));
+        start_wma_pcm_stream(&am, &path, &stop).expect("start stream");
+
+        for _ in 0..3000 {
+            if backend.done.load(Ordering::Relaxed) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(
+            backend.done.load(Ordering::Relaxed),
+            "the stream never reached its end"
+        );
+        let streamed = backend.pcm.lock().unwrap().clone();
+
+        let wav = decode_wmv_audio_to_wav_bytes(&path)
+            .expect("whole-clip decode")
+            .expect("audio track");
+        let whole: Vec<i16> = wav[44..]
+            .chunks_exact(2)
+            .map(|b| i16::from_le_bytes([b[0], b[1]]))
+            .collect();
+
+        assert_eq!(
+            streamed.len(),
+            whole.len(),
+            "streamed {} samples, whole clip {}",
+            streamed.len(),
+            whole.len()
+        );
+        let first_diff = streamed.iter().zip(&whole).position(|(a, b)| a != b);
+        assert_eq!(
+            first_diff, None,
+            "streamed PCM differs from the whole-clip decode"
+        );
+    }
 }
