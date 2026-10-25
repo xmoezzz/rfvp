@@ -84,6 +84,10 @@ struct State {
 
 pub struct CommandBackend {
     state: Mutex<State>,
+    /// The host consumes `CreateStream` / `SubmitI16` / `SubmitF32`. Off by
+    /// default: a host that has not implemented those would silently drop the
+    /// commands and the movie would play without sound.
+    pcm_stream: bool,
 }
 
 impl Default for CommandBackend {
@@ -96,6 +100,16 @@ impl CommandBackend {
     pub fn new() -> Self {
         Self {
             state: Mutex::new(State::default()),
+            pcm_stream: false,
+        }
+    }
+
+    /// Declare that the host implements `RfvpAudio::create_stream` /
+    /// `submit_i16` / `submit_f32`, so streaming decoded PCM is available.
+    pub fn with_pcm_stream() -> Self {
+        Self {
+            state: Mutex::new(State::default()),
+            pcm_stream: true,
         }
     }
 
@@ -170,5 +184,13 @@ impl AudioBackend for CommandBackend {
 
     fn drain_commands(&self, out: &mut Vec<AudioCommand>) {
         self.with(|state| out.extend(state.commands.drain(..)));
+    }
+
+    fn supports_pcm_stream(&self) -> bool {
+        self.pcm_stream
+    }
+
+    fn push_command(&self, command: AudioCommand) {
+        self.with(|state| state.commands.push(command));
     }
 }

@@ -70,18 +70,11 @@ pub fn motion_alpha(
         _ => current_alpha,
     };
 
-    let duration = match duration {
-        Variant::Int(duration) => *duration,
-        _ => {
-            log::error!("Invalid duration");
-            return Ok(Variant::Nil);
-        }
-    };
-
-    if duration <= 0 || duration > 300000 {
-        log::error!("Duration must be between 0 and 300000");
-        return Ok(Variant::Nil);
-    }
+    // Scripts frequently pass Nil for "default" (see the `int_or_default` uses
+    // below), and a duration outside the range is clamped by the original engine
+    // rather than dropping the motion: dropping it leaves the character
+    // unanimated, which looks like a hang.
+    let duration = int_or_default(duration, 0).clamp(0, 300_000);
 
     // Scripts frequently pass Nil to indicate "default".
     // For alpha motion, default is linear interpolation (0).
@@ -199,18 +192,11 @@ pub fn motion_move(
         dst_y = scale_i16(game_data, dst_y);
     }
 
-    let duration = match duration {
-        Variant::Int(duration) => *duration,
-        _ => {
-            log::error!("Invalid duration");
-            return Ok(Variant::Nil);
-        }
-    };
-
-    if duration <= 0 || duration > 300000 {
-        log::error!("Duration must be between 0 and 300000");
-        return Ok(Variant::Nil);
-    }
+    // Scripts frequently pass Nil for "default" (see the `int_or_default` uses
+    // below), and a duration outside the range is clamped by the original engine
+    // rather than dropping the motion: dropping it leaves the character
+    // unanimated, which looks like a hang.
+    let duration = int_or_default(duration, 0).clamp(0, 300_000);
 
     let typ = match typ {
         Variant::Int(typ) => match MoveMotionType::try_from(*typ) {
@@ -320,18 +306,11 @@ pub fn motion_move_r(
             .get_rotation(),
     };
 
-    let duration = match duration {
-        Variant::Int(duration) => *duration,
-        _ => {
-            log::error!("Invalid duration");
-            return Ok(Variant::Nil);
-        }
-    };
-
-    if duration <= 0 || duration > 300000 {
-        log::error!("Duration must be between 0 and 300000");
-        return Ok(Variant::Nil);
-    }
+    // Scripts frequently pass Nil for "default" (see the `int_or_default` uses
+    // below), and a duration outside the range is clamped by the original engine
+    // rather than dropping the motion: dropping it leaves the character
+    // unanimated, which looks like a hang.
+    let duration = int_or_default(duration, 0).clamp(0, 300_000);
 
     let typ = match typ {
         Variant::Int(typ) => match RotationMotionType::try_from(*typ) {
@@ -464,18 +443,11 @@ pub fn motion_move_s2(
             .into(),
     };
 
-    let duration = match duration {
-        Variant::Int(duration) => *duration,
-        _ => {
-            log::error!("Invalid duration");
-            return Ok(Variant::Nil);
-        }
-    };
-
-    if duration <= 0 || duration > 300000 {
-        log::error!("Duration must be between 0 and 300000");
-        return Ok(Variant::Nil);
-    }
+    // Scripts frequently pass Nil for "default" (see the `int_or_default` uses
+    // below), and a duration outside the range is clamped by the original engine
+    // rather than dropping the motion: dropping it leaves the character
+    // unanimated, which looks like a hang.
+    let duration = int_or_default(duration, 0).clamp(0, 300_000);
 
     let typ = match typ {
         Variant::Int(typ) => match ScaleMotionType::try_from(*typ) {
@@ -587,18 +559,11 @@ pub fn motion_move_z(
             .into(),
     };
 
-    let duration = match duration {
-        Variant::Int(duration) => *duration,
-        _ => {
-            log::error!("Invalid duration");
-            return Ok(Variant::Nil);
-        }
-    };
-
-    if duration <= 0 || duration > 300000 {
-        log::error!("Duration must be between 0 and 300000");
-        return Ok(Variant::Nil);
-    }
+    // Scripts frequently pass Nil for "default" (see the `int_or_default` uses
+    // below), and a duration outside the range is clamped by the original engine
+    // rather than dropping the motion: dropping it leaves the character
+    // unanimated, which looks like a hang.
+    let duration = int_or_default(duration, 0).clamp(0, 300_000);
 
     let typ = match typ {
         Variant::Int(typ) => match ZMotionType::try_from(*typ) {
@@ -733,18 +698,8 @@ pub fn v3d_motion(
         }
     };
 
-    let duration = match duration {
-        Variant::Int(duration) => *duration,
-        _ => {
-            log::error!("Invalid duration");
-            return Ok(Variant::Nil);
-        }
-    };
-
-    if duration <= 0 || duration > 300000 {
-        log::error!("Duration must be between 1 and 300000");
-        return Ok(Variant::Nil);
-    }
+    // Same reasoning as above, but this call needs a positive span.
+    let duration = int_or_default(duration, 1).clamp(1, 300_000);
 
     let typ = match typ {
         Variant::Int(typ) => match V3dMotionType::try_from(*typ) {

@@ -39,5 +39,19 @@ pub fn load_script(nls: Nls) -> Result<Parser> {
         }
     }
 
+    // Chinese releases write simplified characters as JIS stand-ins that the
+    // original engine maps back after decoding. The table ships with the game.
+    if let Some(parent) = opcode_path.parent() {
+        let stem = opcode_path.file_stem().and_then(|stem| stem.to_str());
+        if let Some(found) = crate::text_restore::discover(parent, stem) {
+            log::info!(
+                "text restore table from {} ({} pairs)",
+                found.source,
+                found.table.len()
+            );
+            crate::text_restore::install(found.table);
+        }
+    }
+
     Parser::new(opcode_path, nls)
 }

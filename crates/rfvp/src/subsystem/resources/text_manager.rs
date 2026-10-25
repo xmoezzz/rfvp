@@ -326,14 +326,22 @@ struct FontFallbackSet {
     primary: Font,
     preferred_cjk: Vec<Font>,
     fallbacks: Vec<Font>,
+    /// Whether `preferred_cjk` starts with a face the game itself shipped.
+    ///
+    /// Only then may it outrank the primary face: a system CJK fallback is
+    /// something the host added, and letting it own CJK glyphs would change how
+    /// every game renders, including the Japanese ones whose metrics the primary
+    /// face was chosen to match.
+    game_cjk: bool,
 }
 
 impl FontFallbackSet {
-    fn new(primary: Font, preferred_cjk: Vec<Font>, fallbacks: Vec<Font>) -> Self {
+    fn new(primary: Font, preferred_cjk: Vec<Font>, fallbacks: Vec<Font>, game_cjk: bool) -> Self {
         Self {
             primary,
             preferred_cjk,
             fallbacks,
+            game_cjk,
         }
     }
 
@@ -342,21 +350,23 @@ impl FontFallbackSet {
     }
 
     fn for_char(&self, ch: char) -> &Font {
-        // The original engine selects one HFONT for the text style and asks GDI
-        // to rasterize every glyph with that face. Therefore the selected primary
-        // face must win whenever it actually contains the glyph. A packaged CJK
-        // font is only a fallback for characters missing from the selected face.
+        // When a packaged CJK face is available it owns the whole CJK run. Asking
+        // the primary face first splits one line between two fonts — whichever
+        // characters the primary happens to carry come from it and the rest from
+        // the packaged face — and the two have different vertical metrics, so the
+        // line renders as characters of visibly different sizes at different
+        // heights.
         //
-        // Checking preferred_cjk first made ordinary Japanese kanji use a different
-        // face from the requested MS Gothic face, which also changed vertical
-        // metrics and shifted option text inside its fixed GDI character cell.
-        if self.primary.has_glyph(ch) {
-            return &self.primary;
-        }
-        if is_cjk_text_char(ch) {
+        // The trade-off the old order was protecting against is real: a Japanese
+        // game whose packaged font replaces MS Gothic gets slightly different
+        // metrics. That is the lesser evil next to a line that mixes both.
+        if self.game_cjk && is_cjk_text_char(ch) {
             if let Some(font) = self.preferred_cjk.iter().find(|font| font.has_glyph(ch)) {
                 return font;
             }
+        }
+        if self.primary.has_glyph(ch) {
+            return &self.primary;
         }
         self.fallbacks
             .iter()
@@ -833,31 +843,29 @@ impl FontEnumerator {
             }
         }
         if path.exists() {
-            let mut loaded_count: usize = 0;
-            for entry in fs::read_dir(path.get_path())? {
-                let entry = entry?;
-                let p = entry.path();
-                if let Some(loaded) = load_font_file(&p)? {
-                    log::info!(
-                        "Loaded custom font face '{}' from {}",
-                        loaded.name,
-                        p.display()
-                    );
-                    self.fonts.push(loaded);
-                    loaded_count += 1;
-                }
-            }
-
+            let loaded_count = self.load_fonts_from_dir(path.get_path())?;
             log::info!(
                 "Font scan done: loaded {} custom font(s) from {}",
                 loaded_count,
                 path.get_path().display()
             );
         } else {
-            log::info!(
-                "Font scan skipped: no font dir under {}",
-                app_base_path().get_path().display()
-            );
+            // Some releases ship the font next to the script instead of in a
+            // `font/` directory — a Chinese translation often bundles a CJK face
+            // so that characters the game's own font lacks still render.
+            let base = app_base_path();
+            let loaded_count = self.load_fonts_from_dir(base.get_path())?;
+            if loaded_count == 0 {
+                log::info!(
+                    "Font scan skipped: no font dir under {}",
+                    base.get_path().display()
+                );
+            } else {
+                log::info!(
+                    "Font scan done: loaded {} custom font(s) from the game directory",
+                    loaded_count
+                );
+            }
         }
 
         if self.system_fallback_enabled {
@@ -870,6 +878,25 @@ impl FontEnumerator {
             self.current_font_name = "MS Gothic".to_string();
         }
         Ok(())
+    }
+
+    /// Load every font file directly inside `dir`.
+    ///
+    /// `load_font_file` already rejects anything whose extension is not a font,
+    /// which is what keeps the multi-hundred-megabyte archives that share the
+    /// game directory from being opened here.
+    fn load_fonts_from_dir(&mut self, dir: &Path) -> Result<usize> {
+        let mut loaded_count = 0usize;
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if let Some(loaded) = load_font_file(&path)? {
+                log::info!("Loaded custom font face '{}' from {}", loaded.name, path.display());
+                self.fonts.push(loaded);
+                loaded_count += 1;
+            }
+        }
+        Ok(loaded_count)
     }
 
     fn init_system_fallback_fonts(&mut self) {
@@ -1054,7 +1081,7 @@ impl FontEnumerator {
         fallbacks.push(self.sys_ms_mincho.clone());
         fallbacks.push(self.sys_ms_pgothic.clone());
         fallbacks.push(self.sys_ms_pmincho.clone());
-        FontFallbackSet::new(primary, preferred_cjk, fallbacks)
+        FontFallbackSet::new(primary, preferred_cjk, fallbacks, prefer_game_cjk && !self.fonts.is_empty())
     }
 
     pub fn get_font_name(&self, id: i32) -> Option<String> {
@@ -1187,7 +1214,7 @@ impl FontEnumerator {
     }
 
     fn get_font_fallback_set(&self, id: i32) -> FontFallbackSet {
-        FontFallbackSet::new(self.get_font(id), Vec::new(), Vec::new())
+        FontFallbackSet::new(self.get_font(id), Vec::new(), Vec::new(), false)
     }
 
     pub fn get_font_name(&self, id: i32) -> Option<String> {
