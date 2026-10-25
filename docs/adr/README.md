@@ -10,6 +10,9 @@ engine, with the reverse-engineering evidence behind it.
 | [0003](0003-prim-scale-clamp.md) | PrimSetRS/PrimSetRS2 clamp the scale to [100, 10000] | Accepted |
 | [0004](0004-true-type-tag.md) | PrimSetZ and TimerSuspend test for `True`, not `Float` | Accepted |
 | [0005](0005-behaviors-not-replicated.md) | Original-engine behaviors rfvp does not replicate | Accepted |
+| [0006](0006-ai-assisted-contributions.md) | AI-assisted contribution guidelines and authorship policy | Accepted |
+| [0007](0007-console-platform-support-tiers.md) | Console platform support tiers: PS Vita and Switch as primary targets, PS1 as experimental prototype | Accepted |
+| [0008](0008-translation-patching-offline-repack.md) | Translation patching via offline HCB repacking instead of runtime engine probing | Accepted |
 
 ## Conventions
 

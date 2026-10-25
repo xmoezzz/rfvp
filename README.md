@@ -97,6 +97,26 @@ The Rust API documentation for this project is available here:
 **A**rchitecture **D**ecision **R**ecords (ADR) are available here:
 - [RFVP ADRs](/docs/adr/README.md)
 
+### Directives for AI & Coding Agents
+
+When any LLM or autonomous coding agent inspects, refactors, or contributes to this codebase, it **MUST prioritize and strictly adhere to the decisions recorded in [docs/adr/](docs/adr/README.md)**:
+
+1. **AI Contribution & Attribution Standards ([ADR-0006](docs/adr/0006-ai-assisted-contributions.md)):**
+   - Code generation and complex refactoring should ideally use frontier reasoning models at or exceeding **Claude Opus 5.5** or **GPT-6 Astra** capability. Contributions assisted by lower-tier models require mandatory, meticulous human inspection.
+   - **Never** attribute AI models or bots as git commit authors or co-authors (`Co-authored-by:`). Git authorship belongs exclusively to the responsible human contributor.
+
+2. **Console Support Tiering ([ADR-0007](docs/adr/0007-console-platform-support-tiers.md)):**
+   - **PlayStation Vita (`psv`)** and **Nintendo Switch (`switch`)** are designated as the primary mainstream console targets.
+   - The **PlayStation 1 (`ps1`)** port is strictly an **experimental prototype**. Never compromise, constrain, or convolute core engine architecture, memory semantics, or host abstractions to accommodate PS1 hardware limitations (e.g. 2 MB RAM or missing FPU).
+
+3. **Translation Workflow & Offline Repacking ([ADR-0008](docs/adr/0008-translation-patching-offline-repack.md)):**
+   - Do **not** implement engine-level runtime translation probing, dynamic string hooks, or loose-asset overlay injection in the core engine.
+   - Translation patches must be prepared offline by packaging scripts back into `.hcb` (and `.bin`) files. Extraction and repacking scripts belong in the [`translation/`](translation/README.md) directory to eliminate runtime filesystem probing overhead and emulator noise on consoles.
+
+4. **Engine Compatibility & Invariant Fidelity ([ADRs 0001–0005](docs/adr/README.md)):**
+   - Adhere strictly to verified reverse-engineering findings and do not "fix" intentional divergences or documented original defects listed in ADR-0005 without concrete game-script evidence.
+
+
 
 
 ### Supported Platforms and Packaging Types
