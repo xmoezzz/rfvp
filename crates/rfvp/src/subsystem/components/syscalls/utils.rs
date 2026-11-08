@@ -15,9 +15,17 @@ use crate::subsystem::world::GameData;
 
 use super::{get_var, Syscaller};
 
+#[cfg(not(feature="host-session"))]
 lazy_static::lazy_static! {
     static ref EXIT_DIALOG_STATE: Mutex<ExitDialogState> = Mutex::new(ExitDialogState::default());
 }
+
+#[cfg(feature="host-session")]
+host_std::thread_local! {
+ static EXIT_DIALOG_STATE_TLS:core::cell::RefCell<Option<ExitDialogState>>=core::cell::RefCell::new(Some(ExitDialogState::default()));
+}
+#[cfg(feature="host-session")]
+static EXIT_DIALOG_STATE:crate::session::SessionMutex<ExitDialogState>=crate::session::SessionMutex::new(&EXIT_DIALOG_STATE_TLS);
 
 #[derive(Clone, Copy, Debug, Default)]
 struct ExitDialogState {
@@ -458,6 +466,9 @@ impl UnimplementedNamed {
 
 impl Syscaller for UnimplementedNamed {
     fn call(&self, _game_data: &mut GameData, _args: &[Variant]) -> Result<Variant> {
+        #[cfg(feature="host-session")]
+        anyhow::bail!("unsupported RFVP native syscall {}",self.name);
+        #[cfg(not(feature="host-session"))]
         log::warn!("Unimplemented syscall: {}", self.name);
         Ok(Variant::Nil)
     }

@@ -590,6 +590,9 @@ impl VmSyscall for GameData {
     fn do_syscall(&mut self, name: &str, args: Vec<Variant>) -> anyhow::Result<Variant> {
         let result = SYSCALL_TBL.borrow().get(name).map_or_else(
             || {
+                #[cfg(feature="host-session")]
+                anyhow::bail!("unknown RFVP native syscall {name}");
+                #[cfg(not(feature="host-session"))]
                 log::error!("Syscall {} not found", name);
                 Ok(Variant::Nil)
             },

@@ -23,12 +23,29 @@ use super::saveload::{load, save_write};
 use super::text::text_suspend_chr;
 use super::{get_var, Syscaller};
 
+#[cfg(not(feature="host-session"))]
 lazy_static::lazy_static! {
     static ref LEGACY_CHR_TABLE: Mutex<Vec<LegacyChrEntry>> = Mutex::new(Vec::new());
     static ref LEGACY_TEXT_STATE: Mutex<StableHashMap<i32, LegacyTextState>> = Mutex::new(StableHashMap::default());
     static ref LEGACY_CONFIG_STATE: Mutex<LegacyConfigState> = Mutex::new(LegacyConfigState::default());
     static ref LEGACY_UI_STATE: Mutex<LegacyUiState> = Mutex::new(LegacyUiState::default());
 }
+
+#[cfg(feature="host-session")]
+host_std::thread_local! {
+ static LEGACY_CHR_TABLE_TLS:core::cell::RefCell<Option<Vec<LegacyChrEntry>>>=core::cell::RefCell::new(Some(Vec::new()));
+ static LEGACY_TEXT_STATE_TLS:core::cell::RefCell<Option<StableHashMap<i32, LegacyTextState>>>=core::cell::RefCell::new(Some(StableHashMap::default()));
+ static LEGACY_CONFIG_STATE_TLS:core::cell::RefCell<Option<LegacyConfigState>>=core::cell::RefCell::new(Some(LegacyConfigState::default()));
+ static LEGACY_UI_STATE_TLS:core::cell::RefCell<Option<LegacyUiState>>=core::cell::RefCell::new(Some(LegacyUiState::default()));
+}
+#[cfg(feature="host-session")]
+static LEGACY_CHR_TABLE:crate::session::SessionMutex<Vec<LegacyChrEntry>>=crate::session::SessionMutex::new(&LEGACY_CHR_TABLE_TLS);
+#[cfg(feature="host-session")]
+static LEGACY_TEXT_STATE:crate::session::SessionMutex<StableHashMap<i32, LegacyTextState>>=crate::session::SessionMutex::new(&LEGACY_TEXT_STATE_TLS);
+#[cfg(feature="host-session")]
+static LEGACY_CONFIG_STATE:crate::session::SessionMutex<LegacyConfigState>=crate::session::SessionMutex::new(&LEGACY_CONFIG_STATE_TLS);
+#[cfg(feature="host-session")]
+static LEGACY_UI_STATE:crate::session::SessionMutex<LegacyUiState>=crate::session::SessionMutex::new(&LEGACY_UI_STATE_TLS);
 
 #[derive(Clone, Debug, Default)]
 struct LegacyChrEntry {

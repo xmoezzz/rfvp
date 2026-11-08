@@ -4,6 +4,8 @@
 extern crate alloc;
 #[cfg(feature="host-session")]
 extern crate std as host_std;
+#[cfg(feature="host-session")]
+mod session;
 #[cfg(feature = "psx")]
 #[path = "../../../platform/ps1/mask_format.rs"]
 pub mod ps1_mask;

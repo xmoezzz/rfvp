@@ -1,9 +1,14 @@
-#[cfg(feature = "random")]
+#[cfg(feature="host-session")]
+host_std::thread_local! {static SESSION_RANDOM:core::cell::Cell<u64>=const {core::cell::Cell::new(0x9e37_79b9_7f4a_7c15)};}
+#[cfg(feature="host-session")]
+pub fn next_u32()->u32 {SESSION_RANDOM.with(|state|{let mut x=state.get();x^=x<<7;x^=x>>9;x=x.wrapping_mul(0x9e37_79b9_7f4a_7c15);state.set(x);(x>>32)as u32})}
+
+#[cfg(all(feature = "random",not(feature="host-session")))]
 pub fn next_u32() -> u32 {
     rand::random::<u32>()
 }
 
-#[cfg(not(feature = "random"))]
+#[cfg(all(not(feature = "random"),not(feature="host-session")))]
 #[cfg(any(not(feature = "no_std"), target_has_atomic = "64"))]
 pub fn next_u32() -> u32 {
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -22,7 +27,7 @@ pub fn next_u32() -> u32 {
     }
 }
 
-#[cfg(not(feature = "random"))]
+#[cfg(all(not(feature = "random"),not(feature="host-session")))]
 #[cfg(all(feature = "no_std", not(target_has_atomic = "64")))]
 pub fn next_u32() -> u32 {
     use std::sync::atomic::{AtomicU32, Ordering};
