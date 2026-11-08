@@ -9,30 +9,30 @@ mod no_std_time {
 
     pub use core::time::Duration;
 
-    #[cfg(target_has_atomic = "64")]
+    #[cfg(all(target_has_atomic = "64",not(feature="host-session")))]
     static NOW_US: AtomicU64 = AtomicU64::new(0);
-    #[cfg(not(target_has_atomic = "64"))]
+    #[cfg(all(not(target_has_atomic = "64"),not(feature="host-session")))]
     static NOW_US_LO: AtomicU32 = AtomicU32::new(0);
-    #[cfg(not(target_has_atomic = "64"))]
+    #[cfg(all(not(target_has_atomic = "64"),not(feature="host-session")))]
     static NOW_US_HI: AtomicU32 = AtomicU32::new(0);
 
-    #[cfg(target_has_atomic = "64")]
+    #[cfg(all(target_has_atomic = "64",not(feature="host-session")))]
     pub fn set_host_time_us(us: u64) {
         NOW_US.store(us, Ordering::Relaxed);
     }
 
-    #[cfg(not(target_has_atomic = "64"))]
+    #[cfg(all(not(target_has_atomic = "64"),not(feature="host-session")))]
     pub fn set_host_time_us(us: u64) {
         NOW_US_LO.store(us as u32, Ordering::Relaxed);
         NOW_US_HI.store((us >> 32) as u32, Ordering::Relaxed);
     }
 
-    #[cfg(target_has_atomic = "64")]
+    #[cfg(all(target_has_atomic = "64",not(feature="host-session")))]
     fn now_us() -> u64 {
         NOW_US.load(Ordering::Relaxed)
     }
 
-    #[cfg(not(target_has_atomic = "64"))]
+    #[cfg(all(not(target_has_atomic = "64"),not(feature="host-session")))]
     fn now_us() -> u64 {
         loop {
             let hi_before = NOW_US_HI.load(Ordering::Relaxed);
@@ -43,6 +43,13 @@ mod no_std_time {
             }
         }
     }
+
+    #[cfg(feature="host-session")]
+    host_std::thread_local! {static CLOCK:core::cell::Cell<u64>=const {core::cell::Cell::new(0)};}
+    #[cfg(feature="host-session")]
+    pub fn set_host_time_us(us:u64){CLOCK.with(|c|c.set(us));}
+    #[cfg(feature="host-session")]
+    fn now_us()->u64{CLOCK.with(|c|c.get())}
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct Instant {

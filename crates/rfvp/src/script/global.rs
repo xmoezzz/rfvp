@@ -175,23 +175,23 @@ lazy_static::lazy_static! {
     pub static ref GLOBAL: Mutex<Global> = Mutex::new(Global::new());
 }
 
-#[cfg(feature = "no_std")]
+#[cfg(all(feature = "no_std",not(feature="host-session")))]
 pub static GLOBAL: NoStdGlobal = NoStdGlobal::new();
 
-#[cfg(feature = "no_std")]
+#[cfg(all(feature = "no_std",not(feature="host-session")))]
 pub struct NoStdGlobal {
     inner: UnsafeCell<Global>,
 }
 
-#[cfg(feature = "no_std")]
+#[cfg(all(feature = "no_std",not(feature="host-session")))]
 pub struct NoStdGlobalGuard<'a> {
     inner: &'a mut Global,
 }
 
-#[cfg(feature = "no_std")]
+#[cfg(all(feature = "no_std",not(feature="host-session")))]
 unsafe impl Sync for NoStdGlobal {}
 
-#[cfg(feature = "no_std")]
+#[cfg(all(feature = "no_std",not(feature="host-session")))]
 impl NoStdGlobal {
     pub const fn new() -> Self {
         Self {
@@ -210,7 +210,7 @@ impl NoStdGlobal {
     }
 }
 
-#[cfg(feature = "no_std")]
+#[cfg(all(feature = "no_std",not(feature="host-session")))]
 impl Deref for NoStdGlobalGuard<'_> {
     type Target = Global;
 
@@ -219,12 +219,31 @@ impl Deref for NoStdGlobalGuard<'_> {
     }
 }
 
-#[cfg(feature = "no_std")]
+#[cfg(all(feature = "no_std",not(feature="host-session")))]
 impl DerefMut for NoStdGlobalGuard<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.inner
     }
 }
+
+#[cfg(feature="host-session")]
+host_std::thread_local! {static SESSION:core::cell::RefCell<Option<Global>>=core::cell::RefCell::new(Some(Global::new()));}
+#[cfg(feature="host-session")]
+pub struct SessionGlobals;
+#[cfg(feature="host-session")]
+pub static GLOBAL:SessionGlobals=SessionGlobals;
+#[cfg(feature="host-session")]
+pub struct SessionGuard(Option<Global>,core::marker::PhantomData<alloc::rc::Rc<()>>);
+#[cfg(feature="host-session")]
+impl SessionGlobals {
+ pub fn lock(&self)->Result<SessionGuard,()>{SESSION.with(|s|s.borrow_mut().take().map(|g|SessionGuard(Some(g),core::marker::PhantomData)).ok_or(()))}
+}
+#[cfg(feature="host-session")]
+impl Deref for SessionGuard {type Target=Global;fn deref(&self)->&Global{self.0.as_ref().unwrap()}}
+#[cfg(feature="host-session")]
+impl DerefMut for SessionGuard {fn deref_mut(&mut self)->&mut Global{self.0.as_mut().unwrap()}}
+#[cfg(feature="host-session")]
+impl Drop for SessionGuard {fn drop(&mut self){SESSION.with(|s|*s.borrow_mut()=self.0.take());}}
 
 pub fn get_int_var(key: u16) -> i32 {
     GLOBAL.lock().unwrap().get_int_var(key)

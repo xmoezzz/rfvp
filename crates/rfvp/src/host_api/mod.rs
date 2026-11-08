@@ -39,3 +39,6 @@ pub use render::{
     RfvpRenderer, Rgba8, TextureBackend, TextureDesc, TextureFilter, TextureFormat, TextureHandle,
     TextureId, TextureRect, Vertex2D,
 };
+
+#[cfg(any(feature="nfs",feature="smb"))]
+pub mod network;

@@ -1,0 +1,20 @@
+[package]
+name = "game-network"
+version = "0.1.0"
+edition = "2021"
+license = "MPL-2.0"
+description = "Optional read-only NFS and SMB game resources, without OS mounts"
+
+[features]
+default = []
+nfs = ["dep:nfs-rs", "dep:tokio", "dep:futures"]
+smb = ["dep:smb"]
+
+[dependencies]
+anyhow = "1"
+url = "2.5"
+percent-encoding = "2.3"
+smb = { version = "=0.12.1", optional = true, default-features = false, features = ["multi_threaded", "sign", "encrypt", "netbios-transport"] }
+nfs-rs = { version = "=0.11.3", optional = true }
+tokio = { version = "1", optional = true, features = ["rt", "sync", "time", "net", "macros"] }
+futures = { version = "0.3", optional = true }

@@ -2,6 +2,8 @@
 #![cfg_attr(target_arch = "wasm32", allow(dead_code))]
 
 extern crate alloc;
+#[cfg(feature="host-session")]
+extern crate std as host_std;
 #[cfg(feature = "psx")]
 #[path = "../../../platform/ps1/mask_format.rs"]
 pub mod ps1_mask;

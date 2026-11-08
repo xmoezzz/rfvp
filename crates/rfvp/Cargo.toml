@@ -30,6 +30,7 @@ path = "src/bin/sizecheck.rs"
 required-features = ["gpu-render"]
 
 [dependencies]
+game-network = {path="../game-network",optional=true,default-features=false}
 anyhow = { version = "1.0.79", default-features = false, optional = true }
 encoding_rs = { version = "0.8.33", optional = true }
 log = { version = "0.4.20", optional = true }
@@ -102,6 +103,10 @@ uefi = { version = "0.37.0", default-features = false, features = ["alloc"], opt
 anzu-hal = { path = "../anzu-hal", optional = true }
 
 [features]
+nfs = ["dep:game-network", "game-network/nfs"]
+smb = ["dep:game-network", "game-network/smb"]
+# Thread-isolated state for hosts that own one complete runtime per worker.
+host-session = ["no_std"]
 # Keep native movie support enabled by default for backward compatibility.
 default = ["runtime-core-deps", "gpu-render", "audio", "mp4", "native-video", "random", "uuid-support", "image-formats", "bevy-utils", "fontdue-compat", "cursor-ani", "zlib-flate2", "logging", "mimalloc"]
 
