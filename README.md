@@ -160,6 +160,13 @@ Ensuring 100% compatibility requires testing against all related games. If you f
 * Also see [setsumei/COMPATIBILITY.md](setsumei/COMPATIBILITY.md) for details. Some features and behaviors may differ from the original engine.
 
 ### Disclaimer
+<p align="center">
+  <img src="icon/crysirror.svg" width="160" height="160" alt="CrySirror logo">
+</p>
+
+- This project belongs to `CrySirror` [project](https://github.com/xmoezzz/CrySirror), which is a unified engine backend for visual novels and 3D games. 
+- Bug fixes and improvements for the FVP engine is acceptable in this repository. 
+- If you want to support a new platform (e.g. game console), please create an issue or pull request in the `CrySirror` repository instead of this one. 
 - This project is a standalone, reverse-engineered reimplementation of the original game engine logic. All source code has been written from scratch based on research and observation of the target software's behavior. This repository contains no original source code from the original developers.
 - You must own a legitimate copy of the original game to use this engine. You are strictly prohibited from distributing, sharing, or providing download links for any original game data, assets, or bundled game executables.
 - The original game company and rights holders retain all ownership of their intellectual property. As a courtesy, the original company is free to utilize the code within this repository for any purpose, including commercial use, without prior permission.

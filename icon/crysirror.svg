@@ -1,0 +1,310 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">CrySirror — Glass Clover</title>
+  <desc id="desc">Editable vector reconstruction of the owner-supplied Gemini clover reference. Transparent canvas; cyan glass reflection, deep teal body, curved stem. No embedded bitmap.</desc>
+  <!-- Reference: Gemini_Generated_Image_z54v99z54v99z54v.jpeg, supplied by owner.
+       Silhouette and reflection redrawn against owner's reference; smooth colour fields rebuilt.
+       The original file and its original content credentials are preserved separately.
+       Transparent page: all background rectangles below are clipped to the clover. -->
+  <defs>
+    <path id="clover-outline" d="M 511.24,165.47
+C 485.56,118.81 443.26,85.54 388.73,82.89
+C 329.85,79.75 278.42,114.94 258.15,162.39
+C 228.69,240.09 269.25,287.71 333.90,358.29
+C 276.21,325.79 251.44,315.09 206.44,311.23
+C 152.83,308.61 98.78,335.68 75.81,383.19
+C 47.39,442.79 72.35,495.78 126.55,524.84
+C 83.94,549.94 61.34,579.36 61.10,627.19
+C 65.84,688.15 112.65,735.37 176.87,740.91
+C 252.26,746.27 314.41,707.23 378.46,654.01
+C 387.50,657.95 306.68,726.42 287.69,750.50
+C 257.06,787.56 248.21,821.14 257.58,853.23
+C 266.39,889.93 296.86,916.78 333.76,923.70
+C 376.73,930.25 415.60,910.55 445.12,869.37
+C 462.12,907.68 485.26,932.00 524.60,939.11
+C 561.31,944.96 597.25,928.48 619.94,900.29
+C 645.98,864.53 642.02,830.68 628.24,799.40
+C 616.72,769.80 595.19,739.08 604.99,742.54
+C 633.60,780.40 680.92,840.40 753.65,873.91
+C 823.09,905.60 905.20,907.11 952.89,871.05
+C 960.95,864.86 975.94,852.53 971.45,841.96
+C 970.58,839.12 965.39,834.91 958.18,836.03
+C 879.38,846.11 806.89,836.61 737.18,803.87
+C 667.00,770.35 585.03,701.00 557.70,607.94
+C 617.70,679.55 664.70,720.65 744.99,739.09
+C 813.55,752.47 880.26,744.61 917.74,712.05
+C 946.51,688.05 961.20,656.36 962.19,623.24
+C 961.05,582.02 942.69,551.55 897.66,524.72
+C 937.28,500.92 959.00,472.55 959.24,429.31
+C 959.10,386.01 928.55,345.53 891.35,327.17
+C 838.72,300.22 788.03,312.34 752.79,326.31
+C 705.49,344.65 689.78,365.00 678.74,365.00
+C 723.03,317.41 762.46,283.11 773.08,229.96
+C 782.15,177.47 754.98,125.57 706.06,98.87
+C 642.92,65.37 558.09,82.00 511.24,165.47 Z"/>
+    <path id="reflection-shape" d="M 0,0 H 1040 V 270 L 1000,300 C 900,392 752,461 612,502 C 467,544 284,563 131,526 L 0,526 Z"/>
+    <clipPath id="clover-clip"><use xlink:href="#clover-outline"/></clipPath>
+    <clipPath id="reflection-clip"><use xlink:href="#reflection-shape"/></clipPath>
+    <linearGradient id="body-base" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="1024"><stop stop-color="#012851"/><stop offset="1" stop-color="#001c38"/></linearGradient>
+<radialGradient id="body-1" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(711.749 371.565) scale(1123.707 900.640)">
+<stop offset="0.00" stop-color="#04a2aa" stop-opacity="0.99995"/>
+<stop offset="0.05" stop-color="#04a2aa" stop-opacity="0.98864"/>
+<stop offset="0.10" stop-color="#04a2aa" stop-opacity="0.95546"/>
+<stop offset="0.15" stop-color="#04a2aa" stop-opacity="0.90258"/>
+<stop offset="0.20" stop-color="#04a2aa" stop-opacity="0.83338"/>
+<stop offset="0.25" stop-color="#04a2aa" stop-opacity="0.75205"/>
+<stop offset="0.30" stop-color="#04a2aa" stop-opacity="0.66320"/>
+<stop offset="0.35" stop-color="#04a2aa" stop-opacity="0.57144"/>
+<stop offset="0.40" stop-color="#04a2aa" stop-opacity="0.48096"/>
+<stop offset="0.45" stop-color="#04a2aa" stop-opacity="0.39528"/>
+<stop offset="0.50" stop-color="#04a2aa" stop-opacity="0.31705"/>
+<stop offset="0.55" stop-color="#04a2aa" stop-opacity="0.24797"/>
+<stop offset="0.60" stop-color="#04a2aa" stop-opacity="0.18888"/>
+<stop offset="0.65" stop-color="#04a2aa" stop-opacity="0.13982"/>
+<stop offset="0.70" stop-color="#04a2aa" stop-opacity="0.10025"/>
+<stop offset="0.75" stop-color="#04a2aa" stop-opacity="0.06922"/>
+<stop offset="0.80" stop-color="#04a2aa" stop-opacity="0.04553"/>
+<stop offset="0.85" stop-color="#04a2aa" stop-opacity="0.02793"/>
+<stop offset="0.90" stop-color="#04a2aa" stop-opacity="0.01518"/>
+<stop offset="0.95" stop-color="#04a2aa" stop-opacity="0.00619"/>
+<stop offset="1.00" stop-color="#04a2aa" stop-opacity="0.00000"/>
+</radialGradient>
+<radialGradient id="body-2" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(38.276 704.094) scale(208.585 1280.793)">
+<stop offset="0.00" stop-color="#003950" stop-opacity="0.93252"/>
+<stop offset="0.05" stop-color="#003950" stop-opacity="0.92197"/>
+<stop offset="0.10" stop-color="#003950" stop-opacity="0.89103"/>
+<stop offset="0.15" stop-color="#003950" stop-opacity="0.84172"/>
+<stop offset="0.20" stop-color="#003950" stop-opacity="0.77718"/>
+<stop offset="0.25" stop-color="#003950" stop-opacity="0.70134"/>
+<stop offset="0.30" stop-color="#003950" stop-opacity="0.61848"/>
+<stop offset="0.35" stop-color="#003950" stop-opacity="0.53291"/>
+<stop offset="0.40" stop-color="#003950" stop-opacity="0.44853"/>
+<stop offset="0.45" stop-color="#003950" stop-opacity="0.36863"/>
+<stop offset="0.50" stop-color="#003950" stop-opacity="0.29567"/>
+<stop offset="0.55" stop-color="#003950" stop-opacity="0.23125"/>
+<stop offset="0.60" stop-color="#003950" stop-opacity="0.17614"/>
+<stop offset="0.65" stop-color="#003950" stop-opacity="0.13039"/>
+<stop offset="0.70" stop-color="#003950" stop-opacity="0.09349"/>
+<stop offset="0.75" stop-color="#003950" stop-opacity="0.06455"/>
+<stop offset="0.80" stop-color="#003950" stop-opacity="0.04246"/>
+<stop offset="0.85" stop-color="#003950" stop-opacity="0.02604"/>
+<stop offset="0.90" stop-color="#003950" stop-opacity="0.01416"/>
+<stop offset="0.95" stop-color="#003950" stop-opacity="0.00577"/>
+<stop offset="1.00" stop-color="#003950" stop-opacity="0.00000"/>
+</radialGradient>
+<radialGradient id="body-3" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(325.833 495.506) scale(417.583 102.400)">
+<stop offset="0.00" stop-color="#f2efff" stop-opacity="1.00000"/>
+<stop offset="0.05" stop-color="#f2efff" stop-opacity="0.98869"/>
+<stop offset="0.10" stop-color="#f2efff" stop-opacity="0.95550"/>
+<stop offset="0.15" stop-color="#f2efff" stop-opacity="0.90263"/>
+<stop offset="0.20" stop-color="#f2efff" stop-opacity="0.83342"/>
+<stop offset="0.25" stop-color="#f2efff" stop-opacity="0.75209"/>
+<stop offset="0.30" stop-color="#f2efff" stop-opacity="0.66324"/>
+<stop offset="0.35" stop-color="#f2efff" stop-opacity="0.57147"/>
+<stop offset="0.40" stop-color="#f2efff" stop-opacity="0.48099"/>
+<stop offset="0.45" stop-color="#f2efff" stop-opacity="0.39530"/>
+<stop offset="0.50" stop-color="#f2efff" stop-opacity="0.31707"/>
+<stop offset="0.55" stop-color="#f2efff" stop-opacity="0.24799"/>
+<stop offset="0.60" stop-color="#f2efff" stop-opacity="0.18889"/>
+<stop offset="0.65" stop-color="#f2efff" stop-opacity="0.13983"/>
+<stop offset="0.70" stop-color="#f2efff" stop-opacity="0.10026"/>
+<stop offset="0.75" stop-color="#f2efff" stop-opacity="0.06922"/>
+<stop offset="0.80" stop-color="#f2efff" stop-opacity="0.04553"/>
+<stop offset="0.85" stop-color="#f2efff" stop-opacity="0.02793"/>
+<stop offset="0.90" stop-color="#f2efff" stop-opacity="0.01518"/>
+<stop offset="0.95" stop-color="#f2efff" stop-opacity="0.00619"/>
+<stop offset="1.00" stop-color="#f2efff" stop-opacity="0.00000"/>
+</radialGradient>
+<radialGradient id="body-4" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(674.396 323.931) scale(296.486 193.952)">
+<stop offset="0.00" stop-color="#ffffff" stop-opacity="1.00000"/>
+<stop offset="0.05" stop-color="#ffffff" stop-opacity="0.98868"/>
+<stop offset="0.10" stop-color="#ffffff" stop-opacity="0.95550"/>
+<stop offset="0.15" stop-color="#ffffff" stop-opacity="0.90262"/>
+<stop offset="0.20" stop-color="#ffffff" stop-opacity="0.83342"/>
+<stop offset="0.25" stop-color="#ffffff" stop-opacity="0.75208"/>
+<stop offset="0.30" stop-color="#ffffff" stop-opacity="0.66323"/>
+<stop offset="0.35" stop-color="#ffffff" stop-opacity="0.57147"/>
+<stop offset="0.40" stop-color="#ffffff" stop-opacity="0.48098"/>
+<stop offset="0.45" stop-color="#ffffff" stop-opacity="0.39530"/>
+<stop offset="0.50" stop-color="#ffffff" stop-opacity="0.31706"/>
+<stop offset="0.55" stop-color="#ffffff" stop-opacity="0.24798"/>
+<stop offset="0.60" stop-color="#ffffff" stop-opacity="0.18889"/>
+<stop offset="0.65" stop-color="#ffffff" stop-opacity="0.13983"/>
+<stop offset="0.70" stop-color="#ffffff" stop-opacity="0.10025"/>
+<stop offset="0.75" stop-color="#ffffff" stop-opacity="0.06922"/>
+<stop offset="0.80" stop-color="#ffffff" stop-opacity="0.04553"/>
+<stop offset="0.85" stop-color="#ffffff" stop-opacity="0.02793"/>
+<stop offset="0.90" stop-color="#ffffff" stop-opacity="0.01518"/>
+<stop offset="0.95" stop-color="#ffffff" stop-opacity="0.00619"/>
+<stop offset="1.00" stop-color="#ffffff" stop-opacity="0.00000"/>
+</radialGradient>
+<linearGradient id="reflection-base" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2="1024"><stop stop-color="#90d6e3"/><stop offset="1" stop-color="#dfa4ff"/></linearGradient>
+<radialGradient id="reflection-1" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(318.538 376.577) scale(845.806 753.426)">
+<stop offset="0.00" stop-color="#94ffff" stop-opacity="1.00000"/>
+<stop offset="0.05" stop-color="#94ffff" stop-opacity="0.98869"/>
+<stop offset="0.10" stop-color="#94ffff" stop-opacity="0.95550"/>
+<stop offset="0.15" stop-color="#94ffff" stop-opacity="0.90263"/>
+<stop offset="0.20" stop-color="#94ffff" stop-opacity="0.83342"/>
+<stop offset="0.25" stop-color="#94ffff" stop-opacity="0.75209"/>
+<stop offset="0.30" stop-color="#94ffff" stop-opacity="0.66324"/>
+<stop offset="0.35" stop-color="#94ffff" stop-opacity="0.57147"/>
+<stop offset="0.40" stop-color="#94ffff" stop-opacity="0.48099"/>
+<stop offset="0.45" stop-color="#94ffff" stop-opacity="0.39530"/>
+<stop offset="0.50" stop-color="#94ffff" stop-opacity="0.31707"/>
+<stop offset="0.55" stop-color="#94ffff" stop-opacity="0.24799"/>
+<stop offset="0.60" stop-color="#94ffff" stop-opacity="0.18889"/>
+<stop offset="0.65" stop-color="#94ffff" stop-opacity="0.13983"/>
+<stop offset="0.70" stop-color="#94ffff" stop-opacity="0.10026"/>
+<stop offset="0.75" stop-color="#94ffff" stop-opacity="0.06922"/>
+<stop offset="0.80" stop-color="#94ffff" stop-opacity="0.04553"/>
+<stop offset="0.85" stop-color="#94ffff" stop-opacity="0.02793"/>
+<stop offset="0.90" stop-color="#94ffff" stop-opacity="0.01518"/>
+<stop offset="0.95" stop-color="#94ffff" stop-opacity="0.00619"/>
+<stop offset="1.00" stop-color="#94ffff" stop-opacity="0.00000"/>
+</radialGradient>
+<radialGradient id="reflection-2" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(675.188 247.007) scale(642.567 743.379)">
+<stop offset="0.00" stop-color="#aef5c6" stop-opacity="0.63460"/>
+<stop offset="0.05" stop-color="#aef5c6" stop-opacity="0.62742"/>
+<stop offset="0.10" stop-color="#aef5c6" stop-opacity="0.60636"/>
+<stop offset="0.15" stop-color="#aef5c6" stop-opacity="0.57281"/>
+<stop offset="0.20" stop-color="#aef5c6" stop-opacity="0.52889"/>
+<stop offset="0.25" stop-color="#aef5c6" stop-opacity="0.47727"/>
+<stop offset="0.30" stop-color="#aef5c6" stop-opacity="0.42089"/>
+<stop offset="0.35" stop-color="#aef5c6" stop-opacity="0.36265"/>
+<stop offset="0.40" stop-color="#aef5c6" stop-opacity="0.30523"/>
+<stop offset="0.45" stop-color="#aef5c6" stop-opacity="0.25086"/>
+<stop offset="0.50" stop-color="#aef5c6" stop-opacity="0.20121"/>
+<stop offset="0.55" stop-color="#aef5c6" stop-opacity="0.15737"/>
+<stop offset="0.60" stop-color="#aef5c6" stop-opacity="0.11987"/>
+<stop offset="0.65" stop-color="#aef5c6" stop-opacity="0.08873"/>
+<stop offset="0.70" stop-color="#aef5c6" stop-opacity="0.06362"/>
+<stop offset="0.75" stop-color="#aef5c6" stop-opacity="0.04393"/>
+<stop offset="0.80" stop-color="#aef5c6" stop-opacity="0.02889"/>
+<stop offset="0.85" stop-color="#aef5c6" stop-opacity="0.01772"/>
+<stop offset="0.90" stop-color="#aef5c6" stop-opacity="0.00963"/>
+<stop offset="0.95" stop-color="#aef5c6" stop-opacity="0.00393"/>
+<stop offset="1.00" stop-color="#aef5c6" stop-opacity="0.00000"/>
+</radialGradient>
+<radialGradient id="reflection-3" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(197.949 607.093) scale(978.695 794.054)">
+<stop offset="0.00" stop-color="#007588" stop-opacity="0.73678"/>
+<stop offset="0.05" stop-color="#007588" stop-opacity="0.72845"/>
+<stop offset="0.10" stop-color="#007588" stop-opacity="0.70400"/>
+<stop offset="0.15" stop-color="#007588" stop-opacity="0.66504"/>
+<stop offset="0.20" stop-color="#007588" stop-opacity="0.61405"/>
+<stop offset="0.25" stop-color="#007588" stop-opacity="0.55412"/>
+<stop offset="0.30" stop-color="#007588" stop-opacity="0.48866"/>
+<stop offset="0.35" stop-color="#007588" stop-opacity="0.42105"/>
+<stop offset="0.40" stop-color="#007588" stop-opacity="0.35438"/>
+<stop offset="0.45" stop-color="#007588" stop-opacity="0.29125"/>
+<stop offset="0.50" stop-color="#007588" stop-opacity="0.23361"/>
+<stop offset="0.55" stop-color="#007588" stop-opacity="0.18271"/>
+<stop offset="0.60" stop-color="#007588" stop-opacity="0.13917"/>
+<stop offset="0.65" stop-color="#007588" stop-opacity="0.10302"/>
+<stop offset="0.70" stop-color="#007588" stop-opacity="0.07387"/>
+<stop offset="0.75" stop-color="#007588" stop-opacity="0.05100"/>
+<stop offset="0.80" stop-color="#007588" stop-opacity="0.03355"/>
+<stop offset="0.85" stop-color="#007588" stop-opacity="0.02058"/>
+<stop offset="0.90" stop-color="#007588" stop-opacity="0.01119"/>
+<stop offset="0.95" stop-color="#007588" stop-opacity="0.00456"/>
+<stop offset="1.00" stop-color="#007588" stop-opacity="0.00000"/>
+</radialGradient>
+<radialGradient id="reflection-4" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(-169.768 610.130) scale(1432.080 281.137)">
+<stop offset="0.00" stop-color="#edeeff" stop-opacity="1.00000"/>
+<stop offset="0.05" stop-color="#edeeff" stop-opacity="0.98869"/>
+<stop offset="0.10" stop-color="#edeeff" stop-opacity="0.95550"/>
+<stop offset="0.15" stop-color="#edeeff" stop-opacity="0.90263"/>
+<stop offset="0.20" stop-color="#edeeff" stop-opacity="0.83342"/>
+<stop offset="0.25" stop-color="#edeeff" stop-opacity="0.75209"/>
+<stop offset="0.30" stop-color="#edeeff" stop-opacity="0.66324"/>
+<stop offset="0.35" stop-color="#edeeff" stop-opacity="0.57147"/>
+<stop offset="0.40" stop-color="#edeeff" stop-opacity="0.48099"/>
+<stop offset="0.45" stop-color="#edeeff" stop-opacity="0.39530"/>
+<stop offset="0.50" stop-color="#edeeff" stop-opacity="0.31707"/>
+<stop offset="0.55" stop-color="#edeeff" stop-opacity="0.24799"/>
+<stop offset="0.60" stop-color="#edeeff" stop-opacity="0.18889"/>
+<stop offset="0.65" stop-color="#edeeff" stop-opacity="0.13983"/>
+<stop offset="0.70" stop-color="#edeeff" stop-opacity="0.10026"/>
+<stop offset="0.75" stop-color="#edeeff" stop-opacity="0.06922"/>
+<stop offset="0.80" stop-color="#edeeff" stop-opacity="0.04553"/>
+<stop offset="0.85" stop-color="#edeeff" stop-opacity="0.02793"/>
+<stop offset="0.90" stop-color="#edeeff" stop-opacity="0.01518"/>
+<stop offset="0.95" stop-color="#edeeff" stop-opacity="0.00619"/>
+<stop offset="1.00" stop-color="#edeeff" stop-opacity="0.00000"/>
+</radialGradient>
+<radialGradient id="reflection-5" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(816.926 494.626) scale(852.708 562.239)">
+<stop offset="0.00" stop-color="#f7ffff" stop-opacity="1.00000"/>
+<stop offset="0.05" stop-color="#f7ffff" stop-opacity="0.98869"/>
+<stop offset="0.10" stop-color="#f7ffff" stop-opacity="0.95550"/>
+<stop offset="0.15" stop-color="#f7ffff" stop-opacity="0.90263"/>
+<stop offset="0.20" stop-color="#f7ffff" stop-opacity="0.83342"/>
+<stop offset="0.25" stop-color="#f7ffff" stop-opacity="0.75209"/>
+<stop offset="0.30" stop-color="#f7ffff" stop-opacity="0.66324"/>
+<stop offset="0.35" stop-color="#f7ffff" stop-opacity="0.57147"/>
+<stop offset="0.40" stop-color="#f7ffff" stop-opacity="0.48099"/>
+<stop offset="0.45" stop-color="#f7ffff" stop-opacity="0.39530"/>
+<stop offset="0.50" stop-color="#f7ffff" stop-opacity="0.31707"/>
+<stop offset="0.55" stop-color="#f7ffff" stop-opacity="0.24799"/>
+<stop offset="0.60" stop-color="#f7ffff" stop-opacity="0.18889"/>
+<stop offset="0.65" stop-color="#f7ffff" stop-opacity="0.13983"/>
+<stop offset="0.70" stop-color="#f7ffff" stop-opacity="0.10026"/>
+<stop offset="0.75" stop-color="#f7ffff" stop-opacity="0.06922"/>
+<stop offset="0.80" stop-color="#f7ffff" stop-opacity="0.04553"/>
+<stop offset="0.85" stop-color="#f7ffff" stop-opacity="0.02793"/>
+<stop offset="0.90" stop-color="#f7ffff" stop-opacity="0.01518"/>
+<stop offset="0.95" stop-color="#f7ffff" stop-opacity="0.00619"/>
+<stop offset="1.00" stop-color="#f7ffff" stop-opacity="0.00000"/>
+</radialGradient>
+<radialGradient id="reflection-6" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="translate(376.765 429.672) scale(974.002 163.724)">
+<stop offset="0.00" stop-color="#b0dbe1" stop-opacity="0.42610"/>
+<stop offset="0.05" stop-color="#b0dbe1" stop-opacity="0.42128"/>
+<stop offset="0.10" stop-color="#b0dbe1" stop-opacity="0.40714"/>
+<stop offset="0.15" stop-color="#b0dbe1" stop-opacity="0.38461"/>
+<stop offset="0.20" stop-color="#b0dbe1" stop-opacity="0.35512"/>
+<stop offset="0.25" stop-color="#b0dbe1" stop-opacity="0.32046"/>
+<stop offset="0.30" stop-color="#b0dbe1" stop-opacity="0.28260"/>
+<stop offset="0.35" stop-color="#b0dbe1" stop-opacity="0.24350"/>
+<stop offset="0.40" stop-color="#b0dbe1" stop-opacity="0.20495"/>
+<stop offset="0.45" stop-color="#b0dbe1" stop-opacity="0.16844"/>
+<stop offset="0.50" stop-color="#b0dbe1" stop-opacity="0.13510"/>
+<stop offset="0.55" stop-color="#b0dbe1" stop-opacity="0.10567"/>
+<stop offset="0.60" stop-color="#b0dbe1" stop-opacity="0.08049"/>
+<stop offset="0.65" stop-color="#b0dbe1" stop-opacity="0.05958"/>
+<stop offset="0.70" stop-color="#b0dbe1" stop-opacity="0.04272"/>
+<stop offset="0.75" stop-color="#b0dbe1" stop-opacity="0.02949"/>
+<stop offset="0.80" stop-color="#b0dbe1" stop-opacity="0.01940"/>
+<stop offset="0.85" stop-color="#b0dbe1" stop-opacity="0.01190"/>
+<stop offset="0.90" stop-color="#b0dbe1" stop-opacity="0.00647"/>
+<stop offset="0.95" stop-color="#b0dbe1" stop-opacity="0.00264"/>
+<stop offset="1.00" stop-color="#b0dbe1" stop-opacity="0.00000"/>
+</radialGradient>
+
+    <linearGradient id="glass-rim" gradientUnits="userSpaceOnUse" x1="310" y1="80" x2="600" y2="940">
+      <stop stop-color="#b6fff0"/><stop offset="0.36" stop-color="#73d9d9"/>
+      <stop offset="0.52" stop-color="#459fad"/><stop offset="0.76" stop-color="#32a9ae"/>
+      <stop offset="1" stop-color="#146580"/>
+    </linearGradient>
+    <linearGradient id="edge-glint" gradientUnits="userSpaceOnUse" x1="230" y1="80" x2="450" y2="370">
+      <stop stop-color="#d6fff6" stop-opacity=".65"/><stop offset="1" stop-color="#d6fff6" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <g id="glass-body" inkscape:groupmode="layer" inkscape:label="Glass body and reflection" clip-path="url(#clover-clip)">
+    <rect width="1024" height="1024" fill="url(#body-base)"/>
+<rect width="1024" height="1024" fill="url(#body-1)"/>
+<rect width="1024" height="1024" fill="url(#body-2)"/>
+<rect width="1024" height="1024" fill="url(#body-3)"/>
+<rect width="1024" height="1024" fill="url(#body-4)"/>
+
+    <g id="glass-reflection" clip-path="url(#reflection-clip)"><rect width="1024" height="1024" fill="url(#reflection-base)"/>
+<rect width="1024" height="1024" fill="url(#reflection-1)"/>
+<rect width="1024" height="1024" fill="url(#reflection-2)"/>
+<rect width="1024" height="1024" fill="url(#reflection-3)"/>
+<rect width="1024" height="1024" fill="url(#reflection-4)"/>
+<rect width="1024" height="1024" fill="url(#reflection-5)"/>
+<rect width="1024" height="1024" fill="url(#reflection-6)"/>
+</g>
+  </g>
+  <g id="glass-edges" inkscape:groupmode="layer" inkscape:label="Glass edge" fill="none" stroke-linejoin="round">
+    <use xlink:href="#clover-outline" stroke="url(#glass-rim)" stroke-width="3.4"/>
+    <use xlink:href="#clover-outline" stroke="url(#edge-glint)" stroke-width="1.4"/>
+  </g>
+</svg>
