@@ -160,13 +160,13 @@ pub fn to_push_f32(inst: &Inst2) -> Result<PushF32Inst> {
 }
 
 pub fn to_push_string(inst: &Inst2, nls: Nls) -> Result<PushStringInst> {
-    Ok(PushStringInst::new(
+    PushStringInst::new(
         inst.operands
             .first()
             .ok_or(anyhow::anyhow!("missing operand"))?
             .to_owned(),
         nls,
-    ))
+    )
 }
 
 pub fn to_push_global(inst: &Inst2) -> Result<PushGlobalInst> {

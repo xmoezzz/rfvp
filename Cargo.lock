@@ -6236,6 +6236,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "rfvp-hcb-patch"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "assembler",
+ "clap",
+ "disassembler",
+ "encoding_rs",
+ "miniz_oxide 0.8.9",
+ "rfvp",
+ "tempfile",
+]
+
+[[package]]
 name = "rfvp-horizon"
 version = "0.1.0"
 dependencies = [
