@@ -16,19 +16,19 @@ use alloc::vec::Vec;
 
 use anyhow::Result;
 
-use crate::host_api::{AudioParams, AudioStreamDesc, AudioStreamId, EncodedAudioKind};
+use crate::host_api::{AudioParams, AudioStreamId, EncodedAudioKind};
 use crate::platform_time::Duration;
 use crate::subsystem::resources::vfs::Vfs;
 
 #[cfg(all(not(feature = "no_std"), target_os = "uefi", feature = "anzu-audio"))]
 pub mod anzu;
 mod commands;
+#[cfg(all(not(feature = "no_std"), feature = "audio", not(target_os = "uefi")))]
+pub mod kira;
 /// Live PCM streams need `std`'s condvars; the `no_std` core has no audio output
 /// that could consume them.
 #[cfg(not(feature = "no_std"))]
 pub mod pcm_stream;
-#[cfg(all(not(feature = "no_std"), feature = "audio", not(target_os = "uefi")))]
-pub mod kira;
 
 pub use commands::{AudioCommand, CommandBackend};
 
@@ -71,8 +71,7 @@ impl<T: std::io::Read + std::io::Seek> ReadSeek for T {}
 
 /// A byte stream produced while it is read.
 ///
-/// Cheap to clone; every clone reads the same stream, which is what lets the
-/// backend validate the format and then play it.
+/// Clones share one cursor; a live source must be consumed only once.
 #[cfg(not(feature = "no_std"))]
 #[derive(Clone)]
 pub struct AudioStreamSource(Arc<std::sync::Mutex<Box<dyn ReadSeek + Send + Sync>>>);
@@ -164,12 +163,8 @@ pub trait AudioBackend: Send + Sync {
 
     fn set_master_volume(&self, volume: f32);
 
-    /// Whether the host consumes [`AudioCommand::CreateStream`] and
-    /// [`AudioCommand::SubmitI16`] / [`AudioCommand::SubmitF32`].
-    ///
-    /// Only the host knows, because it is the host that implements
-    /// [`crate::host_api::audio::RfvpAudio`]. The default is `false`, which keeps
-    /// consumers on the whole-clip `load` path.
+    /// Whether `load_pcm_stream` consumes a live source on a playback worker.
+    /// Command-only and whole-clip backends retain the default `false`.
     fn supports_pcm_stream(&self) -> bool {
         false
     }
@@ -186,7 +181,9 @@ pub trait AudioBackend: Send + Sync {
         _source: AudioStreamSource,
         _vfs: &Vfs,
     ) -> Result<()> {
-        Err(anyhow::anyhow!("this backend cannot play a live PCM stream"))
+        Err(anyhow::anyhow!(
+            "this backend cannot play a live PCM stream"
+        ))
     }
 
     /// Advance a backend that mixes on the engine's thread.
@@ -194,11 +191,6 @@ pub trait AudioBackend: Send + Sync {
 
     /// Commands for the host, for backends that produce them ([`CommandBackend`]).
     fn drain_commands(&self, _out: &mut Vec<AudioCommand>) {}
-
-    /// Queue one command for the host. Backends that do not produce commands drop
-    /// it, which is why callers must check [`AudioBackend::supports_pcm_stream`]
-    /// before queueing a PCM-stream command.
-    fn push_command(&self, _command: AudioCommand) {}
 }
 
 /// The audio output shared by the BGM and SE players.
@@ -236,10 +228,7 @@ impl AudioManager {
         self.backend.set_master_volume(volume);
     }
 
-    /// Whether [`Self::create_stream`] / [`Self::submit_i16`] are supported.
-    ///
-    /// The host opts in by implementing `RfvpAudio::create_stream` / `submit_i16`
-    /// and building the backend with [`CommandBackend::with_pcm_stream`].
+    /// Whether the backend can consume a live byte source on its playback worker.
     pub fn pcm_stream_supported(&self) -> bool {
         self.backend.supports_pcm_stream()
     }
@@ -251,59 +240,7 @@ impl AudioManager {
     /// producer's buffer instead of the clip's size.
     #[cfg(not(feature = "no_std"))]
     pub fn load_pcm_stream(&self, id: AudioStreamId, source: AudioStreamSource) -> Result<()> {
-        self.backend
-            .load_pcm_stream(id, source, &Vfs::default())
-    }
-
-    /// Declare a decoded-PCM stream that the caller will fill with `submit_i16`.
-    ///
-    /// This is the streaming counterpart of `load`: instead of handing the host a
-    /// whole decoded clip, the caller pushes chunks as it decodes, so a movie's
-    /// soundtrack costs seconds of audio rather than the whole clip.
-    ///
-    /// Check [`Self::pcm_stream_supported`] first and fall back to `load`.
-    pub fn create_stream(&self, id: AudioStreamId, desc: AudioStreamDesc) {
-        if !self.backend.supports_pcm_stream() {
-            log::warn!("pcm stream unsupported by host, stream {id:?} ignored");
-            return;
-        }
-        self.backend.push_command(AudioCommand::CreateStream { id, desc });
-    }
-
-    /// Push one chunk of decoded PCM onto a stream created with
-    /// [`Self::create_stream`].
-    ///
-    /// Keep chunks small and paced: every chunk is copied by the host, so this is
-    /// the backpressure point of the streaming path.
-    pub fn submit_i16(&self, id: AudioStreamId, samples: Vec<i16>) {
-        if !self.backend.supports_pcm_stream() {
-            return;
-        }
-        self.backend.push_command(AudioCommand::SubmitI16 { id, samples });
-    }
-
-    /// Tear down a stream created with [`Self::create_stream`].
-    ///
-    /// Without this a finished movie would leave the host holding its buffers, so
-    /// the stop path must always pair `Stop` with `DestroyStream`.
-    pub fn destroy_stream(&self, id: AudioStreamId) {
-        if !self.backend.supports_pcm_stream() {
-            return;
-        }
-        self.backend.push_command(AudioCommand::DestroyStream { id });
-    }
-
-    /// Stop a stream and release the host's buffers for it.
-    ///
-    /// The teardown has to pair the stop with the stream's destruction: without
-    /// the destroy the host would keep holding the buffers of a stream nothing
-    /// plays any more.
-    pub fn stop_stream(&self, id: AudioStreamId) {
-        if !self.backend.supports_pcm_stream() {
-            return;
-        }
-        self.backend.push_command(AudioCommand::Stop { id, fade_ms: 0 });
-        self.backend.push_command(AudioCommand::DestroyStream { id });
+        self.backend.load_pcm_stream(id, source, &Vfs::default())
     }
 
     pub fn tick(&self, delta_ms: u32) {
@@ -339,7 +276,12 @@ fn default_backend() -> Box<dyn AudioBackend> {
     Box::new(NullBackend)
 }
 
-#[cfg(all(not(feature = "no_std"), feature = "audio", feature = "no-audio", not(target_os = "uefi")))]
+#[cfg(all(
+    not(feature = "no_std"),
+    feature = "audio",
+    feature = "no-audio",
+    not(target_os = "uefi")
+))]
 compile_error!("features `audio` and `no-audio` are mutually exclusive outside UEFI builds.");
 
 /// No audio output. Sounds count as finished as soon as they start, so scripts waiting for one
@@ -360,57 +302,4 @@ impl AudioBackend for NullBackend {
         false
     }
     fn set_master_volume(&self, _volume: f32) {}
-}
-
-#[cfg(test)]
-mod pcm_stream_tests {
-    use super::*;
-    use crate::host_api::AudioSampleFormat;
-
-    fn desc() -> AudioStreamDesc {
-        AudioStreamDesc {
-            sample_rate: 44100,
-            channels: 2,
-            sample_format: AudioSampleFormat::I16,
-        }
-    }
-
-    /// A host that has not opted in must receive nothing at all: a movie player
-    /// checks `pcm_stream_supported()` and falls back to the whole-clip path, so
-    /// even a stray command would mean the fallback is not actually taken.
-    #[test]
-    fn host_without_support_never_sees_stream_commands() {
-        let am = AudioManager::with_backend(Box::new(CommandBackend::new()));
-        assert!(!am.pcm_stream_supported());
-        am.create_stream(AudioStreamId::MOVIE, desc());
-        am.submit_i16(AudioStreamId::MOVIE, vec![0; 4]);
-        am.stop_stream(AudioStreamId::MOVIE);
-
-        let mut out = Vec::new();
-        am.drain_commands(&mut out);
-        assert!(out.is_empty(), "an unsupported host must receive nothing");
-    }
-
-    /// The full lifecycle, in order: declare the stream, feed it, stop it, and
-    /// release the host's buffers. Missing the final `DestroyStream` is the leak
-    /// that started this: the host would keep holding the buffers of a stream
-    /// nothing plays any more.
-    #[test]
-    fn host_with_support_receives_the_full_stream_lifecycle() {
-        let am = AudioManager::with_backend(Box::new(CommandBackend::with_pcm_stream()));
-        assert!(am.pcm_stream_supported());
-        am.create_stream(AudioStreamId::MOVIE, desc());
-        am.submit_i16(AudioStreamId::MOVIE, vec![1, 2, 3, 4]);
-        am.submit_i16(AudioStreamId::MOVIE, vec![5, 6, 7, 8]);
-        am.stop_stream(AudioStreamId::MOVIE);
-
-        let mut out = Vec::new();
-        am.drain_commands(&mut out);
-        assert_eq!(out.len(), 5, "create, two submits, stop, destroy");
-        assert!(matches!(out[0], AudioCommand::CreateStream { .. }));
-        assert!(matches!(out[1], AudioCommand::SubmitI16 { .. }));
-        assert!(matches!(out[2], AudioCommand::SubmitI16 { .. }));
-        assert!(matches!(out[3], AudioCommand::Stop { .. }));
-        assert!(matches!(out[4], AudioCommand::DestroyStream { .. }));
-    }
 }

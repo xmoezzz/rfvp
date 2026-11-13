@@ -397,9 +397,7 @@ impl Parser {
         if errors {
             log::error!("failed to decode string as {:?}", self.nls);
         }
-        // Chinese releases write simplified characters as JIS stand-ins; the
-        // original engine maps them back after decoding (see `text_restore`).
-        Ok(crate::text_restore::restore(&s))
+        Ok(s)
     }
 
     fn parser(&mut self) -> Result<()> {

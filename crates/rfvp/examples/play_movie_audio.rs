@@ -10,14 +10,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use rfvp::host_api::AudioParams;
 use rfvp::rfvp_audio::kira::KiraBackend;
 use rfvp::rfvp_audio::pcm_stream::PcmWavStream;
-use rfvp::host_api::AudioParams;
 use rfvp::rfvp_audio::{AudioManager, AudioStreamSource, Tween};
 use rfvp::subsystem::resources::vfs::Vfs;
 
 fn main() -> anyhow::Result<()> {
-    let path = std::env::args().nth(1).expect("usage: play_movie_audio <movie.wmv> [secs]");
+    let path = std::env::args()
+        .nth(1)
+        .expect("usage: play_movie_audio <movie.wmv> [secs]");
     let secs: f32 = std::env::args()
         .nth(2)
         .and_then(|s| s.parse().ok())
@@ -35,6 +37,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     let (stream, writer) = PcmWavStream::new(sample_rate, channels);
+    let control = stream.control();
     manager.load_pcm_stream(
         rfvp::host_api::AudioStreamId::MOVIE,
         AudioStreamSource::new(Box::new(stream)),
@@ -84,8 +87,17 @@ fn main() -> anyhow::Result<()> {
         std::thread::sleep(Duration::from_millis(100));
     }
     stop.store(true, Ordering::Relaxed);
-    manager.stop_stream(rfvp::host_api::AudioStreamId::MOVIE);
+    control.cancel();
+    manager
+        .backend()
+        .stop(rfvp::host_api::AudioStreamId::MOVIE, Tween::default());
+    manager
+        .backend()
+        .unload(rfvp::host_api::AudioStreamId::MOVIE);
     let pushed = decoder.join().unwrap_or(0);
-    println!("played {secs}s, decoder pushed {pushed} samples ({:.1} KiB)", pushed as f64 * 2.0 / 1024.0);
+    println!(
+        "played {secs}s, decoder pushed {pushed} samples ({:.1} KiB)",
+        pushed as f64 * 2.0 / 1024.0
+    );
     Ok(())
 }

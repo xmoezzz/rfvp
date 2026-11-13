@@ -21,9 +21,9 @@ use kira::{AudioManager as KiraAudioManager, AudioManagerSettings, Panning};
 
 use super::{AudioBackend, SoundSource, Tween};
 use crate::host_api::{AudioParams, AudioStreamId};
+use crate::subsystem::resources::vfs::Vfs;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::subsystem::resources::vfs::VfsStream;
-use crate::subsystem::resources::vfs::Vfs;
 
 /// kira takes volume in decibels; the engine's is linear.
 fn decibels(volume: f32) -> kira::Decibels {
@@ -85,7 +85,9 @@ impl KiraBackend {
     }
 
     fn channels(&self) -> std::sync::MutexGuard<'_, HashMap<u32, Channel>> {
-        self.channels.lock().unwrap_or_else(|poison| poison.into_inner())
+        self.channels
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
     }
 
     fn with_handle(&self, id: AudioStreamId, f: impl FnOnce(&mut Handle)) {
@@ -118,11 +120,9 @@ fn streaming_data(source: &SoundSource, vfs: &Vfs) -> Result<StreamingSoundData<
         SoundSource::Bytes(bytes) => Ok(StreamingSoundData::from_cursor(std::io::Cursor::new(
             bytes.clone(),
         ))?),
-        SoundSource::Stream(source) => Ok(StreamingSoundData::from_media_source(
-            PcmMediaSource {
-                inner: source.clone(),
-            },
-        )?),
+        SoundSource::Stream(source) => Ok(StreamingSoundData::from_media_source(PcmMediaSource {
+            inner: source.clone(),
+        })?),
     }
 }
 
@@ -175,7 +175,13 @@ impl AudioBackend for KiraBackend {
         }
     }
 
-    fn play(&self, id: AudioStreamId, params: AudioParams, fade_in: Tween, vfs: &Vfs) -> Result<()> {
+    fn play(
+        &self,
+        id: AudioStreamId,
+        params: AudioParams,
+        fade_in: Tween,
+        vfs: &Vfs,
+    ) -> Result<()> {
         let loaded = self
             .channels()
             .get(&id.0)
@@ -322,7 +328,7 @@ impl symphonia_core::io::MediaSource for PcmMediaSource {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod pcm_source_tests {
     use super::*;
     use crate::rfvp_audio::pcm_stream::PcmWavStream;

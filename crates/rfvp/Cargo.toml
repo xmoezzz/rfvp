@@ -29,6 +29,10 @@ name = "sizecheck"
 path = "src/bin/sizecheck.rs"
 required-features = ["gpu-render"]
 
+[[example]]
+name = "play_movie_audio"
+required-features = ["audio", "native-video"]
+
 [dependencies]
 anyhow = { version = "1.0.79", default-features = false, optional = true }
 encoding_rs = { version = "0.8.33", optional = true }

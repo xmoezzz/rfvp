@@ -9,7 +9,6 @@
 use alloc::collections::VecDeque;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
-use core::sync::atomic::{AtomicBool, Ordering};
 use std::io::{Read, Seek, SeekFrom};
 use std::sync::{Condvar, Mutex};
 
@@ -49,7 +48,34 @@ pub struct PcmWavWriter {
     shared: Arc<Shared>,
 }
 
+/// Playback-owned cancellation, independent of the backend's blocking Read lock.
+pub struct PcmWavControl {
+    shared: Arc<Shared>,
+}
+
+impl PcmWavControl {
+    pub fn cancel(&self) {
+        let mut state = lock(&self.shared.state);
+        state.abandoned = true;
+        self.shared.space_free.notify_all();
+        self.shared.data_ready.notify_all();
+    }
+}
+
+impl Drop for PcmWavControl {
+    fn drop(&mut self) {
+        self.cancel();
+    }
+}
+
 impl PcmWavStream {
+    /// Retain this guard until playback finishes or is stopped.
+    pub fn control(&self) -> PcmWavControl {
+        PcmWavControl {
+            shared: Arc::clone(&self.shared),
+        }
+    }
+
     /// `sample_rate` and `channels` go into the WAV header.
     ///
     /// The declared data length is deliberately the largest a 32-bit WAV can
@@ -115,7 +141,15 @@ impl Drop for PcmWavStream {
     }
 }
 
-impl PcmWavWriter {    /// Append interleaved little-endian i16 samples, blocking while the ring is
+impl Drop for PcmWavWriter {
+    fn drop(&mut self) {
+        // Wake readers even if the worker returns early or unwinds.
+        self.finish();
+    }
+}
+
+impl PcmWavWriter {
+    /// Append interleaved little-endian i16 samples, blocking while the ring is
     /// full so the decoder cannot outrun the reader.
     ///
     /// Returns `false` once the stream was abandoned (the movie stopped), which
@@ -129,7 +163,7 @@ impl PcmWavWriter {    /// Append interleaved little-endian i16 samples, blockin
         let mut state = lock(&self.shared.state);
         let mut offset = 0;
         while offset < bytes.len() {
-            if state.abandoned {
+            if state.abandoned || state.finished {
                 return false;
             }
             if state.ring.len() >= state.capacity {
@@ -150,6 +184,7 @@ impl PcmWavWriter {    /// Append interleaved little-endian i16 samples, blockin
         let mut state = lock(&self.shared.state);
         state.finished = true;
         self.shared.data_ready.notify_all();
+        self.shared.space_free.notify_all();
     }
 }
 
@@ -180,14 +215,23 @@ impl Read for PcmWavStream {
 
         // Then PCM, waiting for the decoder while it is still producing.
         while written < buf.len() {
-            if let Some(byte) = state.ring.pop_front() {
-                buf[written] = byte;
-                written += 1;
-                state.read_pos += 1;
+            if state.abandoned {
+                break;
+            }
+            let take = state.ring.len().min(buf.len() - written);
+            if take != 0 {
+                let (first, second) = state.ring.as_slices();
+                let first_len = first.len().min(take);
+                buf[written..written + first_len].copy_from_slice(&first[..first_len]);
+                buf[written + first_len..written + take]
+                    .copy_from_slice(&second[..take - first_len]);
+                drop(state.ring.drain(..take));
+                written += take;
+                state.read_pos += take as u64;
                 self.shared.space_free.notify_all();
                 continue;
             }
-            if state.finished || state.abandoned {
+            if state.finished || written != 0 {
                 break;
             }
             state = wait(&self.shared.data_ready, state);
@@ -290,7 +334,10 @@ mod tests {
         handle.join().unwrap();
 
         assert_eq!(out.len(), HEADER_LEN + 16, "the read waited for the push");
-        assert_eq!(i16::from_le_bytes([out[HEADER_LEN], out[HEADER_LEN + 1]]), 7);
+        assert_eq!(
+            i16::from_le_bytes([out[HEADER_LEN], out[HEADER_LEN + 1]]),
+            7
+        );
     }
 
     #[test]
