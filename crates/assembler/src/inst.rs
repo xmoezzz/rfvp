@@ -1,5 +1,23 @@
 use rfvp::script::parser::Nls;
 
+pub(crate) fn encode_cstring(content: &str, nls: Nls) -> anyhow::Result<Vec<u8>> {
+    anyhow::ensure!(!content.contains('\0'), "string contains an interior NUL");
+    let encoding = match nls {
+        Nls::GBK => encoding_rs::GBK,
+        Nls::ShiftJIS => encoding_rs::SHIFT_JIS,
+        Nls::UTF8 => encoding_rs::UTF_8,
+    };
+    let (encoded, _, errors) = encoding.encode(content);
+    anyhow::ensure!(!errors, "string cannot be represented in {nls:?}");
+    let mut bytes = encoded.into_owned();
+    anyhow::ensure!(
+        bytes.len() <= 254,
+        "string exceeds native HCB limit of 254 encoded text bytes"
+    );
+    bytes.push(0);
+    Ok(bytes)
+}
+
 pub trait Inst {
     fn address(&self) -> u32;
     fn set_address(&mut self, address: u32);
@@ -492,28 +510,14 @@ pub struct PushStringInst {
 }
 
 impl PushStringInst {
-    pub fn new(content: String, nls: Nls) -> Self {
-        Self {
+    pub fn new(content: String, nls: Nls) -> anyhow::Result<Self> {
+        let content_blob = encode_cstring(&content, nls)?;
+        Ok(Self {
             address: 0,
             content: content.clone(),
-            content_blob: Self::string_to_blob(&content, nls.clone()),
+            content_blob,
             nls,
-        }
-    }
-
-    fn string_to_blob(content: &str, nls: Nls) -> Vec<u8> {
-        // convert utf-8 string to local string via Nls
-        let mut content_bytes = match nls {
-            Nls::GBK => encoding_rs::GBK.encode(content).0.to_vec(),
-            Nls::ShiftJIS => encoding_rs::SHIFT_JIS.encode(content).0.to_vec(),
-            Nls::UTF8 => content.as_bytes().to_vec(),
-        };
-
-        if !content_bytes.ends_with(&[0]) {
-            content_bytes.push(0);
-        }
-
-        content_bytes
+        })
     }
 }
 

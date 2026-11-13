@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/*",
+    "tool/hcb_patch",
     # Console ports: each platform keeps its host crate, build script, target spec and notes
     # under platform/<name>/ (see platform/README.md).
     "platform/switch/host",
