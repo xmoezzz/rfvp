@@ -9,14 +9,26 @@ use crate::subsystem::resources::vfs::ReadSeek;
 use std::io::{Read, Seek, SeekFrom};
 use std::sync::Mutex;
 
-/// An encoded sound read from its file as it plays instead of held in memory: the music of some
-/// games is tens of megabytes, more than a console with little memory has.
+/// A shared sound byte source. File-backed consumers use `read_at`; live PCM
+/// consumers read sequentially without seeking. Clones share one cursor.
 #[derive(Clone)]
 pub struct AudioByteStream(Arc<Mutex<Box<dyn ReadSeek + Send + Sync>>>);
 
 impl AudioByteStream {
     pub fn new(stream: Box<dyn ReadSeek + Send + Sync>) -> Self {
         Self(Arc::new(Mutex::new(stream)))
+    }
+
+    /// Access a forward-only live source without the seek performed by `read_at`.
+    #[cfg(not(feature = "no_std"))]
+    pub(crate) fn with_reader<R>(
+        &self,
+        f: impl FnOnce(&mut dyn ReadSeek) -> std::io::Result<R>,
+    ) -> std::io::Result<R> {
+        let mut stream = self.0.lock().map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::Other, "audio stream lock poisoned")
+        })?;
+        f(&mut **stream)
     }
 
     /// Read up to `buf.len()` bytes at `offset`; fewer only at the end.

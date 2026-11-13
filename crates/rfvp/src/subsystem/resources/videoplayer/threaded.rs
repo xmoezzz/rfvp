@@ -10,9 +10,9 @@ use std::sync::{
 
 use anyhow::{anyhow, Context, Result};
 
-use crate::host_api::{AudioParams, AudioStreamId};
+use crate::host_api::{AudioByteStream, AudioParams, AudioStreamId};
 use crate::rfvp_audio::pcm_stream::{PcmWavControl, PcmWavStream};
-use crate::rfvp_audio::{AudioManager, AudioStreamSource, SoundSource, Tween};
+use crate::rfvp_audio::{AudioManager, SoundSource, Tween};
 use crate::subsystem::resources::vfs::Vfs;
 
 use na_mpeg2_decoder::{MpegAvEvent, MpegAvPipeline};
@@ -1109,10 +1109,7 @@ fn start_wma_pcm_stream(
     let (stream, writer) = PcmWavStream::new(sample_rate, channels);
     let control = stream.control();
     // Fails here, before the movie starts, if the backend cannot take a stream.
-    am.load_pcm_stream(
-        AudioStreamId::MOVIE,
-        AudioStreamSource::new(Box::new(stream)),
-    )?;
+    am.load_pcm_stream(AudioStreamId::MOVIE, AudioByteStream::new(Box::new(stream)))?;
 
     let stop = Arc::clone(stop_flag);
     std::thread::Builder::new()
@@ -1415,16 +1412,14 @@ mod stream_tests {
         fn load_pcm_stream(
             &self,
             _: AudioStreamId,
-            source: AudioStreamSource,
+            source: AudioByteStream,
             _: &Vfs,
         ) -> Result<()> {
             let pcm = Arc::clone(&self.pcm);
             let done = Arc::clone(&self.done);
             std::thread::spawn(move || {
                 let mut bytes = Vec::new();
-                source.with(|stream| {
-                    let _ = stream.read_to_end(&mut bytes);
-                });
+                let _ = source.with_reader(|stream| stream.read_to_end(&mut bytes));
                 let samples: Vec<i16> = bytes
                     .get(44..)
                     .unwrap_or(&[])

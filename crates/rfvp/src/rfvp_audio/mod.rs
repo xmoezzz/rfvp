@@ -16,6 +16,8 @@ use alloc::vec::Vec;
 
 use anyhow::Result;
 
+#[cfg(not(feature = "no_std"))]
+use crate::host_api::AudioByteStream;
 use crate::host_api::{AudioParams, AudioStreamId, EncodedAudioKind};
 use crate::platform_time::Duration;
 use crate::subsystem::resources::vfs::Vfs;
@@ -60,40 +62,7 @@ pub enum SoundSource {
     /// A stream produced while it is read, e.g. a movie's soundtrack decoded on
     /// the fly. Needs `std` for the shared reader.
     #[cfg(not(feature = "no_std"))]
-    Stream(AudioStreamSource),
-}
-
-/// A byte source the audio backend reads as it plays.
-#[cfg(not(feature = "no_std"))]
-pub trait ReadSeek: std::io::Read + std::io::Seek {}
-#[cfg(not(feature = "no_std"))]
-impl<T: std::io::Read + std::io::Seek> ReadSeek for T {}
-
-/// A byte stream produced while it is read.
-///
-/// Clones share one cursor; a live source must be consumed only once.
-#[cfg(not(feature = "no_std"))]
-#[derive(Clone)]
-pub struct AudioStreamSource(Arc<std::sync::Mutex<Box<dyn ReadSeek + Send + Sync>>>);
-
-#[cfg(not(feature = "no_std"))]
-impl AudioStreamSource {
-    pub fn new(stream: Box<dyn ReadSeek + Send + Sync>) -> Self {
-        Self(Arc::new(std::sync::Mutex::new(stream)))
-    }
-
-    /// Run `f` with the underlying stream, locking out other readers.
-    pub fn with<R>(&self, f: impl FnOnce(&mut Box<dyn ReadSeek + Send + Sync>) -> R) -> R {
-        let mut guard = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        f(&mut guard)
-    }
-}
-
-#[cfg(not(feature = "no_std"))]
-impl core::fmt::Debug for AudioStreamSource {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str("AudioStreamSource")
-    }
+    Stream(AudioByteStream),
 }
 
 impl SoundSource {
@@ -178,7 +147,7 @@ pub trait AudioBackend: Send + Sync {
     fn load_pcm_stream(
         &self,
         _id: AudioStreamId,
-        _source: AudioStreamSource,
+        _source: AudioByteStream,
         _vfs: &Vfs,
     ) -> Result<()> {
         Err(anyhow::anyhow!(
@@ -239,7 +208,7 @@ impl AudioManager {
     /// producing samples while the backend plays them, so memory stays at the
     /// producer's buffer instead of the clip's size.
     #[cfg(not(feature = "no_std"))]
-    pub fn load_pcm_stream(&self, id: AudioStreamId, source: AudioStreamSource) -> Result<()> {
+    pub fn load_pcm_stream(&self, id: AudioStreamId, source: AudioByteStream) -> Result<()> {
         self.backend.load_pcm_stream(id, source, &Vfs::default())
     }
 

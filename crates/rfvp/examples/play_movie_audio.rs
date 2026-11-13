@@ -10,10 +10,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use rfvp::host_api::AudioParams;
+use rfvp::host_api::{AudioByteStream, AudioParams};
 use rfvp::rfvp_audio::kira::KiraBackend;
 use rfvp::rfvp_audio::pcm_stream::PcmWavStream;
-use rfvp::rfvp_audio::{AudioManager, AudioStreamSource, Tween};
+use rfvp::rfvp_audio::{AudioManager, Tween};
 use rfvp::subsystem::resources::vfs::Vfs;
 
 fn main() -> anyhow::Result<()> {
@@ -40,7 +40,7 @@ fn main() -> anyhow::Result<()> {
     let control = stream.control();
     manager.load_pcm_stream(
         rfvp::host_api::AudioStreamId::MOVIE,
-        AudioStreamSource::new(Box::new(stream)),
+        AudioByteStream::new(Box::new(stream)),
     )?;
 
     let stop = Arc::new(AtomicBool::new(false));

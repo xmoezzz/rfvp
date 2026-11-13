@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
 use std::sync::Mutex;
 
-use super::AudioStreamSource;
+use crate::host_api::AudioByteStream;
 use anyhow::{anyhow, Context, Result};
 #[cfg(target_arch = "wasm32")]
 use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle, StaticSoundSettings};
@@ -134,12 +134,7 @@ impl AudioBackend for KiraBackend {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn load_pcm_stream(
-        &self,
-        id: AudioStreamId,
-        source: AudioStreamSource,
-        vfs: &Vfs,
-    ) -> Result<()> {
+    fn load_pcm_stream(&self, id: AudioStreamId, source: AudioByteStream, vfs: &Vfs) -> Result<()> {
         // No format probe here, unlike `load`: building a `StreamingSoundData`
         // consumes the stream (symphonia parses the header), and `play` builds
         // its own from the stored source. A live stream cannot be rewound, so a
@@ -300,20 +295,20 @@ impl symphonia_core::io::MediaSource for VfsMediaSource {
 /// gone. kira reads it sequentially, which is all a soundtrack needs.
 #[cfg(not(target_arch = "wasm32"))]
 struct PcmMediaSource {
-    inner: AudioStreamSource,
+    inner: AudioByteStream,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl Read for PcmMediaSource {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        self.inner.with(|stream| stream.read(buf))
+        self.inner.with_reader(|stream| stream.read(buf))
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl Seek for PcmMediaSource {
     fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
-        self.inner.with(|stream| stream.seek(pos))
+        self.inner.with_reader(|stream| stream.seek(pos))
     }
 }
 
@@ -344,7 +339,7 @@ mod pcm_source_tests {
         writer.push(&samples);
         writer.finish();
 
-        let source = AudioStreamSource::new(Box::new(stream));
+        let source = AudioByteStream::new(Box::new(stream));
         let built = StreamingSoundData::from_media_source(PcmMediaSource { inner: source });
         assert!(
             built.is_ok(),
