@@ -465,6 +465,33 @@ impl SoftRaster {
         (self.out_width, self.out_height)
     }
 
+    /// Replace the output surface without discarding textures or changing the
+    /// game's virtual canvas. The owner calls this between frames after the
+    /// previous presentation has completed.
+    pub fn resize_output(&mut self, width: u32, height: u32) -> RfvpResult<()> {
+        if width == 0 || height == 0 || width > i32::MAX as u32 || height > i32::MAX as u32 {
+            return Err(RfvpError::InvalidArgument);
+        }
+        if (width, height) == self.output_size() {
+            return Ok(());
+        }
+        let pixels = (width as usize).checked_mul(height as usize)
+            .ok_or(RfvpError::InvalidArgument)?;
+        let mut frame = Vec::new();
+        frame.try_reserve_exact(pixels).map_err(|_| RfvpError::OutOfMemory)?;
+        frame.resize(pixels, pack(0, 0, 0, 255));
+        self.frame = frame;
+        self.out_width = width;
+        self.out_height = height;
+        for texture in self.textures.values_mut() {
+            texture.scaled = None;
+        }
+        if self.virt_width != 0 && self.virt_height != 0 {
+            self.update_mapping(self.virt_width, self.virt_height);
+        }
+        Ok(())
+    }
+
     /// The finished frame, `output_size()` pixels in row-major order.
     pub fn frame(&self) -> &[u32] {
         &self.frame

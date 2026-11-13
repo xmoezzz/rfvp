@@ -1,4 +1,4 @@
-use rfvp::host_api::{RfvpEvent, RfvpResult};
+use rfvp::host_api::{RfvpEvent, RfvpHost, RfvpResult};
 use rfvp::{RfvpBootConfig, RfvpCore, RfvpCoreConfig, RfvpTickResult};
 
 use crate::event::{HorizonInput, SwitchInput};
@@ -13,14 +13,23 @@ pub struct HorizonApp {
 }
 
 impl HorizonApp {
-    pub fn new(config: RfvpCoreConfig, event_capacity: usize, game_root: &str) -> Self {
-        Self {
+    pub fn new(config: RfvpCoreConfig, event_capacity: usize, game_root: &str,
+        output_width: u32, output_height: u32) -> RfvpResult<Self> {
+        Ok(Self {
             core: RfvpCore::new(config),
-            host: HorizonHost::with_game_root(game_root),
+            host: HorizonHost::with_game_root(game_root, output_width, output_height)?,
             events: alloc::vec::Vec::new(),
             event_capacity,
-            input: HorizonInput::new(),
-        }
+            input: HorizonInput::new(output_width, output_height),
+        })
+    }
+
+    /// The VM, game canvas and texture identities survive a display mode change.
+    /// The runtime calls this only after ending the previous framebuffer lease.
+    pub fn resize_output(&mut self, width: u32, height: u32) -> RfvpResult<()> {
+        self.host.renderer().resize_output(width, height)?;
+        self.input.resize_output(width, height);
+        Ok(())
     }
 
     pub fn core(&self) -> &RfvpCore {

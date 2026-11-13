@@ -2,7 +2,7 @@ use core::ffi::c_void;
 use core::slice;
 
 use alloc::format;
-use rfvp::host_api::{FatalErrorCode, PlatformCallbacks, RfvpHost, RfvpLogLevel};
+use rfvp::host_api::{FatalErrorCode, PlatformCallbacks, RfvpHost, RfvpLogLevel, RfvpResult};
 
 use crate::audio::HorizonAudio;
 use crate::clock::HorizonClock;
@@ -17,13 +17,13 @@ pub struct HorizonHost {
 }
 
 impl HorizonHost {
-    pub fn with_game_root(root: &str) -> Self {
-        Self {
+    pub fn with_game_root(root: &str, width: u32, height: u32) -> RfvpResult<Self> {
+        Ok(Self {
             fs: HorizonFileSystem::with_root(root),
-            renderer: HorizonRenderer::new(),
+            renderer: HorizonRenderer::new(width, height)?,
             audio: HorizonAudio::new(),
             clock: HorizonClock::new(),
-        }
+        })
     }
 
     pub fn renderer_ref(&self) -> &HorizonRenderer {

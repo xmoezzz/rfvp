@@ -4,14 +4,15 @@
 
 #include <dirent.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
 
 #include <switch.h>
 
-#define SCREEN_WIDTH 1280
-#define SCREEN_HEIGHT 720
+/* Matches the software renderer's admission budget, not a fixed resolution. */
+#define MAX_OUTPUT_PIXELS 8388608u
 
 static const char* const GameRoot = "sdmc:/switch/rfvp/game";
 
@@ -35,7 +36,8 @@ typedef struct {
 } RfvpSwitchWallTime;
 
 /* The engine (platform/switch/host/src/ffi.rs). */
-extern void* rfvp_switch_start(const char* game_root);
+extern void* rfvp_switch_start(const char* game_root, uint32_t width, uint32_t height);
+extern int rfvp_switch_resize(void* app, uint32_t width, uint32_t height);
 extern int rfvp_switch_frame(void* app, const RfvpSwitchInput* input, uint32_t* framebuffer,
                              uint32_t stride_bytes);
 extern void rfvp_switch_audio_render(void* app, int16_t* dst, size_t frames);
@@ -197,13 +199,16 @@ static unsigned screenshot_frame(void) {
     return frame;
 }
 
-static void save_screenshot(const uint8_t* pixels, uint32_t stride) {
+static void save_screenshot(const uint8_t* pixels, uint32_t stride, uint32_t width, uint32_t height) {
+    if (pixels == NULL) return;
+    uint8_t* row = malloc((size_t)width * 4);
+    if (row == NULL) return;
     FILE* file = fopen("sdmc:/switch/rfvp/debug_screen.bmp", "wb");
-    if (file == NULL) return;
+    if (file == NULL) { free(row); return; }
     uint8_t header[54] = { 'B', 'M' };
     const uint32_t fields[][2] = {
-        { 2, 54 + SCREEN_WIDTH * SCREEN_HEIGHT * 4 }, { 10, 54 }, { 14, 40 },
-        { 18, SCREEN_WIDTH }, { 22, SCREEN_HEIGHT },
+        { 2, 54 + width * height * 4 }, { 10, 54 }, { 14, 40 },
+        { 18, width }, { 22, height },
     };
     for (unsigned field = 0; field < sizeof(fields) / sizeof(fields[0]); field++) {
         for (unsigned byte = 0; byte < 4; byte++)
@@ -212,31 +217,56 @@ static void save_screenshot(const uint8_t* pixels, uint32_t stride) {
     header[26] = 1;
     header[28] = 32;
     fwrite(header, 1, sizeof(header), file);
-    uint8_t row[SCREEN_WIDTH * 4];
-    for (int y = SCREEN_HEIGHT - 1; y >= 0; y--) {
+    for (int y = (int)height - 1; y >= 0; y--) {
         const uint8_t* source = pixels + (size_t) y * stride;
-        for (unsigned x = 0; x < SCREEN_WIDTH; x++) {
+        for (unsigned x = 0; x < width; x++) {
             row[x * 4] = source[x * 4 + 2];
             row[x * 4 + 1] = source[x * 4 + 1];
             row[x * 4 + 2] = source[x * 4];
             row[x * 4 + 3] = 255;
         }
-        fwrite(row, 1, sizeof(row), file);
+        fwrite(row, 1, (size_t)width * 4, file);
     }
     fclose(file);
+    free(row);
+}
+
+static bool display_dimensions(uint32_t* width, uint32_t* height) {
+    s32 w = 0, h = 0;
+    Result rc = appletGetDefaultDisplayResolution(&w, &h);
+    if (R_FAILED(rc)) { log_result("appletGetDefaultDisplayResolution", rc); return false; }
+    if (w <= 0 || h <= 0 || (uint64_t)w * (uint64_t)h > MAX_OUTPUT_PIXELS) {
+        const char message[] = "rfvp: invalid or over-budget display dimensions\n";
+        rfvp_switch_log(message, sizeof(message) - 1);
+        return false;
+    }
+    *width = (uint32_t)w;
+    *height = (uint32_t)h;
+    return true;
+}
+
+static bool create_framebuffer(Framebuffer* fb, uint32_t width, uint32_t height) {
+    /* libnx forbids changing NWindow dimensions while buffers are registered.
+     * The caller has closed the previous framebuffer before reaching here. */
+    NWindow* window = nwindowGetDefault();
+    Result rc = nwindowSetDimensions(window, width, height);
+    if (R_FAILED(rc)) { log_result("nwindowSetDimensions", rc); return false; }
+    rc = framebufferCreate(fb, window, width, height, PIXEL_FORMAT_RGBA_8888, 2);
+    if (R_FAILED(rc)) { log_result("framebufferCreate", rc); return false; }
+    rc = framebufferMakeLinear(fb);
+    if (R_FAILED(rc)) { log_result("framebufferMakeLinear", rc); framebufferClose(fb); return false; }
+    return true;
 }
 
 int main(void) {
     rfvp_switch_log("rfvp: starting\n", 15);
 
-    Framebuffer fb;
+    uint32_t output_width, output_height;
+    if (!display_dimensions(&output_width, &output_height)) return 1;
+    Framebuffer fb = {0};
     /* Double buffered; presenting waits for vsync, which paces the loop at 60 fps. */
-    Result rc = framebufferCreate(&fb, nwindowGetDefault(), SCREEN_WIDTH, SCREEN_HEIGHT,
-                                  PIXEL_FORMAT_RGBA_8888, 2);
-    if (R_FAILED(rc)) { log_result("framebufferCreate", rc); return 1; }
-    /* The engine writes rows of RGBA; libnx swizzles them to the GPU layout on present. */
-    rc = framebufferMakeLinear(&fb);
-    if (R_FAILED(rc)) { log_result("framebufferMakeLinear", rc); framebufferClose(&fb); return 1; }
+    if (!create_framebuffer(&fb, output_width, output_height)) return 1;
+    bool framebuffer_ready = true;
 
     audio_init();
 
@@ -245,7 +275,7 @@ int main(void) {
     padInitializeDefault(&pad);
     hidInitializeTouchScreen();
 
-    void* app = rfvp_switch_start(GameRoot);
+    void* app = rfvp_switch_start(GameRoot, output_width, output_height);
     if (app == NULL) {
         /* The reason is in sdmc:/switch/rfvp/last_error.txt. */
         audio_exit();
@@ -255,7 +285,35 @@ int main(void) {
 
     const unsigned shot = screenshot_frame();
     unsigned frame = 0;
+    int exit_status = 0;
+    AppletOperationMode mode = appletGetOperationMode();
+    Event resolution_event;
+    Result event_rc = appletGetDefaultDisplayResolutionChangeEvent(&resolution_event);
+    bool have_resolution_event = R_SUCCEEDED(event_rc);
+    if (!have_resolution_event) {
+        log_result("display resolution event (using periodic query)", event_rc);
+    }
     while (appletMainLoop()) {
+        AppletOperationMode next_mode = appletGetOperationMode();
+        bool refresh = next_mode != mode;
+        if (have_resolution_event && R_SUCCEEDED(eventWait(&resolution_event, 0))) refresh = true;
+        if (!have_resolution_event && frame % 60 == 0) refresh = true;
+        if (refresh) {
+            uint32_t width, height;
+            if (!display_dimensions(&width, &height)) { exit_status = 1; break; }
+            if (width != output_width || height != output_height) {
+                if (rfvp_switch_resize(app, width, height) != 0) { exit_status = 1; break; }
+                /* No framebuffer is borrowed here: the previous frame ended
+                 * before appletMainLoop delivered mode/resolution changes. */
+                framebufferClose(&fb);
+                framebuffer_ready = false;
+                if (!create_framebuffer(&fb, width, height)) { exit_status = 1; break; }
+                framebuffer_ready = true;
+                output_width = width;
+                output_height = height;
+            }
+            mode = next_mode;
+        }
         padUpdate(&pad);
         RfvpSwitchInput input = { 0 };
         input.buttons = padGetButtons(&pad);
@@ -273,14 +331,17 @@ int main(void) {
         u32 stride = 0;
         uint32_t* pixels = (uint32_t*) framebufferBegin(&fb, &stride);
         int status = rfvp_switch_frame(app, &input, pixels, stride);
-        if (frame++ == shot) save_screenshot((const uint8_t*) pixels, stride);
+        if (frame++ == shot && status >= 0) {
+            save_screenshot((const uint8_t*) pixels, stride, output_width, output_height);
+        }
         framebufferEnd(&fb);
         audio_pump(app);
-        if (status != 0) break;
+        if (status != 0) { exit_status = status < 0 ? 1 : 0; break; }
     }
 
     rfvp_switch_stop(app);
+    if (have_resolution_event) eventClose(&resolution_event);
     audio_exit();
-    framebufferClose(&fb);
-    return 0;
+    if (framebuffer_ready) framebufferClose(&fb);
+    return exit_status;
 }

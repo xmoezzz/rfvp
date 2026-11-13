@@ -74,10 +74,23 @@ with the console's local time.
 
 ## Display
 
-The game is drawn with a software rasterizer (`rfvp::host_api::SoftRaster`) into a 1280x720
-frame, with the game frame scaled and letterboxed as it is drawn, then copied into libnx's
-framebuffer once per frame. It blends in linear light, as the desktop GPU renderer does. Rendering is behind the host API (`RfvpRenderer`), so a GPU renderer can replace it
-without touching the core.
+The host reads the system's default display resolution and sizes the software
+rasterizer (`rfvp::host_api::SoftRaster`) and libnx framebuffer accordingly.
+Output is not fixed to 720p or inferred as always 1080p when docked. Mode and
+display-resolution changes resize the output between frames, preserving the VM,
+native game canvas and loaded textures. The display query requires system 3.0.0
+or newer; query failures and outputs above the 8,388,608-pixel memory budget are
+reported explicitly.
+
+The game is scaled and letterboxed into that output, then copied into the linear
+framebuffer using its actual byte pitch. Touch panel coordinates are mapped to
+the output before the same letterbox transform maps them into game coordinates.
+Controller cursor range and travel scale with the output size. Diagnostic BMP
+captures also use the current dimensions.
+
+The rasterizer blends in linear light, as the desktop GPU renderer does.
+Rendering is behind the host API (`RfvpRenderer`), so a GPU renderer can replace
+it without touching the core.
 
 ## Testing without a console
 

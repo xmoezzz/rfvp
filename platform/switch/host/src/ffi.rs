@@ -212,15 +212,26 @@ fn read_nls(app: &mut HorizonApp) -> Nls {
     }
 }
 
-/// Load the game in `game_root`. Returns null if it cannot start; the reason is written to
-/// `ERROR_FILE`.
+/// Load the game in `game_root` with the host's actual output surface dimensions.
+/// Returns null if it cannot start; the reason is written to `ERROR_FILE`.
 #[no_mangle]
-pub unsafe extern "C" fn rfvp_switch_start(game_root: *const c_char) -> *mut Session {
+pub unsafe extern "C" fn rfvp_switch_start(
+    game_root: *const c_char, output_width: u32, output_height: u32,
+) -> *mut Session {
     rfvp::ring_log::install();
     let game_root = unsafe { CStr::from_ptr(game_root) }
         .to_str()
         .unwrap_or("sdmc:/switch/rfvp/game");
-    let mut app = HorizonApp::new(RfvpCoreConfig::default(), 256, game_root);
+    let mut app = match HorizonApp::new(RfvpCoreConfig::default(), 256, game_root,
+        output_width, output_height) {
+        Ok(app) => app,
+        Err(error) => {
+            let message = format!("Switch output initialization failed: {error:?}\n");
+            log(&message);
+            write_file(ERROR_FILE, message.as_bytes());
+            return core::ptr::null_mut();
+        }
+    };
     let nls = read_nls(&mut app);
     let debug = app.host().fs().exists(DEBUG_FLAG_FILE);
     let now = ticks_us();
@@ -247,8 +258,22 @@ pub unsafe extern "C" fn rfvp_switch_start(game_root: *const c_char) -> *mut Ses
     Box::into_raw(session)
 }
 
-/// Run one frame and draw it into `framebuffer` (RGBA rows, `stride_bytes` apart). Returns 0 to
-/// go on, 1 when the game wants to quit and -1 when it stopped with an error.
+/// Resize between framebuffer leases; native VM/canvas state is retained.
+#[no_mangle]
+pub unsafe extern "C" fn rfvp_switch_resize(
+    session: *mut Session, width: u32, height: u32,
+) -> c_int {
+    let Some(session) = (unsafe { session.as_mut() }) else { return -1; };
+    if let Err(error) = session.app.resize_output(width, height) {
+        session.report_error("the display could not be resized", Some(error));
+        return -1;
+    }
+    0
+}
+
+/// Run one frame and copy it into `framebuffer` (RGBA rows, `stride_bytes` apart).
+/// The caller lends the full current output size and must not release/reuse the
+/// buffer until return. Returns 0 to continue, 1 to quit, and -1 on error.
 #[no_mangle]
 pub unsafe extern "C" fn rfvp_switch_frame(
     session: *mut Session,
@@ -258,15 +283,29 @@ pub unsafe extern "C" fn rfvp_switch_frame(
 ) -> c_int {
     let session = unsafe { &mut *session };
     let input = unsafe { &*input };
-    session
-        .app
-        .host()
-        .renderer()
-        .set_target(framebuffer, stride_bytes as usize / 4);
+    let (width, height) = session.app.host().renderer_ref().output_size();
+    let stride = stride_bytes as usize / core::mem::size_of::<u32>();
+    let words = (height as usize - 1).checked_mul(stride)
+        .and_then(|n| n.checked_add(width as usize));
+    // The C caller lends a complete linear libnx framebuffer for this call.
+    // Validate its layout before advancing the VM or creating a borrowed slice.
+    let Some(words) = words.filter(|&n| n <= isize::MAX as usize / 4) else {
+        session.report_error("display framebuffer layout overflow", Some(rfvp::host_api::RfvpError::InvalidArgument));
+        return -1;
+    };
+    if framebuffer.is_null() || framebuffer as usize % core::mem::align_of::<u32>() != 0
+        || stride_bytes % 4 != 0 || stride < width as usize {
+        session.report_error("invalid display framebuffer layout", Some(rfvp::host_api::RfvpError::InvalidArgument));
+        return -1;
+    }
     let result = session.app.run_frame(input);
-    session.app.host().renderer().set_target(core::ptr::null_mut(), 0);
     if let Err(err) = result {
         session.report_error("the game stopped with an error", Some(err));
+        return -1;
+    }
+    let target = unsafe { core::slice::from_raw_parts_mut(framebuffer, words) };
+    if let Err(error) = session.app.host().renderer_ref().copy_to_framebuffer(target, stride_bytes as usize) {
+        session.report_error("the display frame could not be copied", Some(error));
         return -1;
     }
     if session.app.quit_requested() {
