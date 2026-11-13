@@ -463,11 +463,15 @@ impl Assembler {
             old_order.push(addr);
             cursor += size;
         }
-        let entry_point = insts
+        // Freeze addresses before mutably borrowing instructions for fixups.
+        // A branch to itself otherwise borrows the same RefCell twice and panics.
+        let new_addresses: BTreeMap<u32, u32> = insts
+            .iter()
+            .map(|(&old, inst)| (old, inst.borrow().get_address()))
+            .collect();
+        let entry_point = *new_addresses
             .get(&old_entry_point)
-            .ok_or_else(|| anyhow::anyhow!("entry point not found"))?
-            .borrow()
-            .get_address();
+            .ok_or_else(|| anyhow::anyhow!("entry point not found"))?;
 
         // phase 2: set jump target
         for (_, inst) in &insts {
@@ -475,24 +479,24 @@ impl Assembler {
             match inst {
                 InstSet::Jmp(inst) => {
                     let old_target = inst.get_old_target();
-                    let target_inst = insts.get(&old_target).ok_or_else(|| {
+                    let target = new_addresses.get(&old_target).ok_or_else(|| {
                         anyhow::anyhow!(format!("target not found: {}", old_target))
                     })?;
-                    inst.set_target(target_inst.borrow().get_address());
+                    inst.set_target(*target);
                 }
                 InstSet::Jz(inst) => {
                     let old_target = inst.get_old_target();
-                    let target_inst = insts.get(&old_target).ok_or_else(|| {
+                    let target = new_addresses.get(&old_target).ok_or_else(|| {
                         anyhow::anyhow!(format!("target not found: {}", old_target))
                     })?;
-                    inst.set_target(target_inst.borrow().get_address());
+                    inst.set_target(*target);
                 }
                 InstSet::Call(inst) => {
                     let old_target = inst.get_old_func_target();
-                    let target_inst = insts.get(&old_target).ok_or_else(|| {
+                    let target = new_addresses.get(&old_target).ok_or_else(|| {
                         anyhow::anyhow!(format!("target not found: {}", old_target))
                     })?;
-                    inst.set_func_target(target_inst.borrow().get_address());
+                    inst.set_func_target(*target);
                 }
                 _ => {}
             }
