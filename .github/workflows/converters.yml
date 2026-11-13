@@ -24,7 +24,7 @@ jobs:
             gui_file: rfvp-converter-gui-linux-x86_64
             rustflags: ""
           - name: macos-universal
-            runner: macos-14
+            runner: macos-15
             file: rfvp-convert-macos-universal
             gui_file: rfvp-converter-gui-macos-universal
             rustflags: ""
