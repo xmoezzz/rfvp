@@ -16,6 +16,8 @@ use alloc::vec::Vec;
 
 use anyhow::Result;
 
+#[cfg(not(feature = "no_std"))]
+use crate::host_api::AudioByteStream;
 use crate::host_api::{AudioParams, AudioStreamId, EncodedAudioKind};
 use crate::platform_time::Duration;
 use crate::subsystem::resources::vfs::Vfs;
@@ -25,6 +27,10 @@ pub mod anzu;
 mod commands;
 #[cfg(all(not(feature = "no_std"), feature = "audio", not(target_os = "uefi")))]
 pub mod kira;
+/// Live PCM streams need `std`'s condvars; the `no_std` core has no audio output
+/// that could consume them.
+#[cfg(not(feature = "no_std"))]
+pub mod pcm_stream;
 
 pub use commands::{AudioCommand, CommandBackend};
 
@@ -53,6 +59,10 @@ impl Tween {
 pub enum SoundSource {
     Named(String),
     Bytes(Arc<[u8]>),
+    /// A stream produced while it is read, e.g. a movie's soundtrack decoded on
+    /// the fly. Needs `std` for the shared reader.
+    #[cfg(not(feature = "no_std"))]
+    Stream(AudioByteStream),
 }
 
 impl SoundSource {
@@ -60,10 +70,17 @@ impl SoundSource {
         match self {
             Self::Named(name) => Some(name),
             Self::Bytes(_) => None,
+            #[cfg(not(feature = "no_std"))]
+            Self::Stream(_) => None,
         }
     }
 
     pub fn encoded_kind(&self) -> EncodedAudioKind {
+        #[cfg(not(feature = "no_std"))]
+        if matches!(self, Self::Stream(_)) {
+            // A live soundtrack stream is PCM in a WAV container.
+            return EncodedAudioKind::Wav;
+        }
         let Some(name) = self.name() else {
             return EncodedAudioKind::Unknown;
         };
@@ -86,6 +103,10 @@ impl SoundSource {
         match self {
             Self::Named(name) => vfs.read_file(name),
             Self::Bytes(bytes) => Ok(bytes.to_vec()),
+            #[cfg(not(feature = "no_std"))]
+            Self::Stream(_) => Err(anyhow::anyhow!(
+                "a live stream cannot be read whole; load it with `load_pcm_stream`"
+            )),
         }
     }
 }
@@ -110,6 +131,29 @@ pub trait AudioBackend: Send + Sync {
     fn is_playing(&self, id: AudioStreamId) -> bool;
 
     fn set_master_volume(&self, volume: f32);
+
+    /// Whether `load_pcm_stream` consumes a live source on a playback worker.
+    /// Command-only and whole-clip backends retain the default `false`.
+    fn supports_pcm_stream(&self) -> bool {
+        false
+    }
+
+    /// Get `id` ready to play a source that is produced while it is read.
+    ///
+    /// The backend must pull from `source` on its own playback thread; that pull
+    /// is what paces the producer. Backends without such a path leave this alone
+    /// and callers fall back to a whole-clip load.
+    #[cfg(not(feature = "no_std"))]
+    fn load_pcm_stream(
+        &self,
+        _id: AudioStreamId,
+        _source: AudioByteStream,
+        _vfs: &Vfs,
+    ) -> Result<()> {
+        Err(anyhow::anyhow!(
+            "this backend cannot play a live PCM stream"
+        ))
+    }
 
     /// Advance a backend that mixes on the engine's thread.
     fn tick(&self, _delta_ms: u32) {}
@@ -153,6 +197,21 @@ impl AudioManager {
         self.backend.set_master_volume(volume);
     }
 
+    /// Whether the backend can consume a live byte source on its playback worker.
+    pub fn pcm_stream_supported(&self) -> bool {
+        self.backend.supports_pcm_stream()
+    }
+
+    /// Hand the backend a source that is produced while it is read.
+    ///
+    /// This is the whole-clip `load`'s streaming counterpart: the caller keeps
+    /// producing samples while the backend plays them, so memory stays at the
+    /// producer's buffer instead of the clip's size.
+    #[cfg(not(feature = "no_std"))]
+    pub fn load_pcm_stream(&self, id: AudioStreamId, source: AudioByteStream) -> Result<()> {
+        self.backend.load_pcm_stream(id, source, &Vfs::default())
+    }
+
     pub fn tick(&self, delta_ms: u32) {
         self.backend.tick(delta_ms);
     }
@@ -186,7 +245,12 @@ fn default_backend() -> Box<dyn AudioBackend> {
     Box::new(NullBackend)
 }
 
-#[cfg(all(not(feature = "no_std"), feature = "audio", feature = "no-audio", not(target_os = "uefi")))]
+#[cfg(all(
+    not(feature = "no_std"),
+    feature = "audio",
+    feature = "no-audio",
+    not(target_os = "uefi")
+))]
 compile_error!("features `audio` and `no-audio` are mutually exclusive outside UEFI builds.");
 
 /// No audio output. Sounds count as finished as soon as they start, so scripts waiting for one

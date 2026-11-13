@@ -1508,7 +1508,13 @@ mod tests {
         assert_eq!(seq.level, 3);
         assert_eq!((seq.width, seq.height), (1920, 1080));
         assert_eq!((seq.display_width, seq.display_height), (1920, 1080));
-        assert_eq!((seq.frame_rate_num, seq.frame_rate_den), (60_000, 1001));
+        // The sequence layer above declares FRAMERATENR = 3, FRAMERATEDR = 2.
+        // `ff_vc1_fps_nr[3 - 1] * 1000 / ff_vc1_fps_dr[2 - 1]` is 30000/1001,
+        // i.e. 29.97 fps — this clip is not 60 fps. Parsing the payload field by
+        // field lands every neighbouring field on a sane value (1920x1080,
+        // DISPLAY_EXT set, colour format clear), so the alignment is right and
+        // the expectation, not the parser, was wrong.
+        assert_eq!((seq.frame_rate_num, seq.frame_rate_den), (30_000, 1001));
         assert!(!seq.interlace);
         assert!(seq.broadcast);
         assert!(seq.loop_filter);

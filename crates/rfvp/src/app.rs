@@ -1543,9 +1543,21 @@ impl App {
             let mut path = dir.clone();
             path.push(pattern);
 
-            let matches: Vec<_> = glob::glob(&path.to_string_lossy())?.flatten().collect();
-            if !matches.is_empty() {
-                return Ok(matches[0].to_path_buf());
+            let mut matches: Vec<_> = glob::glob(&path.to_string_lossy())?
+                .flatten()
+                // Skip macOS AppleDouble sidecars. `._name.hcb` matches the glob
+                // but is file metadata, not a script, and parsing one fails with
+                // a confusing "offset out of bounds". They appear on FAT/exFAT
+                // volumes and in directories macOS has touched.
+                .filter(|p| {
+                    !p.file_name()
+                        .and_then(|name| name.to_str())
+                        .is_some_and(|name| name.starts_with("._"))
+                })
+                .collect();
+            matches.sort();
+            if let Some(found) = matches.first() {
+                return Ok(found.to_path_buf());
             }
         }
 

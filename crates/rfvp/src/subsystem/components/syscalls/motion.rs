@@ -33,6 +33,12 @@ fn int_or_default(v: &Variant, default: i32) -> i32 {
     }
 }
 
+// WhiteEternity.exe.i64: MotionAlpha 0x43A8B0, MotionMove 0x43ABD0,
+// MotionMoveR 0x43AE50, MotionMoveS2 0x43AF70, MotionMoveZ 0x43AD30,
+// V3DMotion 0x43CFE0. All six require duration tag 2 (Int) and a value
+// in 1..=300000 before calling the motion helper. Nil skips the operation;
+// defaults on other arguments do not make duration optional or clamped.
+
 pub fn motion_alpha(
     game_data: &mut GameData,
     id: &Variant,
