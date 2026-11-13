@@ -53,6 +53,12 @@ pub struct PcmWavControl {
     shared: Arc<Shared>,
 }
 
+impl core::fmt::Debug for PcmWavControl {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("PcmWavControl")
+    }
+}
+
 impl PcmWavControl {
     pub fn cancel(&self) {
         let mut state = lock(&self.shared.state);
