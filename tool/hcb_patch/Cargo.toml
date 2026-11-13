@@ -1,0 +1,15 @@
+[package]
+name = "rfvp-hcb-patch"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+anyhow = "1"
+assembler = { path = "../../crates/assembler" }
+clap = { version = "4", features = ["derive"] }
+disassembler = { path = "../../crates/disassembler" }
+encoding_rs = "0.8"
+miniz_oxide = "0.8"
+rfvp = { path = "../../crates/rfvp" }
+tempfile = "3"
