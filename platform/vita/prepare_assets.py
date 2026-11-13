@@ -48,5 +48,5 @@ template = '''<?xml version="1.0" encoding="utf-8"?>
     'source_sha256': hashlib.sha256(ART.read_bytes()).hexdigest(),
     'source_size': image.size, 'background_rgb': background, 'assets': assets,
     'reference': 'https://github.com/vitasdk/samples/tree/master/hello_world/sce_sys',
-}, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+}, ensure_ascii=False, indent=2) + '\n', encoding='utf-8', newline='\n')
 print(json.dumps(assets, ensure_ascii=False))
