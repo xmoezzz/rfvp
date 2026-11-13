@@ -1,0 +1,2 @@
+# VitaSDK LiveArea templates are packaged with CRLF line endings.
+platform/vita/host/static/sce_sys/livearea/contents/template.xml -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
