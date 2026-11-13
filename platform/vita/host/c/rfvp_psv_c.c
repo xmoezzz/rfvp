@@ -179,6 +179,29 @@ static int32_t rfvp_copy_path(const uint8_t *path, size_t path_len, char *out, s
     return RFVP_PSV_OK;
 }
 
+/* Whether a path names its own location instead of one inside the game folder.
+ *
+ * Vita devices are written `ux0:`, `ux0:data/x`, `app0:x`, `uma0:/x`: the designator is a colon,
+ * and `ux0:data/x` has no `:/` in it, which an earlier test required. A relative path never
+ * contains a colon (`game_config::relative_path` rejects one, and the card's file systems do not
+ * allow one in a name), so the colon alone is the rule.
+ *
+ *   "ux0:"                               -> absolute
+ *   "ux0:data/rfvp/browser.ttf"          -> absolute
+ *   "ux0:/data/x"                        -> absolute
+ *   "/data/x", "C:/x"                    -> absolute (host builds, tests)
+ *   "default.ttf", "graph/", ".", "saves"-> relative to the game folder
+ */
+static int rfvp_path_is_absolute(const char *path) {
+    if (path == NULL || path[0] == '\0') {
+        return 0;
+    }
+    if (path[0] == '/' || path[0] == '\\') {
+        return 1;
+    }
+    return strchr(path, ':') != NULL;
+}
+
 static int32_t rfvp_build_full_path(const uint8_t *path, size_t path_len, char *out, size_t out_len) {
     char local[RFVP_PSV_MAX_PATH];
     int32_t status = rfvp_copy_path(path, path_len, local, sizeof(local));
@@ -186,7 +209,7 @@ static int32_t rfvp_build_full_path(const uint8_t *path, size_t path_len, char *
         return status;
     }
 
-    if (local[0] == '/' || strstr(local, ":/") != NULL || strstr(local, ":\\") != NULL) {
+    if (rfvp_path_is_absolute(local)) {
         size_t len = strlen(local);
         if (len >= out_len) {
             return RFVP_PSV_CAPACITY_EXCEEDED;
@@ -710,6 +733,91 @@ int32_t rfvp_psv_c_list_files(const uint8_t *dir, size_t dir_len, void *visitor_
         }
     }
     sceIoDclose(handle);
+    return RFVP_PSV_OK;
+#else
+    (void)visitor_ctx;
+    return RFVP_PSV_UNSUPPORTED;
+#endif
+}
+
+/* One level of a directory: its immediate files *and* subdirectories, each with its own kind.
+ * This is the file browser's listing, not the recursive pack/script search: browsing a card-sized
+ * tree must not walk the whole tree. The name handed to the visitor is the entry name alone; the
+ * caller joins it to the directory it asked for. The handle is closed on every path out. */
+int32_t rfvp_psv_c_list_dir(const uint8_t *dir, size_t dir_len, void *visitor_ctx, RawEnumerateByExtensionVisitorFn visitor) {
+    if (dir == NULL || visitor == NULL) {
+        return RFVP_PSV_INVALID_ARGUMENT;
+    }
+    char full_dir[RFVP_PSV_MAX_PATH];
+    int32_t status = rfvp_build_full_path(dir, dir_len, full_dir, sizeof(full_dir));
+    if (status != RFVP_PSV_OK) {
+        return status;
+    }
+    /* "ux0:/a/b/" and "ux0:/a/b" are the same directory. A device root keeps its colon. */
+    size_t full_len = strlen(full_dir);
+    while (full_len > 1u && (full_dir[full_len - 1u] == '/' || full_dir[full_len - 1u] == '\\')) {
+        full_dir[--full_len] = '\0';
+    }
+#if defined(RFVP_PSV_VITASDK_BACKEND)
+    SceUID handle = sceIoDopen(full_dir);
+    if (handle < 0) {
+        return RFVP_PSV_NOT_FOUND;
+    }
+    for (;;) {
+        SceIoDirent entry;
+        memset(&entry, 0, sizeof(entry));
+        int rc = sceIoDread(handle, &entry);
+        if (rc < 0) {
+            sceIoDclose(handle);
+            return RFVP_PSV_IO;
+        }
+        if (rc == 0) {
+            break;
+        }
+        if (strcmp(entry.d_name, ".") == 0 || strcmp(entry.d_name, "..") == 0) {
+            continue;
+        }
+        RawFileInfo info;
+        info.len = (uint64_t)entry.d_stat.st_size;
+        info.kind = SCE_S_ISDIR(entry.d_stat.st_mode) ? RAW_FILE_KIND_DIRECTORY : RAW_FILE_KIND_FILE;
+        status = visitor(visitor_ctx, (const uint8_t *)entry.d_name, strlen(entry.d_name), info);
+        if (status != RFVP_PSV_OK) {
+            sceIoDclose(handle);
+            return status;
+        }
+    }
+    sceIoDclose(handle);
+    return RFVP_PSV_OK;
+#elif RFVP_PSV_HAS_DIRENT
+    DIR *handle = opendir(full_dir);
+    if (handle == NULL) {
+        return errno == ENOENT ? RFVP_PSV_NOT_FOUND : RFVP_PSV_IO;
+    }
+    struct dirent *entry;
+    while ((entry = readdir(handle)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+        char child[RFVP_PSV_MAX_PATH];
+        int n = snprintf(child, sizeof(child), "%s/%s", full_dir, entry->d_name);
+        if (n < 0 || (size_t)n >= sizeof(child)) {
+            closedir(handle);
+            return RFVP_PSV_CAPACITY_EXCEEDED;
+        }
+        struct stat st;
+        if (stat(child, &st) != 0) {
+            continue;
+        }
+        RawFileInfo info;
+        info.len = (uint64_t)st.st_size;
+        info.kind = S_ISDIR(st.st_mode) ? RAW_FILE_KIND_DIRECTORY : RAW_FILE_KIND_FILE;
+        status = visitor(visitor_ctx, (const uint8_t *)entry->d_name, strlen(entry->d_name), info);
+        if (status != RFVP_PSV_OK) {
+            closedir(handle);
+            return status;
+        }
+    }
+    closedir(handle);
     return RFVP_PSV_OK;
 #else
     (void)visitor_ctx;

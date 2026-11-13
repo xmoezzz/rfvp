@@ -3,7 +3,7 @@ use alloc::{collections::VecDeque, format, string::String, vec::Vec};
 use core::fmt::Write;
 use rfvp::{perf, RfvpTickResult};
 
-pub const BUILD: &str = "rfvp-psv-diag-20261019-06";
+pub const BUILD: &str = "rfvp-psv-launcher-pr-20261113";
 pub const REPORT_EVERY: u64 = 120;
 const SLOW_US: u64 = 50_000;
 

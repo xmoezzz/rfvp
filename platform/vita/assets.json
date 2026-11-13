@@ -1,0 +1,43 @@
+{
+  "source": "platform/wasm/icon/icon-512.png",
+  "source_sha256": "509275d1c67e0ed9966b5c5d3aaf75d2a7f160839bc63f50a0f3d053b392da58",
+  "source_size": [
+    512,
+    512
+  ],
+  "background_rgb": [
+    80,
+    149,
+    224
+  ],
+  "assets": [
+    {
+      "path": "platform/vita/host/static/sce_sys/icon0.png",
+      "size": [
+        128,
+        128
+      ],
+      "mode": "P",
+      "sha256": "e0cb18dc8940530d18b9372a5c8f2ed164083a896a69439736ab048992378297"
+    },
+    {
+      "path": "platform/vita/host/static/sce_sys/livearea/contents/startup.png",
+      "size": [
+        280,
+        158
+      ],
+      "mode": "P",
+      "sha256": "8f09607819d53c7482ba1b05939abe03d4c23303d530c4dabc32daac75dff5cb"
+    },
+    {
+      "path": "platform/vita/host/static/sce_sys/livearea/contents/bg.png",
+      "size": [
+        840,
+        500
+      ],
+      "mode": "P",
+      "sha256": "a20cbe14ddc41eb0e579aa60327ecb0cb576b32d1e2dbc53a96b7d3d1c523bb9"
+    }
+  ],
+  "reference": "https://github.com/vitasdk/samples/tree/master/hello_world/sce_sys"
+}
