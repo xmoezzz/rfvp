@@ -27,6 +27,21 @@ impl<T: Read + Seek> ReadSeek for T {}
 
 pub type VfsStream = Box<dyn ReadSeek + Send + Sync>;
 
+/// Fill a known-length Vita resource directly, avoiding the no_std reader's
+/// 4 KiB temporary buffer. Short reads are retried; truncated resources fail.
+#[cfg(any(target_os = "vita", test))]
+fn read_vita_stream(stream: &mut dyn ReadSeek, length: u64) -> Result<Vec<u8>> {
+    let length = usize::try_from(length).map_err(|_| anyhow!("asset length exceeds address space"))?;
+    let mut out = Vec::new();
+    out.try_reserve_exact(length)
+        .map_err(|_| anyhow!("cannot allocate {} asset bytes", length))?;
+    out.resize(length, 0);
+    for block in out.chunks_mut(128 * 1024) {
+        stream.read_exact(block)?;
+    }
+    Ok(out)
+}
+
 #[derive(Debug, Clone)]
 pub struct VfsEntry {
     pub offset: u64,
@@ -382,6 +397,10 @@ impl VfsFile {
 
     pub fn read_file(&self, name: &str) -> Result<Vec<u8>> {
         let (mut stream, len) = self.open_stream_with_len(name)?;
+        #[cfg(target_os = "vita")]
+        if let Some(length) = len {
+            return read_vita_stream(&mut *stream, length);
+        }
         let mut out = Vec::with_capacity(len.and_then(|n| usize::try_from(n).ok()).unwrap_or(0));
         stream.read_to_end(&mut out)?;
         Ok(out)
@@ -559,6 +578,10 @@ impl Vfs {
         let started = crate::perf::start();
         let result = (|| {
             let (mut stream, len) = self.open_stream_with_len(path)?;
+            #[cfg(target_os = "vita")]
+            if let Some(length) = len {
+                return read_vita_stream(&mut *stream, length);
+            }
             let mut out = Vec::with_capacity(len.and_then(|n| usize::try_from(n).ok()).unwrap_or(0));
             stream.read_to_end(&mut out)?;
             Ok(out)
@@ -613,6 +636,50 @@ fn normalize_vfs_key(path: &str) -> String {
 mod tests {
     use super::*;
     use alloc::collections::BTreeMap;
+
+    struct ShortReader {
+        cursor: std::io::Cursor<Vec<u8>>,
+        max_read: usize,
+        requests: Vec<usize>,
+    }
+
+    impl Read for ShortReader {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            self.requests.push(out.len());
+            let len = out.len().min(self.max_read);
+            self.cursor.read(&mut out[..len])
+        }
+    }
+
+    impl Seek for ShortReader {
+        fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+            self.cursor.seek(pos)
+        }
+    }
+
+    #[test]
+    fn vita_bulk_read_retries_short_reads_and_respects_resource_length() {
+        let input: Vec<u8> = (0..300_000).map(|i| (i % 251) as u8).collect();
+        let mut reader = ShortReader {
+            cursor: std::io::Cursor::new(input.clone()),
+            max_read: 7001,
+            requests: Vec::new(),
+        };
+        let length = input.len() - 7;
+        assert_eq!(read_vita_stream(&mut reader, length as u64).unwrap(), input[..length]);
+        assert_eq!(reader.requests[0], 128 * 1024);
+        assert!(reader.requests.iter().all(|&n| n <= 128 * 1024));
+        let mut tail = [0; 7];
+        reader.read_exact(&mut tail).unwrap();
+        assert_eq!(tail, input[length..]);
+    }
+
+    #[test]
+    fn vita_bulk_read_handles_empty_and_truncated_resources() {
+        let mut reader = std::io::Cursor::new(alloc::vec![1, 2, 3]);
+        assert!(read_vita_stream(&mut reader, 0).unwrap().is_empty());
+        assert!(read_vita_stream(&mut reader, 4).is_err());
+    }
 
     /// A game directory held in memory.
     struct MemoryDir(BTreeMap<String, Vec<u8>>);

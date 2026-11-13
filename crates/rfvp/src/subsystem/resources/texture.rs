@@ -19,6 +19,16 @@ use std::path::Path;
 
 use image::{DynamicImage, GrayAlphaImage, ImageBuffer};
 
+// Host unit tests exercise the helpers, but only Vita uses them in the engine.
+#[cfg(any(target_os = "vita", all(test, feature = "no_std")))]
+mod vita;
+
+#[cfg(target_os = "vita")]
+extern "C" {
+    fn rfvp_psv_bgra_to_rgba(src: *const u8, dst: *mut u8, count: usize);
+    fn rfvp_psv_bgr_to_rgba(src: *const u8, dst: *mut u8, count: usize);
+}
+
 #[allow(clippy::enum_variant_names)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TextureType {
@@ -86,6 +96,9 @@ pub struct NvsgTexture {
     unknown3: u32,
     unknown4: u32,
     slices: Vec<Vec<u8>>,
+    // Keep a multi-frame Vita resource in its original decompression allocation.
+    #[cfg(any(target_os = "vita", all(test, feature = "no_std")))]
+    packed_frames: Option<Vec<u8>>,
     #[cfg(feature = "psx")]
     clut_stride: u32,
     #[cfg(feature = "psx")]
@@ -109,6 +122,8 @@ impl NvsgTexture {
             unknown3: 0,
             unknown4: 0,
             slices: vec![],
+            #[cfg(any(target_os = "vita", all(test, feature = "no_std")))]
+            packed_frames: None,
             #[cfg(feature = "psx")]
             clut_stride: 0,
             #[cfg(feature = "psx")]
@@ -128,6 +143,10 @@ impl NvsgTexture {
     /// is released, but header fields and the name pointer are left untouched.
     pub fn clear_slices_keep_header(&mut self) {
         self.slices.clear();
+        #[cfg(target_os = "vita")]
+        {
+            self.packed_frames = None;
+        }
         self.outlen = None;
     }
 
@@ -232,6 +251,10 @@ impl NvsgTexture {
             self.entry_count = 1;
         }
 
+        #[cfg(target_os = "vita")]
+        let data_buff = data_buff.get(hzc1hdr.header_length as usize..)
+            .ok_or_else(|| anyhow!("NVSG header exceeds input"))?;
+        #[cfg(not(target_os = "vita"))]
         let data_buff = &data_buff[hzc1hdr.header_length as usize..];
 
         #[cfg(feature = "psx")]
@@ -255,7 +278,14 @@ impl NvsgTexture {
 
         let out_len = hzc1hdr.original_length as usize;
 
-        #[cfg(all(feature = "zlib-flate2", not(feature = "no_std")))]
+        #[cfg(target_os = "vita")]
+        let mut out_buff = vita::inflate(data_buff, out_len)?;
+
+        #[cfg(all(
+            not(target_os = "vita"),
+            feature = "zlib-flate2",
+            not(feature = "no_std")
+        ))]
         let mut out_buff = {
             let mut out_buff = vec![0; out_len];
             let mut decoder = ZlibDecoder::new(data_buff);
@@ -264,6 +294,7 @@ impl NvsgTexture {
         };
 
         #[cfg(all(
+            not(target_os = "vita"),
             not(feature = "zlib-flate2"),
             any(feature = "uefi-zlib", feature = "no_std")
         ))]
@@ -295,6 +326,20 @@ impl NvsgTexture {
         self.slices.clear();
         self.outlen = Some(out_len);
         let frame_len = self.width as u64 * self.height as u64 * depth;
+
+        #[cfg(target_os = "vita")]
+        {
+            self.packed_frames = None;
+            if self.typ == TextureType::Multi32Bit {
+                self.packed_frames = Some(out_buff);
+                return Ok(());
+            }
+            // A complete single frame can take ownership without another copy.
+            if self.entry_count == 1 && frame_len == out_buff.len() as u64 {
+                self.slices.push(out_buff);
+                return Ok(());
+            }
+        }
 
         for i in 0..self.entry_count as u64 {
             let frame = out_buff
@@ -398,6 +443,7 @@ impl NvsgTexture {
         green_value: i32,
         blue_value: i32,
     ) -> Result<()> {
+        #[cfg(not(target_os = "vita"))]
         if index >= self.slices.len() {
             bail!("Invalid index: {}", index);
         }
@@ -412,6 +458,10 @@ impl NvsgTexture {
         //
         // Script contract for GraphRGB/PartsRGB tone values:
         //   0..=200, where 100 is a no-op.
+        #[cfg(target_os = "vita")]
+        let texture = self.frame_slice_mut(index)
+            .ok_or_else(|| anyhow!("invalid texture frame {}", index))?;
+        #[cfg(not(target_os = "vita"))]
         let texture = &mut self.slices[index];
 
         let r_adj = red_value.clamp(0, 200) as u32;
@@ -478,6 +528,7 @@ impl NvsgTexture {
         Ok(())
     }
 
+    #[cfg(not(target_os = "vita"))]
     fn as_8bit_texture(&self, index: usize) -> Result<GrayAlphaImage> {
         let slice = &self.slices[index];
         let mut img = GrayAlphaImage::new(self.width as u32, self.height as u32);
@@ -489,6 +540,19 @@ impl NvsgTexture {
         }
 
         Ok(img)
+    }
+
+    #[cfg(target_os = "vita")]
+    fn as_8bit_texture(&self, index: usize) -> Result<GrayAlphaImage> {
+        let slice = self.frame_bytes(index, 1)?;
+        let output_len = slice.len().checked_mul(2)
+            .ok_or_else(|| anyhow::anyhow!("alpha image size overflow"))?;
+        let mut pixels = Vec::with_capacity(output_len);
+        for &alpha in slice {
+            pixels.extend_from_slice(&[0xff, alpha]);
+        }
+        GrayAlphaImage::from_raw(self.width as u32, self.height as u32, pixels)
+            .ok_or_else(|| anyhow::anyhow!("invalid alpha image dimensions"))
     }
 
     #[cfg(not(feature = "no_std"))]
@@ -508,6 +572,7 @@ impl NvsgTexture {
         Ok(())
     }
 
+    #[cfg(not(target_os = "vita"))]
     fn as_24bit_texture(&self, index: usize) -> Result<ImageBuffer<image::Rgb<u8>, Vec<u8>>> {
         let slice = &self.slices[index];
         let mut img = ImageBuffer::new(self.width as u32, self.height as u32);
@@ -523,6 +588,17 @@ impl NvsgTexture {
         Ok(img)
     }
 
+    #[cfg(target_os = "vita")]
+    fn as_24bit_texture(&self, index: usize) -> Result<ImageBuffer<image::Rgb<u8>, Vec<u8>>> {
+        let mut pixels = self.frame_bytes(index, 3)?.to_vec();
+        for pixel in pixels.chunks_exact_mut(3) {
+            pixel.swap(0, 2);
+        }
+        ImageBuffer::from_raw(self.width as u32, self.height as u32, pixels)
+            .ok_or_else(|| anyhow::anyhow!("invalid RGB image dimensions"))
+    }
+
+    #[cfg(not(target_os = "vita"))]
     fn as_24bit_to_32bit_texture(
         &self,
         index: usize,
@@ -539,6 +615,27 @@ impl NvsgTexture {
         }
 
         Ok(img)
+    }
+
+    #[cfg(target_os = "vita")]
+    fn as_24bit_to_32bit_texture(
+        &self,
+        index: usize,
+    ) -> Result<ImageBuffer<image::Rgba<u8>, Vec<u8>>> {
+        let slice = self.frame_bytes(index, 3)?;
+        let output_len = (self.width as usize)
+            .checked_mul(self.height as usize)
+            .and_then(|n| n.checked_mul(4))
+            .ok_or_else(|| anyhow::anyhow!("RGBA image size overflow"))?;
+        let mut pixels = Vec::with_capacity(output_len);
+        // SAFETY: frame_bytes validated 3 bytes per pixel; output_len is the
+        // checked 4-byte size. The converter writes all pixels, including tails.
+        unsafe {
+            rfvp_psv_bgr_to_rgba(slice.as_ptr(), pixels.as_mut_ptr(), output_len / 4);
+            pixels.set_len(output_len);
+        }
+        ImageBuffer::from_raw(self.width as u32, self.height as u32, pixels)
+            .ok_or_else(|| anyhow::anyhow!("invalid RGBA image dimensions"))
     }
 
     #[cfg(not(feature = "no_std"))]
@@ -559,6 +656,7 @@ impl NvsgTexture {
         Ok(())
     }
 
+    #[cfg(not(target_os = "vita"))]
     fn as_32bit_texture(&self, index: usize) -> Result<ImageBuffer<image::Rgba<u8>, Vec<u8>>> {
         let slice = &self.slices[index];
         let mut img = ImageBuffer::new(self.width as u32, self.height as u32);
@@ -573,6 +671,60 @@ impl NvsgTexture {
         }
 
         Ok(img)
+    }
+
+    #[cfg(target_os = "vita")]
+    fn as_32bit_texture(&self, index: usize) -> Result<ImageBuffer<image::Rgba<u8>, Vec<u8>>> {
+        let source = self.frame_bytes(index, 4)?;
+        let mut pixels = Vec::with_capacity(source.len());
+        // SAFETY: frame_bytes checked the complete source, and the converter
+        // initializes every pixel in the separate destination, including tails.
+        unsafe {
+            rfvp_psv_bgra_to_rgba(source.as_ptr(), pixels.as_mut_ptr(), source.len() / 4);
+            pixels.set_len(source.len());
+        }
+        ImageBuffer::from_raw(self.width as u32, self.height as u32, pixels)
+            .ok_or_else(|| anyhow!("invalid RGBA image dimensions"))
+    }
+
+    #[cfg(any(target_os = "vita", all(test, feature = "no_std")))]
+    fn frame_bytes(&self, index: usize, channels: usize) -> Result<&[u8]> {
+        let length = (self.width as usize)
+            .checked_mul(self.height as usize)
+            .and_then(|n| n.checked_mul(channels))
+            .ok_or_else(|| anyhow::anyhow!("image size overflow"))?;
+        self.frame_slice(index)
+            .and_then(|frame| frame.get(..length))
+            .ok_or_else(|| anyhow::anyhow!("invalid or truncated texture frame {}", index))
+    }
+
+    #[cfg(any(target_os = "vita", all(test, feature = "no_std")))]
+    fn packed_frame_range(&self, index: usize) -> Option<core::ops::Range<usize>> {
+        if self.typ != TextureType::Multi32Bit || index >= self.entry_count as usize {
+            return None;
+        }
+        let stride = (self.width as usize).checked_mul(self.height as usize)?.checked_mul(4)?;
+        let start = index.checked_mul(stride)?;
+        Some(start..start.checked_add(stride)?)
+    }
+
+    #[cfg(any(target_os = "vita", all(test, feature = "no_std")))]
+    fn frame_slice(&self, index: usize) -> Option<&[u8]> {
+        if let Some(pixels) = self.packed_frames.as_ref() {
+            pixels.get(self.packed_frame_range(index)?)
+        } else {
+            self.slices.get(index).map(Vec::as_slice)
+        }
+    }
+
+    #[cfg(any(target_os = "vita", all(test, feature = "no_std")))]
+    fn frame_slice_mut(&mut self, index: usize) -> Option<&mut [u8]> {
+        if self.packed_frames.is_some() {
+            let range = self.packed_frame_range(index)?;
+            self.packed_frames.as_mut()?.get_mut(range)
+        } else {
+            self.slices.get_mut(index).map(Vec::as_mut_slice)
+        }
     }
 
     #[cfg(not(feature = "no_std"))]
@@ -664,6 +816,11 @@ impl NvsgTexture {
     }
 
     pub fn get_texture(&self, index: usize) -> Result<DynamicImage> {
+        #[cfg(target_os = "vita")]
+        if self.frame_slice(index).is_none() {
+            bail!("Invalid index: {}", index);
+        }
+        #[cfg(not(target_os = "vita"))]
         if index >= self.slices.len() {
             bail!("Invalid index: {}", index);
         }

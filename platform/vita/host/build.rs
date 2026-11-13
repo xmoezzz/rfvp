@@ -140,6 +140,7 @@ fn compile_c(compiler: &Path, source: &str, object: &Path, includes: &[&Path], d
         .arg("-o")
         .arg(object)
         .arg("-std=c11")
+        .arg(if env::var("PROFILE").as_deref() == Ok("release") { "-O2" } else { "-O0" })
         .arg("-Wall")
         .arg("-Wextra")
         .arg("-Werror=implicit-function-declaration");
