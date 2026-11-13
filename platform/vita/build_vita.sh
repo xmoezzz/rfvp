@@ -15,7 +15,10 @@ source "$ROOT_DIR/platform/consoles/toolchain.env"
 export VITASDK="${VITASDK:-/usr/local/vitasdk}"
 export PATH="$VITASDK/bin:$PATH"
 TOOLCHAIN="${RFVP_CONSOLE_NIGHTLY}"
-OUT_DIR="$ROOT_DIR/target/rfvp-psv/psv"
+# Where the packaged VPK (or self) is copied for convenience. The default stays inside the
+# source tree; a call that must not share another window's output (or the source tree at all)
+# points RFVP_PSV_OUT_DIR at its own directory.
+OUT_DIR="${RFVP_PSV_OUT_DIR:-$ROOT_DIR/target/rfvp-psv/psv}"
 BUILD_KIND=vpk
 EXTENSION=vpk
 OUTPUT_NAME=rfvp.vpk

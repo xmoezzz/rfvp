@@ -52,7 +52,7 @@ If you want to run a translated game, currently we only support UTF-8 and GBK en
 * Any other ways that the translated game differs from the original game in terms of data structure and format.
 
 #### `config.toml` (console ports)
-A console has no launcher to pick the encoding or the script, so the console ports (PS Vita, Switch, PSP, PS2, PS3, 3DS, Wii, Wii U; not the PS1, which runs what `rfvp-psx-convert` built) read an optional `config.toml` from the **game directory** (the folder that holds the `*.hcb` and `*.bin` files). What it sets wins over the port's defaults (the first `*.hcb` found, ShiftJIS) and over a port's `nls.txt`:
+Console ports without a launcher need a configuration file to pick the encoding or script. The console ports (PS Vita, Switch, PSP, PS2, PS3, 3DS, Wii, Wii U; not the PS1, which runs what `rfvp-psx-convert` built) read an optional `config.toml` from the **game directory** (the folder that holds the `*.hcb` and `*.bin` files). On PS Vita, the file browser can explicitly override the script and encoding; see `platform/vita/LAUNCHER.md`. Otherwise, what the file sets wins over the port's defaults (the first `*.hcb` found, ShiftJIS) and over a port's `nls.txt`:
 
 ```toml
 [game]
@@ -130,7 +130,7 @@ When any LLM or autonomous coding agent inspects, refactors, or contributes to t
 | WASM     | Bundle                                            |      Yes |                    No | **Any architecture** (via WASI)          | Supported |
 | FreeBSD  | Standalone                                                 |       No |                   Yes | x86_64 | Supported |
 | UEFI     | Standalone EFI (`.efi`)                                             |       No |                   Yes | x86_64, arm64                       | Supported |
-| PS Vita  | Standalone (`.eboot`)                                               |       No |                   Yes | armv7                   | Experimental |
+| PS Vita  | Standalone (`.vpk` / `.eboot`)                                      |      Yes |                   Yes | armv7                   | Experimental |
 | PSP      | Standalone (`.eboot`)                                               |       No |                   Yes | MIPS R4000                 | Skeleton |
 | PS3      | Static Library (`.a`)                                               |       No |                   Yes | PPC64BE                   | Skeleton |
 | PS2      | Static Library (`.a`)                                               |       No |                   Yes | MIPS R5900                   | Skeleton |
@@ -144,7 +144,7 @@ When any LLM or autonomous coding agent inspects, refactors, or contributes to t
 
 **Status**
 * **Supported**: built by CI on every push.
-* **Experimental** (PS Vita, Switch): `rfvp-psv` and `rfvp-horizon` are the real console targets. They build on every change that touches them, and the core they run boots, plays and saves a real game in a desktop test host, but they have not been run on a console yet. See `platform/switch/README.md` and `platform/vita/README.md`.
+* **Experimental** (PS Vita, Switch): `rfvp-psv` and `rfvp-horizon` are the real console targets. They build on every change that touches them, and the core they run boots, plays and saves a real game in a desktop test host, with hardware verification scoped in each platform README. See `platform/switch/README.md` and `platform/vita/README.md`.
 * **Skeleton** (PSP, PS3, PS2, Wii U, Wii, 3DS): host crates that exist so the `no_std` core surface has a place to plug in. They are untested and not built by CI; expect to rebuild them at a lower resolution before they are usable.
 
 ### As Library

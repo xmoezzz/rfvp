@@ -67,6 +67,10 @@ pub struct RfvpBootConfig<'a> {
     /// one is read in 4 KiB pages through a cache this large. Scripts jump about a lot, and on
     /// a console every page brought in again is a file read.
     pub hcb_cache_bytes: usize,
+    /// Script selected by a launcher, relative to asset_root. Overrides config.toml.
+    pub hcb_file: Option<&'a str>,
+    /// Explicit/remembered script encoding. Does not replace any translation data.
+    pub nls_override: Option<Nls>,
 }
 
 impl<'a> Default for RfvpBootConfig<'a> {
@@ -78,6 +82,8 @@ impl<'a> Default for RfvpBootConfig<'a> {
             max_manifest_entries: 1024,
             nls: Nls::ShiftJIS,
             hcb_cache_bytes: 32 * 1024,
+            hcb_file: None,
+            nls_override: None,
         }
     }
 }
@@ -311,10 +317,12 @@ impl RfvpCore {
                 self.last_error_detail = Some(detail);
                 RfvpError::InvalidData
             })?;
-            if let Some(nls) = config.nls {
+            if let Some(nls) = boot.nls_override.or(config.nls) {
                 boot.nls = nls;
             }
-            config.hcb.map(|hcb| join_asset_path(boot.asset_root, &hcb))
+            boot.hcb_file
+                .map(|hcb| join_asset_path(boot.asset_root, hcb))
+                .or_else(|| config.hcb.map(|hcb| join_asset_path(boot.asset_root, &hcb)))
         };
         #[cfg(feature = "psx")]
         let hcb_override: Option<String> = None;

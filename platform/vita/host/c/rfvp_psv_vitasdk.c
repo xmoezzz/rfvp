@@ -52,6 +52,7 @@ typedef struct RfvpPsvVitasdkState {
     int32_t touch_y;
     int32_t cursor_x;
     int32_t cursor_y;
+    int browser_touch_active;
     uint32_t previous_buttons;
 } RfvpPsvVitasdkState;
 
@@ -374,6 +375,60 @@ int32_t rfvp_psv_platform_poll(PsvApp *app) {
 
 int32_t rfvp_psv_platform_should_exit(void) {
     return g_rfvp_psv_vitasdk.exit_requested ? 1 : 0;
+}
+
+/* Input for the file browser, which runs before any game exists and so has no PsvApp to push
+ * events into. Button edges are taken from the same `previous_buttons` the game poll uses, so
+ * the frame after a launch does not see a button that was already held in the browser as a new
+ * press. Touch edges are tracked separately from the game's, for the same reason. */
+int32_t rfvp_psv_platform_poll_browser(RfvpPsvBrowserInput *out) {
+    if (out == NULL) {
+        return RFVP_PSV_INVALID_ARGUMENT;
+    }
+    memset(out, 0, sizeof(*out));
+
+    SceCtrlData pad;
+    memset(&pad, 0, sizeof(pad));
+    if (sceCtrlPeekBufferPositive(0, &pad, 1) < 0) {
+        return RFVP_PSV_BACKEND;
+    }
+    uint32_t buttons = pad.buttons;
+    out->pressed = buttons & ~g_rfvp_psv_vitasdk.previous_buttons;
+    out->released = g_rfvp_psv_vitasdk.previous_buttons & ~buttons;
+    out->held = buttons;
+    g_rfvp_psv_vitasdk.previous_buttons = buttons;
+    out->stick_x = (int32_t)pad.lx;
+    out->stick_y = (int32_t)pad.ly;
+
+    SceTouchData touch;
+    memset(&touch, 0, sizeof(touch));
+    int touch_read = sceTouchPeek(SCE_TOUCH_PORT_FRONT, &touch, 1);
+    if (touch_read < 0) {
+        /* The panel is unreadable: report no contact so a caller waiting for release cannot
+         * spin forever, but say so through the return code. */
+        return RFVP_PSV_BACKEND;
+    }
+    /* Whether a finger is on the panel *now*, independent of the edge below. */
+    out->touch_held = touch.reportNum > 0 ? 1 : 0;
+    if (touch.reportNum > 0) {
+        const SceTouchReport *report = &touch.report[0];
+        int32_t x = (int32_t)(((uint64_t)report->x * (uint64_t)RFVP_PSV_VITASDK_SCREEN_WIDTH) / ((uint64_t)RFVP_PSV_VITASDK_TOUCH_MAX_X + 1ull));
+        int32_t y = (int32_t)(((uint64_t)report->y * (uint64_t)RFVP_PSV_VITASDK_SCREEN_HEIGHT) / ((uint64_t)RFVP_PSV_VITASDK_TOUCH_MAX_Y + 1ull));
+        if (x < 0) { x = 0; }
+        if (y < 0) { y = 0; }
+        if (x >= (int32_t)RFVP_PSV_VITASDK_SCREEN_WIDTH) { x = (int32_t)RFVP_PSV_VITASDK_SCREEN_WIDTH - 1; }
+        if (y >= (int32_t)RFVP_PSV_VITASDK_SCREEN_HEIGHT) { y = (int32_t)RFVP_PSV_VITASDK_SCREEN_HEIGHT - 1; }
+        out->touch_x = x;
+        out->touch_y = y;
+        out->touch_down = g_rfvp_psv_vitasdk.browser_touch_active ? 0 : 1;
+        g_rfvp_psv_vitasdk.browser_touch_active = 1;
+    } else if (g_rfvp_psv_vitasdk.browser_touch_active) {
+        g_rfvp_psv_vitasdk.browser_touch_active = 0;
+        out->touch_x = g_rfvp_psv_vitasdk.cursor_x;
+        out->touch_y = g_rfvp_psv_vitasdk.cursor_y;
+        out->touch_up = 1;
+    }
+    return RFVP_PSV_OK;
 }
 
 /* Leave the process at once; used after a panic, when nothing else can be trusted to run. */

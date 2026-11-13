@@ -201,6 +201,25 @@ typedef struct RawPsvHost {
 
 typedef int32_t (*RfvpPsvPresentCallback)(void *ctx, const uint8_t *rgba8, uint32_t width, uint32_t height, uint32_t stride_bytes);
 
+/* Input for the file browser (rfvp_psv_vitasdk.c). `pressed`/`released`/`held` are
+ * SCE_CTRL_* bits; `touch_down`/`touch_up` are one-frame edges, `touch_held` is the current
+ * state of the panel (1 while a finger is on it) so a caller can truly wait for release;
+ * `stick_x`/`stick_y` are raw 0..255 axes. */
+typedef struct RfvpPsvBrowserInput {
+    uint32_t pressed;
+    uint32_t released;
+    uint32_t held;
+    int32_t touch_down;
+    int32_t touch_up;
+    int32_t touch_held;
+    int32_t touch_x;
+    int32_t touch_y;
+    int32_t stick_x;
+    int32_t stick_y;
+} RfvpPsvBrowserInput;
+
+int32_t rfvp_psv_platform_poll_browser(RfvpPsvBrowserInput *out);
+
 void *rfvp_psv_alloc(size_t size, size_t align);
 void rfvp_psv_dealloc(void *ptr, size_t size, size_t align);
 
@@ -216,6 +235,8 @@ void rfvp_psv_c_audio_shutdown(void);
 void rfvp_psv_platform_fatal_error(uint32_t code, const uint8_t *message, size_t message_len);
 
 int32_t rfvp_psv_c_set_asset_root(const char *root);
+/* One directory level (files and subdirectories) for the file browser. */
+int32_t rfvp_psv_c_list_dir(const uint8_t *dir, size_t dir_len, void *visitor_ctx, RawEnumerateByExtensionVisitorFn visitor);
 void rfvp_psv_c_set_present_callback(RfvpPsvPresentCallback callback, void *ctx);
 void rfvp_psv_c_write_log(const char *name, const uint8_t *text, size_t text_len);
 int32_t rfvp_psv_c_present_rgba(const uint8_t *rgba8, uint32_t width, uint32_t height, uint32_t stride_bytes);

@@ -1,4 +1,7 @@
-#![no_std]
+// `no_std` everywhere it is built for the console; unit tests of the pure logic (path rules) run
+// on the host, where the test harness needs `std`. The console build is unaffected: `test` is
+// never set for it.
+#![cfg_attr(not(test), no_std)]
 
 extern crate alloc;
 
@@ -12,6 +15,7 @@ pub mod clock;
 pub mod event;
 pub mod fs;
 pub mod host;
+pub mod paths;
 pub mod raw;
 pub mod render;
 pub mod status;

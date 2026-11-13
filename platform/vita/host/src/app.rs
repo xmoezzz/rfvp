@@ -38,6 +38,13 @@ impl PsvApp {
         self.events.push(event)
     }
 
+    /// Throw away input that was collected before (or while) a game started, so the click that
+    /// started a game cannot also advance its first line of dialogue.
+    pub fn clear_pending_events(&mut self) {
+        self.events.clear();
+        self.core.clear_events();
+    }
+
     pub fn boot(&mut self, config: RfvpBootConfig<'_>) -> RfvpResult<()> {
         self.core.boot(&mut self.host, config)
     }

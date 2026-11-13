@@ -14,9 +14,61 @@ pub struct PsvFileSystem {
     vtable: RawFileSystemVTable,
 }
 
+/// How many entries one directory listing keeps. A directory with more is reported as truncated
+/// rather than shown incomplete without a word or grown until the heap runs out.
+pub const MAX_DIR_ENTRIES: usize = 1024;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DirEntry {
+    pub name: String,
+    pub is_dir: bool,
+    pub len: u64,
+}
+
+/// One directory level as the file browser sees it: files and subdirectories, not recursive.
+pub struct DirListing {
+    pub entries: Vec<DirEntry>,
+    /// More entries existed than [`MAX_DIR_ENTRIES`]; the list is the first that many.
+    pub truncated: bool,
+}
+
 impl PsvFileSystem {
     pub const fn new(ctx: *mut c_void, vtable: RawFileSystemVTable) -> Self {
         Self { ctx, vtable }
+    }
+
+    /// List one directory level. The platform opens and closes the directory itself, so a failed
+    /// listing leaves no handle behind.
+    pub fn list_dir(&self, dir: &str) -> RfvpResult<DirListing> {
+        let mut entries: Vec<DirEntry> = Vec::new();
+        let mut truncated = false;
+        {
+            let mut visitor = |name: &str, info: RfvpFileInfo| -> RfvpResult<()> {
+                if entries.len() >= MAX_DIR_ENTRIES {
+                    truncated = true;
+                } else {
+                    entries.push(DirEntry {
+                        name: String::from(name),
+                        is_dir: info.kind == RfvpFileKind::Directory,
+                        len: info.len,
+                    });
+                }
+                Ok(())
+            };
+            let mut bridge = VisitorBridge {
+                visitor: &mut visitor,
+            };
+            let status = unsafe {
+                rfvp_psv_c_list_dir(
+                    dir.as_ptr(),
+                    dir.len(),
+                    (&mut bridge as *mut VisitorBridge<'_>).cast::<c_void>(),
+                    enumerate_visitor_bridge,
+                )
+            };
+            status_to_result(status)?;
+        }
+        Ok(DirListing { entries, truncated })
     }
 }
 
@@ -287,6 +339,15 @@ struct VisitorBridge<'a> {
 extern "C" {
     /// The files directly in a directory of the game folder (rfvp_psv_c.c).
     fn rfvp_psv_c_list_files(
+        dir: *const u8,
+        dir_len: usize,
+        visitor_ctx: *mut c_void,
+        visitor: crate::raw::RawEnumerateByExtensionVisitorFn,
+    ) -> i32;
+
+    /// The files and subdirectories directly in a directory, for the file browser
+    /// (rfvp_psv_c.c).
+    fn rfvp_psv_c_list_dir(
         dir: *const u8,
         dir_len: usize,
         visitor_ctx: *mut c_void,

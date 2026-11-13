@@ -28,8 +28,8 @@ global-allocator = []
 
 ## Status
 
-**Experimental.** It compiles and produces a VPK, and the core it runs has been played through a
-desktop test host (see below), but it has not been run on a Vita or an emulator yet.
+**Experimental.** The port compiles and produces a VPK. A local build of the new HCB browser has
+been used on a Vita; see [launcher controls, configuration, screenshots and verification scope](LAUNCHER.md).
 
 ## Building
 
@@ -42,8 +42,9 @@ installs the pinned nightly from `platform/consoles/toolchain.env`.
 
 ## Installing a game
 
-Install the VPK, then copy the game to `ux0:data/rfvp/game/` (the folder can be changed at build
-time with `RFVP_PSV_VITASDK_ASSET_ROOT`):
+Install the VPK, provide the browser font described in [LAUNCHER.md](LAUNCHER.md), and browse to
+the game's `.hcb`. Its directory must contain the following resources. Existing installations
+in `ux0:data/rfvp/game/` remain supported:
 
 | File | |
 | --- | --- |
