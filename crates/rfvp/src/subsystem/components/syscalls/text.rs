@@ -355,14 +355,21 @@ pub fn text_format(
         _ => None,
     };
     #[cfg(feature = "old_school")]
-    {
-        space_vertical = space_vertical.map(|v| scale_i32(game_data, v as i32) as i16);
-        space_horizon = space_horizon.map(|v| scale_i32(game_data, v as i32) as i16);
-        text_start_vertical = text_start_vertical.map(|v| game_data.scale_old_school_u16(v));
-        text_start_horizon = text_start_horizon.map(|v| game_data.scale_old_school_u16(v));
-        ruby_horizon = ruby_horizon.map(|v| scale_i32(game_data, v as i32) as i16);
-        ruby_vertical = ruby_vertical.map(|v| scale_i32(game_data, v as i32) as i16);
-    }
+    let (
+        space_vertical,
+        space_horizon,
+        text_start_vertical,
+        text_start_horizon,
+        ruby_horizon,
+        ruby_vertical,
+    ) = (
+        space_vertical.map(|v| scale_i32(game_data, v as i32) as i16),
+        space_horizon.map(|v| scale_i32(game_data, v as i32) as i16),
+        text_start_vertical.map(|v| game_data.scale_old_school_u16(v)),
+        text_start_horizon.map(|v| game_data.scale_old_school_u16(v)),
+        ruby_horizon.map(|v| scale_i32(game_data, v as i32) as i16),
+        ruby_vertical.map(|v| scale_i32(game_data, v as i32) as i16),
+    );
 
     game_data.motion_manager.text_manager.apply_text_format(
         id,

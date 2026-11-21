@@ -433,10 +433,7 @@ pub fn prim_set_snow(
     let x = x.as_int().unwrap_or(0);
     let y = y.as_int().unwrap_or(0);
     #[cfg(feature = "old_school")]
-    {
-        x = scale_i32(game_data, x);
-        y = scale_i32(game_data, y);
-    }
+    let (x, y) = (scale_i32(game_data, x), scale_i32(game_data, y));
 
     game_data
         .motion_manager
@@ -504,10 +501,7 @@ pub fn prim_set_sprt(
     let x = x.as_int().unwrap_or(0);
     let y = y.as_int().unwrap_or(0);
     #[cfg(feature = "old_school")]
-    {
-        x = scale_i32(game_data, x);
-        y = scale_i32(game_data, y);
-    }
+    let (x, y) = (scale_i32(game_data, x), scale_i32(game_data, y));
 
     game_data
         .motion_manager
@@ -580,10 +574,7 @@ pub fn prim_set_text(
     let x = x.as_int().unwrap_or(0);
     let y = y.as_int().unwrap_or(0);
     #[cfg(feature = "old_school")]
-    {
-        x = scale_i32(game_data, x);
-        y = scale_i32(game_data, y);
-    }
+    let (x, y) = (scale_i32(game_data, x), scale_i32(game_data, y));
 
     game_data
         .motion_manager
@@ -652,12 +643,12 @@ pub fn prim_set_tile(
     let w = w.as_int().unwrap_or(0);
     let h = h.as_int().unwrap_or(0);
     #[cfg(feature = "old_school")]
-    {
-        x = scale_i32(game_data, x);
-        y = scale_i32(game_data, y);
-        w = scale_i32(game_data, w);
-        h = scale_i32(game_data, h);
-    }
+    let (x, y, w, h) = (
+        scale_i32(game_data, x),
+        scale_i32(game_data, y),
+        scale_i32(game_data, w),
+        scale_i32(game_data, h),
+    );
     game_data.motion_manager.prim_manager.prim_set_pos(id, x, y);
     game_data
         .motion_manager
@@ -710,10 +701,7 @@ pub fn prim_set_uv(
         }
     };
     #[cfg(feature = "old_school")]
-    {
-        u = scale_i32(game_data, u);
-        v = scale_i32(game_data, v);
-    }
+    let (u, v) = (scale_i32(game_data, u), scale_i32(game_data, v));
 
     game_data.motion_manager.prim_manager.prim_set_uv(id, u, v);
     game_data.motion_manager.prim_manager.prim_add_attr(id, 1);
@@ -778,10 +766,7 @@ pub fn prim_set_xy(
             .into()
     };
     #[cfg(feature = "old_school")]
-    {
-        x = scale_i32(game_data, x);
-        y = scale_i32(game_data, y);
-    }
+    let (x, y) = (scale_i32(game_data, x), scale_i32(game_data, y));
 
     game_data.motion_manager.prim_manager.prim_set_pos(id, x, y);
     game_data
@@ -845,10 +830,7 @@ pub fn prim_set_wh(
             .into()
     };
     #[cfg(feature = "old_school")]
-    {
-        w = scale_i32(game_data, w);
-        h = scale_i32(game_data, h);
-    }
+    let (w, h) = (scale_i32(game_data, w), scale_i32(game_data, h));
 
     game_data
         .motion_manager
