@@ -23,16 +23,6 @@ impl<'a> GetBits<'a> {
     }
 
     #[inline]
-    pub fn bits_count(&self) -> usize {
-        self.bit_pos
-    }
-
-    #[inline]
-    pub fn align(&mut self) {
-        self.bit_pos = (self.bit_pos + 7) & !7;
-    }
-
-    #[inline]
     pub fn skip_bits(&mut self, n: usize) {
         self.bit_pos = self.bit_pos.saturating_add(n);
     }
@@ -67,11 +57,6 @@ impl<'a> GetBits<'a> {
         let acc = acc << shift;
         let val = (acc >> (64 - n)) as u32;
         val
-    }
-
-    #[inline]
-    pub fn show_bits_long(&self, n: usize) -> u32 {
-        self.show_bits(n)
     }
 
     #[inline]

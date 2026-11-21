@@ -1,7 +1,7 @@
 use std::sync::OnceLock;
 
 use super::tables::*;
-use super::vlc::{RlVlcElem, Vlc, VlcElem};
+use super::vlc::{RlVlcElem, Vlc};
 
 pub const DC_VLC_BITS: i32 = 9;
 pub const MV_VLC_BITS: i32 = 8;
@@ -23,8 +23,8 @@ pub const MB_TYPE_BACKWARD_MV: i16 = 0x0008;
 pub const MB_TYPE_BIDIR_MV: i16 = 0x0010;
 pub const MB_TYPE_QUANT: i16 = 0x0020;
 
-pub const MB_TYPE_16x16: i16 = 0x0040;
-pub const MB_TYPE_16x8: i16 = 0x0080;
+pub const MB_TYPE_16X16: i16 = 0x0040;
+pub const MB_TYPE_16X8: i16 = 0x0080;
 pub const MB_TYPE_INTERLACED: i16 = 0x0100;
 pub const MB_TYPE_SKIP: i16 = 0x0200;
 
@@ -165,11 +165,11 @@ fn build() -> Mpeg12Vlcs {
 
     const PTYPE2MB_TYPE: [i16; 7] = [
         MB_TYPE_INTRA,
-        MB_TYPE_FORWARD_MV | MB_TYPE_CBP | MB_TYPE_ZERO_MV | MB_TYPE_16x16,
+        MB_TYPE_FORWARD_MV | MB_TYPE_CBP | MB_TYPE_ZERO_MV | MB_TYPE_16X16,
         MB_TYPE_FORWARD_MV,
         MB_TYPE_FORWARD_MV | MB_TYPE_CBP,
         MB_TYPE_QUANT | MB_TYPE_INTRA,
-        MB_TYPE_QUANT | MB_TYPE_FORWARD_MV | MB_TYPE_CBP | MB_TYPE_ZERO_MV | MB_TYPE_16x16,
+        MB_TYPE_QUANT | MB_TYPE_FORWARD_MV | MB_TYPE_CBP | MB_TYPE_ZERO_MV | MB_TYPE_16X16,
         MB_TYPE_QUANT | MB_TYPE_FORWARD_MV | MB_TYPE_CBP,
     ];
 

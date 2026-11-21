@@ -1,4 +1,3 @@
-use crate::script::Variant;
 #[cfg(feature = "no_std")]
 use alloc::{
     boxed::Box,
