@@ -4,7 +4,6 @@ mod error;
 mod frame;
 mod idct;
 mod motion;
-mod startcode;
 mod tables;
 mod utils;
 mod videodsp;

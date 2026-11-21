@@ -178,32 +178,32 @@ pub fn motion_move(
         return Ok(Variant::Nil);
     }
 
-    let mut src_x = match src_x {
+    let src_x = match src_x {
         Variant::Int(x) => *x as i16,
         _ => game_data.motion_manager.prim_manager.get_prim(id).get_x(),
     };
 
-    let mut src_y = match src_y {
+    let src_y = match src_y {
         Variant::Int(y) => *y as i16,
         _ => game_data.motion_manager.prim_manager.get_prim(id).get_y(),
     };
 
-    let mut dst_x = match dst_x {
+    let dst_x = match dst_x {
         Variant::Int(x) => *x as i16,
         _ => game_data.motion_manager.prim_manager.get_prim(id).get_x(),
     };
 
-    let mut dst_y = match dst_y {
+    let dst_y = match dst_y {
         Variant::Int(y) => *y as i16,
         _ => game_data.motion_manager.prim_manager.get_prim(id).get_y(),
     };
     #[cfg(feature = "old_school")]
-    {
-        src_x = scale_i16(game_data, src_x);
-        src_y = scale_i16(game_data, src_y);
-        dst_x = scale_i16(game_data, dst_x);
-        dst_y = scale_i16(game_data, dst_y);
-    }
+    let (src_x, src_y, dst_x, dst_y) = (
+        scale_i16(game_data, src_x),
+        scale_i16(game_data, src_y),
+        scale_i16(game_data, dst_x),
+        scale_i16(game_data, dst_y),
+    );
 
     let duration = match duration {
         Variant::Int(duration) => *duration,

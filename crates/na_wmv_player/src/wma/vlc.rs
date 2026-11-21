@@ -55,108 +55,6 @@ fn alloc_table(vlc: &mut Vlc, size: i32, use_static: bool) -> Result<i32> {
     Ok(index)
 }
 
-fn build_table(
-    vlc: &mut Vlc,
-    table_nb_bits: i32,
-    nb_codes: usize,
-    codes: &mut [VlcCode],
-    flags: i32,
-) -> Result<i32> {
-    if table_nb_bits > 30 {
-        return Err(DecoderError::InvalidData("table_nb_bits > 30".into()));
-    }
-    let table_size = 1 << table_nb_bits;
-    let table_index = alloc_table(vlc, table_size, (flags & VLC_INIT_USE_STATIC) != 0)?;
-
-    let base = table_index as usize;
-
-    for i in 0..nb_codes {
-        let mut n = codes[i].bits as i32;
-        let code = codes[i].code;
-        let symbol = codes[i].symbol;
-
-        if n <= table_nb_bits {
-            let mut j = (code >> (32 - table_nb_bits)) as i32;
-            let nb = 1 << (table_nb_bits - n);
-            let mut inc = 1;
-            if (flags & VLC_INIT_OUTPUT_LE) != 0 {
-                j = (bitswap_32(code) >> (32 - table_nb_bits)) as i32;
-                inc = 1 << n;
-            }
-            for _k in 0..nb {
-                let idx = base + j as usize;
-                let bits = vlc.table[idx].len;
-                let oldsym = vlc.table[idx].sym;
-                if (bits != 0 || oldsym != 0) && (bits != n as i16 || oldsym != symbol) {
-                    return Err(DecoderError::InvalidData("incorrect VLC codes".into()));
-                }
-                vlc.table[idx].len = n as i16;
-                vlc.table[idx].sym = symbol;
-                j += inc;
-            }
-        } else {
-            // Subtable.
-            n -= table_nb_bits;
-            let code_prefix = code >> (32 - table_nb_bits);
-            let mut subtable_bits = n;
-            codes[i].bits = n as u8;
-            codes[i].code = code << table_nb_bits;
-
-            let mut k = i + 1;
-            while k < nb_codes {
-                let nn = codes[k].bits as i32 - table_nb_bits;
-                if nn <= 0 {
-                    break;
-                }
-                let cc = codes[k].code;
-                if (cc >> (32 - table_nb_bits)) != code_prefix {
-                    break;
-                }
-                codes[k].bits = nn as u8;
-                codes[k].code = cc << table_nb_bits;
-                if nn > subtable_bits {
-                    subtable_bits = nn;
-                }
-                k += 1;
-            }
-            if subtable_bits > table_nb_bits {
-                subtable_bits = table_nb_bits;
-            }
-
-            let j = if (flags & VLC_INIT_OUTPUT_LE) != 0 {
-                (bitswap_32(code_prefix) >> (32 - table_nb_bits)) as i32
-            } else {
-                code_prefix as i32
-            };
-
-            let idx = base + j as usize;
-            vlc.table[idx].len = -(subtable_bits as i16);
-
-            let sub_index = build_table(vlc, subtable_bits, k - i, &mut codes[i..k], flags)?;
-
-            // Rebase after possible resize.
-            let base2 = table_index as usize;
-            let idx2 = base2 + j as usize;
-            vlc.table[idx2].sym = sub_index as i16;
-
-            // Skip processed range.
-            // Equivalent to `i = k - 1` in C loop.
-            // We cannot easily modify `i` in Rust for-loop, so handle via while in caller.
-        }
-    }
-
-    // Mark empty entries.
-    let base3 = table_index as usize;
-    for i in 0..table_size {
-        let idx = base3 + i as usize;
-        if vlc.table[idx].len == 0 {
-            vlc.table[idx].sym = -1;
-        }
-    }
-
-    Ok(table_index)
-}
-
 fn vlc_common_init(vlc: &mut Vlc, nb_bits: i32, flags: i32) {
     vlc.bits = nb_bits;
     vlc.table_size = 0;
@@ -171,11 +69,6 @@ fn vlc_common_end(vlc: &mut Vlc, nb_bits: i32, codes: &mut [VlcCode], flags: i32
     // We use a while loop in order to emulate the C for-loop that updates `i`.
     let nb_codes = codes.len();
 
-    // Build table.
-    // Our build_table implementation above uses recursion but does not update outer loop index.
-    // To preserve upstream semantics, we rebuild using a local recursive builder that uses slices.
-
-    // Re-implement build_table logic with slice recursion, closer to C.
     fn build(vlc: &mut Vlc, table_nb_bits: i32, codes: &mut [VlcCode], flags: i32) -> Result<i32> {
         if table_nb_bits > 30 {
             return Err(DecoderError::InvalidData("table_nb_bits > 30".into()));

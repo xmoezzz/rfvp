@@ -1,11 +1,15 @@
+#[cfg(feature = "cursor-ani")]
 use std::{
     fmt,
     io::{Error as IoError, Read, Seek},
 };
 
+#[cfg(feature = "cursor-ani")]
 use crate::platform_time::{Duration, Instant};
 
+#[cfg(feature = "cursor-ani")]
 use bitflags::bitflags;
+#[cfg(feature = "cursor-ani")]
 use byteorder::{LittleEndian, ReadBytesExt};
 #[cfg(feature = "cursor-ani")]
 use ico::IconDir;
@@ -296,7 +300,7 @@ impl CursorBundle {
     pub fn reset(&mut self) {}
 }
 
-#[cfg(feature = "cursor-ani")]
+#[cfg(all(test, feature = "cursor-ani"))]
 mod tests {
     use super::*;
     use std::path::Path;

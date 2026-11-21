@@ -9,7 +9,7 @@ use alloc::{
 use anyhow::{anyhow, Result};
 #[cfg(feature = "old_school")]
 use core_maths::CoreFloat;
-use image::{DynamicImage, GenericImageView, ImageBuffer};
+use image::{DynamicImage, GenericImageView};
 use serde::{Deserialize, Serialize};
 
 use super::texture::NvsgTexture;

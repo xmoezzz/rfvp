@@ -94,8 +94,6 @@ pub struct WmaProDecoder {
     sample_rate: u32,
     block_align: usize,
     bits_per_sample: usize,
-    decode_flags: u32,
-    channel_mask: u32,
 
     log2_frame_size: usize,
     len_prefix: bool,
@@ -293,8 +291,6 @@ impl WmaProDecoder {
             sample_rate: info.sample_rate,
             block_align,
             bits_per_sample,
-            decode_flags,
-            channel_mask,
             log2_frame_size,
             len_prefix: (decode_flags & 0x40) != 0,
             dynamic_range_compression: (decode_flags & 0x80) != 0,
@@ -332,9 +328,6 @@ impl WmaProDecoder {
     }
     pub fn channels(&self) -> u16 {
         self.channels as u16
-    }
-    pub fn frame_len(&self) -> usize {
-        self.samples_per_frame
     }
 
     /// Decode one ASF media object.  All WMA Pro frames contained in the object

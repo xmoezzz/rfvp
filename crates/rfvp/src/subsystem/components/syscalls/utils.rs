@@ -359,6 +359,7 @@ impl Syscaller for TitleMenu {
 unsafe impl Send for TitleMenu {}
 unsafe impl Sync for TitleMenu {}
 
+#[cfg(test)]
 mod tests {
     use super::*;
 

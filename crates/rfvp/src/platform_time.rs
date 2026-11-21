@@ -100,11 +100,11 @@ pub use no_std_time::{set_host_time_us, Duration, Instant, SystemTime, UNIX_EPOC
 
 #[cfg(not(feature = "no_std"))]
 #[cfg(target_arch = "wasm32")]
-pub use web_time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+pub use web_time::{Duration, Instant};
 
 #[cfg(not(feature = "no_std"))]
 #[cfg(all(not(target_arch = "wasm32"), not(target_os = "uefi")))]
-pub use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+pub use std::time::{Duration, Instant};
 
 #[cfg(not(feature = "no_std"))]
 #[cfg(target_os = "uefi")]

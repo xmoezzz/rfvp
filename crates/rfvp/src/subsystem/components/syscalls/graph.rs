@@ -430,13 +430,10 @@ pub fn prim_set_snow(
         return Ok(Variant::Nil);
     }
 
-    let mut x = x.as_int().unwrap_or(0);
-    let mut y = y.as_int().unwrap_or(0);
+    let x = x.as_int().unwrap_or(0);
+    let y = y.as_int().unwrap_or(0);
     #[cfg(feature = "old_school")]
-    {
-        x = scale_i32(game_data, x);
-        y = scale_i32(game_data, y);
-    }
+    let (x, y) = (scale_i32(game_data, x), scale_i32(game_data, y));
 
     game_data
         .motion_manager
@@ -501,13 +498,10 @@ pub fn prim_set_sprt(
         return Ok(Variant::Nil);
     }
 
-    let mut x = x.as_int().unwrap_or(0);
-    let mut y = y.as_int().unwrap_or(0);
+    let x = x.as_int().unwrap_or(0);
+    let y = y.as_int().unwrap_or(0);
     #[cfg(feature = "old_school")]
-    {
-        x = scale_i32(game_data, x);
-        y = scale_i32(game_data, y);
-    }
+    let (x, y) = (scale_i32(game_data, x), scale_i32(game_data, y));
 
     game_data
         .motion_manager
@@ -577,13 +571,10 @@ pub fn prim_set_text(
         return Ok(Variant::Nil);
     }
 
-    let mut x = x.as_int().unwrap_or(0);
-    let mut y = y.as_int().unwrap_or(0);
+    let x = x.as_int().unwrap_or(0);
+    let y = y.as_int().unwrap_or(0);
     #[cfg(feature = "old_school")]
-    {
-        x = scale_i32(game_data, x);
-        y = scale_i32(game_data, y);
-    }
+    let (x, y) = (scale_i32(game_data, x), scale_i32(game_data, y));
 
     game_data
         .motion_manager
@@ -647,17 +638,17 @@ pub fn prim_set_tile(
         .prim_manager
         .prim_set_alpha(id, 255);
     game_data.motion_manager.prim_manager.prim_set_blend(id, 0);
-    let mut x = x.as_int().unwrap_or(0);
-    let mut y = y.as_int().unwrap_or(0);
-    let mut w = w.as_int().unwrap_or(0);
-    let mut h = h.as_int().unwrap_or(0);
+    let x = x.as_int().unwrap_or(0);
+    let y = y.as_int().unwrap_or(0);
+    let w = w.as_int().unwrap_or(0);
+    let h = h.as_int().unwrap_or(0);
     #[cfg(feature = "old_school")]
-    {
-        x = scale_i32(game_data, x);
-        y = scale_i32(game_data, y);
-        w = scale_i32(game_data, w);
-        h = scale_i32(game_data, h);
-    }
+    let (x, y, w, h) = (
+        scale_i32(game_data, x),
+        scale_i32(game_data, y),
+        scale_i32(game_data, w),
+        scale_i32(game_data, h),
+    );
     game_data.motion_manager.prim_manager.prim_set_pos(id, x, y);
     game_data
         .motion_manager
@@ -694,7 +685,7 @@ pub fn prim_set_uv(
         return Ok(Variant::Nil);
     }
 
-    let mut u = match u.as_int() {
+    let u = match u.as_int() {
         Some(u) => u,
         None => {
             log::error!("prim_set_uv: invalid u : {:?}", u);
@@ -702,7 +693,7 @@ pub fn prim_set_uv(
         }
     };
 
-    let mut v = match v.as_int() {
+    let v = match v.as_int() {
         Some(v) => v,
         None => {
             log::error!("prim_set_uv: invalid v : {:?}", v);
@@ -710,10 +701,7 @@ pub fn prim_set_uv(
         }
     };
     #[cfg(feature = "old_school")]
-    {
-        u = scale_i32(game_data, u);
-        v = scale_i32(game_data, v);
-    }
+    let (u, v) = (scale_i32(game_data, u), scale_i32(game_data, v));
 
     game_data.motion_manager.prim_manager.prim_set_uv(id, u, v);
     game_data.motion_manager.prim_manager.prim_add_attr(id, 1);
@@ -744,7 +732,7 @@ pub fn prim_set_xy(
         return Ok(Variant::Nil);
     }
 
-    let mut x = if !x.is_nil() {
+    let x = if !x.is_nil() {
         match x.as_int() {
             Some(x) => x,
             None => {
@@ -761,7 +749,7 @@ pub fn prim_set_xy(
             .into()
     };
 
-    let mut y = if !y.is_nil() {
+    let y = if !y.is_nil() {
         match y.as_int() {
             Some(y) => y,
             None => {
@@ -778,10 +766,7 @@ pub fn prim_set_xy(
             .into()
     };
     #[cfg(feature = "old_school")]
-    {
-        x = scale_i32(game_data, x);
-        y = scale_i32(game_data, y);
-    }
+    let (x, y) = (scale_i32(game_data, x), scale_i32(game_data, y));
 
     game_data.motion_manager.prim_manager.prim_set_pos(id, x, y);
     game_data
@@ -811,7 +796,7 @@ pub fn prim_set_wh(
         return Ok(Variant::Nil);
     }
 
-    let mut w = if !w.is_nil() {
+    let w = if !w.is_nil() {
         match w.as_int() {
             Some(w) => w,
             None => {
@@ -828,7 +813,7 @@ pub fn prim_set_wh(
             .into()
     };
 
-    let mut h = if !h.is_nil() {
+    let h = if !h.is_nil() {
         match h.as_int() {
             Some(h) => h,
             None => {
@@ -845,10 +830,7 @@ pub fn prim_set_wh(
             .into()
     };
     #[cfg(feature = "old_school")]
-    {
-        w = scale_i32(game_data, w);
-        h = scale_i32(game_data, h);
-    }
+    let (w, h) = (scale_i32(game_data, w), scale_i32(game_data, h));
 
     game_data
         .motion_manager

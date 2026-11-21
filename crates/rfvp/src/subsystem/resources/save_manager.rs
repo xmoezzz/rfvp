@@ -10,7 +10,7 @@
 
 use alloc::boxed::Box;
 use alloc::format;
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -896,6 +896,8 @@ mod psx_thumb {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "no_std")]
+    use alloc::string::ToString;
     use super::*;
 
     #[test]

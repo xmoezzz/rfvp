@@ -330,39 +330,46 @@ pub fn text_format(
         return Ok(Variant::Nil);
     }
 
-    let mut space_vertical = match space_vertical {
+    let space_vertical = match space_vertical {
         Variant::Int(v) if (-32..=32).contains(v) => Some(*v as i16),
         _ => None,
     };
-    let mut space_horizon = match space_horizon {
+    let space_horizon = match space_horizon {
         Variant::Int(v) if (-32..=32).contains(v) => Some(*v as i16),
         _ => None,
     };
-    let mut text_start_vertical = match text_start_vertical {
+    let text_start_vertical = match text_start_vertical {
         Variant::Int(v) if (0..=64).contains(v) => Some(*v as u16),
         _ => None,
     };
-    let mut text_start_horizon = match text_start_horizon {
+    let text_start_horizon = match text_start_horizon {
         Variant::Int(v) if (0..=64).contains(v) => Some(*v as u16),
         _ => None,
     };
-    let mut ruby_horizon = match ruby_horizon {
+    let ruby_horizon = match ruby_horizon {
         Variant::Int(v) if (-16..=16).contains(v) => Some(*v as i16),
         _ => None,
     };
-    let mut ruby_vertical = match ruby_vertical {
+    let ruby_vertical = match ruby_vertical {
         Variant::Int(v) if (-16..=16).contains(v) => Some(*v as i16),
         _ => None,
     };
     #[cfg(feature = "old_school")]
-    {
-        space_vertical = space_vertical.map(|v| scale_i32(game_data, v as i32) as i16);
-        space_horizon = space_horizon.map(|v| scale_i32(game_data, v as i32) as i16);
-        text_start_vertical = text_start_vertical.map(|v| game_data.scale_old_school_u16(v));
-        text_start_horizon = text_start_horizon.map(|v| game_data.scale_old_school_u16(v));
-        ruby_horizon = ruby_horizon.map(|v| scale_i32(game_data, v as i32) as i16);
-        ruby_vertical = ruby_vertical.map(|v| scale_i32(game_data, v as i32) as i16);
-    }
+    let (
+        space_vertical,
+        space_horizon,
+        text_start_vertical,
+        text_start_horizon,
+        ruby_horizon,
+        ruby_vertical,
+    ) = (
+        space_vertical.map(|v| scale_i32(game_data, v as i32) as i16),
+        space_horizon.map(|v| scale_i32(game_data, v as i32) as i16),
+        text_start_vertical.map(|v| game_data.scale_old_school_u16(v)),
+        text_start_horizon.map(|v| game_data.scale_old_school_u16(v)),
+        ruby_horizon.map(|v| scale_i32(game_data, v as i32) as i16),
+        ruby_vertical.map(|v| scale_i32(game_data, v as i32) as i16),
+    );
 
     game_data.motion_manager.text_manager.apply_text_format(
         id,

@@ -25,13 +25,6 @@ fn scale_i32_by_scale(value: i32, scale: f32) -> i32 {
     }
 }
 
-// UNUSED macro
-macro_rules! UNUSED {
-    ($($x:ident),*) => {
-        $(let _ = $x;)*
-    };
-}
-
 #[allow(clippy::too_many_arguments)]
 pub fn lip_anim(
     game_data: &mut GameData,
