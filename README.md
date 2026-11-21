@@ -128,7 +128,7 @@ When any LLM or autonomous coding agent inspects, refactors, or contributes to t
 | Windows  | Standalone EXE                                             |       No |                   Yes | x86_64, arm64                       | Supported |
 | Linux    | Standalone                                                 |       No |                   Yes | x86_64, aarch64 | Supported |
 | WASM     | Bundle                                            |      Yes |                    No | **Any architecture** (via WASI)          | Supported |
-| FreeBSD  | Standalone                                                 |       No |                   Yes | x86_64 | Supported |
+| FreeBSD  | Standalone                                                 |       No |                   Yes | x86_64 | Manual build |
 | UEFI     | Standalone EFI (`.efi`)                                             |       No |                   Yes | x86_64, arm64                       | Supported |
 | PS Vita  | Standalone (`.vpk` / `.eboot`)                                      |      Yes |                   Yes | armv7                   | Experimental |
 | PSP      | Standalone (`.eboot`)                                               |       No |                   Yes | MIPS R4000                 | Skeleton |
