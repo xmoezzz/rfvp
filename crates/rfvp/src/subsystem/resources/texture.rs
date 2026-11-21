@@ -518,7 +518,7 @@ impl NvsgTexture {
         let slice = &self.slices[index];
         let mut img = GrayAlphaImage::new(self.width as u32, self.height as u32);
 
-        for (x, y, mut pixel) in img.enumerate_pixels_mut() {
+        for (x, y, pixel) in img.enumerate_pixels_mut() {
             let index = (y * self.width as u32 + x) as usize;
             let alpha_value = slice[index];
             *pixel = image::LumaA([0xff, alpha_value]);
@@ -533,7 +533,7 @@ impl NvsgTexture {
         let slice = &self.slices[index];
         let mut img = GrayAlphaImage::new(self.width as u32, self.height as u32);
 
-        for (x, y, mut pixel) in img.enumerate_pixels_mut() {
+        for (x, y, pixel) in img.enumerate_pixels_mut() {
             let index = (y * self.width as u32 + x) as usize;
             let alpha_value = slice[index];
             *pixel = image::LumaA([0xff, alpha_value]);
@@ -560,7 +560,7 @@ impl NvsgTexture {
         let slice = &self.slices[index];
         let mut img = ImageBuffer::new(self.width as u32, self.height as u32);
 
-        for (x, y, mut pixel) in img.enumerate_pixels_mut() {
+        for (x, y, pixel) in img.enumerate_pixels_mut() {
             let index = (y * self.width as u32 + x) as usize * 3;
             let r = slice[index + 2];
             let g = slice[index + 1];
@@ -577,7 +577,7 @@ impl NvsgTexture {
         let slice = &self.slices[index];
         let mut img = ImageBuffer::new(self.width as u32, self.height as u32);
 
-        for (x, y, mut pixel) in img.enumerate_pixels_mut() {
+        for (x, y, pixel) in img.enumerate_pixels_mut() {
             let index = (y * self.width as u32 + x) as usize * 3;
             let r = slice[index + 2];
             let g = slice[index + 1];
@@ -606,7 +606,7 @@ impl NvsgTexture {
         let slice = &self.slices[index];
         let mut img = ImageBuffer::new(self.width as u32, self.height as u32);
 
-        for (x, y, mut pixel) in img.enumerate_pixels_mut() {
+        for (x, y, pixel) in img.enumerate_pixels_mut() {
             let index = (y * self.width as u32 + x) as usize * 3;
             let r = slice[index + 2];
             let g = slice[index + 1];
@@ -643,7 +643,7 @@ impl NvsgTexture {
         let slice = &self.slices[index];
         let mut img = ImageBuffer::new(self.width as u32, self.height as u32);
 
-        for (x, y, mut pixel) in img.enumerate_pixels_mut() {
+        for (x, y, pixel) in img.enumerate_pixels_mut() {
             let index = (y * self.width as u32 + x) as usize * 4;
             let r = slice[index + 2];
             let g = slice[index + 1];
@@ -661,7 +661,7 @@ impl NvsgTexture {
         let slice = &self.slices[index];
         let mut img = ImageBuffer::new(self.width as u32, self.height as u32);
 
-        for (x, y, mut pixel) in img.enumerate_pixels_mut() {
+        for (x, y, pixel) in img.enumerate_pixels_mut() {
             let index = (y * self.width as u32 + x) as usize * 4;
             let r = slice[index + 2];
             let g = slice[index + 1];

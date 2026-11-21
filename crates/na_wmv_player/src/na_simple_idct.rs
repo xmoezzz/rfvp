@@ -274,8 +274,6 @@ pub fn ff_simple_idct_add_int16_8bit(
 
 // --- WMV2 ABT helpers (ported from upstream simple_idct.c) ---
 
-const CN_SHIFT: i32 = 12;
-const RN_SHIFT: i32 = 15;
 const C_SHIFT: i32 = 17; // (4+1+12)
 const R_SHIFT: i32 = 11;
 

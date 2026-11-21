@@ -330,27 +330,27 @@ pub fn text_format(
         return Ok(Variant::Nil);
     }
 
-    let mut space_vertical = match space_vertical {
+    let space_vertical = match space_vertical {
         Variant::Int(v) if (-32..=32).contains(v) => Some(*v as i16),
         _ => None,
     };
-    let mut space_horizon = match space_horizon {
+    let space_horizon = match space_horizon {
         Variant::Int(v) if (-32..=32).contains(v) => Some(*v as i16),
         _ => None,
     };
-    let mut text_start_vertical = match text_start_vertical {
+    let text_start_vertical = match text_start_vertical {
         Variant::Int(v) if (0..=64).contains(v) => Some(*v as u16),
         _ => None,
     };
-    let mut text_start_horizon = match text_start_horizon {
+    let text_start_horizon = match text_start_horizon {
         Variant::Int(v) if (0..=64).contains(v) => Some(*v as u16),
         _ => None,
     };
-    let mut ruby_horizon = match ruby_horizon {
+    let ruby_horizon = match ruby_horizon {
         Variant::Int(v) if (-16..=16).contains(v) => Some(*v as i16),
         _ => None,
     };
-    let mut ruby_vertical = match ruby_vertical {
+    let ruby_vertical = match ruby_vertical {
         Variant::Int(v) if (-16..=16).contains(v) => Some(*v as i16),
         _ => None,
     };

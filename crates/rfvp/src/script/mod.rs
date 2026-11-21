@@ -18,7 +18,7 @@ pub mod opcode;
 pub mod parser;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
-struct SavedStackInfo {
+pub struct SavedStackInfo {
     stack_base: usize,
     stack_pos: usize,
     return_addr: usize,

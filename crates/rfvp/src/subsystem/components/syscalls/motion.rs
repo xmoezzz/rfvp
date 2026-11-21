@@ -178,22 +178,22 @@ pub fn motion_move(
         return Ok(Variant::Nil);
     }
 
-    let mut src_x = match src_x {
+    let src_x = match src_x {
         Variant::Int(x) => *x as i16,
         _ => game_data.motion_manager.prim_manager.get_prim(id).get_x(),
     };
 
-    let mut src_y = match src_y {
+    let src_y = match src_y {
         Variant::Int(y) => *y as i16,
         _ => game_data.motion_manager.prim_manager.get_prim(id).get_y(),
     };
 
-    let mut dst_x = match dst_x {
+    let dst_x = match dst_x {
         Variant::Int(x) => *x as i16,
         _ => game_data.motion_manager.prim_manager.get_prim(id).get_x(),
     };
 
-    let mut dst_y = match dst_y {
+    let dst_y = match dst_y {
         Variant::Int(y) => *y as i16,
         _ => game_data.motion_manager.prim_manager.get_prim(id).get_y(),
     };

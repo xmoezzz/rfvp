@@ -27,7 +27,7 @@ use crate::vc1_tables::{
     mvdata_vlcs, subblkpat_vlcs, ttblk_vlcs, ttmb_vlcs,
 };
 use crate::vlc::{
-    SCAN_INTRA, SCAN_VERT, VLC_ESCAPE, VlcTable, ZIGZAG, unpack_rl, wmv2_cbpc_p_vlc, wmv2_cbpy_vlc,
+    VLC_ESCAPE, VlcTable, unpack_rl, wmv2_cbpc_p_vlc, wmv2_cbpy_vlc,
     wmv2_tcoef_inter_vlc, wmv2_tcoef_intra_vlc,
 };
 use crate::vlc_tree::VlcTree;
@@ -334,74 +334,6 @@ fn apply_wmv3_idct(block: &mut [i32; 64], tt: u8, res_fasttx: bool) {
     }
 }
 
-// ─── Inverse quantization ────────────────────────────────────────────────────
-// SMPTE 421M §8.1.4.  Two modes: uniform and non-uniform.
-
-fn iquant_uniform(level: i32, pquant: i32, halfqp: bool) -> i32 {
-    if level == 0 {
-        return 0;
-    }
-    let step = 2 * pquant;
-    let base = step * level.abs() + pquant;
-    let delta = if halfqp { pquant } else { 0 };
-    let result = if level > 0 {
-        base + delta
-    } else {
-        -(base + delta)
-    };
-    result.clamp(-2048, 2047)
-}
-
-fn iquant_nonuniform(level: i32, pquant: i32) -> i32 {
-    if level == 0 {
-        return 0;
-    }
-    // Non-uniform quantizer step table from SMPTE 421M Table 3
-    const STEP: [i32; 32] = [
-        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
-        27, 29, 31, 33, 35, 37, 63,
-    ];
-    let step = STEP[(pquant as usize).min(31)];
-    let result = step * level.abs() + pquant;
-    if level > 0 {
-        result.clamp(-2048, 2047)
-    } else {
-        (-result).clamp(-2048, 2047)
-    }
-}
-
-// ─── DC step-size tables (SMPTE 421M Table 3) ───────────────────────────────
-// Indexed by pquant (0 unused, 1..31).
-// Luma and chroma have separate tables.
-// The value is multiplied by 128 here to match the IDCT normalization domain
-// (IDCT output = input / 128, so DC_recon must be in the ×128 domain).
-
-const DC_STEP_LUMA: [i32; 32] = [
-    0, // 0: unused
-    128, 256, 384, 512, 640, 768, 896, 1024, // pquant 1-8:  step = pquant
-    1152, 1280, 1408, 1536, 1664, 1792, 1920, 2048, // 9-16
-    2176, 2304, 2432, 2560, 2688, 2816, 2944, 3072, // 17-24
-    3328, 3584, 3840, 4096, 4352, 4608, 8192, // 25-31
-];
-
-const DC_STEP_CHROMA: [i32; 32] = [
-    0, // 0: unused
-    128, 128, 128, 256, 256, 384, 384, 512, // pquant 1-8
-    512, 640, 640, 768, 768, 896, 896, 1024, // 9-16
-    1024, 1152, 1152, 1280, 1280, 1408, 1408, 1536, // 17-24
-    1664, 1792, 1920, 2048, 2176, 2304, 4096, // 25-31
-];
-
-#[inline]
-fn dc_step(pquant: i32, is_luma: bool) -> i32 {
-    let idx = pquant.clamp(1, 31) as usize;
-    if is_luma {
-        DC_STEP_LUMA[idx]
-    } else {
-        DC_STEP_CHROMA[idx]
-    }
-}
-
 // ─── VC-1 loop filter (Simple/Main) ────────────────────────────────────────
 // Ported from FFmpeg libavcodec/vc1dsp.c / vc1_loopfilter.c.
 //
@@ -640,27 +572,6 @@ fn vc1_apply_i_loop_filter(frame: &mut YuvFrame, pq: i32, mb_width: usize, mb_he
                 }
             }
         }
-    }
-}
-
-// ─── Coefficient decoder ─────────────────────────────────────────────────────
-
-/// Read raw DC differential (before prediction).
-/// Returns the signed differential value (NOT yet scaled / predicted).
-fn read_dc_diff(br: &mut BitReader<'_>, dc_vlc: &VlcTable) -> i32 {
-    let dc_size = match dc_vlc.decode(br) {
-        Some(s @ 0..) => s as u8,
-        _ => return 0,
-    };
-    if dc_size == 0 {
-        return 0;
-    }
-    let raw = br.read_bits(dc_size).unwrap_or(0) as i32;
-    // MSB=0 → negative (one's complement offset per SMPTE 421M §8.1.4.4)
-    if raw & (1 << (dc_size - 1)) != 0 {
-        raw
-    } else {
-        raw - (1 << dc_size) + 1
     }
 }
 
@@ -932,125 +843,6 @@ fn decode_escape_coeff(br: &mut BitReader<'_>, ac_vlc: &VlcTable) -> (u8, i32, b
             (run, if sign { -level } else { level }, last)
         }
     }
-}
-
-/// Decode one 8×8 block of AC+DC coefficients.
-/// `is_intra`: use intra table / scan, otherwise inter.
-/// `is_luma`:  use luma DC VLC.
-/// Returns filled `[i32; 64]` in natural order (not zigzag).
-fn decode_block(
-    br: &mut BitReader<'_>,
-    is_intra: bool,
-    is_luma: bool,
-    pquant: i32,
-    halfqp: bool,
-    uniform: bool,
-    tt: u8,
-    dc_luma: &VlcTable,
-    dc_chroma: &VlcTable,
-    ac_intra: &VlcTable,
-    ac_inter: &VlcTable,
-) -> [i32; 64] {
-    let mut blk = [0i32; 64];
-    let scan: &[usize; 64] = if is_intra { &SCAN_INTRA } else { &ZIGZAG };
-
-    // DC coefficient (intra only)
-    if is_intra {
-        let dc_vlc = if is_luma { dc_luma } else { dc_chroma };
-        blk[0] = read_dc_diff(br, dc_vlc);
-    }
-
-    // AC coefficients
-    let ac_vlc = if is_intra { ac_intra } else { ac_inter };
-    let mut idx = if is_intra { 1usize } else { 0 };
-
-    while let Some(sym) = ac_vlc.decode(br) {
-        let (run, signed_level, last) = if sym == VLC_ESCAPE {
-            decode_escape_coeff(br, ac_vlc)
-        } else {
-            let (r, l, last) = unpack_rl(sym);
-            let sign = br.read_bit().unwrap_or(false);
-            (r, if sign { -(l as i32) } else { l as i32 }, last)
-        };
-
-        idx += run as usize;
-        if idx >= 64 {
-            break;
-        }
-
-        let mag = signed_level.abs();
-        let qval = if uniform {
-            iquant_uniform(mag, pquant, halfqp)
-        } else {
-            iquant_nonuniform(mag, pquant)
-        };
-        let signed_val = if signed_level < 0 { -qval } else { qval };
-
-        // Use appropriate scan based on transform type
-        let scan_order: &[usize; 64] = match tt {
-            3 | 4 => &SCAN_VERT,
-            _ => scan,
-        };
-        let pos = scan_order.get(idx).copied().unwrap_or(idx);
-        blk[pos] = signed_val;
-        idx += 1;
-
-        if last || br.is_empty() {
-            break;
-        }
-    }
-
-    blk
-}
-
-/// Decode only the AC coefficients of one intra block (DC is handled separately).
-fn decode_block_ac(
-    br: &mut BitReader<'_>,
-    _is_luma: bool,
-    pquant: i32,
-    halfqp: bool,
-    uniform: bool,
-    tt: u8,
-    ac_vlc: &VlcTable,
-) -> [i32; 64] {
-    let mut blk = [0i32; 64];
-    let mut idx = 1usize; // start at 1, skip DC slot
-
-    while let Some(sym) = ac_vlc.decode(br) {
-        let (run, signed_level, last) = if sym == VLC_ESCAPE {
-            decode_escape_coeff(br, ac_vlc)
-        } else {
-            let (r, l, last) = unpack_rl(sym);
-            let sign = br.read_bit().unwrap_or(false);
-            (r, if sign { -(l as i32) } else { l as i32 }, last)
-        };
-
-        idx += run as usize;
-        if idx >= 64 {
-            break;
-        }
-
-        let mag = signed_level.abs();
-        let qval = if uniform {
-            iquant_uniform(mag, pquant, halfqp)
-        } else {
-            iquant_nonuniform(mag, pquant)
-        };
-        let sval = if signed_level < 0 { -qval } else { qval };
-
-        let scan_order: &[usize; 64] = match tt {
-            3 | 4 => &SCAN_VERT,
-            _ => &SCAN_INTRA,
-        };
-        let pos = scan_order.get(idx).copied().unwrap_or(idx);
-        blk[pos] = sval;
-        idx += 1;
-
-        if last || br.is_empty() {
-            break;
-        }
-    }
-    blk
 }
 
 // ─── AC Prediction buffer ────────────────────────────────────────────────────
@@ -1812,80 +1604,6 @@ fn write_intra_block_unsigned(
             }
             let idx = (by + r) * stride + (bx + c);
             plane[idx] = coeff[r * 8 + c].clamp(0, 255) as u8;
-        }
-    }
-}
-
-#[inline]
-fn write_block_to_frame(
-    frame: &mut YuvFrame,
-    mb_row: usize,
-    mb_col: usize,
-    blk: usize,
-    coeff: &[i32; 64],
-) {
-    write_intra_block(frame, mb_row as u32, mb_col as u32, blk, coeff);
-}
-
-// WMV2 path uses upstream's Simple IDCT (int16). Provide i16 write/add helpers.
-fn write_intra_block_i16(
-    frame: &mut YuvFrame,
-    mb_row: u32,
-    mb_col: u32,
-    blk: usize,
-    coeff: &[i16; 64],
-) {
-    let (is_luma, bx, by, stride, ph) =
-        block_coords(mb_row, mb_col, blk, frame.width, frame.height);
-    let plane: &mut Vec<u8> = if is_luma {
-        &mut frame.y
-    } else if blk == 4 {
-        &mut frame.cb
-    } else {
-        &mut frame.cr
-    };
-    for r in 0..8usize {
-        if by + r >= ph {
-            break;
-        }
-        for c in 0..8usize {
-            if bx + c >= stride {
-                break;
-            }
-            let idx = (by + r) * stride + (bx + c);
-            let v = coeff[r * 8 + c] as i32;
-            plane[idx] = (v + 128).clamp(0, 255) as u8;
-        }
-    }
-}
-
-fn add_residual_block_i16(
-    frame: &mut YuvFrame,
-    mb_row: u32,
-    mb_col: u32,
-    blk: usize,
-    coeff: &[i16; 64],
-) {
-    let (is_luma, bx, by, stride, ph) =
-        block_coords(mb_row, mb_col, blk, frame.width, frame.height);
-    let plane: &mut Vec<u8> = if is_luma {
-        &mut frame.y
-    } else if blk == 4 {
-        &mut frame.cb
-    } else {
-        &mut frame.cr
-    };
-    for r in 0..8usize {
-        if by + r >= ph {
-            break;
-        }
-        for c in 0..8usize {
-            if bx + c >= stride {
-                break;
-            }
-            let idx = (by + r) * stride + (bx + c);
-            let v = plane[idx] as i32 + coeff[r * 8 + c] as i32;
-            plane[idx] = v.clamp(0, 255) as u8;
         }
     }
 }
@@ -3353,7 +3071,6 @@ pub struct MacroblockDecoder {
     vc1_mv4: Vec<[(i32, i32); 4]>,
     /// Derived chroma MV (FFmpeg luma_mv[]) for P-loop-filter decisions.
     vc1_chroma_mvs: Vec<(i32, i32)>,
-    mv_pred: MvPredictor,
     vc1_bwd_anchor_mvs: Option<Vec<(i32, i32)>>,
     vc1_fwd_anchor_mvs: Option<Vec<(i32, i32)>>,
     vc1_rnd: bool,
@@ -3507,7 +3224,6 @@ impl MacroblockDecoder {
             vc1_current_mvs: vec![(0, 0); mb_w * mb_h],
             vc1_mv4: vec![[(0, 0); 4]; mb_w * mb_h],
             vc1_chroma_mvs: vec![(0, 0); mb_w * mb_h],
-            mv_pred: MvPredictor::new(mb_w, mb_h),
             vc1_bwd_anchor_mvs: None,
             vc1_fwd_anchor_mvs: None,
             vc1_rnd: false,
@@ -6013,7 +5729,7 @@ impl MacroblockDecoder {
                     continue;
                 }
                 let mut cbp = 0u8;
-                let mut mquant = pic.pquant as i32;
+                let mquant;
                 let mut acpred = false;
                 let mut ttmb = pic.ttfrm as i32;
                 let mv;
@@ -7703,96 +7419,4 @@ impl MacroblockDecoder {
         self.wmv2_ref = Some(frame.clone());
         Ok(())
     }
-}
-
-// ─── WMV2 AC block decoder ────────────────────────────────────────────────────
-// Decodes AC coefficients using WMV2 TCOEF VLC.
-// For intra: fills coeff[1..63] (coeff[0] is DC, already set by caller).
-// For inter: fills coeff[0..63] (all AC).
-// Escape is Mode-3 only: 1-bit LAST + 6-bit RUN + 8-bit |LEVEL| + 1-bit SIGN.
-
-fn wmv2_decode_ac_block(
-    br: &mut BitReader<'_>,
-    ac_vlc: &VlcTable,
-    pquant: i32,
-    coeff: &mut [i32; 64],
-    is_intra: bool,
-) {
-    // WMV2/MSMPEG4 uses the standard zig-zag scan by default.
-    // (AC prediction, if implemented, switches to horizontal/vertical scans.)
-    let scan = &ZIGZAG;
-    let mut idx = if is_intra { 1usize } else { 0 };
-
-    while let Some(sym) = ac_vlc.decode(br) {
-        let (run, signed_level, last) = if sym == VLC_ESCAPE {
-            // WMV2/MSMPEG4 uses the same 3-mode escape structure as VC-1:
-            //   0  -> mode1 (level offset)
-            //   10 -> mode2 (run offset)
-            //   11 -> mode3 (absolute)
-            decode_escape_coeff(br, ac_vlc)
-        } else {
-            let (r, l, last) = unpack_rl(sym);
-            let sign = br.read_bit().unwrap_or(false);
-            (r, if sign { -(l as i32) } else { l as i32 }, last)
-        };
-
-        idx = idx.saturating_add(run as usize);
-        if idx >= 64 {
-            break;
-        }
-
-        // Uniform quantization.
-        let q = iquant_uniform(signed_level, pquant, false);
-        coeff[scan[idx]] = q;
-
-        idx += 1;
-        if last || br.is_empty() {
-            break;
-        }
-    }
-}
-
-// ─── WMV2 MV reader ───────────────────────────────────────────────────────────
-// Reads a differential MV using a fixed 7-bit Huffman code (simplified from
-// H.263 MVD table) then adds the median predictor.
-
-fn wmv2_read_mv(
-    br: &mut BitReader<'_>,
-    mv_pred: &MvPredictor,
-    mb_row: usize,
-    mb_col: usize,
-    mv_range: i32,
-) -> (i32, i32) {
-    let (px, py) = mv_pred.predict(mb_row, mb_col);
-    let dx = wmv2_read_mv_component(br, mv_range);
-    let dy = wmv2_read_mv_component(br, mv_range);
-    (px + dx, py + dy)
-}
-
-/// Read one MV component using H.263-style VLC differential coding.
-/// Values are half-pel units in range [-mv_range, mv_range-1].
-fn wmv2_read_mv_component(br: &mut BitReader<'_>, mv_range: i32) -> i32 {
-    // H.263 MVD VLC: unary + suffix
-    // Code for 0:     "1"         (1 bit)
-    // Code for ±1:    "010"/"011" (3 bits)
-    // Code for ±2:    "00110"/"00111"
-    // etc.  — this is a simple magnitude + sign scheme
-    let mag = {
-        let mut m = 0i32;
-        loop {
-            if br.read_bit().unwrap_or(true) {
-                break;
-            }
-            m += 1;
-            if m >= mv_range {
-                break;
-            }
-        }
-        m
-    };
-    if mag == 0 {
-        return 0;
-    }
-    let sign = br.read_bit().unwrap_or(false);
-    if sign { -mag } else { mag }
 }

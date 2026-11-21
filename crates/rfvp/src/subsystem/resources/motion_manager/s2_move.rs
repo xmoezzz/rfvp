@@ -19,7 +19,7 @@ fn should_skip_update(prim_manager: &PrimManager, prim_id: u32, flag: bool) -> b
             return true;
         }
         // Require the primitive to have a parent chain reaching the custom root.
-        let mut cur: i16 = prim_id as i16;
+        let cur: i16 = prim_id as i16;
         let parent0 = prim_manager.get_prim_immutable(cur).get_parent();
         if parent0 == INVAILD_PRIM_HANDLE {
             return true;

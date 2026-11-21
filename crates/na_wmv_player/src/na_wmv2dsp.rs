@@ -13,7 +13,6 @@ const W0: i32 = 2048;
 const W1: i32 = 2841;
 const W2: i32 = 2676;
 const W3: i32 = 2408;
-const W4: i32 = 2048;
 const W5: i32 = 1609;
 const W6: i32 = 1108;
 const W7: i32 = 565;

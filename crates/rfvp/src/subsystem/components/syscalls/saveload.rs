@@ -105,8 +105,8 @@ pub fn save_data(
             }
         }
         Ok(SaveDataFunction::LoadSaveThumbToTexture) => {
-            let mut slot_id = 0;
-            let mut texture_id = 0;
+            let slot_id;
+            let texture_id;
 
             if let Some(slot) = value.as_int() {
                 if (0..=999).contains(&slot) {

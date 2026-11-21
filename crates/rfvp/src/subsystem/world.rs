@@ -55,9 +55,9 @@ use crate::subsystem::components::syscalls::saveload::{
     Load, SaveCreate, SaveData, SaveThumbSize, SaveWrite,
 };
 use crate::subsystem::components::syscalls::sound::{
-    AudioLoad, AudioPlay, AudioSilentOn, AudioSlientOn, AudioState, AudioStop, AudioType, AudioVol,
-    SoundLoad, SoundMasterVol, SoundPlay, SoundSilentOn, SoundSlientOn, SoundStop, SoundType,
-    SoundTypeVol, SoundVol, SoundVolume,
+    AudioLoad, AudioPlay, AudioSilentOn, AudioState, AudioStop, AudioType, AudioVol,
+    SoundLoad, SoundMasterVol, SoundPlay, SoundSilentOn, SoundStop, SoundType,
+    SoundTypeVol, SoundVol,
 };
 use crate::subsystem::components::syscalls::text::{
     TextBuff, TextClear, TextColor, TextFont, TextFontCount, TextFontGet, TextFontName,
@@ -69,7 +69,7 @@ use crate::subsystem::components::syscalls::thread::{
 };
 use crate::subsystem::components::syscalls::timer::{TimerGet, TimerSet, TimerSuspend};
 use crate::subsystem::components::syscalls::utils::{
-    BreakPoint, DebugMessage, FloatToInt, IntToText, Rand, SysAtSkipName, SysProjFolder,
+    BreakPoint, FloatToInt, IntToText, Rand, SysAtSkipName, SysProjFolder,
 };
 use crate::subsystem::components::syscalls::utils::{ExitMode, WindowMode};
 
@@ -92,13 +92,11 @@ use super::resources::input_manager::InputManager;
 use super::resources::save_manager::SaveManager;
 use super::resources::text_manager::FontEnumerator;
 
-use super::resources::color_manager::ColorManager;
 use super::resources::thread_wrapper::ThreadWrapper;
 use super::resources::timer_manager::TimerManager;
 use super::resources::vfs::Vfs;
 use super::resources::videoplayer::VideoPlayerManager;
 
-use crate::subsystem::components::syscalls::generated;
 use crate::subsystem::components::syscalls::Syscaller;
 #[cfg(feature = "old_school")]
 use core_maths::CoreFloat;

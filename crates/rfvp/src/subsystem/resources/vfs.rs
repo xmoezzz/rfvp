@@ -7,7 +7,7 @@
 
 use alloc::boxed::Box;
 use alloc::format;
-use alloc::string::{String, ToString};
+use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
 use core::fmt;
@@ -640,6 +640,8 @@ fn normalize_vfs_key(path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "no_std")]
+    use alloc::string::ToString;
     use super::*;
     use alloc::collections::BTreeMap;
 

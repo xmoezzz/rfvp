@@ -220,8 +220,6 @@ impl SnowMotion {
         if game_h == 0 {
             game_h = ori_game_h;
         }
-        let half_w = (game_w as f32) * 0.5_f32;
-        let half_h = (game_h as f32) * 0.5_f32;
 
         let half_flake_w = (s.flake_w as f32) * 0.5_f32;
         let half_flake_h = (s.flake_h as f32) * 0.5_f32;
@@ -437,7 +435,7 @@ impl SnowMotion {
                 } else {
                     // 3rd and 4th involving y:
                     let v13_val = new_y;
-                    if (old_y > new_y && (-half_flake_h * v7) > v13_val) {
+                    if old_y > new_y && (-half_flake_h * v7) > v13_val {
                         triggered = true;
                     } else if v13_val > old_y && new_y > v7 * half_flake_h + v24 {
                         triggered = true;

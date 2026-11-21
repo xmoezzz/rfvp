@@ -24,7 +24,7 @@ use self::snow::SnowMotionContainer;
 
 use super::gaiji_manager::GaijiManager;
 use super::gaiji_manager::GaijiManagerSnapshotV1;
-use super::graph_buff::{copy_rect, copy_rect_clipped, GraphBuff, GraphBuffSnapshotV1};
+use super::graph_buff::{copy_rect_clipped, GraphBuff, GraphBuffSnapshotV1};
 pub use super::motion_manager::alpha::{AlphaMotionContainer, AlphaMotionType};
 pub use super::motion_manager::normal_move::{MoveMotionContainer, MoveMotionType};
 pub use super::motion_manager::rotation_move::{RotationMotionContainer, RotationMotionType};
@@ -40,9 +40,8 @@ use super::text_manager::{TextManager, TextSlotSurfaceUpdate};
 use super::text_manager::TextManagerSnapshotV1;
 use crate::subsystem::resources::color_manager::ColorManager;
 use crate::subsystem::resources::prim::{Prim, PrimType};
-use anyhow::{bail, Result};
+use anyhow::Result;
 use atomic_refcell::{AtomicRefCell, AtomicRefMut};
-use image::GenericImageView;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -677,8 +676,8 @@ impl MotionManager {
                 let total_y = y + texture.get_offset_y() as i32 + sprite.get_y() as i32;
                 let mut u = 0i32;
                 let mut v = 0i32;
-                let mut edge_x = 0i32;
-                let mut edge_y = 0i32;
+                let edge_x;
+                let edge_y;
                 if sprite.get_attr() & 1 != 0 {
                     let mut sprt_w = sprite.get_w() as i32;
                     if sprt_w > texture.get_width() as i32 {

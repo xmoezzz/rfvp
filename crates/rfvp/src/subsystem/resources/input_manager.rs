@@ -6,7 +6,7 @@ use alloc::{
     vec::Vec,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::{sync::Mutex, vec};
+use std::vec;
 #[cfg(any(feature = "gpu-render", feature = "soft-render-desktop"))]
 use winit::keyboard::NamedKey;
 
@@ -381,7 +381,7 @@ impl InputManager {
     }
 
     pub fn notify_keycode_down(&mut self, keycode: KeyCode, repeat: bool) {
-        let mut enqueue = false;
+        let enqueue;
         let prev_bits;
         {
             let _g = self.cs.enter();
@@ -440,8 +440,8 @@ impl InputManager {
         // Snapshot cursor position outside the guard.
         let (x, y) = (self.cursor_x, self.cursor_y);
 
-        let mut should_record = false;
-        let mut prev_bits = 0u32;
+        let should_record;
+        let prev_bits;
         {
             let _g = self.cs.enter();
 
@@ -479,8 +479,8 @@ impl InputManager {
         // Snapshot cursor position outside the guard.
         let (x, y) = (self.cursor_x, self.cursor_y);
 
-        let mut should_record = false;
-        let mut prev_bits = 0u32;
+        let should_record;
+        let prev_bits;
         {
             let _g = self.cs.enter();
 

@@ -2756,7 +2756,6 @@ impl TextItem {
                         &item_for_measure,
                     );
                     if self.should_wrap_before_item(pen_x, line_has_any, item_adv, None) {
-                        line_has_any = false;
                         pen_x = self.line_start_x as i32;
                         pen_y += line_h;
                     }
@@ -2871,7 +2870,6 @@ impl TextItem {
                         &item_for_measure,
                     );
                     if self.should_wrap_before_item(pen_x, line_has_any, item_adv, Some(ch)) {
-                        line_has_any = false;
                         pen_x = self.line_start_x as i32;
                         pen_y += line_h;
                     }
@@ -2945,7 +2943,6 @@ impl TextItem {
                         item_adv,
                         fontitem_first_char(&item_for_measure),
                     ) {
-                        line_has_any = false;
                         pen_x = self.line_start_x as i32;
                         pen_y += line_h;
                     }
@@ -3083,7 +3080,6 @@ impl TextItem {
             }
         }
 
-        line_has_any = false;
         self.total_chars = total_required_units.max(0) as usize;
         if self.speed == 0 {
             self.visible_chars = self.total_chars;
